@@ -413,42 +413,77 @@ pub fn watch_events(client: Client) -> (reflector::Store<Event>, JoinHandle<()>)
     (reader, handle)
 }
 
-/// Cluster-wide counts + the merged, newest-first Cluster Issues list —
-/// everything the Overview dashboard needs. Namespace count is an
-/// approximation (union of namespaces seen across pods/deployments, not
-/// a dedicated Namespace watch) — a namespace with zero pods/deployments
-/// in it wouldn't be counted. Noted rather than silently wrong.
+/// Resource usage, the resource-kind catalog, and the merged
+/// newest-first Cluster Issues list — everything the Overview dashboard
+/// needs. Deliberately has no pod/deployment/node counts of its own —
+/// those live as regular entries in `catalog` instead of being
+/// duplicated here.
 pub struct Overview {
-    pub pod_count: usize,
-    pub deployment_count: usize,
-    pub node_count: usize,
-    pub namespace_count: usize,
     pub warnings: Vec<Warning>,
+    pub cpu_usage_millicores: i64,
+    pub cpu_capacity_millicores: i64,
+    pub memory_usage_bytes: i64,
+    pub memory_capacity_bytes: i64,
+    pub pod_capacity: i64,
+    pub metrics_available: bool,
+    /// (section title, [(kind label, live count)]) — assembled by the
+    /// caller from whichever watches/pollers it's holding; this function
+    /// just bundles it in alongside everything else.
+    pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
+}
+
+fn node_allocatable_sum(nodes: &[Arc<Node>], key: &str, parse: impl Fn(&str) -> i64) -> i64 {
+    nodes
+        .iter()
+        .filter_map(|n| n.status.as_ref()?.allocatable.as_ref()?.get(key))
+        .map(|q| parse(&q.0))
+        .sum()
 }
 
 pub fn overview(
-    pods: &[Arc<Pod>],
-    deployments: &[Arc<Deployment>],
     nodes: &[Arc<Node>],
     events: &[Arc<Event>],
+    usage: Option<&crate::metrics::ClusterUsage>,
+    catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
 ) -> Overview {
-    let mut namespaces: Vec<&str> = pods
-        .iter()
-        .filter_map(|p| p.metadata.namespace.as_deref())
-        .chain(deployments.iter().filter_map(|d| d.metadata.namespace.as_deref()))
-        .collect();
-    namespaces.sort_unstable();
-    namespaces.dedup();
-
     let mut warnings: Vec<Warning> =
         nodes.iter().flat_map(|n| node_warnings(n)).chain(events.iter().filter_map(|e| warning_event(e))).collect();
     warnings.sort_by_key(|w| w.age_secs);
 
     Overview {
-        pod_count: pods.len(),
-        deployment_count: deployments.len(),
-        node_count: nodes.len(),
-        namespace_count: namespaces.len(),
         warnings,
+        cpu_usage_millicores: usage.map(|u| u.cpu_millicores).unwrap_or(0),
+        cpu_capacity_millicores: node_allocatable_sum(nodes, "cpu", crate::metrics::parse_cpu_millicores),
+        memory_usage_bytes: usage.map(|u| u.memory_bytes).unwrap_or(0),
+        memory_capacity_bytes: node_allocatable_sum(nodes, "memory", crate::metrics::parse_memory_bytes),
+        pod_capacity: node_allocatable_sum(nodes, "pods", |s| s.parse().unwrap_or(0)),
+        metrics_available: usage.is_some(),
+        catalog,
     }
+}
+
+/// Polls the count of every object of kind `K` cluster-wide on an
+/// interval and publishes it via a `watch` channel. Used for the
+/// Overview catalog tiles — most of these ~20 resource kinds don't need
+/// (and aren't worth building) a full live reflector + list view each;
+/// a periodic count is real data for cheap, one generic function
+/// covering every kind instead of one hand-written watcher per kind.
+pub fn watch_count<K>(client: Client) -> (tokio::sync::watch::Receiver<usize>, JoinHandle<()>)
+where
+    K: kube::Resource<DynamicType = ()> + Clone + serde::de::DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
+    let (tx, rx) = tokio::sync::watch::channel(0);
+
+    let handle = tokio::spawn(async move {
+        let api: Api<K> = Api::all(client);
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            if let Ok(list) = api.list(&Default::default()).await {
+                let _ = tx.send(list.items.len());
+            }
+        }
+    });
+
+    (rx, handle)
 }

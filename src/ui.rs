@@ -3,15 +3,15 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap},
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
-use crate::k8s::{ContainerInfo, ContainerStatusKind, DeploymentRow, Overview, PodRow, ResourceKind};
+use crate::k8s::{ContainerInfo, ContainerStatusKind, DeploymentRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
-    Overview(&'a Overview),
+    Overview(&'a Overview, usize),
     Pods(&'a [PodRow]),
     Deployments(&'a [DeploymentRow]),
 }
@@ -69,8 +69,8 @@ pub fn draw(frame: &mut Frame, rows: Rows, table_state: &mut TableState, hover: 
         Rows::Deployments(deployments) => {
             draw_deployment_table(frame, frame.area(), deployments, table_state, dimmed);
         }
-        Rows::Overview(overview) => {
-            draw_overview(frame, frame.area(), overview, table_state, dimmed);
+        Rows::Overview(overview, scroll) => {
+            draw_overview(frame, frame.area(), overview, scroll, dimmed);
         }
     }
 
@@ -326,90 +326,270 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
     frame.render_stateful_widget(table, area, table_state);
 }
 
-/// The home screen: a row of rounded-corner count tiles, plus a Cluster
-/// Issues panel below (Node warning conditions + Warning events) — this
-/// specific pairing matches what Freelens's own Overview page shows
-/// without metrics-server (verified against its actual source:
-/// `cluster-overview.tsx` always renders `ClusterIssues` even when
-/// metrics are hidden). No CPU/Mem/pie charts — those are entirely
-/// metrics-server-dependent in both k9s and Freelens, and that's still
-/// not wired up here.
-fn draw_overview(frame: &mut Frame, area: Rect, overview: &Overview, table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+const TILE_WIDTH: u16 = 18;
+const TILE_HEIGHT: u16 = 5;
 
-    let chunks = Layout::vertical([Constraint::Length(5), Constraint::Min(0)]).split(area);
-    let stat_areas = Layout::horizontal([Constraint::Ratio(1, 4); 4]).split(chunks[0]);
-    draw_stat_box(frame, stat_areas[0], "Pods", overview.pod_count, dimmed);
-    draw_stat_box(frame, stat_areas[1], "Deployments", overview.deployment_count, dimmed);
-    draw_stat_box(frame, stat_areas[2], "Nodes", overview.node_count, dimmed);
-    draw_stat_box(frame, stat_areas[3], "Namespaces", overview.namespace_count, dimmed);
+/// The home screen: a cluster-resources panel on top (CPU/Memory/Pods
+/// gauges — "metrics unavailable" if metrics-server isn't installed,
+/// same fallback k9s/Freelens use), then a scrollable, flow-wrapping
+/// grid of resource-kind tiles below, grouped into sections
+/// (Freelens-style categories), ending with the Cluster Issues list
+/// (Node warning conditions + Warning events — verified against
+/// Freelens's actual `cluster-issues.tsx` source).
+fn draw_overview(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, dimmed: bool) {
+    let chunks = Layout::vertical([Constraint::Length(7), Constraint::Min(0)]).split(area);
+    draw_metrics_panel(frame, chunks[0], overview, dimmed);
+    draw_catalog(frame, chunks[1], overview, scroll, dimmed);
+}
 
-    let issues_area = chunks[1];
-    let border_style = if dimmed { muted } else { Style::default() };
+fn draw_metrics_panel(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
+    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .title("Cluster Resources");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    if overview.warnings.is_empty() {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(border_style)
-            .title("Cluster Issues  —  m: switch resource  q: quit");
-        let inner = block.inner(issues_area);
-        frame.render_widget(block, issues_area);
-
-        let ok_style = if dimmed { muted } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
-        let sub_style = if dimmed { muted } else { Style::default().fg(Color::Gray) };
+    if !overview.metrics_available {
         let text = vec![
             Line::raw(""),
-            Line::styled("✓ No issues found", ok_style),
-            Line::styled("Everything is fine in the cluster", sub_style),
+            Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
+            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(Color::DarkGray)),
         ];
         frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), inner);
         return;
     }
 
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let header = Row::new(vec!["MESSAGE", "OBJECT", "KIND", "AGE"]).style(header_style);
+    let pod_usage = overview
+        .catalog
+        .iter()
+        .find(|(section, _)| *section == "Workloads")
+        .and_then(|(_, tiles)| tiles.iter().find(|(label, _)| *label == "Pods"))
+        .map(|(_, count)| *count)
+        .unwrap_or(0);
 
-    let rows = overview.warnings.iter().map(|w| {
-        let color = if dimmed {
-            Color::DarkGray
-        } else if w.kind == "Node" {
-            Color::Red // a not-ready/pressured node affects everything scheduled on it
-        } else {
-            Color::Yellow
-        };
-        let style = Style::default().fg(color);
-        Row::new(vec![
-            Cell::from(w.message.clone()),
-            Cell::from(w.object.clone()),
-            Cell::from(w.kind.clone()),
-            Cell::from(w.age.clone()),
-        ])
-        .style(style)
-    });
-
-    let widths = [Constraint::Fill(4), Constraint::Fill(2), Constraint::Fill(1), Constraint::Length(5)];
-    let highlight_style = if dimmed { muted } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
-
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(
-            format!("Cluster Issues ({})  —  j/k: move  m: switch resource  q: quit", overview.warnings.len()),
-        ))
-        .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
-
-    frame.render_stateful_widget(table, issues_area, table_state);
+    let gauge_areas = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(inner);
+    draw_gauge(
+        frame,
+        gauge_areas[0],
+        "CPU",
+        overview.cpu_usage_millicores as f64,
+        overview.cpu_capacity_millicores as f64,
+        |v| format!("{:.2} cores", v / 1000.0),
+        dimmed,
+    );
+    draw_gauge(
+        frame,
+        gauge_areas[1],
+        "Memory",
+        overview.memory_usage_bytes as f64,
+        overview.memory_capacity_bytes as f64,
+        format_bytes,
+        dimmed,
+    );
+    draw_gauge(
+        frame,
+        gauge_areas[2],
+        "Pods",
+        pod_usage as f64,
+        overview.pod_capacity as f64,
+        |v| format!("{v:.0}"),
+        dimmed,
+    );
 }
 
-fn draw_stat_box(frame: &mut Frame, area: Rect, label: &str, value: usize, dimmed: bool) {
-    let value_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
-    let label_style = Style::default().fg(Color::DarkGray);
+fn draw_gauge(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
+    let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
+    let color = if dimmed {
+        Color::DarkGray
+    } else if ratio > 0.9 {
+        Color::Red
+    } else if ratio > 0.7 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let title = format!("{label}: {} / {}", format_value(used), format_value(capacity));
+    let gauge = Gauge::default()
+        .block(Block::default().title(title))
+        .gauge_style(Style::default().fg(color))
+        .use_unicode(true)
+        .ratio(ratio);
+    frame.render_widget(gauge, area);
+}
+
+fn format_bytes(bytes: f64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1}{}", UNITS[unit])
+}
+
+/// One virtual row in the scrollable catalog area — heights vary by
+/// kind, so scrolling skips whole rows (`scroll` is a row *index*, not a
+/// line count) rather than trying to do partial-row pixel clipping.
+enum CatalogRow<'a> {
+    SectionHeader(&'a str),
+    Tiles(&'a [(&'a str, usize)]),
+    IssuesHeader(usize),
+    IssuesEmpty,
+    Issue(&'a Warning),
+}
+
+impl CatalogRow<'_> {
+    fn height(&self) -> u16 {
+        match self {
+            CatalogRow::SectionHeader(_) => 2,
+            CatalogRow::Tiles(_) => TILE_HEIGHT,
+            CatalogRow::IssuesHeader(_) => 1,
+            CatalogRow::IssuesEmpty => 3,
+            CatalogRow::Issue(_) => 1,
+        }
+    }
+}
+
+fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, dimmed: bool) {
+    let cols = (area.width / TILE_WIDTH).max(1) as usize;
+
+    let mut rows: Vec<CatalogRow> = Vec::new();
+    for (section, tiles) in &overview.catalog {
+        rows.push(CatalogRow::SectionHeader(section));
+        for chunk in tiles.chunks(cols) {
+            rows.push(CatalogRow::Tiles(chunk));
+        }
+    }
+
+    rows.push(CatalogRow::SectionHeader("Cluster Issues"));
+    if overview.warnings.is_empty() {
+        rows.push(CatalogRow::IssuesEmpty);
+    } else {
+        rows.push(CatalogRow::IssuesHeader(overview.warnings.len()));
+        for w in &overview.warnings {
+            rows.push(CatalogRow::Issue(w));
+        }
+    }
+
+    let scroll = scroll.min(rows.len().saturating_sub(1));
+    let mut y = area.y;
+    for row in rows.iter().skip(scroll) {
+        let h = row.height();
+        if y + h > area.y + area.height {
+            break;
+        }
+        let row_area = Rect { x: area.x, y, width: area.width, height: h };
+        match row {
+            CatalogRow::SectionHeader(title) => draw_section_header(frame, row_area, title, dimmed),
+            CatalogRow::Tiles(tiles) => draw_tiles_row(frame, row_area, tiles, dimmed),
+            CatalogRow::IssuesHeader(count) => draw_issues_header(frame, row_area, *count, dimmed),
+            CatalogRow::IssuesEmpty => draw_issues_empty(frame, row_area, dimmed),
+            CatalogRow::Issue(warning) => draw_issue_line(frame, row_area, warning, dimmed),
+        }
+        y += h;
+    }
+}
+
+fn draw_section_header(frame: &mut Frame, area: Rect, title: &str, dimmed: bool) {
+    let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+    let lines = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
+    frame.render_widget(Paragraph::new(Line::styled(format!("── {title} "), style)), lines[1]);
+}
+
+fn draw_tiles_row(frame: &mut Frame, area: Rect, tiles: &[(&str, usize)], dimmed: bool) {
+    let mut constraints: Vec<Constraint> = tiles.iter().map(|_| Constraint::Length(TILE_WIDTH)).collect();
+    constraints.push(Constraint::Min(0));
+    let areas = Layout::horizontal(constraints).split(area);
+    for (i, (label, count)) in tiles.iter().enumerate() {
+        draw_tile(frame, areas[i], label, *count, dimmed);
+    }
+}
+
+/// A fixed-size rounded tile: an icon/glyph per resource kind (not an
+/// official Kubernetes symbol set — there isn't one that's terminal
+/// renderable — just a distinct, recognizable emoji per kind), the live
+/// count, and the kind name underneath.
+fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, dimmed: bool) {
     let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+    let count_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
+    let label_style = Style::default().fg(Color::DarkGray);
 
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
-    let text = vec![Line::styled(value.to_string(), value_style), Line::styled(label, label_style)];
+    let text = vec![
+        Line::raw(icon_for(label)),
+        Line::styled(count.to_string(), count_style),
+        Line::styled(label, label_style),
+    ];
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center).block(block), area);
+}
+
+fn icon_for(label: &str) -> &'static str {
+    match label {
+        "Nodes" => "🖥",
+        "Namespaces" => "🗂",
+        "Pods" => "📦",
+        "Deployments" => "🚀",
+        "ReplicaSets" => "📑",
+        "StatefulSets" => "🧱",
+        "DaemonSets" => "👻",
+        "Jobs" => "⚙",
+        "CronJobs" => "⏰",
+        "ConfigMaps" => "🔧",
+        "Secrets" => "🔐",
+        "HPAs" => "📈",
+        "Services" => "🔌",
+        "Endpoints" => "🎯",
+        "Ingresses" => "🚪",
+        "NetworkPolicies" => "🛡",
+        "PVCs" => "💿",
+        "PVs" => "💾",
+        "StorageClasses" => "🗄",
+        "ServiceAccounts" => "🪪",
+        "Roles" | "ClusterRoles" => "📜",
+        "RoleBindings" | "ClusterRoleBindings" => "🔗",
+        _ => "❔",
+    }
+}
+
+fn draw_issues_header(frame: &mut Frame, area: Rect, count: usize, dimmed: bool) {
+    let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+    let line = format!("{:<50} {:<18} {:<12} AGE  ({count})", "MESSAGE", "OBJECT", "KIND");
+    frame.render_widget(Paragraph::new(Line::styled(line, style)), area);
+}
+
+fn draw_issues_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
+    let ok_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
+    let sub_style = Style::default().fg(Color::DarkGray);
+    let text = vec![
+        Line::styled("✓ No issues found", ok_style),
+        Line::styled("Everything is fine in the cluster", sub_style),
+    ];
+    frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
+}
+
+fn draw_issue_line(frame: &mut Frame, area: Rect, warning: &Warning, dimmed: bool) {
+    let color = if dimmed {
+        Color::DarkGray
+    } else if warning.kind == "Node" {
+        Color::Red // a not-ready/pressured node affects everything scheduled on it
+    } else {
+        Color::Yellow
+    };
+    let message = truncate(&warning.message, 48);
+    let line = format!("{message:<50} {:<18} {:<12} {}", warning.object, warning.kind, warning.age);
+    frame.render_widget(Paragraph::new(Line::styled(line, Style::default().fg(color))), area);
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() > max {
+        format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>())
+    } else {
+        s.to_string()
+    }
 }
 
 /// The central "switch resource" menu — rounded-corner tiles grouped by

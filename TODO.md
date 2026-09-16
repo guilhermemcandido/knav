@@ -541,6 +541,79 @@ building the bigger thing on top of it.
     including after the timestamp fix.
 - [x] Build/tests(9/9)/clippy all clean.
 
+## Done since last update (2026-09-17) — Overview redesigned, real metrics-server integration
+
+Full redesign per explicit feedback ("shouldn't be like [count tiles], should
+be a top rectangle with CPU/RAM, then smaller squares below divided by
+sections, fixed size, 5-6 per line, wrap to next line, k8s symbols with name
+underneath"). Confirmed scope beforehand rather than guessing on the three
+open questions (build real metrics now vs. placeholder; short-name
+abbreviations vs. icon glyphs; just-implemented kinds vs. full catalog) —
+answers were: build real metrics now, icon/emoji glyphs, full catalog.
+
+- [x] **Real metrics-server integration** (`src/metrics.rs`, new module):
+  - Kubernetes quantity parsers for CPU (`"250m"`, `"2"`, and the nanocore
+    form metrics-server actually reports for live usage, `"123456789n"`)
+    and memory (binary Ki/Mi/Gi/Ti and decimal k/M/G/T suffixes, or plain
+    bytes) — unit-tested directly (6 tests), since these are pure
+    functions I can verify without a cluster.
+  - `watch_node_metrics`: polls `metrics.k8s.io/v1beta1/nodes` via
+    `kube::api::DynamicObject` (this API isn't in k8s-openapi's generated
+    types — it's not a core/stable API group) on a 15s timer, published
+    via `tokio::sync::watch` rather than the reflector pattern — **the
+    metrics API has no watch support at all**, it's polling-only,
+    computed periodically from kubelet cAdvisor stats server-side. `None`
+    (not zero) when metrics-server isn't reachable, so the UI can show
+    "metrics unavailable" honestly instead of a misleading 0%.
+  - Verified against the real cluster: 73m CPU / ~903MiB memory usage,
+    matching `kubectl top nodes`' 79m/902Mi (small variance is just
+    normal live-metric timing, not a bug) — confirmed via a scratch
+    binary, not assumed.
+- [x] **Full Freelens-style resource catalog**, ~24 kinds across 6
+  sections (Cluster, Workloads, Config, Network, Storage, Access
+  Control). Only Pods/Deployments/Nodes have real interactive
+  views/reflectors; the other ~20 get **real counts** (not fake
+  placeholders) via one new generic function, `k8s::watch_count<K>` —
+  polls `Api::<K>::all().list()` on a 15s timer for any resource kind at
+  all, one line of code per kind to add (`ReplicaSet`, `StatefulSet`,
+  `ConfigMap`, `ClusterRole`, etc.) instead of hand-writing ~20 near-
+  identical watchers. This is the genericization of the reflector-pattern
+  duplication flagged as worth doing a few rounds back, done — but for
+  the *count-polling* pattern specifically, not the full reflector one
+  (those still don't have a 3rd real usage yet).
+  - Verified 6 representative kinds (spanning namespaced/cluster-scoped,
+    different API groups) against the real cluster — namespaces=7,
+    replicasets=4, statefulsets=0, daemonsets=1, configmaps=14,
+    clusterroles=76 — all matched `kubectl get <kind> -A` exactly.
+- [x] **Layout matching the actual request**: a "Cluster Resources" panel
+  on top with 3 `ratatui::widgets::Gauge` bars (CPU/Memory/Pods, real
+  usage-vs-allocatable ratios, color-coded green/yellow/red by how full),
+  falling back to a plain "metrics unavailable" message when
+  `metrics_available` is false. Below it, a scrollable area of
+  **fixed-size** rounded tiles (icon + live count + kind name), flowing
+  left-to-right and wrapping to the next line based on actual terminal
+  width (`cols = area.width / TILE_WIDTH`, not a hardcoded "5 per row") —
+  grouped under section headers, ending with the Cluster Issues list from
+  the previous round (kept, since dropping it wasn't asked for — flagged
+  this choice explicitly at the time rather than silently deciding).
+  - Scrolling is row-*index*-based, not pixel/line-based — each virtual
+    row (a section header, a row of tiles, an issue line) has a
+    different height, so "scroll down 1" skips one whole virtual row
+    rather than doing partial-row clipping math, which would have been
+    much more failure-prone to get right without being able to visually
+    verify it here.
+- [x] **Icons are my own choice, not an official standard** — flagged
+  this before building, per your answer to the clarifying question.
+  There's no official terminal-renderable Kubernetes icon set; I picked
+  one recognizable emoji per kind (📦 Pods, 🚀 Deployments, 🖥 Nodes, etc.
+  — full mapping in `ui::icon_for`). Easy to swap if any don't land right
+  for you.
+- [x] Build/tests(15/15, 6 new for the quantity parsers)/clippy all clean.
+
+**Committed as its own unit** (per the earlier discussion about actually
+using git properly going forward) rather than folded into the batched
+initial commit.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

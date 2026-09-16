@@ -1,5 +1,6 @@
 mod config;
 mod k8s;
+mod metrics;
 mod ui;
 
 use std::io::stdout;
@@ -9,11 +10,19 @@ use anyhow::Result;
 use config::{Config, TimestampFormat};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind};
 use crossterm::execute;
-use k8s_openapi::api::{apps::v1::Deployment, core::v1::Pod};
 use k8s::ResourceKind;
+use k8s_openapi::api::{
+    apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
+    autoscaling::v2::HorizontalPodAutoscaler,
+    batch::v1::{CronJob, Job},
+    core::v1::{ConfigMap, Endpoints, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service, ServiceAccount},
+    networking::v1::{Ingress, NetworkPolicy},
+    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
+    storage::v1::StorageClass,
+};
 use kube::{Client, runtime::reflector::Store};
 use ratatui::{layout::Rect, widgets::TableState};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tui_tree_widget::{TreeItem, TreeState};
 
 enum Mode {
@@ -36,6 +45,123 @@ enum Mode {
     },
 }
 
+/// Periodic counts for the ~20 Overview catalog tiles that don't have
+/// (and aren't worth building) a full live reflector + list view each —
+/// see `k8s::watch_count`. Pods/Deployments/Nodes are NOT here; they use
+/// their existing live reflectors and get merged in alongside these when
+/// the catalog is assembled each tick.
+struct Catalog {
+    namespaces: watch::Receiver<usize>,
+    replicasets: watch::Receiver<usize>,
+    statefulsets: watch::Receiver<usize>,
+    daemonsets: watch::Receiver<usize>,
+    jobs: watch::Receiver<usize>,
+    cronjobs: watch::Receiver<usize>,
+    configmaps: watch::Receiver<usize>,
+    secrets: watch::Receiver<usize>,
+    hpas: watch::Receiver<usize>,
+    services: watch::Receiver<usize>,
+    endpoints: watch::Receiver<usize>,
+    ingresses: watch::Receiver<usize>,
+    network_policies: watch::Receiver<usize>,
+    pvcs: watch::Receiver<usize>,
+    pvs: watch::Receiver<usize>,
+    storage_classes: watch::Receiver<usize>,
+    service_accounts: watch::Receiver<usize>,
+    roles: watch::Receiver<usize>,
+    role_bindings: watch::Receiver<usize>,
+    cluster_roles: watch::Receiver<usize>,
+    cluster_role_bindings: watch::Receiver<usize>,
+}
+
+impl Catalog {
+    fn spawn(client: &Client) -> Self {
+        macro_rules! count_of {
+            ($ty:ty) => {
+                k8s::watch_count::<$ty>(client.clone()).0
+            };
+        }
+        Catalog {
+            namespaces: count_of!(Namespace),
+            replicasets: count_of!(ReplicaSet),
+            statefulsets: count_of!(StatefulSet),
+            daemonsets: count_of!(DaemonSet),
+            jobs: count_of!(Job),
+            cronjobs: count_of!(CronJob),
+            configmaps: count_of!(ConfigMap),
+            secrets: count_of!(Secret),
+            hpas: count_of!(HorizontalPodAutoscaler),
+            services: count_of!(Service),
+            endpoints: count_of!(Endpoints),
+            ingresses: count_of!(Ingress),
+            network_policies: count_of!(NetworkPolicy),
+            pvcs: count_of!(PersistentVolumeClaim),
+            pvs: count_of!(PersistentVolume),
+            storage_classes: count_of!(StorageClass),
+            service_accounts: count_of!(ServiceAccount),
+            roles: count_of!(Role),
+            role_bindings: count_of!(RoleBinding),
+            cluster_roles: count_of!(ClusterRole),
+            cluster_role_bindings: count_of!(ClusterRoleBinding),
+        }
+    }
+
+    /// Merges in the live-reflector counts for Pods/Deployments/Nodes so
+    /// callers get one complete catalog instead of two partial ones.
+    fn sections(&self, pod_count: usize, deployment_count: usize, node_count: usize) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
+        vec![
+            ("Cluster", vec![("Nodes", node_count), ("Namespaces", *self.namespaces.borrow())]),
+            (
+                "Workloads",
+                vec![
+                    ("Pods", pod_count),
+                    ("Deployments", deployment_count),
+                    ("ReplicaSets", *self.replicasets.borrow()),
+                    ("StatefulSets", *self.statefulsets.borrow()),
+                    ("DaemonSets", *self.daemonsets.borrow()),
+                    ("Jobs", *self.jobs.borrow()),
+                    ("CronJobs", *self.cronjobs.borrow()),
+                ],
+            ),
+            (
+                "Config",
+                vec![
+                    ("ConfigMaps", *self.configmaps.borrow()),
+                    ("Secrets", *self.secrets.borrow()),
+                    ("HPAs", *self.hpas.borrow()),
+                ],
+            ),
+            (
+                "Network",
+                vec![
+                    ("Services", *self.services.borrow()),
+                    ("Endpoints", *self.endpoints.borrow()),
+                    ("Ingresses", *self.ingresses.borrow()),
+                    ("NetworkPolicies", *self.network_policies.borrow()),
+                ],
+            ),
+            (
+                "Storage",
+                vec![
+                    ("PVCs", *self.pvcs.borrow()),
+                    ("PVs", *self.pvs.borrow()),
+                    ("StorageClasses", *self.storage_classes.borrow()),
+                ],
+            ),
+            (
+                "Access Control",
+                vec![
+                    ("ServiceAccounts", *self.service_accounts.borrow()),
+                    ("Roles", *self.roles.borrow()),
+                    ("RoleBindings", *self.role_bindings.borrow()),
+                    ("ClusterRoles", *self.cluster_roles.borrow()),
+                    ("ClusterRoleBindings", *self.cluster_role_bindings.borrow()),
+                ],
+            ),
+        ]
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
@@ -47,6 +173,8 @@ async fn main() -> Result<()> {
     let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());
     let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());
     let (event_store, _event_watch_handle) = k8s::watch_events(client.clone());
+    let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
+    let catalog = Catalog::spawn(&client);
 
     // Block until each reflector's initial list-and-watch has populated
     // its store at least once, so the first frame isn't just empty.
@@ -58,19 +186,22 @@ async fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
 
-    let result = run(&mut terminal, &pod_store, &dep_store, &node_store, &event_store, client, &config);
+    let result = run(&mut terminal, &pod_store, &dep_store, &node_store, &event_store, &node_metrics_rx, &catalog, client, &config);
 
     execute!(stdout(), DisableMouseCapture)?;
     ratatui::restore();
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     terminal: &mut ratatui::DefaultTerminal,
     pod_store: &Store<Pod>,
     dep_store: &Store<Deployment>,
-    node_store: &Store<k8s_openapi::api::core::v1::Node>,
+    node_store: &Store<Node>,
     event_store: &Store<k8s_openapi::api::core::v1::Event>,
+    node_metrics_rx: &watch::Receiver<Option<metrics::ClusterUsage>>,
+    catalog: &Catalog,
     client: Client,
     config: &Config,
 ) -> Result<()> {
@@ -78,6 +209,7 @@ fn run(
     let mut mode = Mode::List;
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
+    let mut overview_scroll: usize = 0;
 
     loop {
         let pods = k8s::snapshot(pod_store);
@@ -86,7 +218,9 @@ fn run(
         let dep_rows: Vec<k8s::DeploymentRow> = deployments.iter().map(|d| k8s::row_for_deployment(d)).collect();
         let nodes = node_store.state();
         let events = event_store.state();
-        let overview = k8s::overview(&pods, &deployments, &nodes, &events);
+        let usage = node_metrics_rx.borrow().clone();
+        let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len(), nodes.len());
+        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
 
         let row_count = match current_kind {
             ResourceKind::Overview => overview.warnings.len(),
@@ -94,8 +228,10 @@ fn run(
             ResourceKind::Deployments => dep_rows.len(),
         };
         // Selection can't outrun the list as pods/deployments come and go
-        // underneath it.
-        if row_count > 0 {
+        // underneath it. Overview has no selectable row — it scrolls
+        // instead (see `overview_scroll`) — so this only matters for
+        // Pods/Deployments.
+        if current_kind != ResourceKind::Overview && row_count > 0 {
             let clamped = table_state.selected().unwrap_or(0).min(row_count - 1);
             table_state.select(Some(clamped));
         }
@@ -109,7 +245,7 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview),
+            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
         };
@@ -174,8 +310,20 @@ fn run(
             }
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
-                KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if current_kind == ResourceKind::Overview {
+                        overview_scroll = overview_scroll.saturating_add(1);
+                    } else {
+                        select_next(&mut table_state, row_count);
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if current_kind == ResourceKind::Overview {
+                        overview_scroll = overview_scroll.saturating_sub(1);
+                    } else {
+                        select_prev(&mut table_state, row_count);
+                    }
+                }
                 KeyCode::Char('m') => {
                     let selected = ResourceKind::ALL.iter().position(|k| *k == current_kind).unwrap_or(0);
                     mode = Mode::Menu { selected };
