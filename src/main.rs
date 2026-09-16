@@ -210,6 +210,7 @@ fn run(
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
     let mut overview_scroll: usize = 0;
+    let mut overview_selected: (usize, usize) = (0, 0);
 
     loop {
         let pods = k8s::snapshot(pod_store);
@@ -245,7 +246,7 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll),
+            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
         };
@@ -303,33 +304,74 @@ fn run(
         }
 
         match (event::read()?, &mut mode) {
-            (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved => {
-                hovered = ui::row_at(frame_area, &table_state, row_count, mouse.column, mouse.row).map(|row| {
-                    ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
-                });
+            (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                if current_kind == ResourceKind::Overview {
+                    if let Some(tile) = ui::tile_at(frame_area, &overview, overview_scroll, mouse.column, mouse.row) {
+                        overview_selected = tile;
+                    }
+                } else {
+                    hovered = ui::row_at(frame_area, &table_state, row_count, mouse.column, mouse.row).map(|row| {
+                        ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
+                    });
+                }
+            }
+            (Event::Key(key), Mode::List) if current_kind == ResourceKind::Overview => {
+                let catalog_area = ui::catalog_area(frame_area);
+                let cols = ui::tile_cols(catalog_area.width);
+                let mut moved = true;
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Down);
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Up);
+                    }
+                    KeyCode::Char('h') | KeyCode::Left => {
+                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Left);
+                    }
+                    KeyCode::Char('l') | KeyCode::Right => {
+                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Right);
+                    }
+                    KeyCode::Char('m') => {
+                        let selected = ResourceKind::ALL.iter().position(|k| *k == current_kind).unwrap_or(0);
+                        mode = Mode::Menu { selected };
+                        moved = false;
+                    }
+                    KeyCode::Enter => {
+                        moved = false;
+                        // Only the kinds that already have a real list view
+                        // do anything — matches picking them from the menu.
+                        if let Some((_, tiles)) = overview.catalog.get(overview_selected.0)
+                            && let Some((label, _)) = tiles.get(overview_selected.1)
+                        {
+                            let target = match *label {
+                                "Pods" => Some(ResourceKind::Pods),
+                                "Deployments" => Some(ResourceKind::Deployments),
+                                _ => None,
+                            };
+                            if let Some(kind) = target {
+                                current_kind = kind;
+                                table_state.select(Some(0));
+                            }
+                        }
+                    }
+                    _ => moved = false,
+                }
+                if moved {
+                    overview_scroll = ui::scroll_to_show(&overview, cols, catalog_area.height, overview_scroll, overview_selected);
+                }
             }
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Char('j') | KeyCode::Down => {
-                    if current_kind == ResourceKind::Overview {
-                        overview_scroll = overview_scroll.saturating_add(1);
-                    } else {
-                        select_next(&mut table_state, row_count);
-                    }
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if current_kind == ResourceKind::Overview {
-                        overview_scroll = overview_scroll.saturating_sub(1);
-                    } else {
-                        select_prev(&mut table_state, row_count);
-                    }
-                }
+                KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
+                KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
                 KeyCode::Char('m') => {
                     let selected = ResourceKind::ALL.iter().position(|k| *k == current_kind).unwrap_or(0);
                     mode = Mode::Menu { selected };
                 }
                 KeyCode::Char('d') => match current_kind {
-                    ResourceKind::Overview => {} // no single "selected object" concept here yet
+                    ResourceKind::Overview => unreachable!("handled in the Overview-specific arm above"),
                     ResourceKind::Pods => {
                         if let Some(pod) = table_state.selected().and_then(|i| pods.get(i)) {
                             open_spec(&mut mode, title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref()), pod.as_ref());

@@ -614,6 +614,39 @@ answers were: build real metrics now, icon/emoji glyphs, full catalog.
 using git properly going forward) rather than folded into the batched
 initial commit.
 
+## Done since last update (2026-09-17, later) — Overview tiles are selectable
+
+Overview only supported scrolling, not selecting a specific tile — added
+real 2D grid selection, keyboard *and* mouse, per explicit request.
+
+- [x] **Keyboard**: arrows (and h/j/k/l) move the selection across the
+  actual flow-wrapped grid, including crossing section boundaries (Right
+  at a section's last tile moves into the next section's first tile; Up
+  from a section's first row moves into the previous section's last row,
+  same column, clamped if that row is shorter). All built on one shared
+  row-layout function (`build_catalog_rows`) that rendering, navigation,
+  and mouse hit-testing all reuse — so a keypress or a click can't
+  resolve to a tile that isn't what's actually on screen, same principle
+  as the pod-table hover fix from a few rounds back.
+- [x] **Mouse**: hover or click resolves to a tile via `ui::tile_at`,
+  which replays the exact same `Layout::horizontal` column split
+  `draw_tiles_row` renders with.
+- [x] **Auto-scroll-into-view**: moving the selection with the keyboard
+  past the visible window scrolls just far enough to bring it back into
+  view (`ui::scroll_to_show`) — mouse selection doesn't need this since
+  you can only click what's already visible.
+- [x] **Enter activates the tile** for the two kinds that already have a
+  real list view — selecting "Pods" or "Deployments" and pressing Enter
+  jumps there, same as picking them from the `m` menu. Every other tile
+  (the ~20 count-only ones) does nothing on Enter yet, consistent with
+  the earlier scope decision.
+- [x] Unit-tested the grid math directly (6 new tests, 21/21 total) since
+  it's exactly the kind of logic verifiable without a real terminal:
+  row-wrap within a section, crossing into the next/previous section in
+  both directions with column-matching, and clamping at the very first/
+  last tile.
+- [x] Build/tests/clippy all clean. Committed as its own unit and pushed.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real
