@@ -28,7 +28,7 @@ pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState },
     Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat },
-    Menu { sections: &'a [MenuSection<'a>], selected: usize },
+    Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -553,17 +553,18 @@ fn section_tile_count(overview: &Overview, section: usize) -> usize {
     overview.catalog.get(section).map(|(_, tiles)| tiles.len()).unwrap_or(0)
 }
 
-/// Moves the tile selection one step in a direction, across the same 2D
-/// flow-wrapped grid `build_catalog_rows` lays out for rendering — so a
-/// keypress always lands on a tile that's actually adjacent on screen,
-/// including crossing from one section into the next.
-pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
-    let section_count = overview.catalog.len();
+/// Moves a selection one step in a direction across any 2D flow-wrapped
+/// grid of sections, given just each section's tile count — shared by
+/// the Overview catalog grid and the resource-switcher menu, which lay
+/// out identically (sections of tiles, wrapped at `cols` per row) but
+/// have different backing data types.
+fn move_selection(section_lens: &[usize], cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
+    let section_count = section_lens.len();
     if section_count == 0 {
         return current;
     }
     let section = current.0.min(section_count - 1);
-    let len = section_tile_count(overview, section).max(1);
+    let len = section_lens[section].max(1);
     let tile = current.1.min(len - 1);
     let cols = cols.max(1);
     let row = tile / cols;
@@ -574,7 +575,7 @@ pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, us
             if col > 0 {
                 (section, tile - 1)
             } else if section > 0 {
-                (section - 1, section_tile_count(overview, section - 1).saturating_sub(1))
+                (section - 1, section_lens[section - 1].saturating_sub(1))
             } else {
                 (section, tile)
             }
@@ -592,7 +593,7 @@ pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, us
             if row > 0 {
                 (section, (row - 1) * cols + col)
             } else if section > 0 {
-                let prev_len = section_tile_count(overview, section - 1);
+                let prev_len = section_lens[section - 1];
                 let prev_rows = prev_len.div_ceil(cols).max(1);
                 let target = ((prev_rows - 1) * cols + col).min(prev_len.saturating_sub(1));
                 (section - 1, target)
@@ -605,13 +606,39 @@ pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, us
             if next < len {
                 (section, next)
             } else if section + 1 < section_count {
-                let next_len = section_tile_count(overview, section + 1);
+                let next_len = section_lens[section + 1];
                 (section + 1, col.min(next_len.saturating_sub(1)))
             } else {
                 (section, tile)
             }
         }
     }
+}
+
+/// Moves the tile selection one step in a direction, across the same 2D
+/// flow-wrapped grid `build_catalog_rows` lays out for rendering — so a
+/// keypress always lands on a tile that's actually adjacent on screen,
+/// including crossing from one section into the next.
+pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
+    let lens: Vec<usize> = (0..overview.catalog.len()).map(|i| section_tile_count(overview, i)).collect();
+    move_selection(&lens, cols, current, dir)
+}
+
+/// Same movement rules as `move_tile_selection`, for the resource-switcher
+/// menu's own section/tile grid.
+pub fn move_menu_selection(sections: &[MenuSection], cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
+    let lens: Vec<usize> = sections.iter().map(|s| s.tiles.len()).collect();
+    move_selection(&lens, cols, current, dir)
+}
+
+/// The menu popup's tile-grid column count — computed the same way as
+/// `tile_cols` for the Overview grid, from the popup's actual inner area
+/// so keyboard navigation and mouse hit-testing can't drift from what's
+/// rendered.
+pub fn menu_cols(frame_area: Rect) -> usize {
+    let area = centered_rect(70, 85, frame_area);
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    (inner.width / TILE_WIDTH).max(1) as usize
 }
 
 /// Which virtual row (in `build_catalog_rows`'s numbering) a given tile
@@ -824,7 +851,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// section, Freelens-style. Only one section exists today (`Workloads`);
 /// adding another resource kind later is just adding another
 /// `MenuSection`/tile, not restructuring this.
-fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: usize) {
+fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize, usize)) {
     let area = centered_rect(70, 85, frame.area());
     frame.render_widget(Clear, area);
 
@@ -839,15 +866,14 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: usize)
     // row per section, like the old layout, would squeeze those down to
     // unreadable slivers. Wrap each section's tiles the same way the
     // Overview catalog wraps its own tile grid.
-    let cols = (inner.width / TILE_WIDTH).max(1) as usize;
+    let cols = menu_cols(frame.area());
     let section_heights: Vec<Constraint> = sections
         .iter()
         .map(|s| Constraint::Length(1 + s.tiles.len().div_ceil(cols).max(1) as u16 * 3))
         .collect();
     let section_areas = Layout::vertical(section_heights).split(inner);
 
-    let mut flat_index = 0;
-    for (section, section_area) in sections.iter().zip(section_areas.iter()) {
+    for (section_idx, (section, section_area)) in sections.iter().zip(section_areas.iter()).enumerate() {
         let rows_needed = section.tiles.len().div_ceil(cols).max(1);
         let row_heights: Vec<Constraint> =
             std::iter::once(Constraint::Length(1)).chain((0..rows_needed).map(|_| Constraint::Length(3))).collect();
@@ -865,8 +891,8 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: usize)
                 row_tiles.iter().map(|_| Constraint::Ratio(1, row_tiles.len() as u32)).collect();
             let tile_areas = Layout::horizontal(tile_constraints).split(*row_area);
 
-            for (tile_area, kind) in tile_areas.iter().zip(row_tiles.iter()) {
-                let is_selected = flat_index == selected;
+            for (col, (tile_area, kind)) in tile_areas.iter().zip(row_tiles.iter()).enumerate() {
+                let is_selected = selected == (section_idx, start + col);
                 let (border_style, text_style) = if is_selected {
                     (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                 } else {
@@ -875,7 +901,6 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: usize)
                 let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
                 let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
                 frame.render_widget(label, *tile_area);
-                flat_index += 1;
             }
         }
     }

@@ -27,7 +27,7 @@ use tui_tree_widget::{TreeItem, TreeState};
 
 enum Mode {
     List,
-    Menu { selected: usize },
+    Menu { selected: (usize, usize) },
     Spec { title: String, items: Vec<TreeItem<'static, String>>, state: TreeState<String> },
     Containers { title: String, namespace: String, pod: String, containers: Vec<k8s::ContainerInfo>, state: TableState },
     Logs {
@@ -189,6 +189,57 @@ fn kind_for_label(label: &str) -> Option<ResourceKind> {
     }
 }
 
+/// The `m` menu's layout — same six categories as the Overview catalog.
+/// One shared function so the popup's render pass and its keyboard/Enter
+/// handling can't drift apart (same principle as `build_catalog_rows`
+/// backing the Overview grid's render + navigation).
+fn menu_sections() -> [ui::MenuSection<'static>; 6] {
+    [
+        ui::MenuSection { title: "Cluster", tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
+        ui::MenuSection {
+            title: "Workloads",
+            tiles: &[
+                ResourceKind::Pods,
+                ResourceKind::Deployments,
+                ResourceKind::ReplicaSets,
+                ResourceKind::StatefulSets,
+                ResourceKind::DaemonSets,
+                ResourceKind::Jobs,
+                ResourceKind::CronJobs,
+            ],
+        },
+        ui::MenuSection { title: "Config", tiles: &[ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas] },
+        ui::MenuSection {
+            title: "Network",
+            tiles: &[ResourceKind::Services, ResourceKind::Endpoints, ResourceKind::Ingresses, ResourceKind::NetworkPolicies],
+        },
+        ui::MenuSection { title: "Storage", tiles: &[ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses] },
+        ui::MenuSection {
+            title: "Access Control",
+            tiles: &[
+                ResourceKind::ServiceAccounts,
+                ResourceKind::Roles,
+                ResourceKind::RoleBindings,
+                ResourceKind::ClusterRoles,
+                ResourceKind::ClusterRoleBindings,
+            ],
+        },
+    ]
+}
+
+/// Where a `ResourceKind` sits in the menu grid, so opening the menu
+/// starts with the currently-viewed kind selected instead of always
+/// resetting to the top-left tile.
+fn menu_position_for(kind: ResourceKind) -> (usize, usize) {
+    let sections = menu_sections();
+    for (section_idx, section) in sections.iter().enumerate() {
+        if let Some(tile_idx) = section.tiles.iter().position(|k| *k == kind) {
+            return (section_idx, tile_idx);
+        }
+    }
+    (0, 0)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
@@ -295,51 +346,7 @@ fn run(
             Mode::Menu { selected } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let sections = [
-                        ui::MenuSection {
-                            title: "Cluster",
-                            tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces],
-                        },
-                        ui::MenuSection {
-                            title: "Workloads",
-                            tiles: &[
-                                ResourceKind::Pods,
-                                ResourceKind::Deployments,
-                                ResourceKind::ReplicaSets,
-                                ResourceKind::StatefulSets,
-                                ResourceKind::DaemonSets,
-                                ResourceKind::Jobs,
-                                ResourceKind::CronJobs,
-                            ],
-                        },
-                        ui::MenuSection {
-                            title: "Config",
-                            tiles: &[ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas],
-                        },
-                        ui::MenuSection {
-                            title: "Network",
-                            tiles: &[
-                                ResourceKind::Services,
-                                ResourceKind::Endpoints,
-                                ResourceKind::Ingresses,
-                                ResourceKind::NetworkPolicies,
-                            ],
-                        },
-                        ui::MenuSection {
-                            title: "Storage",
-                            tiles: &[ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses],
-                        },
-                        ui::MenuSection {
-                            title: "Access Control",
-                            tiles: &[
-                                ResourceKind::ServiceAccounts,
-                                ResourceKind::Roles,
-                                ResourceKind::RoleBindings,
-                                ResourceKind::ClusterRoles,
-                                ResourceKind::ClusterRoleBindings,
-                            ],
-                        },
-                    ];
+                    let sections = menu_sections();
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
                 })?;
@@ -408,8 +415,7 @@ fn run(
                         overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Right);
                     }
                     KeyCode::Char('m') => {
-                        let selected = ResourceKind::ALL.iter().position(|k| *k == current_kind).unwrap_or(0);
-                        mode = Mode::Menu { selected };
+                        mode = Mode::Menu { selected: menu_position_for(current_kind) };
                         moved = false;
                     }
                     KeyCode::Enter => {
@@ -433,8 +439,7 @@ fn run(
                 KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                 KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
                 KeyCode::Char('m') => {
-                    let selected = ResourceKind::ALL.iter().position(|k| *k == current_kind).unwrap_or(0);
-                    mode = Mode::Menu { selected };
+                    mode = Mode::Menu { selected: menu_position_for(current_kind) };
                 }
                 KeyCode::Char('d') => match current_kind {
                     ResourceKind::Overview => unreachable!("handled in the Overview-specific arm above"),
@@ -475,17 +480,33 @@ fn run(
                 }
                 _ => {}
             },
-            (Event::Key(key), Mode::Menu { selected }) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
-                KeyCode::Char('h') | KeyCode::Left => *selected = selected.saturating_sub(1),
-                KeyCode::Char('l') | KeyCode::Right => *selected = (*selected + 1).min(ResourceKind::ALL.len() - 1),
-                KeyCode::Enter => {
-                    current_kind = ResourceKind::ALL[*selected];
-                    table_state.select(Some(0));
-                    mode = Mode::List;
+            (Event::Key(key), Mode::Menu { selected }) => {
+                let sections = menu_sections();
+                let cols = ui::menu_cols(frame_area);
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                    KeyCode::Char('h') | KeyCode::Left => {
+                        *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Left);
+                    }
+                    KeyCode::Char('l') | KeyCode::Right => {
+                        *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Right);
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Up);
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Down);
+                    }
+                    KeyCode::Enter => {
+                        if let Some(kind) = sections.get(selected.0).and_then(|s| s.tiles.get(selected.1)) {
+                            current_kind = *kind;
+                            table_state.select(Some(0));
+                            mode = Mode::List;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             (Event::Key(key), Mode::Spec { state, .. }) => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -650,5 +671,49 @@ mod tests {
         assert_eq!(state.selected(), Some(0));
         select_prev(&mut state, 1);
         assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn menu_sections_cover_every_resource_kind_exactly_once() {
+        let expected = [
+            ResourceKind::Overview,
+            ResourceKind::Nodes,
+            ResourceKind::Namespaces,
+            ResourceKind::Pods,
+            ResourceKind::Deployments,
+            ResourceKind::ReplicaSets,
+            ResourceKind::StatefulSets,
+            ResourceKind::DaemonSets,
+            ResourceKind::Jobs,
+            ResourceKind::CronJobs,
+            ResourceKind::ConfigMaps,
+            ResourceKind::Secrets,
+            ResourceKind::Hpas,
+            ResourceKind::Services,
+            ResourceKind::Endpoints,
+            ResourceKind::Ingresses,
+            ResourceKind::NetworkPolicies,
+            ResourceKind::Pvcs,
+            ResourceKind::Pvs,
+            ResourceKind::StorageClasses,
+            ResourceKind::ServiceAccounts,
+            ResourceKind::Roles,
+            ResourceKind::RoleBindings,
+            ResourceKind::ClusterRoles,
+            ResourceKind::ClusterRoleBindings,
+        ];
+        let sections = menu_sections();
+        let total: usize = sections.iter().map(|s| s.tiles.len()).sum();
+        assert_eq!(total, expected.len(), "a kind is missing from (or duplicated in) the menu");
+        for kind in expected {
+            assert!(sections.iter().any(|s| s.tiles.contains(&kind)), "{} missing from menu_sections", kind.label());
+        }
+    }
+
+    #[test]
+    fn menu_position_for_finds_the_matching_tile() {
+        let sections = menu_sections();
+        let pos = menu_position_for(ResourceKind::ConfigMaps);
+        assert_eq!(sections[pos.0].tiles[pos.1], ResourceKind::ConfigMaps);
     }
 }

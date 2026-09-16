@@ -14,7 +14,7 @@ use kube::{
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{sync::mpsc, task::JoinHandle};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResourceKind {
     Overview,
     Pods,
@@ -44,34 +44,6 @@ pub enum ResourceKind {
 }
 
 impl ResourceKind {
-    pub const ALL: [ResourceKind; 25] = [
-        ResourceKind::Overview,
-        ResourceKind::Nodes,
-        ResourceKind::Namespaces,
-        ResourceKind::Pods,
-        ResourceKind::Deployments,
-        ResourceKind::ReplicaSets,
-        ResourceKind::StatefulSets,
-        ResourceKind::DaemonSets,
-        ResourceKind::Jobs,
-        ResourceKind::CronJobs,
-        ResourceKind::ConfigMaps,
-        ResourceKind::Secrets,
-        ResourceKind::Hpas,
-        ResourceKind::Services,
-        ResourceKind::Endpoints,
-        ResourceKind::Ingresses,
-        ResourceKind::NetworkPolicies,
-        ResourceKind::Pvcs,
-        ResourceKind::Pvs,
-        ResourceKind::StorageClasses,
-        ResourceKind::ServiceAccounts,
-        ResourceKind::Roles,
-        ResourceKind::RoleBindings,
-        ResourceKind::ClusterRoles,
-        ResourceKind::ClusterRoleBindings,
-    ];
-
     pub fn label(self) -> &'static str {
         match self {
             ResourceKind::Overview => "Overview",
