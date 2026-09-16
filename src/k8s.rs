@@ -7,11 +7,11 @@ use k8s_openapi::api::{
     core::v1::{Event, Node, Pod},
 };
 use kube::{
-    Client,
+    Client, Resource,
     api::{Api, LogParams},
     runtime::{WatchStreamExt, reflector, watcher},
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -19,16 +19,86 @@ pub enum ResourceKind {
     Overview,
     Pods,
     Deployments,
+    Nodes,
+    Namespaces,
+    ReplicaSets,
+    StatefulSets,
+    DaemonSets,
+    Jobs,
+    CronJobs,
+    ConfigMaps,
+    Secrets,
+    Hpas,
+    Services,
+    Endpoints,
+    Ingresses,
+    NetworkPolicies,
+    Pvcs,
+    Pvs,
+    StorageClasses,
+    ServiceAccounts,
+    Roles,
+    RoleBindings,
+    ClusterRoles,
+    ClusterRoleBindings,
 }
 
 impl ResourceKind {
-    pub const ALL: [ResourceKind; 3] = [ResourceKind::Overview, ResourceKind::Pods, ResourceKind::Deployments];
+    pub const ALL: [ResourceKind; 25] = [
+        ResourceKind::Overview,
+        ResourceKind::Nodes,
+        ResourceKind::Namespaces,
+        ResourceKind::Pods,
+        ResourceKind::Deployments,
+        ResourceKind::ReplicaSets,
+        ResourceKind::StatefulSets,
+        ResourceKind::DaemonSets,
+        ResourceKind::Jobs,
+        ResourceKind::CronJobs,
+        ResourceKind::ConfigMaps,
+        ResourceKind::Secrets,
+        ResourceKind::Hpas,
+        ResourceKind::Services,
+        ResourceKind::Endpoints,
+        ResourceKind::Ingresses,
+        ResourceKind::NetworkPolicies,
+        ResourceKind::Pvcs,
+        ResourceKind::Pvs,
+        ResourceKind::StorageClasses,
+        ResourceKind::ServiceAccounts,
+        ResourceKind::Roles,
+        ResourceKind::RoleBindings,
+        ResourceKind::ClusterRoles,
+        ResourceKind::ClusterRoleBindings,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             ResourceKind::Overview => "Overview",
             ResourceKind::Pods => "Pods",
             ResourceKind::Deployments => "Deployments",
+            ResourceKind::Nodes => "Nodes",
+            ResourceKind::Namespaces => "Namespaces",
+            ResourceKind::ReplicaSets => "ReplicaSets",
+            ResourceKind::StatefulSets => "StatefulSets",
+            ResourceKind::DaemonSets => "DaemonSets",
+            ResourceKind::Jobs => "Jobs",
+            ResourceKind::CronJobs => "CronJobs",
+            ResourceKind::ConfigMaps => "ConfigMaps",
+            ResourceKind::Secrets => "Secrets",
+            ResourceKind::Hpas => "HPAs",
+            ResourceKind::Services => "Services",
+            ResourceKind::Endpoints => "Endpoints",
+            ResourceKind::Ingresses => "Ingresses",
+            ResourceKind::NetworkPolicies => "NetworkPolicies",
+            ResourceKind::Pvcs => "PVCs",
+            ResourceKind::Pvs => "PVs",
+            ResourceKind::StorageClasses => "StorageClasses",
+            ResourceKind::ServiceAccounts => "ServiceAccounts",
+            ResourceKind::Roles => "Roles",
+            ResourceKind::RoleBindings => "RoleBindings",
+            ResourceKind::ClusterRoles => "ClusterRoles",
+            ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
         }
     }
 }
@@ -462,28 +532,99 @@ pub fn overview(
     }
 }
 
-/// Polls the count of every object of kind `K` cluster-wide on an
-/// interval and publishes it via a `watch` channel. Used for the
-/// Overview catalog tiles — most of these ~20 resource kinds don't need
-/// (and aren't worth building) a full live reflector + list view each;
-/// a periodic count is real data for cheap, one generic function
-/// covering every kind instead of one hand-written watcher per kind.
-pub fn watch_count<K>(client: Client) -> (tokio::sync::watch::Receiver<usize>, JoinHandle<()>)
+/// A row for any resource kind that doesn't get a specialized table (i.e.
+/// everything except Pods/Deployments) — just enough to list and identify
+/// an object. Cluster-scoped kinds (Nodes, ClusterRoles, PVs, ...) show
+/// "-" for namespace rather than getting a different column set; one
+/// generic table for ~20 kinds is worth the small loss of kubectl's
+/// per-kind columns.
+#[derive(Clone)]
+pub struct GenericRow {
+    pub namespace: String,
+    pub name: String,
+    pub age: String,
+}
+
+pub fn generic_row<K: kube::Resource<DynamicType = ()>>(item: &K) -> GenericRow {
+    let meta = item.meta();
+    let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
+    let name = meta.name.clone().unwrap_or_default();
+    let age = meta.creation_timestamp.as_ref().map(|t| humanize_age(t.0)).unwrap_or_else(|| "-".into());
+    GenericRow { namespace, name, age }
+}
+
+/// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic
+/// over any typed k8s-openapi resource — used for every catalog kind that
+/// doesn't need specialized fields.
+pub fn watch_generic<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
 where
-    K: kube::Resource<DynamicType = ()> + Clone + serde::de::DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
 {
-    let (tx, rx) = tokio::sync::watch::channel(0);
-
+    let api: Api<K> = Api::all(client);
+    let (reader, writer) = reflector::store();
+    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
     let handle = tokio::spawn(async move {
-        let api: Api<K> = Api::all(client);
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
-        loop {
-            interval.tick().await;
-            if let Ok(list) = api.list(&Default::default()).await {
-                let _ = tx.send(list.items.len());
-            }
-        }
+        let mut stream = stream.boxed();
+        while stream.next().await.is_some() {}
     });
+    (reader, handle)
+}
 
-    (rx, handle)
+/// Sorted snapshot, generic over any typed k8s-openapi resource — same
+/// reasoning as `snapshot`/`snapshot_deployments`.
+pub fn snapshot_generic<K: Resource<DynamicType = ()> + Clone>(store: &reflector::Store<K>) -> Vec<Arc<K>> {
+    let mut items = store.state();
+    items.sort_by(|a, b| {
+        let key = |x: &Arc<K>| (x.meta().namespace.clone().unwrap_or_default(), x.meta().name.clone().unwrap_or_default());
+        key(a).cmp(&key(b))
+    });
+    items
+}
+
+/// Type-erased handle to a live-watched resource kind's store — lets
+/// `Catalog` hold ~20 different `K`s in one `Vec` and treat them
+/// uniformly (count for the Overview tile, rows for the list view, a
+/// single object's manifest for the spec view) without a match arm per
+/// kind at every call site.
+pub trait CatalogKind: Send + Sync {
+    fn count(&self) -> usize;
+    fn rows(&self) -> Vec<GenericRow>;
+    fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
+}
+
+pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
+    store: reflector::Store<K>,
+}
+
+impl<K: Resource<DynamicType = ()> + Clone + 'static> WatchedKind<K> {
+    pub fn from_store(store: reflector::Store<K>) -> Self {
+        WatchedKind { store }
+    }
+}
+
+impl<K> CatalogKind for WatchedKind<K>
+where
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
+    fn count(&self) -> usize {
+        self.store.state().len()
+    }
+
+    fn rows(&self) -> Vec<GenericRow> {
+        snapshot_generic(&self.store).iter().map(|item| generic_row(item.as_ref())).collect()
+    }
+
+    fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
+        snapshot_generic(&self.store).get(index).map(|item| manifest_value(item.as_ref()))
+    }
+}
+
+/// Spawns a live watch for kind `K` and boxes it as a `CatalogKind` —
+/// the one-liner most Catalog entries use.
+pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
+    let (store, handle) = watch_generic::<K>(client);
+    (Box::new(WatchedKind::from_store(store)), handle)
 }

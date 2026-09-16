@@ -45,120 +45,147 @@ enum Mode {
     },
 }
 
-/// Periodic counts for the ~20 Overview catalog tiles that don't have
-/// (and aren't worth building) a full live reflector + list view each —
-/// see `k8s::watch_count`. Pods/Deployments/Nodes are NOT here; they use
-/// their existing live reflectors and get merged in alongside these when
-/// the catalog is assembled each tick.
+/// Every resource kind that gets a live watch + generic list/spec view but
+/// no specialized row type (unlike Pods/Deployments). Nodes reuses the
+/// existing `node_store` reflector instead of opening a second watch on
+/// the same kind; everything else spawns its own.
 struct Catalog {
-    namespaces: watch::Receiver<usize>,
-    replicasets: watch::Receiver<usize>,
-    statefulsets: watch::Receiver<usize>,
-    daemonsets: watch::Receiver<usize>,
-    jobs: watch::Receiver<usize>,
-    cronjobs: watch::Receiver<usize>,
-    configmaps: watch::Receiver<usize>,
-    secrets: watch::Receiver<usize>,
-    hpas: watch::Receiver<usize>,
-    services: watch::Receiver<usize>,
-    endpoints: watch::Receiver<usize>,
-    ingresses: watch::Receiver<usize>,
-    network_policies: watch::Receiver<usize>,
-    pvcs: watch::Receiver<usize>,
-    pvs: watch::Receiver<usize>,
-    storage_classes: watch::Receiver<usize>,
-    service_accounts: watch::Receiver<usize>,
-    roles: watch::Receiver<usize>,
-    role_bindings: watch::Receiver<usize>,
-    cluster_roles: watch::Receiver<usize>,
-    cluster_role_bindings: watch::Receiver<usize>,
+    entries: Vec<(ResourceKind, &'static str, Box<dyn k8s::CatalogKind>)>,
 }
 
 impl Catalog {
-    fn spawn(client: &Client) -> Self {
-        macro_rules! count_of {
-            ($ty:ty) => {
-                k8s::watch_count::<$ty>(client.clone()).0
-            };
+    fn spawn(client: &Client, node_store: Store<Node>) -> Self {
+        macro_rules! kind {
+            ($variant:ident, $label:literal, $ty:ty) => {{
+                let (boxed, _handle) = k8s::watch_kind::<$ty>(client.clone());
+                (ResourceKind::$variant, $label, boxed)
+            }};
         }
         Catalog {
-            namespaces: count_of!(Namespace),
-            replicasets: count_of!(ReplicaSet),
-            statefulsets: count_of!(StatefulSet),
-            daemonsets: count_of!(DaemonSet),
-            jobs: count_of!(Job),
-            cronjobs: count_of!(CronJob),
-            configmaps: count_of!(ConfigMap),
-            secrets: count_of!(Secret),
-            hpas: count_of!(HorizontalPodAutoscaler),
-            services: count_of!(Service),
-            endpoints: count_of!(Endpoints),
-            ingresses: count_of!(Ingress),
-            network_policies: count_of!(NetworkPolicy),
-            pvcs: count_of!(PersistentVolumeClaim),
-            pvs: count_of!(PersistentVolume),
-            storage_classes: count_of!(StorageClass),
-            service_accounts: count_of!(ServiceAccount),
-            roles: count_of!(Role),
-            role_bindings: count_of!(RoleBinding),
-            cluster_roles: count_of!(ClusterRole),
-            cluster_role_bindings: count_of!(ClusterRoleBinding),
+            entries: vec![
+                (ResourceKind::Nodes, "Nodes", Box::new(k8s::WatchedKind::from_store(node_store))),
+                kind!(Namespaces, "Namespaces", Namespace),
+                kind!(ReplicaSets, "ReplicaSets", ReplicaSet),
+                kind!(StatefulSets, "StatefulSets", StatefulSet),
+                kind!(DaemonSets, "DaemonSets", DaemonSet),
+                kind!(Jobs, "Jobs", Job),
+                kind!(CronJobs, "CronJobs", CronJob),
+                kind!(ConfigMaps, "ConfigMaps", ConfigMap),
+                kind!(Secrets, "Secrets", Secret),
+                kind!(Hpas, "HPAs", HorizontalPodAutoscaler),
+                kind!(Services, "Services", Service),
+                kind!(Endpoints, "Endpoints", Endpoints),
+                kind!(Ingresses, "Ingresses", Ingress),
+                kind!(NetworkPolicies, "NetworkPolicies", NetworkPolicy),
+                kind!(Pvcs, "PVCs", PersistentVolumeClaim),
+                kind!(Pvs, "PVs", PersistentVolume),
+                kind!(StorageClasses, "StorageClasses", StorageClass),
+                kind!(ServiceAccounts, "ServiceAccounts", ServiceAccount),
+                kind!(Roles, "Roles", Role),
+                kind!(RoleBindings, "RoleBindings", RoleBinding),
+                kind!(ClusterRoles, "ClusterRoles", ClusterRole),
+                kind!(ClusterRoleBindings, "ClusterRoleBindings", ClusterRoleBinding),
+            ],
         }
     }
 
-    /// Merges in the live-reflector counts for Pods/Deployments/Nodes so
+    fn count(&self, kind: ResourceKind) -> usize {
+        self.get(kind).map(|k| k.count()).unwrap_or(0)
+    }
+
+    /// Looks up the live watch for a kind — `None` for Overview/Pods/
+    /// Deployments, which aren't in `entries` (they have their own
+    /// specialized reflectors and row types, handled directly in `run`).
+    fn get(&self, kind: ResourceKind) -> Option<&dyn k8s::CatalogKind> {
+        self.entries.iter().find(|(k, _, _)| *k == kind).map(|(_, _, b)| b.as_ref())
+    }
+
+    /// Merges in the live-reflector counts for Pods/Deployments so
     /// callers get one complete catalog instead of two partial ones.
-    fn sections(&self, pod_count: usize, deployment_count: usize, node_count: usize) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
+    fn sections(&self, pod_count: usize, deployment_count: usize) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
         vec![
-            ("Cluster", vec![("Nodes", node_count), ("Namespaces", *self.namespaces.borrow())]),
+            ("Cluster", vec![("Nodes", self.count(ResourceKind::Nodes)), ("Namespaces", self.count(ResourceKind::Namespaces))]),
             (
                 "Workloads",
                 vec![
                     ("Pods", pod_count),
                     ("Deployments", deployment_count),
-                    ("ReplicaSets", *self.replicasets.borrow()),
-                    ("StatefulSets", *self.statefulsets.borrow()),
-                    ("DaemonSets", *self.daemonsets.borrow()),
-                    ("Jobs", *self.jobs.borrow()),
-                    ("CronJobs", *self.cronjobs.borrow()),
+                    ("ReplicaSets", self.count(ResourceKind::ReplicaSets)),
+                    ("StatefulSets", self.count(ResourceKind::StatefulSets)),
+                    ("DaemonSets", self.count(ResourceKind::DaemonSets)),
+                    ("Jobs", self.count(ResourceKind::Jobs)),
+                    ("CronJobs", self.count(ResourceKind::CronJobs)),
                 ],
             ),
             (
                 "Config",
                 vec![
-                    ("ConfigMaps", *self.configmaps.borrow()),
-                    ("Secrets", *self.secrets.borrow()),
-                    ("HPAs", *self.hpas.borrow()),
+                    ("ConfigMaps", self.count(ResourceKind::ConfigMaps)),
+                    ("Secrets", self.count(ResourceKind::Secrets)),
+                    ("HPAs", self.count(ResourceKind::Hpas)),
                 ],
             ),
             (
                 "Network",
                 vec![
-                    ("Services", *self.services.borrow()),
-                    ("Endpoints", *self.endpoints.borrow()),
-                    ("Ingresses", *self.ingresses.borrow()),
-                    ("NetworkPolicies", *self.network_policies.borrow()),
+                    ("Services", self.count(ResourceKind::Services)),
+                    ("Endpoints", self.count(ResourceKind::Endpoints)),
+                    ("Ingresses", self.count(ResourceKind::Ingresses)),
+                    ("NetworkPolicies", self.count(ResourceKind::NetworkPolicies)),
                 ],
             ),
             (
                 "Storage",
                 vec![
-                    ("PVCs", *self.pvcs.borrow()),
-                    ("PVs", *self.pvs.borrow()),
-                    ("StorageClasses", *self.storage_classes.borrow()),
+                    ("PVCs", self.count(ResourceKind::Pvcs)),
+                    ("PVs", self.count(ResourceKind::Pvs)),
+                    ("StorageClasses", self.count(ResourceKind::StorageClasses)),
                 ],
             ),
             (
                 "Access Control",
                 vec![
-                    ("ServiceAccounts", *self.service_accounts.borrow()),
-                    ("Roles", *self.roles.borrow()),
-                    ("RoleBindings", *self.role_bindings.borrow()),
-                    ("ClusterRoles", *self.cluster_roles.borrow()),
-                    ("ClusterRoleBindings", *self.cluster_role_bindings.borrow()),
+                    ("ServiceAccounts", self.count(ResourceKind::ServiceAccounts)),
+                    ("Roles", self.count(ResourceKind::Roles)),
+                    ("RoleBindings", self.count(ResourceKind::RoleBindings)),
+                    ("ClusterRoles", self.count(ResourceKind::ClusterRoles)),
+                    ("ClusterRoleBindings", self.count(ResourceKind::ClusterRoleBindings)),
                 ],
             ),
         ]
+    }
+}
+
+/// Maps an Overview tile's/menu's display label back to the `ResourceKind`
+/// it switches to — the join key between the (label, count) tuples the
+/// catalog renders and the enum `current_kind` actually switches on.
+fn kind_for_label(label: &str) -> Option<ResourceKind> {
+    match label {
+        "Pods" => Some(ResourceKind::Pods),
+        "Deployments" => Some(ResourceKind::Deployments),
+        "Nodes" => Some(ResourceKind::Nodes),
+        "Namespaces" => Some(ResourceKind::Namespaces),
+        "ReplicaSets" => Some(ResourceKind::ReplicaSets),
+        "StatefulSets" => Some(ResourceKind::StatefulSets),
+        "DaemonSets" => Some(ResourceKind::DaemonSets),
+        "Jobs" => Some(ResourceKind::Jobs),
+        "CronJobs" => Some(ResourceKind::CronJobs),
+        "ConfigMaps" => Some(ResourceKind::ConfigMaps),
+        "Secrets" => Some(ResourceKind::Secrets),
+        "HPAs" => Some(ResourceKind::Hpas),
+        "Services" => Some(ResourceKind::Services),
+        "Endpoints" => Some(ResourceKind::Endpoints),
+        "Ingresses" => Some(ResourceKind::Ingresses),
+        "NetworkPolicies" => Some(ResourceKind::NetworkPolicies),
+        "PVCs" => Some(ResourceKind::Pvcs),
+        "PVs" => Some(ResourceKind::Pvs),
+        "StorageClasses" => Some(ResourceKind::StorageClasses),
+        "ServiceAccounts" => Some(ResourceKind::ServiceAccounts),
+        "Roles" => Some(ResourceKind::Roles),
+        "RoleBindings" => Some(ResourceKind::RoleBindings),
+        "ClusterRoles" => Some(ResourceKind::ClusterRoles),
+        "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+        _ => None,
     }
 }
 
@@ -174,7 +201,7 @@ async fn main() -> Result<()> {
     let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());
     let (event_store, _event_watch_handle) = k8s::watch_events(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
-    let catalog = Catalog::spawn(&client);
+    let catalog = Catalog::spawn(&client, node_store.clone());
 
     // Block until each reflector's initial list-and-watch has populated
     // its store at least once, so the first frame isn't just empty.
@@ -220,13 +247,18 @@ fn run(
         let nodes = node_store.state();
         let events = event_store.state();
         let usage = node_metrics_rx.borrow().clone();
-        let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len(), nodes.len());
+        let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
         let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
+        // Only ever populated for whatever kind is currently on screen —
+        // computed unconditionally so every match arm below can just read
+        // it, same as `pod_rows`/`dep_rows` are always computed too.
+        let generic_rows: Vec<k8s::GenericRow> = catalog.get(current_kind).map(|k| k.rows()).unwrap_or_default();
 
         let row_count = match current_kind {
             ResourceKind::Overview => overview.warnings.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
+            _ => generic_rows.len(),
         };
         // Selection can't outrun the list as pods/deployments come and go
         // underneath it. Overview has no selectable row — it scrolls
@@ -249,6 +281,7 @@ fn run(
             ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
+            _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
         let mut frame_area = Rect::default();
@@ -263,8 +296,49 @@ fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let sections = [
-                        ui::MenuSection { title: "Cluster", tiles: &[ResourceKind::Overview] },
-                        ui::MenuSection { title: "Workloads", tiles: &[ResourceKind::Pods, ResourceKind::Deployments] },
+                        ui::MenuSection {
+                            title: "Cluster",
+                            tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces],
+                        },
+                        ui::MenuSection {
+                            title: "Workloads",
+                            tiles: &[
+                                ResourceKind::Pods,
+                                ResourceKind::Deployments,
+                                ResourceKind::ReplicaSets,
+                                ResourceKind::StatefulSets,
+                                ResourceKind::DaemonSets,
+                                ResourceKind::Jobs,
+                                ResourceKind::CronJobs,
+                            ],
+                        },
+                        ui::MenuSection {
+                            title: "Config",
+                            tiles: &[ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas],
+                        },
+                        ui::MenuSection {
+                            title: "Network",
+                            tiles: &[
+                                ResourceKind::Services,
+                                ResourceKind::Endpoints,
+                                ResourceKind::Ingresses,
+                                ResourceKind::NetworkPolicies,
+                            ],
+                        },
+                        ui::MenuSection {
+                            title: "Storage",
+                            tiles: &[ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses],
+                        },
+                        ui::MenuSection {
+                            title: "Access Control",
+                            tiles: &[
+                                ResourceKind::ServiceAccounts,
+                                ResourceKind::Roles,
+                                ResourceKind::RoleBindings,
+                                ResourceKind::ClusterRoles,
+                                ResourceKind::ClusterRoleBindings,
+                            ],
+                        },
                     ];
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
@@ -340,20 +414,12 @@ fn run(
                     }
                     KeyCode::Enter => {
                         moved = false;
-                        // Only the kinds that already have a real list view
-                        // do anything — matches picking them from the menu.
                         if let Some((_, tiles)) = overview.catalog.get(overview_selected.0)
                             && let Some((label, _)) = tiles.get(overview_selected.1)
+                            && let Some(kind) = kind_for_label(label)
                         {
-                            let target = match *label {
-                                "Pods" => Some(ResourceKind::Pods),
-                                "Deployments" => Some(ResourceKind::Deployments),
-                                _ => None,
-                            };
-                            if let Some(kind) = target {
-                                current_kind = kind;
-                                table_state.select(Some(0));
-                            }
+                            current_kind = kind;
+                            table_state.select(Some(0));
                         }
                     }
                     _ => moved = false,
@@ -380,6 +446,15 @@ fn run(
                     ResourceKind::Deployments => {
                         if let Some(dep) = table_state.selected().and_then(|i| deployments.get(i)) {
                             open_spec(&mut mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
+                        }
+                    }
+                    _ => {
+                        if let Some(index) = table_state.selected()
+                            && let Some(row) = generic_rows.get(index)
+                            && let Some(value) = catalog.get(current_kind).and_then(|k| k.spec_at(index))
+                        {
+                            let title = format!("{}/{}", row.namespace, row.name);
+                            open_spec_value(&mut mode, title, value);
                         }
                     }
                 },
@@ -510,7 +585,10 @@ fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
 }
 
 fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
-    let value = k8s::manifest_value(item);
+    open_spec_value(mode, title, k8s::manifest_value(item));
+}
+
+fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     let items = ui::build_manifest_tree(&value);
     let mut state = TreeState::default();
     for item in &items {

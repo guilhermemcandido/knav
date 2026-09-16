@@ -8,12 +8,15 @@ use ratatui::{
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
-use crate::k8s::{ContainerInfo, ContainerStatusKind, DeploymentRow, Overview, PodRow, ResourceKind, Warning};
+use crate::k8s::{ContainerInfo, ContainerStatusKind, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
     Overview(&'a Overview, usize, (usize, usize)),
     Pods(&'a [PodRow]),
     Deployments(&'a [DeploymentRow]),
+    /// Every other resource kind — a plain namespace/name/age table,
+    /// labeled with the kind so the title bar and log line make sense.
+    Generic(&'a [GenericRow], &'static str),
 }
 
 pub struct MenuSection<'a> {
@@ -71,6 +74,9 @@ pub fn draw(frame: &mut Frame, rows: Rows, table_state: &mut TableState, hover: 
         }
         Rows::Overview(overview, scroll, selected) => {
             draw_overview(frame, frame.area(), overview, scroll, selected, dimmed);
+        }
+        Rows::Generic(rows, label) => {
+            draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
         }
     }
 
@@ -318,6 +324,44 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
     };
 
     let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .row_highlight_style(highlight_style)
+        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+
+    frame.render_stateful_widget(table, area, table_state);
+}
+
+/// The shared table for every resource kind that doesn't get specialized
+/// columns — Namespace/Name/Age is all that's generically knowable about
+/// an arbitrary Kubernetes object.
+fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, dimmed: bool) {
+    let muted = Style::default().fg(Color::DarkGray);
+    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let border_style = if dimmed { muted } else { Style::default() };
+    let cell_style = if dimmed { muted } else { Style::default() };
+
+    let header = Row::new(vec!["NAMESPACE", "NAME", "AGE"]).style(header_style);
+
+    let table_rows = rows.iter().map(|r| {
+        Row::new(vec![
+            Cell::from(r.namespace.clone()).style(cell_style),
+            Cell::from(r.name.clone()).style(cell_style),
+            Cell::from(r.age.clone()).style(cell_style),
+        ])
+    });
+
+    let widths = [Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(5)];
+
+    let title = format!("{label} ({})  —  j/k: move  d: spec  m: switch resource  q: quit", rows.len());
+
+    let highlight_style = if dimmed {
+        muted
+    } else {
+        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+    };
+
+    let table = Table::new(table_rows, widths)
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
@@ -781,42 +825,58 @@ fn truncate(s: &str, max: usize) -> String {
 /// adding another resource kind later is just adding another
 /// `MenuSection`/tile, not restructuring this.
 fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: usize) {
-    let area = centered_rect(50, 40, frame.area());
+    let area = centered_rect(70, 85, frame.area());
     frame.render_widget(Clear, area);
 
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("Switch resource  —  ←→/hl: move  enter: select  esc: cancel");
+        .title("Switch resource  —  arrows/hjkl: move  enter: select  esc: cancel");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let section_heights: Vec<Constraint> = sections.iter().map(|_| Constraint::Length(5)).collect();
+    // Sections can now hold up to ~7 tiles (Workloads) — one fixed-width
+    // row per section, like the old layout, would squeeze those down to
+    // unreadable slivers. Wrap each section's tiles the same way the
+    // Overview catalog wraps its own tile grid.
+    let cols = (inner.width / TILE_WIDTH).max(1) as usize;
+    let section_heights: Vec<Constraint> = sections
+        .iter()
+        .map(|s| Constraint::Length(1 + s.tiles.len().div_ceil(cols).max(1) as u16 * 3))
+        .collect();
     let section_areas = Layout::vertical(section_heights).split(inner);
 
     let mut flat_index = 0;
     for (section, section_area) in sections.iter().zip(section_areas.iter()) {
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(3)]).split(*section_area);
+        let rows_needed = section.tiles.len().div_ceil(cols).max(1);
+        let row_heights: Vec<Constraint> =
+            std::iter::once(Constraint::Length(1)).chain((0..rows_needed).map(|_| Constraint::Length(3))).collect();
+        let row_areas = Layout::vertical(row_heights).split(*section_area);
+
         frame.render_widget(
             Paragraph::new(Line::styled(section.title, Style::default().add_modifier(Modifier::BOLD))),
-            rows[0],
+            row_areas[0],
         );
 
-        let tile_constraints: Vec<Constraint> =
-            section.tiles.iter().map(|_| Constraint::Ratio(1, section.tiles.len() as u32)).collect();
-        let tile_areas = Layout::horizontal(tile_constraints).split(rows[1]);
+        for (row, row_area) in row_areas[1..].iter().enumerate() {
+            let start = row * cols;
+            let row_tiles = &section.tiles[start..(start + cols).min(section.tiles.len())];
+            let tile_constraints: Vec<Constraint> =
+                row_tiles.iter().map(|_| Constraint::Ratio(1, row_tiles.len() as u32)).collect();
+            let tile_areas = Layout::horizontal(tile_constraints).split(*row_area);
 
-        for (tile_area, kind) in tile_areas.iter().zip(section.tiles.iter()) {
-            let is_selected = flat_index == selected;
-            let (border_style, text_style) = if is_selected {
-                (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-            } else {
-                (Style::default(), Style::default())
-            };
-            let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
-            let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
-            frame.render_widget(label, *tile_area);
-            flat_index += 1;
+            for (tile_area, kind) in tile_areas.iter().zip(row_tiles.iter()) {
+                let is_selected = flat_index == selected;
+                let (border_style, text_style) = if is_selected {
+                    (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                } else {
+                    (Style::default(), Style::default())
+                };
+                let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
+                let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
+                frame.render_widget(label, *tile_area);
+                flat_index += 1;
+            }
         }
     }
 }

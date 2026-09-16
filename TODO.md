@@ -647,6 +647,73 @@ real 2D grid selection, keyboard *and* mouse, per explicit request.
   last tile.
 - [x] Build/tests/clippy all clean. Committed as its own unit and pushed.
 
+## Done since last update (2026-09-17, later still) — every catalog kind now has a real list + spec view
+
+Previously only Pods/Deployments had a list view; the other ~20 kinds
+(ConfigMaps, DaemonSets, Secrets, Services, ClusterRoles, ...) were
+count-only tiles that did nothing when selected. Per explicit request,
+gave every one of them a working view.
+
+- [x] **`k8s::CatalogKind` trait** — a type-erased handle (`count()`,
+  `rows()`, `spec_at(index)`) over a live-watched resource kind, boxed as
+  `Box<dyn CatalogKind>`. Lets `Catalog` hold ~20 different concrete `K`s
+  in one `Vec` and treat them uniformly instead of a hand-written struct
+  field + match arm per kind (the old `watch_count`/per-field approach
+  from the previous round).
+- [x] **Switched from polling to live watches** for these ~20 kinds —
+  `watch_count`'s 15s-interval `.list()` poll is gone, replaced by
+  `k8s::watch_generic`/`WatchedKind`, the same reflector pattern already
+  used for Pods/Deployments/Nodes/Events. Counts, rows, and spec are now
+  all real-time, not up to 15s stale.
+- [x] **Nodes reuses the existing `node_store`** reflector (wrapped in
+  `WatchedKind::from_store`) instead of opening a second watch on the
+  same kind — the Cluster Issues panel and the Nodes list/spec view now
+  share one underlying watch.
+- [x] **Generic Namespace/Name/Age table** (`ui::draw_generic_table`,
+  `Rows::Generic`) for every kind that isn't Pods/Deployments. Deliberate
+  simplification: cluster-scoped kinds (Nodes, ClusterRoles, PVs,
+  StorageClasses, ClusterRoleBindings) show "-" for namespace rather than
+  getting their own column set — one shared table for ~20 kinds is worth
+  the loss of kubectl's per-kind columns.
+- [x] **`d` opens the real YAML spec** for any of these kinds, same
+  collapsible-tree popup Pods/Deployments already use — `CatalogKind::
+  spec_at` calls the same `manifest_value` used everywhere else, so
+  managedFields-stripping etc. all just applies for free.
+- [x] **Every Overview tile is now a real jump target** — `Enter` on any
+  of the ~23 non-Overview tiles switches to that kind's list, not just
+  Pods/Deployments. Implemented via `kind_for_label`, a label → 
+  `ResourceKind` lookup (the join key between the (label, count) tuples
+  the catalog renders and the enum `current_kind` switches on).
+- [x] **`m` menu extended to all 25 kinds**, grouped into the same six
+  sections as the Overview catalog (Cluster/Workloads/Config/Network/
+  Storage/Access Control). Reworked `draw_menu_popup` to wrap tiles
+  within a section (up to 7 in Workloads now) instead of dividing a
+  fixed-height row evenly — at 7 tiles that would've been unreadably
+  thin. Uses the same tile-width-based wrapping the Overview grid uses.
+- [x] Verified against the live `knav-test` k3d cluster with a disposable
+  scratch binary (not part of the repo): counts and row listings for
+  Nodes, Namespaces, ReplicaSets, DaemonSets, ConfigMaps, and
+  ClusterRoles all matched `kubectl get <kind> -A` exactly (1, 7, 4, 1,
+  14, 76), cluster-scoped kinds correctly showed "-" for namespace, and
+  `spec_at(0)` produced valid, sensible YAML for each.
+- [x] Build clean, 21/21 tests pass (no new tests added — this round is
+  data-layer generalization + wiring, not new logic worth unit-testing
+  beyond what live-cluster verification already covered), clippy clean.
+
+### Not done on purpose
+
+- No specialized columns for any of the ~20 generic kinds (e.g. no
+  "TYPE"/"DATA" for Secrets, no "PORTS" for Services) — out of scope for
+  this round, which was about getting every kind *a* working view, not
+  matching kubectl's per-kind column sets.
+- No mouse row-selection or hover for the generic table (Deployments
+  didn't have this either — parity with the existing non-Pods table, not
+  a regression).
+- Menu keyboard navigation is still flat Left/Right (h/l) across all 25
+  tiles in registration order, not row-aware like the Overview grid's
+  Up/Down — the Overview grid needed real 2D nav because you spend time
+  browsing it; the menu is a quick switcher, not lingered on.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real
