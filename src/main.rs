@@ -4,7 +4,7 @@ mod k8s;
 mod metrics;
 mod ui;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::stdout;
 use std::time::Duration;
 
@@ -304,6 +304,9 @@ fn run(
     // terminal query doesn't race with crossterm's stdin reads.
     let mut icons = icons::IconCache::detect();
     let mut overview_selected: (usize, usize) = (0, 0);
+    // Which Overview sections are collapsed — index `0..overview.catalog.len()`
+    // for a regular section, `overview.catalog.len()` for "Cluster Issues".
+    let mut overview_collapsed: HashSet<usize> = HashSet::new();
 
     loop {
         let pods = k8s::snapshot(pod_store);
@@ -347,7 +350,7 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected),
+            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected, &overview_collapsed),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::CustomResourceList => ui::Rows::CrdList(&catalog.crds),
@@ -413,7 +416,13 @@ fn run(
         match (event::read()?, &mut mode) {
             (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                 if current_kind == ResourceKind::Overview {
-                    if let Some(tile) = ui::tile_at(frame_area, &overview, overview_scroll, mouse.column, mouse.row) {
+                    if matches!(mouse.kind, MouseEventKind::Down(_))
+                        && let Some(section) = ui::header_at(frame_area, &overview, &overview_collapsed, overview_scroll, mouse.row)
+                    {
+                        if !overview_collapsed.remove(&section) {
+                            overview_collapsed.insert(section);
+                        }
+                    } else if let Some(tile) = ui::tile_at(frame_area, &overview, &overview_collapsed, overview_scroll, mouse.column, mouse.row) {
                         overview_selected = tile;
                     }
                 } else {
@@ -433,16 +442,26 @@ fn run(
                         moved = false;
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
-                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Down);
+                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Down);
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
-                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Up);
+                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Up);
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
-                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Left);
+                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Left);
                     }
                     KeyCode::Char('l') | KeyCode::Right => {
-                        overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Right);
+                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Right);
+                    }
+                    KeyCode::Tab => {
+                        // Collapse/expand the section the current
+                        // selection sits in — mirrors the spec tree's own
+                        // toggle, just keyboard-driven instead of Enter
+                        // (Enter here means "open this tile's view").
+                        let section = overview_selected.0;
+                        if !overview_collapsed.remove(&section) {
+                            overview_collapsed.insert(section);
+                        }
                     }
                     KeyCode::Char('m') => {
                         mode = Mode::Menu { selected: menu_position_for(current_kind) };
@@ -461,7 +480,7 @@ fn run(
                     _ => moved = false,
                 }
                 if moved {
-                    overview_scroll = ui::scroll_to_show(&overview, cols, catalog_area.height, overview_scroll, overview_selected);
+                    overview_scroll = ui::scroll_to_show(&overview, &overview_collapsed, cols, catalog_area.height, overview_scroll, overview_selected);
                 }
             }
             (Event::Key(key), Mode::List) => match key.code {

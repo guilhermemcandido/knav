@@ -879,6 +879,61 @@ Ghostty (this machine's terminal) supports the Kitty protocol.
 - No alpha/background-color tuning for the halfblocks fallback path
   (non-Kitty/Sixel terminals) — whatever `ratatui-image` does by default.
 
+## Done since last update (2026-09-18) — Esc/`:` nav (previous session) + collapsible, centered Overview
+
+Two rounds of feedback in one: (1) Esc quitting instead of backing out,
+and wanting `:pods`/`:q` k9s-style commands — already implemented and
+pushed in the prior session; and (2) polish on the Overview grid: center
+text/tile-rows instead of packing them flush-left, and make sections
+collapsible like the spec tree.
+
+### Overview: centered layout + collapsible sections
+
+- [x] **Tile rows are now centered** instead of packed flush-left with
+  the leftover space trailing on the right — `tile_row_constraints()`
+  puts a `Fill(1)` on both sides of the tile group instead of only a
+  trailing filler. One function shared by `draw_tiles_row` (render) and
+  `tile_at` (mouse hit-testing), same "can't drift apart" principle as
+  everywhere else in this file.
+- [x] **Section headers are centered dividers** now:
+  `───── ▾ Title ▾ ─────`, filling the row width — replacing the old
+  flush-left `── Title`. The `▸`/`▾` indicator mirrors the spec tree's
+  own collapsed/expanded convention.
+- [x] **Gauge titles centered** (`CPU: ... / ...` etc.) — were left-
+  aligned by ratatui's `Block` default.
+- [x] **Sections are now collapsible**, "like the spec tree": `Tab`
+  toggles the section the current tile selection is in; clicking
+  directly on a section header (mouse) also toggles it. Works for all 7
+  Overview sections *and* "Cluster Issues".
+- [x] `CatalogRow::SectionHeader` now carries a section index + collapsed
+  flag; `build_catalog_rows` omits a collapsed section's `Tiles`/`Issue`
+  rows entirely rather than just visually hiding them.
+- [x] Collapsed sections are fully transparent to keyboard navigation,
+  not just visually hidden — `move_selection` now skips over *any
+  number* of consecutive empty/collapsed sections in one keypress
+  (`next_nonempty_section`/`prev_nonempty_section`), rather than landing
+  on a dead "phantom" tile inside a collapsed section and needing a
+  second keypress to escape it.
+- [x] New `ui::header_at` (mirrors `tile_at`'s row-walking) for mouse
+  click-to-toggle.
+- [x] 2 new tests (a collapsed section is skipped by one `Right` press
+  across multiple sections; `build_catalog_rows` omits a collapsed
+  section's tiles), 28/28 total, clippy clean.
+- [x] Ran the release binary on a real pty against the live cluster:
+  runs cleanly for several seconds, no panic. Can't inspect rendered
+  terminal output from here, so the actual look (centering, dividers,
+  collapse) still needs the user's own `cargo run`.
+
+### Not done on purpose
+
+- No outer bordered box around the whole catalog/section area — kept the
+  existing "just tiles get boxes" look, since spanning a real border
+  across a variable-height, independently-scrolled set of rows would've
+  been a much bigger rendering change for a "pretty" label the divider-
+  style headers plus already-rounded tiles arguably already cover.
+- Menu popup tiles are unaffected by any of this (no collapse, no
+  centering changes there) — this round was scoped to the Overview grid.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

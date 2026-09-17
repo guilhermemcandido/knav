@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Position, Rect},
@@ -12,7 +14,10 @@ use crate::icons::IconCache;
 use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
-    Overview(&'a Overview, usize, (usize, usize)),
+    /// The last field is which sections are collapsed — `section` index
+    /// `0..overview.catalog.len()` for the regular sections,
+    /// `overview.catalog.len()` itself meaning "Cluster Issues".
+    Overview(&'a Overview, usize, (usize, usize), &'a HashSet<usize>),
     Pods(&'a [PodRow]),
     Deployments(&'a [DeploymentRow]),
     /// Every other resource kind — a plain namespace/name/age table,
@@ -95,8 +100,8 @@ pub fn draw(
         Rows::Deployments(deployments) => {
             draw_deployment_table(frame, frame.area(), deployments, table_state, dimmed);
         }
-        Rows::Overview(overview, scroll, selected) => {
-            draw_overview(frame, frame.area(), overview, scroll, selected, dimmed, icons);
+        Rows::Overview(overview, scroll, selected, collapsed) => {
+            draw_overview(frame, frame.area(), overview, scroll, selected, collapsed, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
             draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
@@ -471,12 +476,13 @@ fn draw_overview(
     overview: &Overview,
     scroll: usize,
     selected: (usize, usize),
+    collapsed: &HashSet<usize>,
     dimmed: bool,
     icons: &mut IconCache,
 ) {
     let chunks = Layout::vertical([Constraint::Length(METRICS_PANEL_HEIGHT), Constraint::Min(0)]).split(area);
     draw_metrics_panel(frame, chunks[0], overview, dimmed);
-    draw_catalog(frame, chunks[1], overview, scroll, selected, dimmed, icons);
+    draw_catalog(frame, chunks[1], overview, scroll, selected, collapsed, dimmed, icons);
 }
 
 /// The catalog area is whatever's left below the metrics panel — callers
@@ -566,7 +572,7 @@ fn draw_gauge(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f
     };
     let title = format!("{label}: {} / {}", format_value(used), format_value(capacity));
     let gauge = Gauge::default()
-        .block(Block::default().title(title))
+        .block(Block::default().title(title).title_alignment(Alignment::Center))
         .gauge_style(Style::default().fg(color))
         .use_unicode(true)
         .ratio(ratio);
@@ -594,7 +600,10 @@ fn format_bytes(bytes: f64) -> String {
 /// use, all built from this one shared row layout so rendering,
 /// keyboard navigation, and mouse hit-testing can't drift out of sync.
 enum CatalogRow<'a> {
-    SectionHeader(&'a str),
+    /// `section` is the collapse-toggle key — `0..overview.catalog.len()`
+    /// for a regular section, `overview.catalog.len()` for "Cluster
+    /// Issues" (pushed after the loop, so it needs a distinct index too).
+    SectionHeader { section: usize, title: &'a str, collapsed: bool },
     Tiles { section: usize, start: usize, tiles: &'a [(&'a str, usize)] },
     IssuesHeader(usize),
     IssuesEmpty,
@@ -604,7 +613,7 @@ enum CatalogRow<'a> {
 impl CatalogRow<'_> {
     fn height(&self) -> u16 {
         match self {
-            CatalogRow::SectionHeader(_) => 2,
+            CatalogRow::SectionHeader { .. } => 2,
             CatalogRow::Tiles { .. } => TILE_HEIGHT,
             CatalogRow::IssuesHeader(_) => 1,
             CatalogRow::IssuesEmpty => 3,
@@ -613,22 +622,29 @@ impl CatalogRow<'_> {
     }
 }
 
-fn build_catalog_rows<'a>(overview: &'a Overview, cols: usize) -> Vec<CatalogRow<'a>> {
+fn build_catalog_rows<'a>(overview: &'a Overview, cols: usize, collapsed: &HashSet<usize>) -> Vec<CatalogRow<'a>> {
     let mut rows: Vec<CatalogRow> = Vec::new();
     for (section_idx, (section, tiles)) in overview.catalog.iter().enumerate() {
-        rows.push(CatalogRow::SectionHeader(section));
-        for (chunk_idx, chunk) in tiles.chunks(cols.max(1)).enumerate() {
-            rows.push(CatalogRow::Tiles { section: section_idx, start: chunk_idx * cols.max(1), tiles: chunk });
+        let is_collapsed = collapsed.contains(&section_idx);
+        rows.push(CatalogRow::SectionHeader { section: section_idx, title: section, collapsed: is_collapsed });
+        if !is_collapsed {
+            for (chunk_idx, chunk) in tiles.chunks(cols.max(1)).enumerate() {
+                rows.push(CatalogRow::Tiles { section: section_idx, start: chunk_idx * cols.max(1), tiles: chunk });
+            }
         }
     }
 
-    rows.push(CatalogRow::SectionHeader("Cluster Issues"));
-    if overview.warnings.is_empty() {
-        rows.push(CatalogRow::IssuesEmpty);
-    } else {
-        rows.push(CatalogRow::IssuesHeader(overview.warnings.len()));
-        for w in &overview.warnings {
-            rows.push(CatalogRow::Issue(w));
+    let issues_section = overview.catalog.len();
+    let issues_collapsed = collapsed.contains(&issues_section);
+    rows.push(CatalogRow::SectionHeader { section: issues_section, title: "Cluster Issues", collapsed: issues_collapsed });
+    if !issues_collapsed {
+        if overview.warnings.is_empty() {
+            rows.push(CatalogRow::IssuesEmpty);
+        } else {
+            rows.push(CatalogRow::IssuesHeader(overview.warnings.len()));
+            for w in &overview.warnings {
+                rows.push(CatalogRow::Issue(w));
+            }
         }
     }
     rows
@@ -645,11 +661,29 @@ fn section_tile_count(overview: &Overview, section: usize) -> usize {
     overview.catalog.get(section).map(|(_, tiles)| tiles.len()).unwrap_or(0)
 }
 
+/// A collapsed section's tiles don't exist for navigation purposes — a
+/// keypress should never land on something that isn't actually on
+/// screen, same principle as everything else in this file.
+fn effective_tile_count(overview: &Overview, collapsed: &HashSet<usize>, section: usize) -> usize {
+    if collapsed.contains(&section) { 0 } else { section_tile_count(overview, section) }
+}
+
 /// Moves a selection one step in a direction across any 2D flow-wrapped
 /// grid of sections, given just each section's tile count — shared by
 /// the Overview catalog grid and the resource-switcher menu, which lay
 /// out identically (sections of tiles, wrapped at `cols` per row) but
 /// have different backing data types.
+/// The next section after `from` with at least one tile — skipping over
+/// any number of collapsed/empty ones in between, so crossing several of
+/// them takes one keypress, not one per section.
+fn next_nonempty_section(lens: &[usize], from: usize) -> Option<usize> {
+    (from + 1..lens.len()).find(|&i| lens[i] > 0)
+}
+
+fn prev_nonempty_section(lens: &[usize], from: usize) -> Option<usize> {
+    (0..from).rev().find(|&i| lens[i] > 0)
+}
+
 fn move_selection(section_lens: &[usize], cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
     let section_count = section_lens.len();
     if section_count == 0 {
@@ -666,42 +700,47 @@ fn move_selection(section_lens: &[usize], cols: usize, current: (usize, usize), 
         Direction::Left => {
             if col > 0 {
                 (section, tile - 1)
-            } else if section > 0 {
-                (section - 1, section_lens[section - 1].saturating_sub(1))
             } else {
-                (section, tile)
+                match prev_nonempty_section(section_lens, section) {
+                    Some(s) => (s, section_lens[s].saturating_sub(1)),
+                    None => (section, tile),
+                }
             }
         }
         Direction::Right => {
             if tile + 1 < len {
                 (section, tile + 1)
-            } else if section + 1 < section_count {
-                (section + 1, 0)
             } else {
-                (section, tile)
+                match next_nonempty_section(section_lens, section) {
+                    Some(s) => (s, 0),
+                    None => (section, tile),
+                }
             }
         }
         Direction::Up => {
             if row > 0 {
                 (section, (row - 1) * cols + col)
-            } else if section > 0 {
-                let prev_len = section_lens[section - 1];
-                let prev_rows = prev_len.div_ceil(cols).max(1);
-                let target = ((prev_rows - 1) * cols + col).min(prev_len.saturating_sub(1));
-                (section - 1, target)
             } else {
-                (section, tile)
+                match prev_nonempty_section(section_lens, section) {
+                    Some(s) => {
+                        let prev_len = section_lens[s];
+                        let prev_rows = prev_len.div_ceil(cols).max(1);
+                        let target = ((prev_rows - 1) * cols + col).min(prev_len.saturating_sub(1));
+                        (s, target)
+                    }
+                    None => (section, tile),
+                }
             }
         }
         Direction::Down => {
             let next = (row + 1) * cols + col;
             if next < len {
                 (section, next)
-            } else if section + 1 < section_count {
-                let next_len = section_lens[section + 1];
-                (section + 1, col.min(next_len.saturating_sub(1)))
             } else {
-                (section, tile)
+                match next_nonempty_section(section_lens, section) {
+                    Some(s) => (s, col.min(section_lens[s].saturating_sub(1))),
+                    None => (section, tile),
+                }
             }
         }
     }
@@ -711,8 +750,14 @@ fn move_selection(section_lens: &[usize], cols: usize, current: (usize, usize), 
 /// flow-wrapped grid `build_catalog_rows` lays out for rendering — so a
 /// keypress always lands on a tile that's actually adjacent on screen,
 /// including crossing from one section into the next.
-pub fn move_tile_selection(overview: &Overview, cols: usize, current: (usize, usize), dir: Direction) -> (usize, usize) {
-    let lens: Vec<usize> = (0..overview.catalog.len()).map(|i| section_tile_count(overview, i)).collect();
+pub fn move_tile_selection(
+    overview: &Overview,
+    collapsed: &HashSet<usize>,
+    cols: usize,
+    current: (usize, usize),
+    dir: Direction,
+) -> (usize, usize) {
+    let lens: Vec<usize> = (0..overview.catalog.len()).map(|i| effective_tile_count(overview, collapsed, i)).collect();
     move_selection(&lens, cols, current, dir)
 }
 
@@ -735,7 +780,7 @@ pub fn menu_cols(frame_area: Rect) -> usize {
 
 /// Which virtual row (in `build_catalog_rows`'s numbering) a given tile
 /// lands on — used to keep the selection scrolled into view.
-fn row_index_of_tile(overview: &Overview, cols: usize, target: (usize, usize)) -> usize {
+fn row_index_of_tile(overview: &Overview, collapsed: &HashSet<usize>, cols: usize, target: (usize, usize)) -> usize {
     let cols = cols.max(1);
     let mut index = 0;
     for (section_idx, (_, tiles)) in overview.catalog.iter().enumerate() {
@@ -743,7 +788,9 @@ fn row_index_of_tile(overview: &Overview, cols: usize, target: (usize, usize)) -
         if section_idx == target.0 {
             return index + target.1 / cols;
         }
-        index += tiles.len().div_ceil(cols).max(1);
+        if !collapsed.contains(&section_idx) {
+            index += tiles.len().div_ceil(cols).max(1);
+        }
     }
     index
 }
@@ -752,12 +799,19 @@ fn row_index_of_tile(overview: &Overview, cols: usize, target: (usize, usize)) -
 /// visible within `area_height` — scrolls up immediately if the
 /// selection moved above the visible window, or forward just far enough
 /// if it moved below it.
-pub fn scroll_to_show(overview: &Overview, cols: usize, area_height: u16, scroll: usize, selected: (usize, usize)) -> usize {
-    let target_row = row_index_of_tile(overview, cols, selected);
+pub fn scroll_to_show(
+    overview: &Overview,
+    collapsed: &HashSet<usize>,
+    cols: usize,
+    area_height: u16,
+    scroll: usize,
+    selected: (usize, usize),
+) -> usize {
+    let target_row = row_index_of_tile(overview, collapsed, cols, selected);
     if target_row < scroll {
         return target_row;
     }
-    let rows = build_catalog_rows(overview, cols);
+    let rows = build_catalog_rows(overview, cols, collapsed);
     let last = target_row.min(rows.len().saturating_sub(1));
     let mut new_scroll = scroll;
     while new_scroll < last {
@@ -770,18 +824,29 @@ pub fn scroll_to_show(overview: &Overview, cols: usize, area_height: u16, scroll
     new_scroll
 }
 
+/// The same tile-row column layout `draw_tiles_row` renders with —
+/// centered within the available width via a `Fill(1)` on each side,
+/// rather than packed flush-left with the leftover space trailing on the
+/// right. Shared so hit-testing (`tile_at`) can't drift from render.
+fn tile_row_constraints(tile_count: usize) -> Vec<Constraint> {
+    let mut constraints = vec![Constraint::Fill(1)];
+    constraints.extend((0..tile_count).map(|_| Constraint::Length(TILE_WIDTH)));
+    constraints.push(Constraint::Fill(1));
+    constraints
+}
+
 /// Which tile (if any) sits under an absolute terminal position — same
 /// row-walking approach as `row_at` for the pod table, replaying
 /// `build_catalog_rows` and the same `Layout::horizontal` column split
 /// `draw_tiles_row` actually renders with, so a click always resolves to
 /// what's really on screen.
-pub fn tile_at(frame_area: Rect, overview: &Overview, scroll: usize, column: u16, row: u16) -> Option<(usize, usize)> {
+pub fn tile_at(frame_area: Rect, overview: &Overview, collapsed: &HashSet<usize>, scroll: usize, column: u16, row: u16) -> Option<(usize, usize)> {
     let area = catalog_area(frame_area);
     if row < area.y || row >= area.y + area.height {
         return None;
     }
     let cols = tile_cols(area.width);
-    let rows = build_catalog_rows(overview, cols);
+    let rows = build_catalog_rows(overview, cols, collapsed);
     let scroll = scroll.min(rows.len().saturating_sub(1));
 
     let mut y = area.y;
@@ -792,12 +857,12 @@ pub fn tile_at(frame_area: Rect, overview: &Overview, scroll: usize, column: u16
         }
         if row >= y && row < y + h {
             if let CatalogRow::Tiles { section, start, tiles } = r {
-                let mut constraints: Vec<Constraint> = tiles.iter().map(|_| Constraint::Length(TILE_WIDTH)).collect();
-                constraints.push(Constraint::Min(0));
-                let tile_areas = Layout::horizontal(constraints).split(Rect { x: area.x, y, width: area.width, height: h });
-                for (i, tile_area) in tile_areas.iter().enumerate().take(tiles.len()) {
+                let tile_areas =
+                    Layout::horizontal(tile_row_constraints(tiles.len())).split(Rect { x: area.x, y, width: area.width, height: h });
+                // Index 0 is the leading `Fill(1)` padding — tiles start at 1.
+                for (i, tile_area) in tile_areas.iter().enumerate().skip(1).take(tiles.len()) {
                     if column >= tile_area.x && column < tile_area.x + tile_area.width {
-                        return Some((*section, start + i));
+                        return Some((*section, start + i - 1));
                     }
                 }
             }
@@ -808,9 +873,48 @@ pub fn tile_at(frame_area: Rect, overview: &Overview, scroll: usize, column: u16
     None
 }
 
-fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, selected: (usize, usize), dimmed: bool, icons: &mut IconCache) {
+/// Which section header (if any) sits under an absolute terminal
+/// position — same row-walking approach as `tile_at`, for click-to-
+/// toggle. The returned index is the same collapse-toggle key
+/// `build_catalog_rows` uses (`overview.catalog.len()` means "Cluster
+/// Issues"). A header spans the whole row, so unlike `tile_at` there's
+/// no column check needed beyond "is this row a header at all."
+pub fn header_at(frame_area: Rect, overview: &Overview, collapsed: &HashSet<usize>, scroll: usize, row: u16) -> Option<usize> {
+    let area = catalog_area(frame_area);
+    if row < area.y || row >= area.y + area.height {
+        return None;
+    }
     let cols = tile_cols(area.width);
-    let rows = build_catalog_rows(overview, cols);
+    let rows = build_catalog_rows(overview, cols, collapsed);
+    let scroll = scroll.min(rows.len().saturating_sub(1));
+
+    let mut y = area.y;
+    for r in rows.iter().skip(scroll) {
+        let h = r.height();
+        if y + h > area.y + area.height {
+            break;
+        }
+        if row >= y && row < y + h {
+            return if let CatalogRow::SectionHeader { section, .. } = r { Some(*section) } else { None };
+        }
+        y += h;
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_catalog(
+    frame: &mut Frame,
+    area: Rect,
+    overview: &Overview,
+    scroll: usize,
+    selected: (usize, usize),
+    collapsed: &HashSet<usize>,
+    dimmed: bool,
+    icons: &mut IconCache,
+) {
+    let cols = tile_cols(area.width);
+    let rows = build_catalog_rows(overview, cols, collapsed);
 
     let scroll = scroll.min(rows.len().saturating_sub(1));
     let mut y = area.y;
@@ -821,7 +925,7 @@ fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usiz
         }
         let row_area = Rect { x: area.x, y, width: area.width, height: h };
         match row {
-            CatalogRow::SectionHeader(title) => draw_section_header(frame, row_area, title, dimmed),
+            CatalogRow::SectionHeader { title, collapsed, .. } => draw_section_header(frame, row_area, title, *collapsed, dimmed),
             CatalogRow::Tiles { section, start, tiles } => {
                 draw_tiles_row(frame, row_area, tiles, *section, *start, selected, dimmed, icons)
             }
@@ -833,10 +937,27 @@ fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usiz
     }
 }
 
-fn draw_section_header(frame: &mut Frame, area: Rect, title: &str, dimmed: bool) {
-    let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+/// A centered, defined divider: `───── ▾ Title ▾ ─────`, the collapse
+/// indicator mirroring the spec tree's own `▸`(closed)/`▾`(open)
+/// convention so the two collapsible things in the app read consistently.
+fn draw_section_header(frame: &mut Frame, area: Rect, title: &str, collapsed: bool, dimmed: bool) {
+    let text_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+    let rule_style = Style::default().fg(Color::DarkGray);
+    let indicator = if collapsed { "▸" } else { "▾" };
+    let label = format!(" {indicator} {title} {indicator} ");
+
+    let width = area.width as usize;
+    let pad = width.saturating_sub(label.chars().count());
+    let left = pad / 2;
+    let right = pad - left;
+    let line = Line::from(vec![
+        Span::styled("─".repeat(left), rule_style),
+        Span::styled(label, text_style),
+        Span::styled("─".repeat(right), rule_style),
+    ]);
+
     let lines = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
-    frame.render_widget(Paragraph::new(Line::styled(format!("── {title} "), style)), lines[1]);
+    frame.render_widget(Paragraph::new(line), lines[1]);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -850,12 +971,12 @@ fn draw_tiles_row(
     dimmed: bool,
     icons: &mut IconCache,
 ) {
-    let mut constraints: Vec<Constraint> = tiles.iter().map(|_| Constraint::Length(TILE_WIDTH)).collect();
-    constraints.push(Constraint::Min(0));
-    let areas = Layout::horizontal(constraints).split(area);
+    let areas = Layout::horizontal(tile_row_constraints(tiles.len())).split(area);
+    // Index 0 is the leading `Fill(1)` padding that centers the row —
+    // tiles start at 1 (see `tile_row_constraints`).
     for (i, (label, count)) in tiles.iter().enumerate() {
         let is_selected = !dimmed && selected == (section, start + i);
-        draw_tile(frame, areas[i], label, *count, is_selected, dimmed, icons);
+        draw_tile(frame, areas[i + 1], label, *count, is_selected, dimmed, icons);
     }
 }
 
@@ -1315,29 +1436,33 @@ mod tile_selection_tests {
         }
     }
 
+    fn none_collapsed() -> HashSet<usize> {
+        HashSet::new()
+    }
+
     #[test]
     fn right_moves_within_row() {
         let overview = test_overview(vec![("A", vec![("t1", 0), ("t2", 0), ("t3", 0)])]);
-        assert_eq!(move_tile_selection(&overview, 3, (0, 0), Direction::Right), (0, 1));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 3, (0, 0), Direction::Right), (0, 1));
     }
 
     #[test]
     fn right_at_last_tile_of_section_crosses_into_next_section() {
         let overview = test_overview(vec![("A", vec![("t1", 0)]), ("B", vec![("t2", 0)])]);
-        assert_eq!(move_tile_selection(&overview, 3, (0, 0), Direction::Right), (1, 0));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 3, (0, 0), Direction::Right), (1, 0));
     }
 
     #[test]
     fn left_at_first_tile_crosses_into_previous_section_last_tile() {
         let overview = test_overview(vec![("A", vec![("t1", 0), ("t2", 0)]), ("B", vec![("t3", 0)])]);
-        assert_eq!(move_tile_selection(&overview, 3, (1, 0), Direction::Left), (0, 1));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 3, (1, 0), Direction::Left), (0, 1));
     }
 
     #[test]
     fn down_moves_to_next_row_within_section() {
         // cols=2: row0=[t1,t2], row1=[t3,t4]
         let overview = test_overview(vec![("A", vec![("t1", 0), ("t2", 0), ("t3", 0), ("t4", 0)])]);
-        assert_eq!(move_tile_selection(&overview, 2, (0, 0), Direction::Down), (0, 2));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 2, (0, 0), Direction::Down), (0, 2));
     }
 
     #[test]
@@ -1345,13 +1470,30 @@ mod tile_selection_tests {
         // Section A (3 tiles, cols=2): row0=[a1,a2], row1=[a3]. Section B: row0=[b1].
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0), ("a3", 0)]), ("B", vec![("b1", 0)])]);
         // From B's b1 (col 0), Up should land on A's last row at col 0 -> a3 (index 2).
-        assert_eq!(move_tile_selection(&overview, 2, (1, 0), Direction::Up), (0, 2));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 2, (1, 0), Direction::Up), (0, 2));
     }
 
     #[test]
     fn movement_clamps_at_the_very_first_and_last_tile() {
         let overview = test_overview(vec![("A", vec![("t1", 0), ("t2", 0)])]);
-        assert_eq!(move_tile_selection(&overview, 2, (0, 0), Direction::Left), (0, 0));
-        assert_eq!(move_tile_selection(&overview, 2, (0, 1), Direction::Right), (0, 1));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 2, (0, 0), Direction::Left), (0, 0));
+        assert_eq!(move_tile_selection(&overview, &none_collapsed(), 2, (0, 1), Direction::Right), (0, 1));
+    }
+
+    #[test]
+    fn collapsed_section_is_skipped_entirely_by_right() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)]), ("C", vec![("c1", 0)])]);
+        let collapsed: HashSet<usize> = [1].into_iter().collect();
+        // From A's only tile, Right should skip straight past collapsed B into C.
+        assert_eq!(move_tile_selection(&overview, &collapsed, 3, (0, 0), Direction::Right), (2, 0));
+    }
+
+    #[test]
+    fn build_catalog_rows_omits_tiles_for_a_collapsed_section() {
+        let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
+        let collapsed: HashSet<usize> = [0].into_iter().collect();
+        let rows = build_catalog_rows(&overview, 2, &collapsed);
+        assert!(!rows.iter().any(|r| matches!(r, CatalogRow::Tiles { .. })));
+        assert!(matches!(rows.first(), Some(CatalogRow::SectionHeader { collapsed: true, .. })));
     }
 }
