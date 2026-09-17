@@ -5,13 +5,13 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
 use crate::icons::IconCache;
-use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
+use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, NodeRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
     /// The last field is which sections are collapsed — `section` index
@@ -20,6 +20,10 @@ pub enum Rows<'a> {
     Overview(&'a Overview, usize, (usize, usize), &'a HashSet<usize>),
     Pods(&'a [PodRow]),
     Deployments(&'a [DeploymentRow]),
+    /// Nodes get their own specialized columns (CPU/Memory usage right
+    /// in the list, not just after drilling into one) instead of the
+    /// generic Namespace/Name/Age table every other kind uses.
+    Nodes(&'a [NodeRow]),
     /// Every other resource kind — a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
     Generic(&'a [GenericRow], &'static str),
@@ -121,6 +125,9 @@ pub fn draw(
         }
         Rows::Deployments(deployments) => {
             draw_deployment_table(frame, frame.area(), deployments, table_state, dimmed);
+        }
+        Rows::Nodes(nodes) => {
+            draw_nodes_table(frame, frame.area(), nodes, table_state, dimmed);
         }
         Rows::Overview(overview, scroll, selected, collapsed) => {
             draw_overview(frame, frame.area(), overview, scroll, selected, collapsed, dimmed, icons);
@@ -401,6 +408,89 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
     frame.render_stateful_widget(table, area, table_state);
 }
 
+/// A compact inline usage bar for a table cell: `▓▓▓░░░░░ 34%`, or
+/// `n/a` in gray when metrics-server isn't installed. Same block-style
+/// bar `draw_meter` uses for the full-width Cluster Resources meters,
+/// just narrow enough to fit a column.
+fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
+    const WIDTH: usize = 10;
+    let Some(used) = used else {
+        return Line::styled("n/a", Style::default().fg(Color::DarkGray));
+    };
+    let ratio = if capacity > 0 { (used as f64 / capacity as f64).clamp(0.0, 1.0) } else { 0.0 };
+    let filled = (ratio * WIDTH as f64).round() as usize;
+    let color = usage_color(ratio, dimmed);
+    Line::from(vec![
+        Span::styled("▓".repeat(filled), Style::default().fg(color)),
+        Span::styled("░".repeat(WIDTH - filled), Style::default().fg(Color::DarkGray)),
+        Span::raw(format!(" {:.0}%", ratio * 100.0)),
+    ])
+}
+
+fn usage_color(ratio: f64, dimmed: bool) -> Color {
+    if dimmed {
+        Color::DarkGray
+    } else if ratio > 0.9 {
+        Color::Red
+    } else if ratio > 0.7 {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
+fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, dimmed: bool) {
+    let muted = Style::default().fg(Color::DarkGray);
+    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let border_style = if dimmed { muted } else { Style::default() };
+    let cell_style = if dimmed { muted } else { Style::default() };
+
+    let header = Row::new(vec!["NAME", "STATUS", "CPU", "MEMORY", "PODS", "AGE"]).style(header_style);
+
+    let rows = nodes.iter().map(|n| {
+        let status_style = if dimmed {
+            muted
+        } else if n.ready {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Red)
+        };
+        Row::new(vec![
+            Cell::from(n.name.clone()).style(cell_style),
+            Cell::from(if n.ready { "Ready" } else { "NotReady" }).style(status_style),
+            Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
+            Cell::from(usage_bar(n.memory_bytes, n.memory_capacity, dimmed)),
+            Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)).style(cell_style),
+            Cell::from(n.age.clone()).style(cell_style),
+        ])
+    });
+
+    let widths = [
+        Constraint::Fill(2),
+        Constraint::Length(9),
+        Constraint::Length(16),
+        Constraint::Length(16),
+        Constraint::Length(9),
+        Constraint::Length(5),
+    ];
+
+    let title = format!("Nodes ({})  —  j/k: move  enter: what's running  d: spec  m: switch resource  q: quit", nodes.len());
+
+    let highlight_style = if dimmed {
+        muted
+    } else {
+        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+    };
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .row_highlight_style(highlight_style)
+        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+
+    frame.render_stateful_widget(table, area, table_state);
+}
+
 /// The shared table for every resource kind that doesn't get specialized
 /// columns — Namespace/Name/Age is all that's generically knowable about
 /// an arbitrary Kubernetes object.
@@ -481,19 +571,21 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)],
     frame.render_stateful_widget(table, area, table_state);
 }
 
-const TILE_WIDTH: u16 = 18;
-/// 2 border rows + a 3-row-tall icon area + a count line + a label line.
-const TILE_HEIGHT: u16 = 7;
-const TILE_ICON_HEIGHT: u16 = 3;
-pub const METRICS_PANEL_HEIGHT: u16 = 7;
-
-/// The home screen: a cluster-resources panel on top (CPU/Memory/Pods
-/// gauges — "metrics unavailable" if metrics-server isn't installed,
-/// same fallback k9s/Freelens use), then a scrollable, flow-wrapping
-/// grid of resource-kind tiles below, grouped into sections
-/// (Freelens-style categories), ending with the Cluster Issues list
-/// (Node warning conditions + Warning events — verified against
-/// Freelens's actual `cluster-issues.tsx` source).
+// Bigger than the original 18×7 — small tiles made the rounded corners
+// barely register at all; more room also means a genuinely bigger icon
+// (`centered_square` scales with `TILE_ICON_HEIGHT`), not just a bigger
+// empty box.
+const TILE_WIDTH: u16 = 22;
+/// 2 border rows + a 4-row-tall icon area + a count line + a label line.
+const TILE_HEIGHT: u16 = 8;
+const TILE_ICON_HEIGHT: u16 = 4;
+/// The home screen: a scrollable, flow-wrapping grid of resource-kind
+/// tiles grouped into sections (Freelens-style categories), starting
+/// with a "Cluster Resources" section of CPU/Memory/Pods meters and
+/// ending with the Cluster Issues list (Node warning conditions +
+/// Warning events — verified against Freelens's actual
+/// `cluster-issues.tsx` source). Every section, including the meters,
+/// scrolls and collapses the same way — nothing is pinned.
 #[allow(clippy::too_many_arguments)]
 fn draw_overview(
     frame: &mut Frame,
@@ -505,44 +597,31 @@ fn draw_overview(
     dimmed: bool,
     icons: &mut IconCache,
 ) {
-    let chunks = Layout::vertical([Constraint::Length(METRICS_PANEL_HEIGHT), Constraint::Min(0)]).split(area);
-    draw_metrics_panel(frame, chunks[0], overview, dimmed);
-    draw_catalog(frame, chunks[1], overview, scroll, selected, collapsed, dimmed, icons);
+    draw_catalog(frame, area, overview, scroll, selected, collapsed, dimmed, icons);
 }
 
-/// The catalog area is whatever's left below the metrics panel — callers
-/// (keyboard navigation, mouse hit-testing) need this same rectangle to
-/// stay in sync with what's actually rendered.
+/// The catalog occupies the whole Overview area now that the meters
+/// scroll with everything else instead of being pinned above it —
+/// callers (keyboard navigation, mouse hit-testing) need this same
+/// rectangle to stay in sync with what's actually rendered.
 pub fn catalog_area(frame_area: Rect) -> Rect {
-    Rect {
-        x: frame_area.x,
-        y: frame_area.y + METRICS_PANEL_HEIGHT,
-        width: frame_area.width,
-        height: frame_area.height.saturating_sub(METRICS_PANEL_HEIGHT),
-    }
+    frame_area
 }
 
 pub fn tile_cols(width: u16) -> usize {
     (width / TILE_WIDTH).max(1) as usize
 }
 
-fn draw_metrics_panel(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
-    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(border_style)
-        .title("Cluster Resources");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+/// The CPU/Memory/Pods meters, one per line — the "Cluster Resources"
+/// section's content, `metrics_section`'s divider header supplying the
+/// name so there's no separate title/border needed here.
+fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
     if !overview.metrics_available {
         let text = vec![
-            Line::raw(""),
             Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
             Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(Color::DarkGray)),
         ];
-        frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), inner);
+        frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
         return;
     }
 
@@ -554,54 +633,54 @@ fn draw_metrics_panel(frame: &mut Frame, area: Rect, overview: &Overview, dimmed
         .map(|(_, count)| *count)
         .unwrap_or(0);
 
-    let gauge_areas = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(inner);
-    draw_gauge(
+    let lines = Layout::vertical([Constraint::Length(1); 3]).split(area);
+    draw_meter(
         frame,
-        gauge_areas[0],
+        lines[0],
         "CPU",
         overview.cpu_usage_millicores as f64,
         overview.cpu_capacity_millicores as f64,
         |v| format!("{:.2} cores", v / 1000.0),
         dimmed,
     );
-    draw_gauge(
+    draw_meter(
         frame,
-        gauge_areas[1],
+        lines[1],
         "Memory",
         overview.memory_usage_bytes as f64,
         overview.memory_capacity_bytes as f64,
         format_bytes,
         dimmed,
     );
-    draw_gauge(
-        frame,
-        gauge_areas[2],
-        "Pods",
-        pod_usage as f64,
-        overview.pod_capacity as f64,
-        |v| format!("{v:.0}"),
-        dimmed,
-    );
+    draw_meter(frame, lines[2], "Pods", pod_usage as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
 }
 
-fn draw_gauge(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
+/// A single-line usage meter: `CPU     ▓▓▓▓▓▓░░░░░░░░░░░░░░░░  71m / 2000m (3%)`.
+/// Hand-built instead of ratatui's `Gauge` widget, which bakes in its own
+/// centered percentage label — impossible to turn off without also
+/// losing the ability to show the actual used/capacity numbers, so the
+/// two labels ended up overlapping/duplicating. The bar width adapts to
+/// whatever space is actually available instead of being fixed.
+fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
     let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
-    let color = if dimmed {
-        Color::DarkGray
-    } else if ratio > 0.9 {
-        Color::Red
-    } else if ratio > 0.7 {
-        Color::Yellow
-    } else {
-        Color::Green
-    };
-    let title = format!("{label}: {} / {}", format_value(used), format_value(capacity));
-    let gauge = Gauge::default()
-        .block(Block::default().title(title).title_alignment(Alignment::Center))
-        .gauge_style(Style::default().fg(color))
-        .use_unicode(true)
-        .ratio(ratio);
-    frame.render_widget(gauge, area);
+    let color = usage_color(ratio, dimmed);
+    let detail = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
+
+    let label_text = format!("{label:<8}");
+    let reserved = label_text.chars().count() as u16 + detail.chars().count() as u16 + 3;
+    let bar_width = area.width.saturating_sub(reserved).max(4) as usize;
+    let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
+
+    let label_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+    let detail_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+
+    let line = Line::from(vec![
+        Span::styled(label_text, label_style),
+        Span::styled("▓".repeat(filled), Style::default().fg(color)),
+        Span::styled("░".repeat(bar_width - filled), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" {detail}"), detail_style),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
 }
 
 fn format_bytes(bytes: f64) -> String {
@@ -629,6 +708,11 @@ enum CatalogRow<'a> {
     /// for a regular section, `overview.catalog.len()` for "Cluster
     /// Issues" (pushed after the loop, so it needs a distinct index too).
     SectionHeader { section: usize, title: &'a str, collapsed: bool },
+    /// The CPU/Memory/Pods meters — scrolls away like everything else
+    /// instead of staying pinned above the catalog. `available` mirrors
+    /// `Overview::metrics_available` (needed here since `height()` has
+    /// no other access to `overview`).
+    Metrics { available: bool },
     Tiles { section: usize, start: usize, tiles: &'a [(&'a str, usize)] },
     IssuesHeader(usize),
     IssuesEmpty,
@@ -639,6 +723,8 @@ impl CatalogRow<'_> {
     fn height(&self) -> u16 {
         match self {
             CatalogRow::SectionHeader { .. } => 2,
+            CatalogRow::Metrics { available: true } => 3,
+            CatalogRow::Metrics { available: false } => 2,
             CatalogRow::Tiles { .. } => TILE_HEIGHT,
             CatalogRow::IssuesHeader(_) => 1,
             CatalogRow::IssuesEmpty => 3,
@@ -647,8 +733,25 @@ impl CatalogRow<'_> {
     }
 }
 
+/// Collapse-toggle key for the "Cluster Resources" meters header — one
+/// past "Cluster Issues" (`overview.catalog.len()`), keeping both outside
+/// the `0..overview.catalog.len()` range `move_tile_selection` actually
+/// navigates (they're headers you can only toggle by mouse/Tab-on-a-
+/// tile's-own-section, not tiles themselves).
+fn metrics_section(overview: &Overview) -> usize {
+    overview.catalog.len() + 1
+}
+
 fn build_catalog_rows<'a>(overview: &'a Overview, cols: usize, collapsed: &HashSet<usize>) -> Vec<CatalogRow<'a>> {
     let mut rows: Vec<CatalogRow> = Vec::new();
+
+    let metrics_idx = metrics_section(overview);
+    let metrics_collapsed = collapsed.contains(&metrics_idx);
+    rows.push(CatalogRow::SectionHeader { section: metrics_idx, title: "Cluster Resources", collapsed: metrics_collapsed });
+    if !metrics_collapsed {
+        rows.push(CatalogRow::Metrics { available: overview.metrics_available });
+    }
+
     for (section_idx, (section, tiles)) in overview.catalog.iter().enumerate() {
         let is_collapsed = collapsed.contains(&section_idx);
         rows.push(CatalogRow::SectionHeader { section: section_idx, title: section, collapsed: is_collapsed });
@@ -951,6 +1054,7 @@ fn draw_catalog(
         let row_area = Rect { x: area.x, y, width: area.width, height: h };
         match row {
             CatalogRow::SectionHeader { title, collapsed, .. } => draw_section_header(frame, row_area, title, *collapsed, dimmed),
+            CatalogRow::Metrics { .. } => draw_metrics_lines(frame, row_area, overview, dimmed),
             CatalogRow::Tiles { section, start, tiles } => {
                 let section_title = overview.catalog.get(*section).map(|(t, _)| *t).unwrap_or("");
                 draw_tiles_row(frame, row_area, tiles, *section, *start, section_title, selected, dimmed, icons)
@@ -1204,14 +1308,14 @@ fn draw_node_detail_popup(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let chunks = Layout::vertical([Constraint::Length(4), Constraint::Min(0)]).split(inner);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
 
     match (cpu_usage, memory_usage) {
         (Some(cpu), Some(mem)) => {
-            let gauge_areas = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(chunks[0]);
-            draw_gauge(frame, gauge_areas[0], "CPU", cpu as f64, cpu_capacity as f64, |v| format!("{:.2} cores", v / 1000.0), false);
-            draw_gauge(frame, gauge_areas[1], "Memory", mem as f64, memory_capacity as f64, format_bytes, false);
-            draw_gauge(frame, gauge_areas[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), false);
+            let lines = Layout::vertical([Constraint::Length(1); 3]).split(chunks[0]);
+            draw_meter(frame, lines[0], "CPU", cpu as f64, cpu_capacity as f64, |v| format!("{:.2} cores", v / 1000.0), false);
+            draw_meter(frame, lines[1], "Memory", mem as f64, memory_capacity as f64, format_bytes, false);
+            draw_meter(frame, lines[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), false);
         }
         _ => {
             let text = Paragraph::new(Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)))
@@ -1572,11 +1676,26 @@ mod tile_selection_tests {
     }
 
     #[test]
+    fn metrics_row_present_by_default_and_omitted_when_collapsed() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)])]);
+        let shown = build_catalog_rows(&overview, 2, &HashSet::new());
+        assert!(shown.iter().any(|r| matches!(r, CatalogRow::Metrics { .. })));
+
+        let metrics_idx = metrics_section(&overview);
+        let collapsed: HashSet<usize> = [metrics_idx].into_iter().collect();
+        let hidden = build_catalog_rows(&overview, 2, &collapsed);
+        assert!(!hidden.iter().any(|r| matches!(r, CatalogRow::Metrics { .. })));
+        assert!(hidden.iter().any(|r| matches!(r,
+            CatalogRow::SectionHeader { section, title, collapsed: true } if *section == metrics_idx && *title == "Cluster Resources"
+        )));
+    }
+
+    #[test]
     fn build_catalog_rows_omits_tiles_for_a_collapsed_section() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         let collapsed: HashSet<usize> = [0].into_iter().collect();
         let rows = build_catalog_rows(&overview, 2, &collapsed);
         assert!(!rows.iter().any(|r| matches!(r, CatalogRow::Tiles { .. })));
-        assert!(matches!(rows.first(), Some(CatalogRow::SectionHeader { collapsed: true, .. })));
+        assert!(rows.iter().any(|r| matches!(r, CatalogRow::SectionHeader { section: 0, collapsed: true, .. })));
     }
 }

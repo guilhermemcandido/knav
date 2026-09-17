@@ -593,6 +593,48 @@ pub fn node_capacity(node: &Node) -> NodeCapacity {
     }
 }
 
+/// A row for the Nodes list — unlike the ~20 generic Namespace/Name/Age
+/// kinds, Nodes gets its own specialized columns so usage is visible
+/// right there in the list, not just after drilling into one
+/// (`cpu_millicores`/`memory_bytes` are `None` when metrics-server isn't
+/// installed, same "unavailable" fallback as everywhere else).
+pub struct NodeRow {
+    pub name: String,
+    pub ready: bool,
+    pub cpu_millicores: Option<i64>,
+    pub cpu_capacity: i64,
+    pub memory_bytes: Option<i64>,
+    pub memory_capacity: i64,
+    pub pod_count: usize,
+    pub pod_capacity: i64,
+    pub age: String,
+}
+
+pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_count: usize) -> NodeRow {
+    let name = node.metadata.name.clone().unwrap_or_default();
+    let ready = node
+        .status
+        .as_ref()
+        .and_then(|s| s.conditions.as_ref())
+        .and_then(|conds| conds.iter().find(|c| c.type_ == "Ready"))
+        .map(|c| c.status == "True")
+        .unwrap_or(false);
+    let capacity = node_capacity(node);
+    let age = node.metadata.creation_timestamp.as_ref().map(|t| humanize_age(t.0)).unwrap_or_else(|| "-".into());
+
+    NodeRow {
+        name,
+        ready,
+        cpu_millicores: usage.map(|u| u.cpu_millicores),
+        cpu_capacity: capacity.cpu_millicores,
+        memory_bytes: usage.map(|u| u.memory_bytes),
+        memory_capacity: capacity.memory_bytes,
+        pod_count,
+        pod_capacity: capacity.pods,
+        age,
+    }
+}
+
 pub fn overview(
     nodes: &[Arc<Node>],
     events: &[Arc<Event>],

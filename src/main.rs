@@ -367,6 +367,22 @@ fn run(
             Vec::new()
         };
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
+        // Nodes get their own specialized rows (CPU/Memory visible right
+        // in the list) instead of the generic Namespace/Name/Age table.
+        // Sorted the same way `snapshot_generic` sorts the generic Nodes
+        // catalog entry, so this stays index-aligned with `generic_rows`
+        // for the 'd' (spec) key, which still goes through that entry.
+        let sorted_nodes = k8s::snapshot_generic(node_store);
+        let node_rows: Vec<k8s::NodeRow> = sorted_nodes
+            .iter()
+            .map(|n| {
+                let name = n.metadata.name.clone().unwrap_or_default();
+                let node_usage = usage.as_ref().and_then(|u| u.for_node(&name));
+                let pod_count =
+                    pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name.as_str())).count();
+                k8s::node_row(n, node_usage, pod_count)
+            })
+            .collect();
         let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
         let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
         // Only ever populated for whatever kind is currently on screen —
@@ -391,6 +407,7 @@ fn run(
             ResourceKind::Overview => overview.warnings.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
+            ResourceKind::Nodes => node_rows.len(),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
             _ => generic_rows.len(),
         };
@@ -415,6 +432,7 @@ fn run(
             ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected, &overview_collapsed),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
+            ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, current_kind.label()),
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };

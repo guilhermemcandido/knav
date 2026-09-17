@@ -1051,6 +1051,79 @@ instead of one flat tile/list, and make the interface generally cleaner
   the icon area anyway, and guessing further polish without being able
   to see the actual rendering risked making things worse, not better.
 
+## Done since last update (2026-09-18, later still #2) — un-pin the metrics bar, redo CPU/Mem visuals, live node usage in the list
+
+Three complaints in one message: the "top bar" (Cluster Resources
+panel) shouldn't be permanently pinned above the scroll, the CPU/Memory
+representation itself looked bad, and Node usage should be visible in
+the Nodes list itself, not just after pressing Enter. Also asked for
+bigger, rounder tiles.
+
+### Metrics: no longer pinned, and redrawn
+
+- [x] The metrics panel was a fixed `Constraint::Length` chunk sitting
+  above a separately-scrolled catalog area — now it's just the first
+  entry in the same scrollable row list everything else uses
+  (`CatalogRow::Metrics`), under its own "Cluster Resources" divider
+  header, collapsible exactly like every other section. `catalog_area`
+  now just returns the full frame — there's no separate pinned region
+  left to carve out.
+- [x] Replaced ratatui's `Gauge` widget with a hand-built single-line
+  meter (`draw_meter`): `CPU     ▓▓▓▓▓▓░░░░░░░░░░░░░░░░  71m / 2000m (3%)`.
+  The actual problem with the old version: `Gauge` bakes in its own
+  centered percentage label with no way to turn it off except by also
+  losing the ability to show real used/capacity numbers — our own title
+  text and the gauge's own auto-label ended up overlapping/duplicating.
+  The new meter is one clean line, bar width adapts to whatever space is
+  available, colored green/yellow/red by usage same as before.
+- [x] Reused `draw_meter` for the NodeDetail popup's gauges too (was
+  still on the old `Gauge`-based `draw_gauge`, now deleted along with
+  the `Gauge` import) — one consistent representation everywhere CPU/
+  Memory shows up.
+
+### Nodes list shows usage without opening a node
+
+- [x] `k8s::NodeRow`/`k8s::node_row()` — Nodes now get their own
+  specialized table (`ResourceKind::Nodes` → `Rows::Nodes`, not the
+  generic Namespace/Name/Age one) with NAME/STATUS/CPU/MEMORY/PODS/AGE
+  columns. CPU/MEMORY show a compact inline bar (`usage_bar`, 10 chars
+  wide) right in the list — no need to press Enter first anymore.
+  STATUS reflects the real `Ready` node condition (green/red).
+  `usage_bar` shows `n/a` when metrics-server isn't installed.
+  Sourced from `k8s::snapshot_generic(node_store)` — the exact same
+  sorted list the generic Nodes catalog entry already uses internally —
+  so the new specialized rows stay index-aligned with `generic_rows`
+  for the existing `d` (spec) key, no changes needed there.
+- [x] Verified against the live cluster with a disposable scratch
+  binary: Ready status, ~47% memory (matched `kubectl top nodes`'s
+  46%), and 16/110 pods all correct.
+
+### Bigger tiles
+
+- [x] `TILE_WIDTH` 18→22, `TILE_HEIGHT` 7→8, `TILE_ICON_HEIGHT` 3→4 —
+  more room overall, and a genuinely bigger icon too since
+  `centered_square` scales with `TILE_ICON_HEIGHT`, not just a bigger
+  empty box around the same size image.
+- [x] Worth being upfront about a real constraint: a terminal is a
+  monospace character grid, and `BorderType::Rounded` only swaps the
+  four corner *characters* (`┌┐└┘` → `╭╮╰╯`) — there's no way to get a
+  larger-radius "chunky" rounded corner the way a GUI can, no matter how
+  big the box is. Bigger tiles make the existing rounding read as more
+  deliberate/proportionate, but the corners themselves are still just
+  one character each.
+- [x] Build clean, 29/29 tests pass (2 new, for the metrics section's
+  own collapse behavior), clippy clean. Ran the release binary on a
+  real pty against the live cluster for several seconds, no panic.
+
+### Not done on purpose
+
+- No sparkline/history graph for CPU/Memory (a single current-value
+  meter only) — would need to start retaining a rolling sample buffer
+  over time, a real feature on its own rather than a visual tweak.
+- Node's own Warning conditions aren't shown inline in the Nodes list
+  (only STATUS: Ready/NotReady) — the detailed condition messages are
+  still only in Overview's Cluster Issues panel and the node's own spec.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real
