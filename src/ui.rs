@@ -33,6 +33,11 @@ pub enum Overlay<'a> {
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState },
     Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
+    /// A vim/k9s-style `:` command line, drawn as a plain bottom bar —
+    /// unlike every other overlay it doesn't dim the background, since
+    /// you're still looking at (and can still see) the view you're
+    /// about to switch away from.
+    Command { input: &'a str },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -54,7 +59,13 @@ pub fn draw(
     overlay: Option<Overlay>,
     icons: &mut IconCache,
 ) {
-    let dimmed = overlay.is_some();
+    // The command line doesn't dim the background — you're still meant
+    // to see (and read) the view you're about to switch away from, same
+    // as k9s's own `:` prompt.
+    let dimmed = matches!(
+        overlay,
+        Some(Overlay::Spec { .. }) | Some(Overlay::Containers { .. }) | Some(Overlay::Logs { .. }) | Some(Overlay::Menu { .. })
+    );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
     // these things fake depth in a TUI: mute every color in the
@@ -103,6 +114,7 @@ pub fn draw(
                 draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
             }
             Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
+            Overlay::Command { input } => draw_command_bar(frame, input),
         }
     }
 }
@@ -140,6 +152,18 @@ fn container_state_text(c: &ContainerInfo) -> String {
 
 /// The always-visible status line below the table, for the
 /// keyboard-selected row — works regardless of mouse/terminal support.
+/// The `:` command bar — a single line pinned to the very bottom of the
+/// screen, on top of whatever's there (same spot the Pods status line
+/// uses, when there is one — you're not looking at container state while
+/// typing a command anyway).
+fn draw_command_bar(frame: &mut Frame, input: &str) {
+    let area = frame.area();
+    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    frame.render_widget(Clear, bar);
+    let line = Line::styled(format!(":{input}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    frame.render_widget(Paragraph::new(line), bar);
+}
+
 fn draw_status_line(frame: &mut Frame, area: Rect, pods: &[PodRow], row: Option<usize>, dimmed: bool) {
     let line = match (dimmed, row.and_then(|i| pods.get(i))) {
         (false, Some(pod)) => {

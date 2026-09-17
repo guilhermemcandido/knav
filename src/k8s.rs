@@ -119,6 +119,44 @@ impl ResourceKind {
             _ => None,
         }
     }
+
+    /// Resolves a `:command` (already lowercased/trimmed by the caller)
+    /// to the kind it switches to — the full lowercase name (spaces
+    /// removed) always works, plus k9s-style short aliases for the ones
+    /// worth typing quickly. Returns `None` for anything unrecognized;
+    /// the caller just no-ops rather than erroring, same as an unknown
+    /// command in a shell alias you half-remember.
+    pub fn from_command(cmd: &str) -> Option<Self> {
+        match cmd {
+            "overview" | "home" => Some(ResourceKind::Overview),
+            "pods" | "pod" | "po" => Some(ResourceKind::Pods),
+            "deployments" | "deployment" | "deploy" | "dep" => Some(ResourceKind::Deployments),
+            "nodes" | "node" | "no" => Some(ResourceKind::Nodes),
+            "namespaces" | "namespace" | "ns" => Some(ResourceKind::Namespaces),
+            "replicasets" | "replicaset" | "rs" => Some(ResourceKind::ReplicaSets),
+            "statefulsets" | "statefulset" | "sts" => Some(ResourceKind::StatefulSets),
+            "daemonsets" | "daemonset" | "ds" => Some(ResourceKind::DaemonSets),
+            "jobs" | "job" => Some(ResourceKind::Jobs),
+            "cronjobs" | "cronjob" | "cj" => Some(ResourceKind::CronJobs),
+            "configmaps" | "configmap" | "cm" => Some(ResourceKind::ConfigMaps),
+            "secrets" | "secret" | "sec" => Some(ResourceKind::Secrets),
+            "hpas" | "hpa" => Some(ResourceKind::Hpas),
+            "services" | "service" | "svc" => Some(ResourceKind::Services),
+            "endpoints" | "endpoint" | "ep" => Some(ResourceKind::Endpoints),
+            "ingresses" | "ingress" | "ing" => Some(ResourceKind::Ingresses),
+            "networkpolicies" | "networkpolicy" | "netpol" => Some(ResourceKind::NetworkPolicies),
+            "pvcs" | "pvc" => Some(ResourceKind::Pvcs),
+            "pvs" | "pv" => Some(ResourceKind::Pvs),
+            "storageclasses" | "storageclass" | "sc" => Some(ResourceKind::StorageClasses),
+            "serviceaccounts" | "serviceaccount" | "sa" => Some(ResourceKind::ServiceAccounts),
+            "roles" | "role" => Some(ResourceKind::Roles),
+            "rolebindings" | "rolebinding" | "rb" => Some(ResourceKind::RoleBindings),
+            "clusterroles" | "clusterrole" | "cr" => Some(ResourceKind::ClusterRoles),
+            "clusterrolebindings" | "clusterrolebinding" | "crb" => Some(ResourceKind::ClusterRoleBindings),
+            "customresources" | "customresource" | "crds" | "crd" => Some(ResourceKind::CustomResourceList),
+            _ => None,
+        }
+    }
 }
 
 pub struct PodRow {
@@ -758,4 +796,31 @@ pub fn watch_crd(client: Client, crd: &CrdInfo) -> (Box<dyn CatalogKind>, JoinHa
         while stream.next().await.is_some() {}
     });
     (Box::new(WatchedDynamicKind { store: reader }), handle)
+}
+
+#[cfg(test)]
+mod resource_kind_tests {
+    use super::*;
+
+    #[test]
+    fn command_resolves_full_names_and_short_aliases() {
+        assert_eq!(ResourceKind::from_command("pods"), Some(ResourceKind::Pods));
+        assert_eq!(ResourceKind::from_command("po"), Some(ResourceKind::Pods));
+        assert_eq!(ResourceKind::from_command("configmaps"), Some(ResourceKind::ConfigMaps));
+        assert_eq!(ResourceKind::from_command("cm"), Some(ResourceKind::ConfigMaps));
+        assert_eq!(ResourceKind::from_command("crd"), Some(ResourceKind::CustomResourceList));
+    }
+
+    #[test]
+    fn command_rejects_unknown_input() {
+        assert_eq!(ResourceKind::from_command("bogus"), None);
+        assert_eq!(ResourceKind::from_command(""), None);
+    }
+
+    #[test]
+    fn from_label_and_label_round_trip_for_fixed_kinds() {
+        for kind in [ResourceKind::Pods, ResourceKind::ConfigMaps, ResourceKind::CustomResourceList, ResourceKind::ClusterRoleBindings] {
+            assert_eq!(ResourceKind::from_label(kind.label()), Some(kind));
+        }
+    }
 }

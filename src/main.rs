@@ -29,6 +29,10 @@ use tui_tree_widget::{TreeItem, TreeState};
 
 enum Mode {
     List,
+    /// A vim/k9s-style `:` command line — `:q`/`:quit` exits, `:pods`/
+    /// `:namespaces`/etc. (see `ResourceKind::from_command`) switches the
+    /// current view. Esc cancels back to `List` without acting.
+    Command { input: String },
     Menu { selected: (usize, usize) },
     Spec { title: String, items: Vec<TreeItem<'static, String>>, state: TreeState<String> },
     Containers { title: String, namespace: String, pod: String, containers: Vec<k8s::ContainerInfo>, state: TableState },
@@ -358,6 +362,13 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, &mut icons);
                 })?;
             }
+            Mode::Command { input } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Command { input };
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, Some(overlay), &mut icons);
+                })?;
+            }
             Mode::Menu { selected } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -417,6 +428,10 @@ fn run(
                 let mut moved = true;
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char(':') => {
+                        mode = Mode::Command { input: String::new() };
+                        moved = false;
+                    }
                     KeyCode::Char('j') | KeyCode::Down => {
                         overview_selected = ui::move_tile_selection(&overview, cols, overview_selected, ui::Direction::Down);
                     }
@@ -450,7 +465,21 @@ fn run(
                 }
             }
             (Event::Key(key), Mode::List) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Char('q') => return Ok(()),
+                // Esc backs out one level instead of quitting — to
+                // Overview from any top-level kind, or to the Custom
+                // Resources picker from one specific CRD kind's
+                // instances, mirroring how you got there.
+                KeyCode::Esc => {
+                    current_kind = match current_kind {
+                        ResourceKind::CustomResource(_, _) => ResourceKind::CustomResourceList,
+                        _ => ResourceKind::Overview,
+                    };
+                    table_state.select(Some(0));
+                }
+                KeyCode::Char(':') => {
+                    mode = Mode::Command { input: String::new() };
+                }
                 KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                 KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
                 KeyCode::Char('m') => {
@@ -501,6 +530,25 @@ fn run(
                         };
                     }
                 }
+                _ => {}
+            },
+            (Event::Key(key), Mode::Command { input }) => match key.code {
+                KeyCode::Esc => mode = Mode::List,
+                KeyCode::Enter => {
+                    let cmd = input.trim().to_lowercase();
+                    mode = Mode::List;
+                    if matches!(cmd.as_str(), "q" | "quit" | "exit") {
+                        return Ok(());
+                    }
+                    if let Some(kind) = k8s::ResourceKind::from_command(&cmd) {
+                        current_kind = kind;
+                        table_state.select(Some(0));
+                    }
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                }
+                KeyCode::Char(c) => input.push(c),
                 _ => {}
             },
             (Event::Key(key), Mode::Menu { selected }) => {
