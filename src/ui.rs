@@ -8,7 +8,7 @@ use ratatui::{
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
-use crate::k8s::{ContainerInfo, ContainerStatusKind, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
+use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
     Overview(&'a Overview, usize, (usize, usize)),
@@ -17,6 +17,9 @@ pub enum Rows<'a> {
     /// Every other resource kind — a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
     Generic(&'a [GenericRow], &'static str),
+    /// The Custom Resources picker — every discovered CRD kind, not yet
+    /// any specific kind's instances.
+    CrdList(&'a [CrdInfo]),
 }
 
 pub struct MenuSection<'a> {
@@ -77,6 +80,9 @@ pub fn draw(frame: &mut Frame, rows: Rows, table_state: &mut TableState, hover: 
         }
         Rows::Generic(rows, label) => {
             draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
+        }
+        Rows::CrdList(crds) => {
+            draw_crd_list_table(frame, frame.area(), crds, table_state, dimmed);
         }
     }
 
@@ -362,6 +368,48 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
     };
 
     let table = Table::new(table_rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .row_highlight_style(highlight_style)
+        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+
+    frame.render_stateful_widget(table, area, table_state);
+}
+
+/// The Custom Resources picker: every discovered CRD kind, grouped
+/// visually just by sorting on GROUP (already the order `discover_crds`
+/// returns them in) rather than a nested per-group tile browser — simpler,
+/// and still scannable since same-group kinds land next to each other.
+/// Selecting a row and pressing Enter is what actually starts watching
+/// that kind (see the CustomResourceList Enter handler in main.rs) —
+/// nothing here is live-watched itself, consistent with the "list only
+/// until opened" design.
+fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_state: &mut TableState, dimmed: bool) {
+    let muted = Style::default().fg(Color::DarkGray);
+    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let border_style = if dimmed { muted } else { Style::default() };
+    let cell_style = if dimmed { muted } else { Style::default() };
+
+    let header = Row::new(vec!["GROUP", "KIND", "SCOPE"]).style(header_style);
+
+    let rows = crds.iter().map(|c| {
+        Row::new(vec![
+            Cell::from(c.group).style(cell_style),
+            Cell::from(c.kind).style(cell_style),
+            Cell::from(if c.namespaced { "Namespaced" } else { "Cluster" }).style(cell_style),
+        ])
+    });
+
+    let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
+    let title = format!("Custom Resources ({})  —  j/k: move  enter: open  m: switch resource  q: quit", crds.len());
+
+    let highlight_style = if dimmed {
+        muted
+    } else {
+        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+    };
+
+    let table = Table::new(rows, widths)
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)

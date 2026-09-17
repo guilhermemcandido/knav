@@ -714,6 +714,101 @@ gave every one of them a working view.
   Up/Down — the Overview grid needed real 2D nav because you spend time
   browsing it; the menu is a quick switcher, not lingered on.
 
+## Done since last update (2026-09-17, later still #2) — menu Up/Down bug fix + CRD support
+
+Two separate rounds, both requested together: the `m` menu was stuck on
+the top row (Up/Down never worked, contradicting the "not done on
+purpose" note above — this fixes it), and CRDs (Flux, Helm charts, or in
+this cluster's case Traefik Hub/Gateway API/k3s's own CRDs) weren't
+supported at all.
+
+### Menu Up/Down bug
+
+- [x] The menu only ever handled `h`/`l` — `j`/`k`/arrows were silently
+  ignored, so selection couldn't leave the top row of any section with
+  more than one row of tiles (Workloads has 7, wraps to 2+ rows).
+- [x] Fixed by making menu selection `(section, tile)` like the Overview
+  grid, moved via a shared `ui::move_selection` both `move_tile_selection`
+  (Overview) and the new `move_menu_selection` (menu) delegate to — one
+  implementation of the wrap/cross-section rules instead of two.
+- [x] Extracted the menu's layout into `menu_sections()`, used by both
+  the render pass and the key handler so they can't diverge — same
+  "render and navigate off the same function" principle as
+  `build_catalog_rows` for the Overview grid.
+- [x] `menu_position_for()` — opening the menu now starts on the
+  currently-viewed kind instead of resetting to the first tile.
+- [x] Removed `ResourceKind::ALL` — nothing needs a flat list of every
+  kind now that the menu is driven by `menu_sections()` directly (this
+  also removes the "the menu's tile count must equal ALL.len()" implicit
+  invariant that a dynamic CRD list would've broken anyway).
+- [x] 2 new tests (menu covers every kind exactly once, position lookup
+  resolves correctly), 23/23 total, clippy clean.
+
+### Custom Resource (CRD) support
+
+Discussed the design tradeoff first: eagerly live-watching every
+discovered CRD (like the ~20 built-in kinds) doesn't scale — a cluster
+with Flux + cert-manager + Prometheus Operator etc. installed can easily
+have 50+ CRDs, and this cluster alone already has 33 just from Traefik
+Hub/Gateway API/k3s. Chose **lazy**: discover all installed CRDs once at
+startup (cheap, one list call), but don't start watching a CRD's actual
+objects until the user opens it.
+
+- [x] `k8s::discover_crds` lists every `CustomResourceDefinition` once at
+  startup and extracts group/kind/plural/a served version (preferring
+  the storage version)/scope. `group`/`kind` are leaked to `&'static
+  str` — a one-time, bounded-size leak — so a CRD kind can carry a plain
+  `&'static str` label exactly like every built-in kind, no registry
+  lookup needed just to render a title.
+- [x] `ResourceKind::CustomResourceList` (a fixed sentinel, like
+  `Overview`) is the "Custom Resources" picker: a GROUP/KIND/SCOPE table
+  of every discovered CRD, no live data — just `discover_crds`'s output.
+  `ResourceKind::CustomResource(index, label)` is one specific CRD kind's
+  instances, `index` pointing into `Catalog`'s discovered list.
+- [x] `Catalog::resolve()` is the one place that turns a `ResourceKind`
+  into a live `CatalogKind` — for a `CustomResource`, it lazily spawns
+  the watch on first access and caches it (`HashMap<usize, Box<dyn
+  CatalogKind>>`); every later tick just reads the cached one. `Catalog`
+  is now `&mut` in `run()` for this reason.
+- [x] `k8s::WatchedDynamicKind` + `k8s::watch_crd` — a `DynamicObject`-
+  backed watch (schema unknown at compile time, unlike every built-in
+  kind), built from an `ApiResource` assembled from the CRD's group/
+  version/kind/plural. `generic_row`/`snapshot_generic` had their
+  `DynamicType = ()` bound relaxed to plain `Resource`, since
+  `Resource::meta()` only reads `self` — this made them work for
+  `DynamicObject` too, no separate CRD-specific row logic needed.
+  `reflector::store()` needed swapping for `Writer::new(resource)` +
+  `.as_reader()`, since it requires `DynamicType: Default` and
+  `ApiResource` doesn't implement that (unlike `()`).
+- [x] Enter on the "Custom Resources" tile/menu entry opens the picker;
+  Enter on a row in the picker switches to that CRD's own generic
+  Namespace/Name/Age list + `d`-to-spec view — same `ui::Rows::Generic`
+  table every other generic kind already uses.
+- [x] The Overview tile/menu entry for Custom Resources shows how many
+  CRD *kinds* are installed (free — known from discovery, no watch
+  needed), not a live object count — consistent with "list only until
+  opened."
+- [x] Verified against the live cluster (which turned out to already
+  have 33 real CRDs — Traefik Hub, Gateway API, k3s's own) with a
+  disposable scratch binary: `discover_crds` found all 33 with correct
+  group/kind/version/scope, and watching `HelmChart` matched `kubectl
+  get helmcharts -A` exactly (2 objects, same namespaces/names), with
+  valid spec YAML.
+- [x] Build clean, 23/23 tests pass, clippy clean.
+
+### Not done on purpose
+
+- No grouped/nested tile browser for CRDs by API group — the picker is
+  one flat, sorted-by-group table instead. Simpler, and sorting already
+  clusters same-group kinds next to each other visually.
+- A CRD installed *while knav is running* won't appear until restart —
+  discovery is a one-shot startup call, not polled. Installing a CRD is
+  rare compared to objects of it coming and going, so this wasn't worth
+  a periodic re-list.
+- No specialized columns for CRD instances (same simplification as the
+  other generic kinds) — Namespace/Name/Age regardless of what the CRD
+  actually is.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

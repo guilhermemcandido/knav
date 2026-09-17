@@ -8,7 +8,7 @@ use k8s_openapi::api::{
 };
 use kube::{
     Client, Resource,
-    api::{Api, LogParams},
+    api::{Api, ApiResource, DynamicObject, LogParams},
     runtime::{WatchStreamExt, reflector, watcher},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -41,6 +41,14 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
+    /// The Custom Resources picker — a list of every discovered CRD kind
+    /// (group/kind/scope), not object instances.
+    CustomResourceList,
+    /// One specific CRD kind's instances — `usize` indexes into
+    /// `Catalog`'s discovered CRD list, the label is carried alongside
+    /// since it's a runtime string, not one of this enum's compile-time
+    /// variants like every other kind's `label()`.
+    CustomResource(usize, &'static str),
 }
 
 impl ResourceKind {
@@ -71,6 +79,8 @@ impl ResourceKind {
             ResourceKind::RoleBindings => "RoleBindings",
             ResourceKind::ClusterRoles => "ClusterRoles",
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
+            ResourceKind::CustomResourceList => "Custom Resources",
+            ResourceKind::CustomResource(_, label) => label,
         }
     }
 }
@@ -517,7 +527,11 @@ pub struct GenericRow {
     pub age: String,
 }
 
-pub fn generic_row<K: kube::Resource<DynamicType = ()>>(item: &K) -> GenericRow {
+/// Not pinned to `DynamicType = ()` — `Resource::meta()` only reads
+/// `self`, so this works identically for a typed k8s-openapi struct and
+/// for a `DynamicObject` (used for CRDs, whose `DynamicType` is
+/// `ApiResource` since the schema isn't known at compile time).
+pub fn generic_row<K: kube::Resource>(item: &K) -> GenericRow {
     let meta = item.meta();
     let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
     let name = meta.name.clone().unwrap_or_default();
@@ -542,9 +556,14 @@ where
     (reader, handle)
 }
 
-/// Sorted snapshot, generic over any typed k8s-openapi resource — same
-/// reasoning as `snapshot`/`snapshot_deployments`.
-pub fn snapshot_generic<K: Resource<DynamicType = ()> + Clone>(store: &reflector::Store<K>) -> Vec<Arc<K>> {
+/// Sorted snapshot — same reasoning as `snapshot`/`snapshot_deployments`,
+/// generic over anything `reflector::store` can hold (typed resources and
+/// `DynamicObject` alike).
+pub fn snapshot_generic<K>(store: &reflector::Store<K>) -> Vec<Arc<K>>
+where
+    K: Resource + Clone,
+    K::DynamicType: Eq + std::hash::Hash + Clone,
+{
     let mut items = store.state();
     items.sort_by(|a, b| {
         let key = |x: &Arc<K>| (x.meta().namespace.clone().unwrap_or_default(), x.meta().name.clone().unwrap_or_default());
@@ -599,4 +618,108 @@ where
 {
     let (store, handle) = watch_generic::<K>(client);
     (Box::new(WatchedKind::from_store(store)), handle)
+}
+
+/// A discovered CRD kind — enough to build an `ApiResource` for it later
+/// and to display it in the Custom Resources picker. Discovered once at
+/// startup (see `discover_crds`); a CRD installed while knav is already
+/// running won't appear until restart — deliberately not worth polling
+/// for, since installing a CRD is rare compared to the objects of it
+/// coming and going.
+#[derive(Clone)]
+pub struct CrdInfo {
+    pub group: &'static str,
+    pub kind: &'static str,
+    pub plural: String,
+    pub version: String,
+    pub namespaced: bool,
+}
+
+/// Lists every installed CustomResourceDefinition and extracts just
+/// enough to watch it later on demand. Prefers each CRD's storage version
+/// (the one actually persisted) over just the first served one, since
+/// that's the version guaranteed to round-trip correctly; a CRD with no
+/// served version at all (disabled) is skipped. `group`/`kind` are leaked
+/// to `&'static str` — a one-time, bounded-size leak (one CRD list, once,
+/// at startup) that lets `ResourceKind::CustomResource` carry a plain
+/// `&'static str` label like every other kind instead of needing a
+/// registry lookup just to render a title.
+pub async fn discover_crds(client: &Client) -> Vec<CrdInfo> {
+    use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+
+    let api: Api<CustomResourceDefinition> = Api::all(client.clone());
+    let crds = match api.list(&Default::default()).await {
+        Ok(list) => list.items,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut infos: Vec<CrdInfo> = crds
+        .into_iter()
+        .filter_map(|crd| {
+            let spec = crd.spec;
+            let version =
+                spec.versions.iter().find(|v| v.storage).or_else(|| spec.versions.iter().find(|v| v.served))?.name.clone();
+            Some(CrdInfo {
+                group: Box::leak(spec.group.into_boxed_str()),
+                kind: Box::leak(spec.names.kind.into_boxed_str()),
+                plural: spec.names.plural,
+                version,
+                namespaced: spec.scope == "Namespaced",
+            })
+        })
+        .collect();
+
+    infos.sort_by(|a, b| (a.group, a.kind).cmp(&(b.group, b.kind)));
+    infos
+}
+
+/// `CatalogKind` for a CRD's instances — a `DynamicObject` watch instead
+/// of a typed one, since the schema isn't known at compile time. Separate
+/// from `WatchedKind<K>` because `Api::all` (used for every typed kind)
+/// requires `DynamicType = ()`; a dynamic resource's `Api` instead needs
+/// an explicit `ApiResource` built from the CRD's group/version/kind.
+pub struct WatchedDynamicKind {
+    store: reflector::Store<DynamicObject>,
+}
+
+impl CatalogKind for WatchedDynamicKind {
+    fn count(&self) -> usize {
+        self.store.state().len()
+    }
+
+    fn rows(&self) -> Vec<GenericRow> {
+        snapshot_generic(&self.store).iter().map(|item| generic_row(item.as_ref())).collect()
+    }
+
+    fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
+        snapshot_generic(&self.store).get(index).map(|item| manifest_value(item.as_ref()))
+    }
+}
+
+/// Starts watching one CRD's instances cluster-wide — called lazily, the
+/// first time the user actually opens that kind, not for every installed
+/// CRD up front (a cluster with Flux/cert-manager/Prometheus Operator
+/// etc. installed can easily have 50+ CRDs; eagerly watching all of them
+/// just for tile counts nobody's looking at isn't worth the open
+/// connections).
+pub fn watch_crd(client: Client, crd: &CrdInfo) -> (Box<dyn CatalogKind>, JoinHandle<()>) {
+    let resource = ApiResource {
+        group: crd.group.to_string(),
+        version: crd.version.clone(),
+        api_version: if crd.group.is_empty() { crd.version.clone() } else { format!("{}/{}", crd.group, crd.version) },
+        kind: crd.kind.to_string(),
+        plural: crd.plural.clone(),
+    };
+    let api: Api<DynamicObject> = Api::all_with(client, &resource);
+    // `reflector::store()` requires `K::DynamicType: Default`, which
+    // `ApiResource` doesn't implement (unlike `()` for every typed kind) —
+    // `Writer::new` takes the dynamic type directly instead.
+    let writer = reflector::store::Writer::new(resource);
+    let reader = writer.as_reader();
+    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
+    let handle = tokio::spawn(async move {
+        let mut stream = stream.boxed();
+        while stream.next().await.is_some() {}
+    });
+    (Box::new(WatchedDynamicKind { store: reader }), handle)
 }

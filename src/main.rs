@@ -3,6 +3,7 @@ mod k8s;
 mod metrics;
 mod ui;
 
+use std::collections::HashMap;
 use std::io::stdout;
 use std::time::Duration;
 
@@ -51,10 +52,14 @@ enum Mode {
 /// the same kind; everything else spawns its own.
 struct Catalog {
     entries: Vec<(ResourceKind, &'static str, Box<dyn k8s::CatalogKind>)>,
+    /// Every discovered CRD kind — listed once at startup, watched lazily
+    /// (see `resolve`) only once the user actually opens one.
+    crds: Vec<k8s::CrdInfo>,
+    crd_watches: HashMap<usize, Box<dyn k8s::CatalogKind>>,
 }
 
 impl Catalog {
-    fn spawn(client: &Client, node_store: Store<Node>) -> Self {
+    fn spawn(client: &Client, node_store: Store<Node>, crds: Vec<k8s::CrdInfo>) -> Self {
         macro_rules! kind {
             ($variant:ident, $label:literal, $ty:ty) => {{
                 let (boxed, _handle) = k8s::watch_kind::<$ty>(client.clone());
@@ -86,6 +91,8 @@ impl Catalog {
                 kind!(ClusterRoles, "ClusterRoles", ClusterRole),
                 kind!(ClusterRoleBindings, "ClusterRoleBindings", ClusterRoleBinding),
             ],
+            crds,
+            crd_watches: HashMap::new(),
         }
     }
 
@@ -93,11 +100,31 @@ impl Catalog {
         self.get(kind).map(|k| k.count()).unwrap_or(0)
     }
 
-    /// Looks up the live watch for a kind — `None` for Overview/Pods/
-    /// Deployments, which aren't in `entries` (they have their own
-    /// specialized reflectors and row types, handled directly in `run`).
+    /// Looks up the live watch for a built-in kind — `None` for Overview/
+    /// Pods/Deployments/the CRD kinds, which aren't in `entries` (Pods/
+    /// Deployments have their own specialized reflectors and row types;
+    /// CRDs go through `resolve` instead since opening one may need to
+    /// lazily start its watch).
     fn get(&self, kind: ResourceKind) -> Option<&dyn k8s::CatalogKind> {
         self.entries.iter().find(|(k, _, _)| *k == kind).map(|(_, _, b)| b.as_ref())
+    }
+
+    /// Like `get`, but also covers CRD kinds — starting their watch on
+    /// first use ("watch on open", not eagerly for all installed CRDs).
+    /// The one place `main::run` should go through to read rows/spec for
+    /// whatever `current_kind` actually is.
+    fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn k8s::CatalogKind> {
+        match kind {
+            ResourceKind::CustomResource(index, _) => {
+                if !self.crd_watches.contains_key(&index) {
+                    let crd = self.crds.get(index)?.clone();
+                    let (boxed, _handle) = k8s::watch_crd(client.clone(), &crd);
+                    self.crd_watches.insert(index, boxed);
+                }
+                self.crd_watches.get(&index).map(|b| b.as_ref())
+            }
+            _ => self.get(kind),
+        }
     }
 
     /// Merges in the live-reflector counts for Pods/Deployments so
@@ -152,6 +179,14 @@ impl Catalog {
                     ("ClusterRoleBindings", self.count(ResourceKind::ClusterRoleBindings)),
                 ],
             ),
+            (
+                "Custom Resources",
+                // One tile for the whole picker, not one per CRD kind —
+                // its count is how many CRD *kinds* are installed (known
+                // for free from discovery), not a live object count,
+                // consistent with "list only, watch on open".
+                vec![("Custom Resources", self.crds.len())],
+            ),
         ]
     }
 }
@@ -185,6 +220,7 @@ fn kind_for_label(label: &str) -> Option<ResourceKind> {
         "RoleBindings" => Some(ResourceKind::RoleBindings),
         "ClusterRoles" => Some(ResourceKind::ClusterRoles),
         "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+        "Custom Resources" => Some(ResourceKind::CustomResourceList),
         _ => None,
     }
 }
@@ -193,7 +229,7 @@ fn kind_for_label(label: &str) -> Option<ResourceKind> {
 /// One shared function so the popup's render pass and its keyboard/Enter
 /// handling can't drift apart (same principle as `build_catalog_rows`
 /// backing the Overview grid's render + navigation).
-fn menu_sections() -> [ui::MenuSection<'static>; 6] {
+fn menu_sections() -> [ui::MenuSection<'static>; 7] {
     [
         ui::MenuSection { title: "Cluster", tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
         ui::MenuSection {
@@ -224,6 +260,7 @@ fn menu_sections() -> [ui::MenuSection<'static>; 6] {
                 ResourceKind::ClusterRoleBindings,
             ],
         },
+        ui::MenuSection { title: "Custom Resources", tiles: &[ResourceKind::CustomResourceList] },
     ]
 }
 
@@ -252,7 +289,8 @@ async fn main() -> Result<()> {
     let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());
     let (event_store, _event_watch_handle) = k8s::watch_events(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
-    let catalog = Catalog::spawn(&client, node_store.clone());
+    let crds = k8s::discover_crds(&client).await;
+    let mut catalog = Catalog::spawn(&client, node_store.clone(), crds);
 
     // Block until each reflector's initial list-and-watch has populated
     // its store at least once, so the first frame isn't just empty.
@@ -264,7 +302,8 @@ async fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
 
-    let result = run(&mut terminal, &pod_store, &dep_store, &node_store, &event_store, &node_metrics_rx, &catalog, client, &config);
+    let result =
+        run(&mut terminal, &pod_store, &dep_store, &node_store, &event_store, &node_metrics_rx, &mut catalog, client, &config);
 
     execute!(stdout(), DisableMouseCapture)?;
     ratatui::restore();
@@ -279,7 +318,7 @@ fn run(
     node_store: &Store<Node>,
     event_store: &Store<k8s_openapi::api::core::v1::Event>,
     node_metrics_rx: &watch::Receiver<Option<metrics::ClusterUsage>>,
-    catalog: &Catalog,
+    catalog: &mut Catalog,
     client: Client,
     config: &Config,
 ) -> Result<()> {
@@ -303,12 +342,15 @@ fn run(
         // Only ever populated for whatever kind is currently on screen —
         // computed unconditionally so every match arm below can just read
         // it, same as `pod_rows`/`dep_rows` are always computed too.
-        let generic_rows: Vec<k8s::GenericRow> = catalog.get(current_kind).map(|k| k.rows()).unwrap_or_default();
+        // `resolve` also lazily starts a CRD's watch the first time it's
+        // the current kind — "watch on open", not for every installed CRD.
+        let generic_rows: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
 
         let row_count = match current_kind {
             ResourceKind::Overview => overview.warnings.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
+            ResourceKind::CustomResourceList => catalog.crds.len(),
             _ => generic_rows.len(),
         };
         // Selection can't outrun the list as pods/deployments come and go
@@ -332,6 +374,7 @@ fn run(
             ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
+            ResourceKind::CustomResourceList => ui::Rows::CrdList(&catalog.crds),
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
@@ -456,13 +499,21 @@ fn run(
                     _ => {
                         if let Some(index) = table_state.selected()
                             && let Some(row) = generic_rows.get(index)
-                            && let Some(value) = catalog.get(current_kind).and_then(|k| k.spec_at(index))
+                            && let Some(value) = catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(index))
                         {
                             let title = format!("{}/{}", row.namespace, row.name);
                             open_spec_value(&mut mode, title, value);
                         }
                     }
                 },
+                KeyCode::Enter if current_kind == ResourceKind::CustomResourceList => {
+                    if let Some(index) = table_state.selected()
+                        && let Some(crd) = catalog.crds.get(index)
+                    {
+                        current_kind = ResourceKind::CustomResource(index, crd.kind);
+                        table_state.select(Some(0));
+                    }
+                }
                 KeyCode::Enter if current_kind == ResourceKind::Pods => {
                     if let Some(pod) = table_state.selected().and_then(|i| pods.get(i)) {
                         let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
@@ -701,6 +752,7 @@ mod tests {
             ResourceKind::RoleBindings,
             ResourceKind::ClusterRoles,
             ResourceKind::ClusterRoleBindings,
+            ResourceKind::CustomResourceList,
         ];
         let sections = menu_sections();
         let total: usize = sections.iter().map(|s| s.tiles.len()).sum();
