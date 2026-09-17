@@ -35,7 +35,20 @@ enum Mode {
     Command { input: String },
     Menu { selected: (usize, usize) },
     Spec { title: String, items: Vec<TreeItem<'static, String>>, state: TreeState<String> },
-    Containers { title: String, namespace: String, pod: String, containers: Vec<k8s::ContainerInfo>, state: TableState },
+    /// Freelens-style node drill-down: that node's own metrics + the
+    /// pods scheduled on it. `current_kind` stays `Nodes` throughout —
+    /// this just overlays on top, same as `Containers` overlays on Pods.
+    NodeDetail { name: String, state: TableState },
+    Containers {
+        title: String,
+        namespace: String,
+        pod: String,
+        containers: Vec<k8s::ContainerInfo>,
+        state: TableState,
+        // Where Esc returns to — the Pods list normally, or the
+        // NodeDetail view if this pod was opened from there.
+        back: Box<Mode>,
+    },
     Logs {
         title: String,
         lines: Vec<String>,
@@ -316,6 +329,15 @@ fn run(
         let nodes = node_store.state();
         let events = event_store.state();
         let usage = node_metrics_rx.borrow().clone();
+        // Only populated while actually viewing a node's detail — which
+        // pod, out of everything on the cluster, is scheduled on this
+        // one node.
+        let node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Mode::NodeDetail { name, .. } = &mode {
+            pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name.as_str())).cloned().collect()
+        } else {
+            Vec::new()
+        };
+        let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
         let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
         // Only ever populated for whatever kind is currently on screen —
@@ -391,6 +413,24 @@ fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Containers { title, containers, state };
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                })?;
+            }
+            Mode::NodeDetail { name, state } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let capacity = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())).map(|n| k8s::node_capacity(n));
+                    let node_usage = usage.as_ref().and_then(|u| u.for_node(name));
+                    let overlay = ui::Overlay::NodeDetail {
+                        name: name.as_str(),
+                        cpu_usage: node_usage.map(|u| u.cpu_millicores),
+                        cpu_capacity: capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
+                        memory_usage: node_usage.map(|u| u.memory_bytes),
+                        memory_capacity: capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
+                        pod_capacity: capacity.as_ref().map(|c| c.pods).unwrap_or(0),
+                        pods: &node_detail_rows,
+                        state,
+                    };
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
@@ -546,7 +586,17 @@ fn run(
                             pod: name,
                             containers,
                             state: TableState::default().with_selected(0),
+                            back: Box::new(Mode::List),
                         };
+                    }
+                }
+                // Freelens-style node drill-down: what's actually running
+                // on this node, plus its own CPU/Memory/Pods gauges.
+                KeyCode::Enter if current_kind == ResourceKind::Nodes => {
+                    if let Some(index) = table_state.selected()
+                        && let Some(row) = generic_rows.get(index)
+                    {
+                        mode = Mode::NodeDetail { name: row.name.clone(), state: TableState::default().with_selected(0) };
                     }
                 }
                 _ => {}
@@ -626,8 +676,10 @@ fn run(
                 }
                 _ => {}
             },
-            (Event::Key(key), Mode::Containers { title, namespace, pod, containers, state }) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+            (Event::Key(key), Mode::Containers { title, namespace, pod, containers, state, back }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    mode = std::mem::replace(&mut **back, Mode::List);
+                }
                 KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
                 KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
                 KeyCode::Enter => {
@@ -635,12 +687,13 @@ fn run(
                         let log_title = format!("{namespace}/{pod}/{}", container.name);
                         let (rx, handle) =
                             k8s::stream_logs(client.clone(), namespace.clone(), pod.clone(), container.name.clone());
-                        let back = Mode::Containers {
+                        let containers_snapshot = Mode::Containers {
                             title: title.clone(),
                             namespace: namespace.clone(),
                             pod: pod.clone(),
                             containers: containers.clone(),
                             state: *state,
+                            back: std::mem::replace(back, Box::new(Mode::List)),
                         };
                         mode = Mode::Logs {
                             title: log_title,
@@ -650,7 +703,36 @@ fn run(
                             timestamp_format: config.logs.timestamp_format,
                             rx,
                             handle,
-                            back: Box::new(back),
+                            back: Box::new(containers_snapshot),
+                        };
+                    }
+                }
+                _ => {}
+            },
+            (Event::Key(key), Mode::NodeDetail { name, state }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                KeyCode::Char('d') => {
+                    if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
+                        let title = name.clone();
+                        open_spec(&mut mode, title, node.as_ref());
+                    }
+                }
+                KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
+                KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_detail_rows.len()),
+                KeyCode::Enter => {
+                    if let Some(pod) = state.selected().and_then(|i| node_detail_pods.get(i)) {
+                        let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
+                        let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+                        let pod_name = pod.metadata.name.clone().unwrap_or_default();
+                        let containers = k8s::containers_for(pod);
+                        let back = Box::new(Mode::NodeDetail { name: name.clone(), state: *state });
+                        mode = Mode::Containers {
+                            title,
+                            namespace,
+                            pod: pod_name,
+                            containers,
+                            state: TableState::default().with_selected(0),
+                            back,
                         };
                     }
                 }

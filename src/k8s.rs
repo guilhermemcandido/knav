@@ -566,6 +566,27 @@ fn node_allocatable_sum(nodes: &[Arc<Node>], key: &str, parse: impl Fn(&str) -> 
         .sum()
 }
 
+/// One node's own capacity — the Node detail view's gauges need a single
+/// node's numbers, not the cluster-wide sum `node_allocatable_sum` gives
+/// the Overview.
+pub struct NodeCapacity {
+    pub cpu_millicores: i64,
+    pub memory_bytes: i64,
+    pub pods: i64,
+}
+
+pub fn node_capacity(node: &Node) -> NodeCapacity {
+    let allocatable = node.status.as_ref().and_then(|s| s.allocatable.as_ref());
+    let get = |key: &str, parse: &dyn Fn(&str) -> i64| -> i64 {
+        allocatable.and_then(|a| a.get(key)).map(|q| parse(&q.0)).unwrap_or(0)
+    };
+    NodeCapacity {
+        cpu_millicores: get("cpu", &crate::metrics::parse_cpu_millicores),
+        memory_bytes: get("memory", &crate::metrics::parse_memory_bytes),
+        pods: get("pods", &|s| s.parse().unwrap_or(0)),
+    }
+}
+
 pub fn overview(
     nodes: &[Arc<Node>],
     events: &[Arc<Event>],

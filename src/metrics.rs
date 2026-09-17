@@ -48,18 +48,35 @@ pub fn parse_memory_bytes(s: &str) -> i64 {
 }
 
 #[derive(Clone)]
-pub struct ClusterUsage {
+pub struct NodeUsage {
+    pub name: String,
     pub cpu_millicores: i64,
     pub memory_bytes: i64,
 }
 
-/// Polls `metrics.k8s.io/v1beta1/nodes` on an interval and publishes the
-/// cluster-wide total. Metrics-server has no watch support (it's a
-/// polling-only API, computed periodically from kubelet cAdvisor stats),
-/// hence a `tokio::sync::watch` channel updated on a timer instead of the
-/// reflector pattern used everywhere else. `None` means metrics-server
-/// isn't installed/reachable — the caller shows "metrics unavailable"
-/// rather than a zero, same fallback k9s/Freelens use.
+#[derive(Clone)]
+pub struct ClusterUsage {
+    pub cpu_millicores: i64,
+    pub memory_bytes: i64,
+    /// Per-node breakdown, same poll — the Node detail view needs just
+    /// one node's numbers, not the cluster total.
+    pub nodes: Vec<NodeUsage>,
+}
+
+impl ClusterUsage {
+    pub fn for_node(&self, name: &str) -> Option<&NodeUsage> {
+        self.nodes.iter().find(|n| n.name == name)
+    }
+}
+
+/// Polls `metrics.k8s.io/v1beta1/nodes` on an interval and publishes both
+/// the cluster-wide total and each node's own usage. Metrics-server has
+/// no watch support (it's a polling-only API, computed periodically from
+/// kubelet cAdvisor stats), hence a `tokio::sync::watch` channel updated
+/// on a timer instead of the reflector pattern used everywhere else.
+/// `None` means metrics-server isn't installed/reachable — the caller
+/// shows "metrics unavailable" rather than a zero, same fallback k9s/
+/// Freelens use.
 pub fn watch_node_metrics(client: Client) -> (watch::Receiver<Option<ClusterUsage>>, JoinHandle<()>) {
     let (tx, rx) = watch::channel(None);
 
@@ -75,16 +92,18 @@ pub fn watch_node_metrics(client: Client) -> (watch::Receiver<Option<ClusterUsag
                 Ok(list) => {
                     let mut cpu_millicores = 0;
                     let mut memory_bytes = 0;
+                    let mut nodes = Vec::with_capacity(list.items.len());
                     for item in &list.items {
                         let Some(usage) = item.data.get("usage") else { continue };
-                        if let Some(cpu) = usage.get("cpu").and_then(|v| v.as_str()) {
-                            cpu_millicores += parse_cpu_millicores(cpu);
-                        }
-                        if let Some(mem) = usage.get("memory").and_then(|v| v.as_str()) {
-                            memory_bytes += parse_memory_bytes(mem);
+                        let node_cpu = usage.get("cpu").and_then(|v| v.as_str()).map(parse_cpu_millicores).unwrap_or(0);
+                        let node_mem = usage.get("memory").and_then(|v| v.as_str()).map(parse_memory_bytes).unwrap_or(0);
+                        cpu_millicores += node_cpu;
+                        memory_bytes += node_mem;
+                        if let Some(name) = item.metadata.name.clone() {
+                            nodes.push(NodeUsage { name, cpu_millicores: node_cpu, memory_bytes: node_mem });
                         }
                     }
-                    let _ = tx.send(Some(ClusterUsage { cpu_millicores, memory_bytes }));
+                    let _ = tx.send(Some(ClusterUsage { cpu_millicores, memory_bytes, nodes }));
                 }
                 Err(_) => {
                     let _ = tx.send(None);

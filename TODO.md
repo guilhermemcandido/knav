@@ -934,6 +934,54 @@ collapsible like the spec tree.
 - Menu popup tiles are unaffected by any of this (no collapse, no
   centering changes there) — this round was scoped to the Overview grid.
 
+## Done since last update (2026-09-18, later) — Freelens-style node drill-down
+
+Asked for cross-type integration: clicking a Node should show what's
+running on it, with usage gauges, "like in Freelens" — and be able to
+drill from there into a pod's containers, same as from the Pods list.
+
+- [x] `metrics::watch_node_metrics` now publishes a per-node breakdown
+  (`ClusterUsage::nodes: Vec<NodeUsage>`, `ClusterUsage::for_node(name)`)
+  alongside the existing cluster-wide total — same poll, no extra API
+  calls, metrics-server already returns per-node data that was
+  previously only being summed.
+- [x] `k8s::node_capacity(node)` — one node's own CPU/Memory/Pods
+  allocatable, mirroring `node_allocatable_sum` but for a single node
+  instead of the Overview's cluster-wide sum.
+- [x] New `Overlay::NodeDetail`: that node's CPU/Memory/Pods gauges
+  (reusing the exact `draw_gauge` the Overview panel uses) above the
+  pods actually scheduled on it (reusing the exact pod table the Pods
+  list view uses — container dots included). "metrics unavailable"
+  fallback if metrics-server isn't installed, consistent with the
+  Overview panel's own fallback.
+- [x] `Enter` on a Node (from the Nodes list) opens it; `j`/`k` move
+  within its pods, `Enter` on one of those opens Containers → Logs
+  exactly like from the main Pods list, `d` opens the Node's own YAML
+  spec, `Esc`/`q` closes back to the Nodes list.
+- [x] `Mode::Containers` gained a `back: Box<Mode>` field (mirroring the
+  one `Mode::Logs` already had) so `Esc` from a pod's containers
+  correctly returns to wherever you actually opened it from — the Pods
+  list normally, or `NodeDetail` when opened from there. Threaded
+  through the Containers→Logs transition too (which snapshots the
+  Containers view to return to, and that snapshot needed its own `back`
+  now as well).
+- [x] Verified against the live cluster with a disposable scratch
+  binary: per-node metrics matched `kubectl top nodes` exactly (71m
+  cpu / ~964MB), node capacity was sane (2000m/2GB/110 pods), and pod-
+  to-node filtering correctly found all 16 pods scheduled on the node
+  while excluding the one genuinely unscheduled pod (`shop/oversized`,
+  Pending).
+- [x] Build clean, 28/28 tests pass, clippy clean. Ran the release
+  binary on a real pty for several seconds with no panic.
+
+### Not done on purpose
+
+- No mouse support inside the NodeDetail popup (no hover, no click-to-
+  select) — keyboard-only, consistent with the existing Containers
+  popup which also has no mouse handling.
+- No node-level Warning/condition display duplicated inside NodeDetail
+  itself — that's still only in the Overview's Cluster Issues panel.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

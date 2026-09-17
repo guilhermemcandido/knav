@@ -38,6 +38,20 @@ pub enum Overlay<'a> {
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState },
     Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
+    /// A single node's own CPU/Memory/Pods gauges plus the pods actually
+    /// scheduled on it — Freelens-style node drill-down. `cpu_usage`/
+    /// `memory_usage` are `None` when metrics-server isn't installed,
+    /// same "unavailable" fallback as the Overview's own panel.
+    NodeDetail {
+        name: &'a str,
+        cpu_usage: Option<i64>,
+        cpu_capacity: i64,
+        memory_usage: Option<i64>,
+        memory_capacity: i64,
+        pod_capacity: i64,
+        pods: &'a [PodRow],
+        state: &'a mut TableState,
+    },
     /// A vim/k9s-style `:` command line, drawn as a plain bottom bar —
     /// unlike every other overlay it doesn't dim the background, since
     /// you're still looking at (and can still see) the view you're
@@ -69,7 +83,11 @@ pub fn draw(
     // as k9s's own `:` prompt.
     let dimmed = matches!(
         overlay,
-        Some(Overlay::Spec { .. }) | Some(Overlay::Containers { .. }) | Some(Overlay::Logs { .. }) | Some(Overlay::Menu { .. })
+        Some(Overlay::Spec { .. })
+            | Some(Overlay::Containers { .. })
+            | Some(Overlay::Logs { .. })
+            | Some(Overlay::Menu { .. })
+            | Some(Overlay::NodeDetail { .. })
     );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
@@ -119,6 +137,9 @@ pub fn draw(
                 draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
             }
             Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
+            Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, pods, state } => {
+                draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, pods, state)
+            }
             Overlay::Command { input } => draw_command_bar(frame, input),
         }
     }
@@ -1138,6 +1159,51 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize
             }
         }
     }
+}
+
+/// Freelens-style node drill-down: that node's own CPU/Memory/Pods
+/// gauges (reusing the exact same `draw_gauge` the Overview panel uses)
+/// above the pods actually scheduled on it (reusing the exact same pod
+/// table Pods' own list view uses, including its container dots).
+#[allow(clippy::too_many_arguments)]
+fn draw_node_detail_popup(
+    frame: &mut Frame,
+    name: &str,
+    cpu_usage: Option<i64>,
+    cpu_capacity: i64,
+    memory_usage: Option<i64>,
+    memory_capacity: i64,
+    pod_capacity: i64,
+    pods: &[PodRow],
+    state: &mut TableState,
+) {
+    let area = centered_rect(90, 88, frame.area());
+    frame.render_widget(Clear, area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(format!("Node: {name}  —  j/k: move  enter: containers  d: spec  esc: back"));
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let chunks = Layout::vertical([Constraint::Length(4), Constraint::Min(0)]).split(inner);
+
+    match (cpu_usage, memory_usage) {
+        (Some(cpu), Some(mem)) => {
+            let gauge_areas = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(chunks[0]);
+            draw_gauge(frame, gauge_areas[0], "CPU", cpu as f64, cpu_capacity as f64, |v| format!("{:.2} cores", v / 1000.0), false);
+            draw_gauge(frame, gauge_areas[1], "Memory", mem as f64, memory_capacity as f64, format_bytes, false);
+            draw_gauge(frame, gauge_areas[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), false);
+        }
+        _ => {
+            let text = Paragraph::new(Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)))
+                .alignment(Alignment::Center);
+            frame.render_widget(text, chunks[0]);
+        }
+    }
+
+    draw_table(frame, chunks[1], pods, state, false);
 }
 
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
