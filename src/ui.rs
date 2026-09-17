@@ -23,9 +23,13 @@ pub enum Rows<'a> {
     /// Every other resource kind — a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
     Generic(&'a [GenericRow], &'static str),
-    /// The Custom Resources picker — every discovered CRD kind, not yet
-    /// any specific kind's instances.
-    CrdList(&'a [CrdInfo]),
+    /// The Custom Resources picker — every discovered CRD kind (or just
+    /// one API group's), not yet any specific kind's instances. Each
+    /// entry keeps its real index into `Catalog`'s full discovered list
+    /// (needed to open the right one on Enter, since this may be a
+    /// filtered subset) alongside a heading describing what's shown
+    /// ("Custom Resources" for everything, or the group name).
+    CrdList(&'a [(usize, CrdInfo)], &'a str),
 }
 
 pub struct MenuSection<'a> {
@@ -124,8 +128,8 @@ pub fn draw(
         Rows::Generic(rows, label) => {
             draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
         }
-        Rows::CrdList(crds) => {
-            draw_crd_list_table(frame, frame.area(), crds, table_state, dimmed);
+        Rows::CrdList(crds, heading) => {
+            draw_crd_list_table(frame, frame.area(), crds, heading, table_state, dimmed);
         }
     }
 
@@ -243,7 +247,7 @@ fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row: u16, boun
     let area = popup_near(column, row, width, height, bounds);
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).title(format!("{}/{}", pod.namespace, pod.name));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{}/{}", pod.namespace, pod.name));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
@@ -298,7 +302,7 @@ fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut 
 
     let table = Table::new(rows, pod_table_widths())
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
@@ -390,7 +394,7 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
@@ -428,7 +432,7 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
 
     let table = Table::new(table_rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
@@ -443,7 +447,7 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
 /// that kind (see the CustomResourceList Enter handler in main.rs) —
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
-fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_state: &mut TableState, dimmed: bool) {
+fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, dimmed: bool) {
     let muted = Style::default().fg(Color::DarkGray);
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
@@ -451,7 +455,7 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_st
 
     let header = Row::new(vec!["GROUP", "KIND", "SCOPE"]).style(header_style);
 
-    let rows = crds.iter().map(|c| {
+    let rows = crds.iter().map(|(_, c)| {
         Row::new(vec![
             Cell::from(c.group).style(cell_style),
             Cell::from(c.kind).style(cell_style),
@@ -460,7 +464,7 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_st
     });
 
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = format!("Custom Resources ({})  —  j/k: move  enter: open  m: switch resource  q: quit", crds.len());
+    let title = format!("{heading} ({})  —  j/k: move  enter: open  m: switch resource  q: quit", crds.len());
 
     let highlight_style = if dimmed {
         muted
@@ -470,7 +474,7 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_st
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
@@ -948,7 +952,8 @@ fn draw_catalog(
         match row {
             CatalogRow::SectionHeader { title, collapsed, .. } => draw_section_header(frame, row_area, title, *collapsed, dimmed),
             CatalogRow::Tiles { section, start, tiles } => {
-                draw_tiles_row(frame, row_area, tiles, *section, *start, selected, dimmed, icons)
+                let section_title = overview.catalog.get(*section).map(|(t, _)| *t).unwrap_or("");
+                draw_tiles_row(frame, row_area, tiles, *section, *start, section_title, selected, dimmed, icons)
             }
             CatalogRow::IssuesHeader(count) => draw_issues_header(frame, row_area, *count, dimmed),
             CatalogRow::IssuesEmpty => draw_issues_empty(frame, row_area, dimmed),
@@ -988,6 +993,7 @@ fn draw_tiles_row(
     tiles: &[(&str, usize)],
     section: usize,
     start: usize,
+    section_title: &str,
     selected: (usize, usize),
     dimmed: bool,
     icons: &mut IconCache,
@@ -997,15 +1003,16 @@ fn draw_tiles_row(
     // tiles start at 1 (see `tile_row_constraints`).
     for (i, (label, count)) in tiles.iter().enumerate() {
         let is_selected = !dimmed && selected == (section, start + i);
-        draw_tile(frame, areas[i + 1], label, *count, is_selected, dimmed, icons);
+        draw_tile(frame, areas[i + 1], label, *count, is_selected, section_title, dimmed, icons);
     }
 }
 
-/// A fixed-size rounded tile: an icon/glyph per resource kind (not an
-/// official Kubernetes symbol set — there isn't one that's terminal
-/// renderable — just a distinct, recognizable emoji per kind), the live
-/// count, and the kind name underneath.
-fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected: bool, dimmed: bool, icons: &mut IconCache) {
+/// A fixed-size rounded tile: an icon per resource kind, the live count,
+/// and the kind name underneath. `section_title` is only used to
+/// recognize a CRD group tile (see below) — it doesn't affect anything
+/// else about the tile.
+#[allow(clippy::too_many_arguments)]
+fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected: bool, section_title: &str, dimmed: bool, icons: &mut IconCache) {
     let border_style = if dimmed {
         Style::default().fg(Color::DarkGray)
     } else if selected {
@@ -1022,19 +1029,26 @@ fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected:
 
     let rows = Layout::vertical([Constraint::Length(TILE_ICON_HEIGHT), Constraint::Length(1), Constraint::Length(1)]).split(inner);
 
+    // `label` is a fixed kind name for every tile except the dynamically
+    // discovered CRD-group ones (raw API group strings like
+    // "gateway.networking.k8s.io", which `from_label` can't know about
+    // ahead of time) — those live only in the "Custom Resources" section,
+    // so that's the signal to fall back to the generic CRD icon for them
+    // instead of a "no icon" glyph.
+    let icon_kind = ResourceKind::from_label(label)
+        .or_else(|| (section_title == "Custom Resources").then_some(ResourceKind::CustomResourceList));
+
     // A real terminal-graphics image would still read as "in focus" even
     // while a modal dims everything else — fall back to the plain glyph
-    // so a dimmed tile actually looks dimmed. Same fallback if the label
-    // somehow isn't one of the known kinds (shouldn't happen — every
-    // label drawn here comes from `Catalog::sections`, which only ever
-    // uses labels `ResourceKind::from_label` recognizes).
-    match (dimmed, ResourceKind::from_label(label)) {
+    // so a dimmed tile actually looks dimmed.
+    match (dimmed, icon_kind) {
         (false, Some(kind)) => icons.draw(frame, icons.centered_square(rows[0]), kind),
         _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), rows[0]),
     }
 
+    let display_label = truncate(label, inner.width.saturating_sub(2) as usize);
     frame.render_widget(Paragraph::new(Line::styled(count.to_string(), count_style)).alignment(Alignment::Center), rows[1]);
-    frame.render_widget(Paragraph::new(Line::styled(label, label_style)).alignment(Alignment::Center), rows[2]);
+    frame.render_widget(Paragraph::new(Line::styled(display_label, label_style)).alignment(Alignment::Center), rows[2]);
 }
 
 fn icon_for(label: &str) -> &'static str {
@@ -1061,7 +1075,10 @@ fn icon_for(label: &str) -> &'static str {
         "ServiceAccounts" => "🪪",
         "Roles" | "ClusterRoles" => "📜",
         "RoleBindings" | "ClusterRoleBindings" => "🔗",
-        _ => "❔",
+        "Custom Resources" => "🧩",
+        // Any other label reaching here is a dynamically discovered CRD
+        // group name — same reasoning as `draw_tile`'s icon_kind fallback.
+        _ => "🧩",
     }
 }
 
@@ -1210,7 +1227,7 @@ fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, St
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).title(format!(
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
         "{title}  —  ↑↓/jk: move  ←→/hl: collapse/expand  enter/click: toggle  esc: back"
     ));
 
@@ -1255,7 +1272,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(format!("{title}  —  j/k: move  enter: logs  esc: back")))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{title}  —  j/k: move  enter: logs  esc: back")))
         .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
         .highlight_symbol("➤ ");
 
@@ -1271,7 +1288,7 @@ fn draw_logs_popup(frame: &mut Frame, title: &str, lines: &[String], scroll: u16
         TimestampFormat::Short => "short ts",
         TimestampFormat::Full => "full ts",
     };
-    let block = Block::default().borders(Borders::ALL).title(format!(
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
         "{title}  —  {follow_status}  t: toggle timestamp ({ts_status})  esc: back  ({} lines)",
         lines.len()
     ));

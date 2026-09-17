@@ -41,9 +41,14 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
-    /// The Custom Resources picker — a list of every discovered CRD kind
-    /// (group/kind/scope), not object instances.
+    /// The Custom Resources picker — every discovered CRD kind
+    /// (group/kind/scope), not object instances, not filtered by group.
     CustomResourceList,
+    /// Same picker, filtered to one API group — the group string is
+    /// already `&'static str` (leaked once at discovery, see
+    /// `discover_crds`), so no extra registry lookup is needed here
+    /// either, same reasoning as `CustomResource`'s label.
+    CustomResourceGroup(&'static str),
     /// One specific CRD kind's instances — `usize` indexes into
     /// `Catalog`'s discovered CRD list, the label is carried alongside
     /// since it's a runtime string, not one of this enum's compile-time
@@ -80,6 +85,7 @@ impl ResourceKind {
             ResourceKind::ClusterRoles => "ClusterRoles",
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
             ResourceKind::CustomResourceList => "Custom Resources",
+            ResourceKind::CustomResourceGroup(group) => group,
             ResourceKind::CustomResource(_, label) => label,
         }
     }

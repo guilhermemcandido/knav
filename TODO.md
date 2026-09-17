@@ -982,6 +982,75 @@ drill from there into a pod's containers, same as from the Pods list.
 - No node-level Warning/condition display duplicated inside NodeDetail
   itself — that's still only in the Overview's Cluster Issues panel.
 
+## Done since last update (2026-09-18, later still) — CRD groups + interface consistency pass
+
+Asked for two more things: organize "Custom Resources" by API group
+instead of one flat tile/list, and make the interface generally cleaner
+— specifically calling out inconsistent corners across boxes.
+
+### CRD groups
+
+- [x] `ResourceKind::CustomResourceGroup(&'static str)` — same shape as
+  `CustomResource`'s label-carrying pattern (the group string is already
+  `&'static str`, leaked once at discovery, so no registry lookup
+  needed). `CustomResourceList` still means "everything, unfiltered."
+- [x] The Overview's "Custom Resources" section now shows one tile per
+  discovered API group (this cluster: `gateway.networking.k8s.io`,
+  `hub.traefik.io`, `traefik.io`, `helm.cattle.io`, `k3s.cattle.io`)
+  alongside the original "Custom Resources" tile for the flat/unfiltered
+  view — verified the group/count breakdown against a disposable scratch
+  binary using the real discovery code, matched a `kubectl get crds`
+  cross-check exactly (5 groups: 6/13/10/2/2).
+- [x] `Catalog::kind_for_tile_label` — the Overview tile click-through
+  now tries the fixed kinds first (`ResourceKind::from_label`) and falls
+  back to matching a discovered CRD group, since group names can't be
+  known by the static resolver ahead of time.
+- [x] `Rows::CrdList` now carries `(real_index, CrdInfo)` pairs instead
+  of bare `CrdInfo` — necessary once the picker can show a *filtered*
+  subset, so picking a row can still open the right kind out of the
+  *full* discovered list, not the filtered one's own position. Also
+  carries a heading string so the title reads "Custom Resources" for
+  the flat view or the group name for a filtered one.
+- [x] `Esc` from a specific CRD kind's instances now returns to the
+  group it actually came from (or the flat list, if for some reason
+  that group can't be found), not always the flat list.
+
+### Interface consistency
+
+- [x] Several boxes had sharp corners while everything else was already
+  rounded (tiles, the metrics panel, NodeDetail) — the Pods/Deployments/
+  generic/CRD-picker tables, the container-hover popup, and the Spec/
+  Containers/Logs popups all get `BorderType::Rounded` now too. Every
+  bordered box in the app is rounded.
+- [x] Tile labels are truncated with an ellipsis instead of getting cut
+  off raw mid-character — matters more now that CRD group names
+  (`gateway.networking.k8s.io`) are long enough to actually hit the
+  tile's fixed width, using the same `truncate()` helper already used
+  for long warning messages.
+- [x] CRD-group tiles now show the real CRD icon (not a "no icon"
+  glyph) — `draw_tile` recognizes any label under the "Custom Resources"
+  section that isn't a fixed kind as a CRD group and resolves its icon
+  accordingly, since that's the only place such dynamic labels appear.
+- [x] Build clean, 28/28 tests pass, clippy clean. Ran the release
+  binary on a real pty against the live cluster for several seconds,
+  no panic.
+
+### Not done on purpose
+
+- The `m` menu's "Custom Resources" entry still opens only the flat,
+  unfiltered list — it doesn't grow group sub-tiles the way the Overview
+  grid does. `MenuSection.tiles` is a `&'static [ResourceKind]` built
+  once at compile time; giving it a dynamically-sized, per-run list of
+  discovered groups would need a real restructuring (owned `Vec`s with
+  their own lifetimes threaded through `menu_sections()`) for a
+  secondary surface — the Overview grid was the explicit ask.
+- No further "prettier" tuning beyond corner consistency + label
+  truncation (e.g. tile background tinting) — real terminal-graphics
+  images (Kitty protocol) composite as their own layer on top of the
+  terminal grid, so a tile background color wouldn't visually apply to
+  the icon area anyway, and guessing further polish without being able
+  to see the actual rendering risked making things worse, not better.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

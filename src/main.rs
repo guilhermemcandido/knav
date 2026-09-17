@@ -199,13 +199,42 @@ impl Catalog {
             ),
             (
                 "Custom Resources",
-                // One tile for the whole picker, not one per CRD kind —
-                // its count is how many CRD *kinds* are installed (known
-                // for free from discovery), not a live object count,
-                // consistent with "list only, watch on open".
-                vec![("Custom Resources", self.crds.len())],
+                // "Custom Resources" itself is the whole unfiltered
+                // picker; one further tile per discovered API group so
+                // the (often long) flat list is organized the way
+                // Freelens groups its own custom-resource menu. Every
+                // count here is "how many CRD *kinds*", not a live
+                // object count — known for free from discovery, no
+                // watch needed, consistent with "list only, watch on
+                // open".
+                std::iter::once(("Custom Resources", self.crds.len()))
+                    .chain(self.crd_groups().into_iter().map(|group| (group, self.crds.iter().filter(|c| c.group == group).count())))
+                    .collect(),
             ),
         ]
+    }
+
+    /// Every distinct API group among the discovered CRDs, in the same
+    /// order `discover_crds` already sorted them (group, then kind) —
+    /// a simple adjacent-dedup instead of a `HashSet` keeps that order
+    /// intact instead of scrambling it.
+    fn crd_groups(&self) -> Vec<&'static str> {
+        let mut groups: Vec<&'static str> = Vec::new();
+        for crd in &self.crds {
+            if groups.last() != Some(&crd.group) {
+                groups.push(crd.group);
+            }
+        }
+        groups
+    }
+
+    /// Resolves an Overview tile's/menu's label back to the `ResourceKind`
+    /// it switches to. Tries the fixed kinds first (`ResourceKind::
+    /// from_label`); a label that isn't one of those but does match a
+    /// discovered CRD group must be that group's tile (the "Custom
+    /// Resources" section is the only place such labels appear).
+    fn kind_for_tile_label(&self, label: &str) -> Option<ResourceKind> {
+        ResourceKind::from_label(label).or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))
     }
 }
 
@@ -346,12 +375,23 @@ fn run(
         // `resolve` also lazily starts a CRD's watch the first time it's
         // the current kind — "watch on open", not for every installed CRD.
         let generic_rows: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
+        // The CRD picker, unfiltered or scoped to one API group — each
+        // entry keeps its real index into `catalog.crds` (needed to open
+        // the right one on Enter even though this may be a filtered
+        // subset of the full list).
+        let crd_rows: Vec<(usize, k8s::CrdInfo)> = match current_kind {
+            ResourceKind::CustomResourceList => catalog.crds.iter().cloned().enumerate().collect(),
+            ResourceKind::CustomResourceGroup(group) => {
+                catalog.crds.iter().cloned().enumerate().filter(|(_, c)| c.group == group).collect()
+            }
+            _ => Vec::new(),
+        };
 
         let row_count = match current_kind {
             ResourceKind::Overview => overview.warnings.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
-            ResourceKind::CustomResourceList => catalog.crds.len(),
+            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
             _ => generic_rows.len(),
         };
         // Selection can't outrun the list as pods/deployments come and go
@@ -375,7 +415,7 @@ fn run(
             ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected, &overview_collapsed),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
-            ResourceKind::CustomResourceList => ui::Rows::CrdList(&catalog.crds),
+            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, current_kind.label()),
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
@@ -511,7 +551,7 @@ fn run(
                         moved = false;
                         if let Some((_, tiles)) = overview.catalog.get(overview_selected.0)
                             && let Some((label, _)) = tiles.get(overview_selected.1)
-                            && let Some(kind) = ResourceKind::from_label(label)
+                            && let Some(kind) = catalog.kind_for_tile_label(label)
                         {
                             current_kind = kind;
                             table_state.select(Some(0));
@@ -526,12 +566,17 @@ fn run(
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') => return Ok(()),
                 // Esc backs out one level instead of quitting — to
-                // Overview from any top-level kind, or to the Custom
-                // Resources picker from one specific CRD kind's
-                // instances, mirroring how you got there.
+                // Overview from any top-level kind, or to the specific
+                // CRD-group picker (or the flat list, if discovery
+                // somehow can't find it) one specific CRD kind's
+                // instances came from, mirroring how you got there.
                 KeyCode::Esc => {
                     current_kind = match current_kind {
-                        ResourceKind::CustomResource(_, _) => ResourceKind::CustomResourceList,
+                        ResourceKind::CustomResource(index, _) => catalog
+                            .crds
+                            .get(index)
+                            .map(|c| ResourceKind::CustomResourceGroup(c.group))
+                            .unwrap_or(ResourceKind::CustomResourceList),
                         _ => ResourceKind::Overview,
                     };
                     table_state.select(Some(0));
@@ -566,11 +611,11 @@ fn run(
                         }
                     }
                 },
-                KeyCode::Enter if current_kind == ResourceKind::CustomResourceList => {
+                KeyCode::Enter if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
                     if let Some(index) = table_state.selected()
-                        && let Some(crd) = catalog.crds.get(index)
+                        && let Some((real_index, crd)) = crd_rows.get(index)
                     {
-                        current_kind = ResourceKind::CustomResource(index, crd.kind);
+                        current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
                         table_state.select(Some(0));
                     }
                 }
