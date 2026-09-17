@@ -1,4 +1,5 @@
 mod config;
+mod icons;
 mod k8s;
 mod metrics;
 mod ui;
@@ -191,40 +192,6 @@ impl Catalog {
     }
 }
 
-/// Maps an Overview tile's/menu's display label back to the `ResourceKind`
-/// it switches to — the join key between the (label, count) tuples the
-/// catalog renders and the enum `current_kind` actually switches on.
-fn kind_for_label(label: &str) -> Option<ResourceKind> {
-    match label {
-        "Pods" => Some(ResourceKind::Pods),
-        "Deployments" => Some(ResourceKind::Deployments),
-        "Nodes" => Some(ResourceKind::Nodes),
-        "Namespaces" => Some(ResourceKind::Namespaces),
-        "ReplicaSets" => Some(ResourceKind::ReplicaSets),
-        "StatefulSets" => Some(ResourceKind::StatefulSets),
-        "DaemonSets" => Some(ResourceKind::DaemonSets),
-        "Jobs" => Some(ResourceKind::Jobs),
-        "CronJobs" => Some(ResourceKind::CronJobs),
-        "ConfigMaps" => Some(ResourceKind::ConfigMaps),
-        "Secrets" => Some(ResourceKind::Secrets),
-        "HPAs" => Some(ResourceKind::Hpas),
-        "Services" => Some(ResourceKind::Services),
-        "Endpoints" => Some(ResourceKind::Endpoints),
-        "Ingresses" => Some(ResourceKind::Ingresses),
-        "NetworkPolicies" => Some(ResourceKind::NetworkPolicies),
-        "PVCs" => Some(ResourceKind::Pvcs),
-        "PVs" => Some(ResourceKind::Pvs),
-        "StorageClasses" => Some(ResourceKind::StorageClasses),
-        "ServiceAccounts" => Some(ResourceKind::ServiceAccounts),
-        "Roles" => Some(ResourceKind::Roles),
-        "RoleBindings" => Some(ResourceKind::RoleBindings),
-        "ClusterRoles" => Some(ResourceKind::ClusterRoles),
-        "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
-        "Custom Resources" => Some(ResourceKind::CustomResourceList),
-        _ => None,
-    }
-}
-
 /// The `m` menu's layout — same six categories as the Overview catalog.
 /// One shared function so the popup's render pass and its keyboard/Enter
 /// handling can't drift apart (same principle as `build_catalog_rows`
@@ -327,6 +294,11 @@ fn run(
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
     let mut overview_scroll: usize = 0;
+    // Queries the terminal's actual graphics capability (Kitty/Sixel/
+    // iTerm2, falling back to halfblocks) — must happen after raw mode is
+    // enabled and before the event-read loop below starts, so its own
+    // terminal query doesn't race with crossterm's stdin reads.
+    let mut icons = icons::IconCache::detect();
     let mut overview_selected: (usize, usize) = (0, 0);
 
     loop {
@@ -383,7 +355,7 @@ fn run(
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, &mut icons);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -391,21 +363,21 @@ fn run(
                     frame_area = frame.area();
                     let sections = menu_sections();
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
             Mode::Spec { title, items, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Spec { title, items, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
             Mode::Containers { title, containers, state, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Containers { title, containers, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
             Mode::Logs { title, lines, scroll, follow, timestamp_format, .. } => {
@@ -418,7 +390,7 @@ fn run(
                         follow: *follow,
                         timestamp_format: *timestamp_format,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay));
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
         }
@@ -465,7 +437,7 @@ fn run(
                         moved = false;
                         if let Some((_, tiles)) = overview.catalog.get(overview_selected.0)
                             && let Some((label, _)) = tiles.get(overview_selected.1)
-                            && let Some(kind) = kind_for_label(label)
+                            && let Some(kind) = ResourceKind::from_label(label)
                         {
                             current_kind = kind;
                             table_state.select(Some(0));

@@ -8,6 +8,7 @@ use ratatui::{
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
+use crate::icons::IconCache;
 use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, Overview, PodRow, ResourceKind, Warning};
 
 pub enum Rows<'a> {
@@ -44,7 +45,15 @@ pub struct Hover {
     pub row_on_screen: u16,
 }
 
-pub fn draw(frame: &mut Frame, rows: Rows, table_state: &mut TableState, hover: Option<Hover>, overlay: Option<Overlay>) {
+#[allow(clippy::too_many_arguments)]
+pub fn draw(
+    frame: &mut Frame,
+    rows: Rows,
+    table_state: &mut TableState,
+    hover: Option<Hover>,
+    overlay: Option<Overlay>,
+    icons: &mut IconCache,
+) {
     let dimmed = overlay.is_some();
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
@@ -76,7 +85,7 @@ pub fn draw(frame: &mut Frame, rows: Rows, table_state: &mut TableState, hover: 
             draw_deployment_table(frame, frame.area(), deployments, table_state, dimmed);
         }
         Rows::Overview(overview, scroll, selected) => {
-            draw_overview(frame, frame.area(), overview, scroll, selected, dimmed);
+            draw_overview(frame, frame.area(), overview, scroll, selected, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
             draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
@@ -419,7 +428,9 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[CrdInfo], table_st
 }
 
 const TILE_WIDTH: u16 = 18;
-const TILE_HEIGHT: u16 = 5;
+/// 2 border rows + a 3-row-tall icon area + a count line + a label line.
+const TILE_HEIGHT: u16 = 7;
+const TILE_ICON_HEIGHT: u16 = 3;
 pub const METRICS_PANEL_HEIGHT: u16 = 7;
 
 /// The home screen: a cluster-resources panel on top (CPU/Memory/Pods
@@ -429,10 +440,19 @@ pub const METRICS_PANEL_HEIGHT: u16 = 7;
 /// (Freelens-style categories), ending with the Cluster Issues list
 /// (Node warning conditions + Warning events — verified against
 /// Freelens's actual `cluster-issues.tsx` source).
-fn draw_overview(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, selected: (usize, usize), dimmed: bool) {
+#[allow(clippy::too_many_arguments)]
+fn draw_overview(
+    frame: &mut Frame,
+    area: Rect,
+    overview: &Overview,
+    scroll: usize,
+    selected: (usize, usize),
+    dimmed: bool,
+    icons: &mut IconCache,
+) {
     let chunks = Layout::vertical([Constraint::Length(METRICS_PANEL_HEIGHT), Constraint::Min(0)]).split(area);
     draw_metrics_panel(frame, chunks[0], overview, dimmed);
-    draw_catalog(frame, chunks[1], overview, scroll, selected, dimmed);
+    draw_catalog(frame, chunks[1], overview, scroll, selected, dimmed, icons);
 }
 
 /// The catalog area is whatever's left below the metrics panel — callers
@@ -764,7 +784,7 @@ pub fn tile_at(frame_area: Rect, overview: &Overview, scroll: usize, column: u16
     None
 }
 
-fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, selected: (usize, usize), dimmed: bool) {
+fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usize, selected: (usize, usize), dimmed: bool, icons: &mut IconCache) {
     let cols = tile_cols(area.width);
     let rows = build_catalog_rows(overview, cols);
 
@@ -779,7 +799,7 @@ fn draw_catalog(frame: &mut Frame, area: Rect, overview: &Overview, scroll: usiz
         match row {
             CatalogRow::SectionHeader(title) => draw_section_header(frame, row_area, title, dimmed),
             CatalogRow::Tiles { section, start, tiles } => {
-                draw_tiles_row(frame, row_area, tiles, *section, *start, selected, dimmed)
+                draw_tiles_row(frame, row_area, tiles, *section, *start, selected, dimmed, icons)
             }
             CatalogRow::IssuesHeader(count) => draw_issues_header(frame, row_area, *count, dimmed),
             CatalogRow::IssuesEmpty => draw_issues_empty(frame, row_area, dimmed),
@@ -796,13 +816,22 @@ fn draw_section_header(frame: &mut Frame, area: Rect, title: &str, dimmed: bool)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_tiles_row(frame: &mut Frame, area: Rect, tiles: &[(&str, usize)], section: usize, start: usize, selected: (usize, usize), dimmed: bool) {
+fn draw_tiles_row(
+    frame: &mut Frame,
+    area: Rect,
+    tiles: &[(&str, usize)],
+    section: usize,
+    start: usize,
+    selected: (usize, usize),
+    dimmed: bool,
+    icons: &mut IconCache,
+) {
     let mut constraints: Vec<Constraint> = tiles.iter().map(|_| Constraint::Length(TILE_WIDTH)).collect();
     constraints.push(Constraint::Min(0));
     let areas = Layout::horizontal(constraints).split(area);
     for (i, (label, count)) in tiles.iter().enumerate() {
         let is_selected = !dimmed && selected == (section, start + i);
-        draw_tile(frame, areas[i], label, *count, is_selected, dimmed);
+        draw_tile(frame, areas[i], label, *count, is_selected, dimmed, icons);
     }
 }
 
@@ -810,7 +839,7 @@ fn draw_tiles_row(frame: &mut Frame, area: Rect, tiles: &[(&str, usize)], sectio
 /// official Kubernetes symbol set — there isn't one that's terminal
 /// renderable — just a distinct, recognizable emoji per kind), the live
 /// count, and the kind name underneath.
-fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected: bool, dimmed: bool) {
+fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected: bool, dimmed: bool, icons: &mut IconCache) {
     let border_style = if dimmed {
         Style::default().fg(Color::DarkGray)
     } else if selected {
@@ -822,12 +851,24 @@ fn draw_tile(frame: &mut Frame, area: Rect, label: &str, count: usize, selected:
     let label_style = if selected && !dimmed { Style::default().fg(Color::Cyan) } else { Style::default().fg(Color::DarkGray) };
 
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
-    let text = vec![
-        Line::raw(icon_for(label)),
-        Line::styled(count.to_string(), count_style),
-        Line::styled(label, label_style),
-    ];
-    frame.render_widget(Paragraph::new(text).alignment(Alignment::Center).block(block), area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([Constraint::Length(TILE_ICON_HEIGHT), Constraint::Length(1), Constraint::Length(1)]).split(inner);
+
+    // A real terminal-graphics image would still read as "in focus" even
+    // while a modal dims everything else — fall back to the plain glyph
+    // so a dimmed tile actually looks dimmed. Same fallback if the label
+    // somehow isn't one of the known kinds (shouldn't happen — every
+    // label drawn here comes from `Catalog::sections`, which only ever
+    // uses labels `ResourceKind::from_label` recognizes).
+    match (dimmed, ResourceKind::from_label(label)) {
+        (false, Some(kind)) => icons.draw(frame, icons.centered_square(rows[0]), kind),
+        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), rows[0]),
+    }
+
+    frame.render_widget(Paragraph::new(Line::styled(count.to_string(), count_style)).alignment(Alignment::Center), rows[1]);
+    frame.render_widget(Paragraph::new(Line::styled(label, label_style)).alignment(Alignment::Center), rows[2]);
 }
 
 fn icon_for(label: &str) -> &'static str {

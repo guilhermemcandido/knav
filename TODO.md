@@ -809,6 +809,76 @@ objects until the user opens it.
   other generic kinds) — Namespace/Name/Age regardless of what the CRD
   actually is.
 
+## Done since last update (2026-09-17, later still #3) — real Kubernetes icons in the Overview grid
+
+Overview tiles used our own emoji picks, not official icons — noted
+explicitly in an earlier round as "our own choice, not official." Asked
+about actually integrating the real ones; the constraint is that
+ratatui renders text cells, not images, so this needed a terminal
+graphics protocol, not just a different glyph. Discussed the tradeoff
+(real images via Kitty/Sixel, falling back to a coarse halfblock mosaic
+elsewhere, vs. staying with text glyphs) — went with real images, since
+Ghostty (this machine's terminal) supports the Kitty protocol.
+
+- [x] Vendored 26 SVGs from the official `kubernetes/community` icon set
+  (`assets/icons/`, `unlabeled` variants — icon only, no text) covering
+  every built-in `ResourceKind` plus a generic `crd.svg` for Custom
+  Resources. Attribution + license terms (dual Apache-2.0/CC-BY-4.0,
+  redistribution permitted) recorded in `assets/icons/ATTRIBUTION.md`.
+- [x] `src/icons.rs`: rasterizes each SVG once via `resvg`/`usvg`/
+  `tiny-skia` onto a 128×128 transparent canvas (scaled to fit, centered,
+  aspect preserved), converts to an `image::DynamicImage`, and hands it
+  to `ratatui-image`'s `Picker::new_resize_protocol` — cached per icon
+  (`HashMap<&'static str, StatefulProtocol>`), built lazily the first
+  time that resource kind's tile is actually drawn.
+- [x] `IconCache::detect()` calls `Picker::from_query_stdio()` (queries
+  the terminal's real capability via an escape sequence) once, after raw
+  mode is enabled but before the event-read loop starts, so it can't
+  race with crossterm's own stdin reads; falls back to
+  `Picker::halfblocks()` (pure Rust, no querying) if detection errors.
+- [x] `ratatui-image` pulled in with `default-features = false, features
+  = ["crossterm"]` — its defaults require the system `chafa` library via
+  pkg-config, which isn't installed here and shouldn't be a hard
+  requirement for a hobby TUI; the built-in halfblocks/Kitty/Sixel
+  encoders don't need it.
+- [x] Grew each Overview tile from 5 to 7 rows tall (2 border + a 3-row
+  icon area + count line + label line) to give the image real room;
+  `TILE_HEIGHT`/`TILE_ICON_HEIGHT` are the only places this is defined,
+  so the catalog scroll math, menu popup, and hit-testing all picked it
+  up automatically.
+- [x] Moved the Overview tile's label→`ResourceKind` mapping from a
+  free function in `main.rs` (`kind_for_label`) to `ResourceKind::
+  from_label`, next to the existing `label()`, since `ui::draw_tile` now
+  also needs it (to know which icon to fetch) — one mapping instead of
+  two.
+- [x] When a modal is open (dimmed background), tiles still fall back to
+  the plain glyph instead of a real image — a full-color image would
+  keep reading as "in focus" even while everything else recedes for the
+  modal, undermining the whole point of dimming.
+- [x] Ran the release binary attached to a real pty for several seconds:
+  no panic, and the terminal output showed genuine Kitty graphics
+  protocol escape sequences being sent (`_Gi=...,a=q,t=d,f=24;...`),
+  confirming `Picker::from_query_stdio` detected Kitty and the rendering
+  pipeline is actually executing — this doesn't confirm the pixels look
+  right (can't inspect rendered terminal output from here), so visual
+  confirmation is still on the user.
+- [x] Build clean, 23/23 tests pass (no new tests — this is a rendering
+  pipeline change with no new pure logic beyond what integration/visual
+  testing covers), clippy clean.
+
+### Not done on purpose
+
+- No per-frame background thread for image resize/encode
+  (`ratatui_image::thread::ThreadProtocol`) — since each tile's Rect size
+  is constant across frames, the resize/encode only actually runs once
+  per icon (first render), not every frame, so the crate's own "don't
+  block the UI thread" warning doesn't really bite here. Worth
+  revisiting only if tiles ever become dynamically resizable.
+- Menu popup tiles still use the old emoji glyphs, not real icons — this
+  round only touched the Overview grid to keep the change bounded.
+- No alpha/background-color tuning for the halfblocks fallback path
+  (non-Kitty/Sixel terminals) — whatever `ratatui-image` does by default.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

@@ -83,6 +83,42 @@ impl ResourceKind {
             ResourceKind::CustomResource(_, label) => label,
         }
     }
+
+    /// The reverse of `label()` — for the fixed, compile-time-known kinds
+    /// only (never `CustomResource`, which needs a live index and can't
+    /// be reconstructed from its label alone). The join key between the
+    /// (label, count) tuples the Overview catalog/menu render and the
+    /// enum `current_kind` actually switches on.
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "Pods" => Some(ResourceKind::Pods),
+            "Deployments" => Some(ResourceKind::Deployments),
+            "Nodes" => Some(ResourceKind::Nodes),
+            "Namespaces" => Some(ResourceKind::Namespaces),
+            "ReplicaSets" => Some(ResourceKind::ReplicaSets),
+            "StatefulSets" => Some(ResourceKind::StatefulSets),
+            "DaemonSets" => Some(ResourceKind::DaemonSets),
+            "Jobs" => Some(ResourceKind::Jobs),
+            "CronJobs" => Some(ResourceKind::CronJobs),
+            "ConfigMaps" => Some(ResourceKind::ConfigMaps),
+            "Secrets" => Some(ResourceKind::Secrets),
+            "HPAs" => Some(ResourceKind::Hpas),
+            "Services" => Some(ResourceKind::Services),
+            "Endpoints" => Some(ResourceKind::Endpoints),
+            "Ingresses" => Some(ResourceKind::Ingresses),
+            "NetworkPolicies" => Some(ResourceKind::NetworkPolicies),
+            "PVCs" => Some(ResourceKind::Pvcs),
+            "PVs" => Some(ResourceKind::Pvs),
+            "StorageClasses" => Some(ResourceKind::StorageClasses),
+            "ServiceAccounts" => Some(ResourceKind::ServiceAccounts),
+            "Roles" => Some(ResourceKind::Roles),
+            "RoleBindings" => Some(ResourceKind::RoleBindings),
+            "ClusterRoles" => Some(ResourceKind::ClusterRoles),
+            "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+            "Custom Resources" => Some(ResourceKind::CustomResourceList),
+            _ => None,
+        }
+    }
 }
 
 pub struct PodRow {
