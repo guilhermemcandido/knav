@@ -95,6 +95,8 @@ pub enum Overlay<'a> {
     /// a category has more kinds than the compact column can show at
     /// once (e.g. Custom Resources with many discovered groups).
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
+    /// A short result message (e.g. after an edit) — any key closes it.
+    Notice { text: &'a str, error: bool },
     /// The `/`/`f` live-filter input bar — still doesn't dim the
     /// background, since you're meant to see the list narrowing as you
     /// type, unlike `Command`'s modal jump.
@@ -166,6 +168,7 @@ pub fn draw(
                 | Some(Overlay::NodeDetail { .. })
                 | Some(Overlay::Command { .. })
                 | Some(Overlay::Context { .. })
+                | Some(Overlay::Notice { .. })
                 | Some(Overlay::Events { .. })
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
@@ -257,6 +260,7 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
+        Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
 }
@@ -499,6 +503,30 @@ fn draw_context_popup(
         state.select(Some(selected.min(items.len().saturating_sub(1))));
     }
     frame.render_stateful_widget(table, area, state);
+}
+
+/// A small centered message box — green-bordered for success, red for
+/// an error. Sized to the text so a one-liner doesn't get a huge box.
+fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
+    let full = frame.area();
+    let width = (full.width * 3 / 5).max(30).min(full.width);
+    let inner_w = width.saturating_sub(2).max(1) as usize;
+    let lines: usize = text.lines().map(|l| l.chars().count().div_ceil(inner_w).max(1)).sum::<usize>().max(1);
+    let height = (lines as u16 + 2).min(full.height);
+    let area = Rect {
+        x: full.x + full.width.saturating_sub(width) / 2,
+        y: full.y + full.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, area);
+    let color = if error { Color::Red } else { Color::Green };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(color))
+        .title(if error { "Edit failed" } else { "Done" });
+    frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
 }
 
 /// Shared namespace/name coloring — namespace in the app's cyan accent,

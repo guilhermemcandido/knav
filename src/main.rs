@@ -1,4 +1,5 @@
 mod config;
+mod edit;
 mod fuzzy;
 mod icons;
 mod k8s;
@@ -48,6 +49,9 @@ enum Mode {
     /// attempt failed. Esc returns to `back`.
     Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     Menu { selected: (usize, usize) },
+    /// A result message (see `edit`) — any key or click dismisses it,
+    /// returning to `back`.
+    Notice { text: String, error: bool, back: Box<Mode> },
     Spec {
         title: String,
         items: Vec<TreeItem<'static, String>>,
@@ -778,6 +782,13 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
+            Mode::Notice { text, error, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Notice { text, error: *error };
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
+                })?;
+            }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -955,6 +966,12 @@ fn run(
         // whole backlog instead of being handled almost immediately.
         loop {
             match (event::read()?, &mut mode) {
+                // Any key (or click) closes a notice — checked before the
+                // global keys below so they don't also fire on that press.
+                (Event::Key(_), Mode::Notice { back, .. }) => mode = std::mem::replace(&mut **back, Mode::List),
+                (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
+                    mode = std::mem::replace(&mut **back, Mode::List)
+                }
                 // Toggling mouse reporting off hands click-drag text
                 // selection (and therefore copy) back to the terminal
                 // itself — the only thing enabling it took away. Skipped
@@ -1211,6 +1228,27 @@ fn run(
                             }
                         }
                     },
+                    // Edit the selected resource in `$EDITOR` (see `edit`) —
+                    // the same manifest `d` shows, for every kind that has
+                    // a selectable row.
+                    KeyCode::Char('e') => {
+                        let manifest: Option<serde_yaml::Value> = match current_kind {
+                            ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
+                            ResourceKind::Pods => table_state.selected().and_then(|i| pods.get(i)).map(|p| k8s::manifest_value(p.as_ref())),
+                            ResourceKind::Deployments => {
+                                table_state.selected().and_then(|i| deployments.get(i)).map(|d| k8s::manifest_value(d.as_ref()))
+                            }
+                            ResourceKind::Nodes => table_state.selected().and_then(|i| sorted_nodes.get(i)).map(|n| k8s::manifest_value(n.as_ref())),
+                            _ => table_state
+                                .selected()
+                                .and_then(|i| generic_visible.get(i).copied())
+                                .and_then(|real| catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real))),
+                        };
+                        if let Some(manifest) = manifest {
+                            let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
+                            mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                        }
+                    }
                     KeyCode::Enter if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
                         if let Some(index) = table_state.selected()
                             && let Some((real_index, crd)) = crd_rows.get(index)
@@ -1482,6 +1520,18 @@ fn run(
                             open_spec(&mut mode, title, node.as_ref());
                         }
                     }
+                    KeyCode::Char('e') => {
+                        if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
+                            let manifest = k8s::manifest_value(node.as_ref());
+                            let back = Box::new(Mode::NodeDetail {
+                                name: name.clone(),
+                                state: *state,
+                                back: std::mem::replace(back, Box::new(Mode::List)),
+                            });
+                            let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
+                            mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+                        }
+                    }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_detail_rows.len()),
                     KeyCode::Enter => {
@@ -1657,6 +1707,7 @@ fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
+        Mode::Notice { back, .. } => breadcrumb_path(back),
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
 }
@@ -1693,20 +1744,23 @@ fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'st
                 ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => vec![("j/k", "move"), ("enter", "open")],
                 _ => vec![("j/k", "move"), ("d", "spec")],
             };
+            if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
+                hints.push(("e", "edit"));
+            }
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
             hints.push(("C", "switch context"));
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } => Vec::new(),
         Mode::Context { editing: true, .. } => Vec::new(),
         Mode::Context { .. } => vec![("j/k", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
         Mode::Spec { .. } => {
             vec![("j/k", "move"), ("enter", "toggle"), ("v", "view full value"), ("a", "expand/collapse all"), ("q/esc", "back")]
         }
-        Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("q/esc", "back")],
+        Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("q/esc", "back")],
         Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
