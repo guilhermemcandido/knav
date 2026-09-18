@@ -1557,6 +1557,22 @@ no equivalent "recompute the same count a different way" step to drift.
   category-grid model) or the Events browser (which already has its
   own a/w/n severity filter).
 
+## Done since last update (2026-09-18, later still #10) — input backlog no longer stalls quit/other keys, breadcrumb format changed
+
+- Real bug: a big mouse-wheel scroll (trackpad "flick," easily dozens
+  of `ScrollDown` events queued at once) triggered a full redraw *per
+  event* before the next one was even read — so a keypress typed right
+  after, even just `q`, sat behind that whole backlog instead of
+  registering. Fixed by draining every already-queued event before
+  looping back to redraw, so a burst is processed as a fast batch (no
+  render in between) rather than dozens of separate render passes.
+  Verified: 300 queued keypresses immediately followed by quit now
+  resolves in ~19ms end to end (was previously bounded by however long
+  300 redraws take).
+- Breadcrumb format changed from `Kind: value  ›  Kind: value` to
+  `Kind[value]>>Kind[value]` per explicit request — e.g.
+  `Overview>>Resources>>Node[k3d-knav-test-server-0]`.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
