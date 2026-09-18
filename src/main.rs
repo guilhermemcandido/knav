@@ -512,6 +512,23 @@ fn run(
         }
 
         match (event::read()?, &mut mode) {
+            // Scrolling the Overview page itself — independent of tile
+            // selection, since with bigger tiles and the metrics section
+            // now part of the scroll, a lot of content can sit below one
+            // screen's worth of height and mouse wheel is the natural
+            // way to browse a "just a scrollable page" like this.
+            (Event::Mouse(mouse), Mode::List)
+                if current_kind == ResourceKind::Overview && matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) =>
+            {
+                let catalog_area = ui::catalog_area(frame_area);
+                let cols = ui::tile_cols(catalog_area.width);
+                let max_scroll = ui::catalog_row_count(&overview, &overview_collapsed, cols).saturating_sub(1);
+                match mouse.kind {
+                    MouseEventKind::ScrollDown => overview_scroll = (overview_scroll + 3).min(max_scroll),
+                    MouseEventKind::ScrollUp => overview_scroll = overview_scroll.saturating_sub(3),
+                    _ => unreachable!(),
+                }
+            }
             (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                 if current_kind == ResourceKind::Overview {
                     if matches!(mouse.kind, MouseEventKind::Down(_))

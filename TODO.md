@@ -1124,6 +1124,50 @@ bigger, rounder tiles.
   (only STATUS: Ready/NotReady) — the detailed condition messages are
   still only in Overview's Cluster Issues panel and the node's own spec.
 
+## Done since last update (2026-09-18, later still #3) — fixed a real scroll bug, plus two polish requests
+
+Reported "Custom Resources isn't showing anymore." Verified the data
+layer first with a temporary debug hook (dumped `Catalog::sections()`'s
+actual output to a log file, ran against the live cluster, confirmed
+all 6 tiles — the flat list plus 5 groups — were present with correct
+counts, then removed the hook). The bug wasn't data, it was navigation:
+**mouse wheel scrolling was never wired up for the Overview page at
+all** — only click-to-select and hover. Between last round's bigger
+tiles and the metrics panel now living inside the scroll instead of
+being pinned, "Custom Resources" (near the bottom) now needs
+meaningfully more scrolling to reach, and the most natural way to get
+there — the mouse wheel, especially after asking for "just a scrollable
+page" — silently did nothing.
+
+- [x] Wired `MouseEventKind::ScrollDown`/`ScrollUp` for the Overview
+  page: adjusts `overview_scroll` directly (independent of tile
+  selection), clamped to the real content length via the new
+  `ui::catalog_row_count`. Keyboard navigation (`j`/`k`/arrows, which
+  auto-scroll via `scroll_to_show`) still works exactly as before —
+  this was a pure gap, not something that regressed.
+- [x] Menu tile selection: a colored border alone read as too subtle to
+  actually notice — the selected tile in the `m` menu now gets a solid
+  filled cyan background instead, unmistakable regardless of terminal
+  theme. (Scoped to the menu specifically, since that's what was asked
+  — the Overview grid's own tile selection keeps its existing border+
+  text-color treatment.)
+- [x] The generic Namespace/Name/Age table now drops the NAMESPACE
+  column entirely when every row is cluster-scoped (Nodes, ClusterRoles,
+  PVs, StorageClasses, cluster-scoped CRDs, ...) instead of showing a
+  column that's all dashes — `any_row_has_namespace`, unit-tested.
+- [x] Build clean, 31/31 tests pass (2 new), clippy clean. Ran the
+  release binary on a real pty against the live cluster for several
+  seconds, no panic.
+
+### Not done on purpose
+
+- Mouse wheel scroll wasn't added to the other list views (Pods/
+  Deployments/Nodes/generic/CRD tables) — those rely on keyboard
+  j/k + ratatui's own `Table` auto-scroll, which already works; this
+  round was specifically about the Overview page's gap.
+- Overview grid's own tile selection wasn't changed to a filled
+  background — only the `m` menu was, per what was actually asked.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real

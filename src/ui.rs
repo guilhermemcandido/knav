@@ -494,23 +494,38 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
 /// The shared table for every resource kind that doesn't get specialized
 /// columns — Namespace/Name/Age is all that's generically knowable about
 /// an arbitrary Kubernetes object.
+/// Cluster-scoped kinds (Nodes, ClusterRoles, PVs, StorageClasses, ...)
+/// show "-" for every row's namespace — a column that's all dashes isn't
+/// telling anyone anything, so `draw_generic_table` drops it entirely
+/// when this is false.
+fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
+    rows.iter().any(|r| r.namespace != "-")
+}
+
 fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, dimmed: bool) {
     let muted = Style::default().fg(Color::DarkGray);
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
 
-    let header = Row::new(vec!["NAMESPACE", "NAME", "AGE"]).style(header_style);
+    let show_namespace = any_row_has_namespace(rows);
+
+    let (header, widths): (Row, Vec<Constraint>) = if show_namespace {
+        (Row::new(vec!["NAMESPACE", "NAME", "AGE"]), vec![Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(5)])
+    } else {
+        (Row::new(vec!["NAME", "AGE"]), vec![Constraint::Fill(1), Constraint::Length(5)])
+    };
+    let header = header.style(header_style);
 
     let table_rows = rows.iter().map(|r| {
-        Row::new(vec![
-            Cell::from(r.namespace.clone()).style(cell_style),
-            Cell::from(r.name.clone()).style(cell_style),
-            Cell::from(r.age.clone()).style(cell_style),
-        ])
+        let mut cells = Vec::with_capacity(3);
+        if show_namespace {
+            cells.push(Cell::from(r.namespace.clone()).style(cell_style));
+        }
+        cells.push(Cell::from(r.name.clone()).style(cell_style));
+        cells.push(Cell::from(r.age.clone()).style(cell_style));
+        Row::new(cells)
     });
-
-    let widths = [Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(5)];
 
     let title = format!("{label} ({})  —  j/k: move  d: spec  m: switch resource  q: quit", rows.len());
 
@@ -776,6 +791,15 @@ fn build_catalog_rows<'a>(overview: &'a Overview, cols: usize, collapsed: &HashS
         }
     }
     rows
+}
+
+/// How many virtual rows the catalog has in total — the bound a mouse
+/// wheel scroll needs so it can't scroll past the actual content (the
+/// render path already clamps to this via `rows.len().saturating_sub(1)`,
+/// this just lets callers apply the same bound to a raw scroll delta
+/// before it ever reaches render).
+pub fn catalog_row_count(overview: &Overview, collapsed: &HashSet<usize>, cols: usize) -> usize {
+    build_catalog_rows(overview, cols, collapsed).len()
 }
 
 pub enum Direction {
@@ -1269,12 +1293,16 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize
 
             for (col, (tile_area, kind)) in tile_areas.iter().zip(row_tiles.iter()).enumerate() {
                 let is_selected = selected == (section_idx, start + col);
+                // A colored border alone read as too subtle to notice at
+                // a glance — the selected tile now gets a solid filled
+                // background instead, unmistakable regardless of terminal
+                // theme.
                 let (border_style, text_style) = if is_selected {
-                    (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    (Style::default().fg(Color::Cyan), Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
                 } else {
                     (Style::default(), Style::default())
                 };
-                let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
+                let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).style(text_style);
                 let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
                 frame.render_widget(label, *tile_area);
             }
@@ -1562,6 +1590,26 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(vertical[1])[1]
+}
+
+#[cfg(test)]
+mod generic_table_tests {
+    use super::*;
+
+    fn row(namespace: &str) -> GenericRow {
+        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string() }
+    }
+
+    #[test]
+    fn namespace_column_hidden_when_every_row_is_cluster_scoped() {
+        assert!(!any_row_has_namespace(&[row("-"), row("-")]));
+    }
+
+    #[test]
+    fn namespace_column_shown_when_any_row_has_a_real_namespace() {
+        assert!(any_row_has_namespace(&[row("-"), row("default")]));
+        assert!(!any_row_has_namespace(&[]));
+    }
 }
 
 #[cfg(test)]
