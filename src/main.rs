@@ -84,6 +84,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         context: active_context.clone(),
         cluster: info.as_ref().map(|c| c.cluster.clone()).unwrap_or_default(),
         user: info.map(|c| c.user).unwrap_or_default(),
+        role: "read-and-write".to_string(),
         k8s_version,
         knav_version: format!("v{}", env!("CARGO_PKG_VERSION")),
     };

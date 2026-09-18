@@ -7,6 +7,9 @@ pub struct HeaderInfo {
     pub context: String,
     pub cluster: String,
     pub user: String,
+    /// What knav is allowed to do: `read-and-write` today; a future
+    /// read-only mode would show `read-only`.
+    pub role: String,
     pub k8s_version: String,
     pub knav_version: String,
 }
@@ -39,6 +42,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
         ("Context:", info.context.as_str()),
         ("Cluster:", info.cluster.as_str()),
         ("User:", info.user.as_str()),
+        ("Role:", info.role.as_str()),
         ("K8s Version:", info.k8s_version.as_str()),
         ("knav Version:", info.knav_version.as_str()),
     ];
