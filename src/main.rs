@@ -35,8 +35,20 @@ enum Mode {
     /// `:namespaces`/etc. (see `ResourceKind::from_command`) switches the
     /// current view. Esc cancels back to `List` without acting.
     Command { input: String },
+    /// The `/`/`f` live-filter input — editing the persistent `search`
+    /// string directly (not its own copy), so the filter it produces
+    /// stays applied once you're back in `List`, same as vim/fzf's own
+    /// "type to narrow, Enter to keep browsing the narrowed list."
+    Search,
     Menu { selected: (usize, usize) },
-    Spec { title: String, items: Vec<TreeItem<'static, String>>, state: TreeState<String> },
+    Spec {
+        title: String,
+        items: Vec<TreeItem<'static, String>>,
+        state: TreeState<String>,
+        // Where Esc returns to — normally the List we opened it from,
+        // or NodeDetail if 'd' was pressed from there instead.
+        back: Box<Mode>,
+    },
     /// Freelens-style node drill-down: that node's own metrics + the
     /// pods scheduled on it. `current_kind` stays `Nodes` throughout —
     /// this just overlays on top, same as `Containers` overlays on Pods.
@@ -421,6 +433,13 @@ fn run(
     let mut mode = Mode::List;
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
+    // The active `/`/`f` filter — empty means "show everything." Persists
+    // across `Mode::Search`/`Mode::List` so confirming a search (Enter)
+    // keeps the list narrowed while you go on navigating it; switching
+    // resource kind (`m`, `:`, Esc back to Overview) clears it, since a
+    // filter meant for one kind's names rarely makes sense carried over
+    // to a completely different kind's list.
+    let mut search = String::new();
     // Queries the terminal's actual graphics capability (Kitty/Sixel/
     // iTerm2, falling back to halfblocks) — must happen after raw mode is
     // enabled and before the event-read loop below starts, so its own
@@ -436,28 +455,47 @@ fn run(
     let mut overview_item_scroll: usize = 0;
 
     loop {
-        let pods = k8s::snapshot(pod_store);
+        // `search` only ever has an effect on whichever kind it was typed
+        // against — it's cleared on every kind switch (see the `search.
+        // clear()` calls alongside `current_kind = ...` below) — so
+        // filtering every kind's source list by it unconditionally is
+        // safe: for every kind other than the one actively being
+        // searched, `search` is "" and `row_matches` always returns true.
+        let pods: Vec<std::sync::Arc<Pod>> = k8s::snapshot(pod_store)
+            .into_iter()
+            .filter(|p| row_matches(&search, &meta_search_text(&p.metadata)))
+            .collect();
         let pod_rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
-        let deployments = k8s::snapshot_deployments(dep_store);
+        let deployments: Vec<std::sync::Arc<Deployment>> = k8s::snapshot_deployments(dep_store)
+            .into_iter()
+            .filter(|d| row_matches(&search, &meta_search_text(&d.metadata)))
+            .collect();
         let dep_rows: Vec<k8s::DeploymentRow> = deployments.iter().map(|d| k8s::row_for_deployment(d)).collect();
         let nodes = node_store.state();
         let events = event_store.state();
         let usage = node_metrics_rx.borrow().clone();
         // Only populated while actually viewing a node's detail — which
         // pod, out of everything on the cluster, is scheduled on this
-        // one node.
-        let node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Mode::NodeDetail { name, .. } = &mode {
-            pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name.as_str())).cloned().collect()
+        // one node. Searches the whole back-chain, not just the top
+        // mode, so it's still available when NodeDetail is a dimmed
+        // background layer behind Containers/Spec/Logs rather than the
+        // focused view itself.
+        let node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Some(name) = node_detail_name(&mode) {
+            pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name)).cloned().collect()
         } else {
             Vec::new()
         };
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         // Nodes get their own specialized rows (CPU/Memory visible right
         // in the list) instead of the generic Namespace/Name/Age table.
-        // Sorted the same way `snapshot_generic` sorts the generic Nodes
-        // catalog entry, so this stays index-aligned with `generic_rows`
-        // for the 'd' (spec) key, which still goes through that entry.
-        let sorted_nodes = k8s::snapshot_generic(node_store);
+        // Filtered directly here (not via the generic `catalog`/
+        // `generic_rows` path other kinds use) so the 'd'/Enter handlers
+        // below, which index straight into `sorted_nodes`, can't drift
+        // out of alignment with what's actually displayed.
+        let sorted_nodes: Vec<std::sync::Arc<Node>> = k8s::snapshot_generic(node_store)
+            .into_iter()
+            .filter(|n| row_matches(&search, &n.metadata.name.clone().unwrap_or_default()))
+            .collect();
         let node_rows: Vec<k8s::NodeRow> = sorted_nodes
             .iter()
             .map(|n| {
@@ -475,16 +513,34 @@ fn run(
         // it, same as `pod_rows`/`dep_rows` are always computed too.
         // `resolve` also lazily starts a CRD's watch the first time it's
         // the current kind — "watch on open", not for every installed CRD.
-        let generic_rows: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
+        // `generic_visible` maps a filtered display position back to its
+        // real index in `generic_rows_full`/the catalog's own live
+        // snapshot — needed because `CatalogKind::spec_at` (the 'd' key)
+        // takes that real index, not the display one.
+        let generic_rows_full: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
+        let generic_visible: Vec<usize> = (0..generic_rows_full.len())
+            .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
+            .collect();
+        let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
         // The CRD picker, unfiltered or scoped to one API group — each
         // entry keeps its real index into `catalog.crds` (needed to open
         // the right one on Enter even though this may be a filtered
         // subset of the full list).
         let crd_rows: Vec<(usize, k8s::CrdInfo)> = match current_kind {
-            ResourceKind::CustomResourceList => catalog.crds.iter().cloned().enumerate().collect(),
-            ResourceKind::CustomResourceGroup(group) => {
-                catalog.crds.iter().cloned().enumerate().filter(|(_, c)| c.group == group).collect()
-            }
+            ResourceKind::CustomResourceList => catalog
+                .crds
+                .iter()
+                .cloned()
+                .enumerate()
+                .filter(|(_, c)| row_matches(&search, &format!("{} {}", c.group, c.kind)))
+                .collect(),
+            ResourceKind::CustomResourceGroup(group) => catalog
+                .crds
+                .iter()
+                .cloned()
+                .enumerate()
+                .filter(|(_, c)| c.group == group && row_matches(&search, &format!("{} {}", c.group, c.kind)))
+                .collect(),
             _ => Vec::new(),
         };
 
@@ -522,19 +578,27 @@ fn run(
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
+        let breadcrumb_text = breadcrumb(&mode, current_kind);
         let mut frame_area = Rect::default();
         match &mut mode {
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, None, &mut icons);
                 })?;
             }
             Mode::Command { input } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Command { input };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), None, &mut icons);
+                })?;
+            }
+            Mode::Search => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Search { query: &search, matches: row_count };
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -542,24 +606,73 @@ fn run(
                     frame_area = frame.area();
                     let sections = menu_sections();
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                 })?;
             }
-            Mode::Spec { title, items, state } => {
+            Mode::Spec { title, items, state, back } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
+                    // Hoisted out of the `if let` below so these live for
+                    // the rest of the closure, not just that block — the
+                    // background `Overlay` borrows from them.
+                    let back_node_name: Option<String> = match &**back {
+                        Mode::NodeDetail { name, .. } => Some(name.clone()),
+                        _ => None,
+                    };
+                    let back_found_node = back_node_name.as_deref().and_then(|n| nodes.iter().find(|node| node.metadata.name.as_deref() == Some(n)));
+                    let back_capacity = back_found_node.map(|n| k8s::node_capacity(n));
+                    let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
+                    let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
+                    let background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
+                        Some(ui::Overlay::NodeDetail {
+                            name: back_node_name.as_deref().unwrap_or(""),
+                            cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
+                            cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
+                            memory_usage: back_node_usage.map(|u| u.memory_bytes),
+                            memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
+                            pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
+                            info: back_detail_info.as_ref(),
+                            pods: &node_detail_rows,
+                            state: nd_state,
+                        })
+                    } else {
+                        None
+                    };
                     let overlay = ui::Overlay::Spec { title, items, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::Containers { title, containers, state, .. } => {
+            Mode::Containers { title, containers, state, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
+                    let back_node_name: Option<String> = match &**back {
+                        Mode::NodeDetail { name, .. } => Some(name.clone()),
+                        _ => None,
+                    };
+                    let back_found_node = back_node_name.as_deref().and_then(|n| nodes.iter().find(|node| node.metadata.name.as_deref() == Some(n)));
+                    let back_capacity = back_found_node.map(|n| k8s::node_capacity(n));
+                    let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
+                    let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
+                    let background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
+                        Some(ui::Overlay::NodeDetail {
+                            name: back_node_name.as_deref().unwrap_or(""),
+                            cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
+                            cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
+                            memory_usage: back_node_usage.map(|u| u.memory_bytes),
+                            memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
+                            pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
+                            info: back_detail_info.as_ref(),
+                            pods: &node_detail_rows,
+                            state: nd_state,
+                        })
+                    } else {
+                        None
+                    };
                     let overlay = ui::Overlay::Containers { title, containers, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::NodeDetail { name, state, .. } => {
+            Mode::NodeDetail { name, state, back } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
@@ -577,28 +690,38 @@ fn run(
                         pods: &node_detail_rows,
                         state,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    let background = match &mut **back {
+                        Mode::ResourcesDetail { state: rd_state } => {
+                            Some(ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state: rd_state })
+                        }
+                        _ => None,
+                    };
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Events { filter, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                 })?;
             }
-            Mode::EventDetail { entry, .. } => {
+            Mode::EventDetail { entry, back } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
+                    let background = match &mut **back {
+                        Mode::Events { filter, state } => Some(ui::Overlay::Events { events: &overview.events, filter: *filter, state }),
+                        _ => None,
+                    };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ResourcesDetail { state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -606,15 +729,19 @@ fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, None, &mut icons);
                     }
                 })?;
             }
-            Mode::Logs { title, lines, scroll, follow, timestamp_format, .. } => {
+            Mode::Logs { title, lines, scroll, follow, timestamp_format, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
+                    let background = match &mut **back {
+                        Mode::Containers { title, containers, state, .. } => Some(ui::Overlay::Containers { title, containers, state }),
+                        _ => None,
+                    };
                     let overlay = ui::Overlay::Logs {
                         title,
                         lines,
@@ -622,7 +749,7 @@ fn run(
                         follow: *follow,
                         timestamp_format: *timestamp_format,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
         }
@@ -702,6 +829,7 @@ fn run(
                             {
                                 current_kind = kind;
                                 table_state.select(Some(0));
+                                search.clear();
                             }
                         }
                     },
@@ -791,6 +919,7 @@ fn run(
                         {
                             current_kind = kind;
                             table_state.select(Some(0));
+                            search.clear();
                             mode = Mode::List;
                         }
                     }
@@ -814,6 +943,7 @@ fn run(
                         _ => ResourceKind::Overview,
                     };
                     table_state.select(Some(0));
+                    search.clear();
                 }
                 KeyCode::Char(':') => {
                     mode = Mode::Command { input: String::new() };
@@ -835,10 +965,24 @@ fn run(
                             open_spec(&mut mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
                         }
                     }
+                    // Indexes straight into the (already filtered)
+                    // `sorted_nodes`, not through `generic_rows`/
+                    // `catalog.resolve` — those re-snapshot unfiltered,
+                    // which would misalign with what's actually
+                    // displayed whenever a search is active.
+                    ResourceKind::Nodes => {
+                        if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
+                            open_spec(&mut mode, node.metadata.name.clone().unwrap_or_default(), node.as_ref());
+                        }
+                    }
                     _ => {
-                        if let Some(index) = table_state.selected()
-                            && let Some(row) = generic_rows.get(index)
-                            && let Some(value) = catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(index))
+                        // `table_state.selected()` is a position in the
+                        // *filtered* display; `generic_visible` maps it
+                        // back to `spec_at`'s real index.
+                        if let Some(display_index) = table_state.selected()
+                            && let Some(&real_index) = generic_visible.get(display_index)
+                            && let Some(row) = generic_rows_full.get(real_index)
+                            && let Some(value) = catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real_index))
                         {
                             let title = format!("{}/{}", row.namespace, row.name);
                             open_spec_value(&mut mode, title, value);
@@ -851,6 +995,7 @@ fn run(
                     {
                         current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
                         table_state.select(Some(0));
+                        search.clear();
                     }
                 }
                 KeyCode::Enter if current_kind == ResourceKind::Pods => {
@@ -872,11 +1017,13 @@ fn run(
                 // Freelens-style node drill-down: what's actually running
                 // on this node, plus its own CPU/Memory/Pods gauges.
                 KeyCode::Enter if current_kind == ResourceKind::Nodes => {
-                    if let Some(index) = table_state.selected()
-                        && let Some(row) = generic_rows.get(index)
-                    {
-                        mode = Mode::NodeDetail { name: row.name.clone(), state: TableState::default().with_selected(0), back: Box::new(Mode::List) };
+                    if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
+                        let name = node.metadata.name.clone().unwrap_or_default();
+                        mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), back: Box::new(Mode::List) };
                     }
+                }
+                KeyCode::Char('/') | KeyCode::Char('f') => {
+                    mode = Mode::Search;
                 }
                 _ => {}
             },
@@ -891,12 +1038,25 @@ fn run(
                     if let Some(kind) = k8s::ResourceKind::from_command(&cmd) {
                         current_kind = kind;
                         table_state.select(Some(0));
+                        search.clear();
                     }
                 }
                 KeyCode::Backspace => {
                     input.pop();
                 }
                 KeyCode::Char(c) => input.push(c),
+                _ => {}
+            },
+            (Event::Key(key), Mode::Search) => match key.code {
+                KeyCode::Esc => {
+                    search.clear();
+                    mode = Mode::List;
+                }
+                KeyCode::Enter => mode = Mode::List,
+                KeyCode::Backspace => {
+                    search.pop();
+                }
+                KeyCode::Char(c) => search.push(c),
                 _ => {}
             },
             (Event::Key(key), Mode::Menu { selected }) => {
@@ -920,14 +1080,15 @@ fn run(
                         if let Some(kind) = sections.get(selected.0).and_then(|s| s.tiles.get(selected.1)) {
                             current_kind = *kind;
                             table_state.select(Some(0));
+                            search.clear();
                             mode = Mode::List;
                         }
                     }
                     _ => {}
                 }
             }
-            (Event::Key(key), Mode::Spec { state, .. }) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+            (Event::Key(key), Mode::Spec { state, back, .. }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                 KeyCode::Char('j') | KeyCode::Down => {
                     state.key_down();
                 }
@@ -1060,6 +1221,91 @@ fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
     format!("{}/{}", namespace.unwrap_or("?"), name.unwrap_or("?"))
 }
 
+/// The `/`/`f` filter: an empty query matches everything (no filter
+/// active); otherwise a fuzzy subsequence match against `haystack`,
+/// reusing the exact same scorer the cluster picker's own type-to-filter
+/// search already uses.
+fn row_matches(search: &str, haystack: &str) -> bool {
+    search.is_empty() || fuzzy::score(search, haystack).is_some()
+}
+
+fn meta_search_text(meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) -> String {
+    format!("{} {}", meta.namespace.clone().unwrap_or_default(), meta.name.clone().unwrap_or_default())
+}
+
+fn meta_search_text_generic(row: &k8s::GenericRow) -> String {
+    format!("{} {}", row.namespace, row.name)
+}
+
+/// The name of whichever `NodeDetail` sits anywhere in `mode`'s own
+/// back-chain (including `mode` itself) — not just when it's the
+/// topmost/focused mode. Needed so `node_detail_pods` stays correct even
+/// while NodeDetail is being drawn as a dimmed background layer behind
+/// something opened from it (Containers, Spec, and transitively Logs).
+fn node_detail_name(mode: &Mode) -> Option<&str> {
+    match mode {
+        Mode::NodeDetail { name, .. } => Some(name),
+        Mode::Containers { back, .. } | Mode::Logs { back, .. } | Mode::Spec { back, .. } => node_detail_name(back),
+        _ => None,
+    }
+}
+
+/// The full "how did I get here" path for the breadcrumb bar, oldest
+/// first — e.g. `["Node: worker-1", "Pod: default/web-1", "Logs:
+/// nginx"]`. `None` for `Mode::List` itself (nothing to show — you're
+/// already home) and for modes that don't chain back further than the
+/// base list (Menu, Command, Events, ResourcesDetail, ColumnDetail),
+/// since their own overlay title already says what they are.
+fn breadcrumb_path(mode: &Mode) -> Vec<String> {
+    match mode {
+        Mode::NodeDetail { name, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push(format!("Node: {name}"));
+            path
+        }
+        Mode::Containers { title, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push(format!("Pod: {title}"));
+            path
+        }
+        Mode::Spec { title, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push(format!("Spec: {title}"));
+            path
+        }
+        Mode::Logs { title, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            // `title` is "namespace/pod/container" (see `title_for` and
+            // the Containers Enter handler) — just the container name is
+            // enough here, the pod/node segments already came from `back`.
+            let container = title.rsplit('/').next().unwrap_or(title);
+            path.push(format!("Logs: {container}"));
+            path
+        }
+        Mode::EventDetail { back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push("Event detail".to_string());
+            path
+        }
+        Mode::Events { .. } => vec!["Events".to_string()],
+        Mode::ResourcesDetail { .. } => vec!["Resources".to_string()],
+        Mode::ColumnDetail { .. } => vec!["Category".to_string()],
+        Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
+    }
+}
+
+/// The rendered breadcrumb bar text, or `None` when there's nothing
+/// worth showing (plain `List`, or a shallow overlay whose own title
+/// already says everything — Menu/Command/Events/ResourcesDetail/
+/// ColumnDetail).
+fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<String> {
+    let path = breadcrumb_path(mode);
+    if path.is_empty() {
+        return None;
+    }
+    Some(format!("{}  ›  {}", current_kind.label(), path.join("  ›  ")))
+}
+
 fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
     open_spec_value(mode, title, k8s::manifest_value(item));
 }
@@ -1070,7 +1316,12 @@ fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     for item in &items {
         state.open(vec![item.identifier().clone()]);
     }
-    *mode = Mode::Spec { title, items, state };
+    // Captures whatever `mode` actually was (List, or NodeDetail if 'd'
+    // was pressed from there) as `back`, so Esc returns to the right
+    // place regardless of which of `open_spec`'s several call sites
+    // opened this.
+    let back = Box::new(std::mem::replace(mode, Mode::List));
+    *mode = Mode::Spec { title, items, state, back };
 }
 
 fn select_next(state: &mut TableState, len: usize) {
@@ -1171,5 +1422,38 @@ mod tests {
         let sections = menu_sections();
         let pos = menu_position_for(ResourceKind::ConfigMaps);
         assert_eq!(sections[pos.0].tiles[pos.1], ResourceKind::ConfigMaps);
+    }
+
+    #[test]
+    fn empty_search_matches_everything() {
+        assert!(row_matches("", "anything at all"));
+    }
+
+    #[test]
+    fn search_narrows_to_fuzzy_matches_only() {
+        assert!(row_matches("traefik", "kube-system traefik-9bcdbbd9-x2767"));
+        assert!(!row_matches("traefik", "kube-system coredns-8db54c48d-nhwx7"));
+    }
+
+    #[test]
+    fn breadcrumb_is_none_for_plain_list() {
+        assert_eq!(breadcrumb(&Mode::List, ResourceKind::Pods), None);
+    }
+
+    #[test]
+    fn breadcrumb_walks_the_whole_back_chain_oldest_first() {
+        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), back: Box::new(Mode::List) };
+        let containers = Mode::Containers {
+            title: "default/web-1".into(),
+            namespace: "default".into(),
+            pod: "web-1".into(),
+            containers: vec![],
+            state: TableState::default(),
+            back: Box::new(node_detail),
+        };
+        assert_eq!(
+            breadcrumb(&containers, ResourceKind::Overview),
+            Some("Overview  ›  Node: worker-1  ›  Pod: default/web-1".to_string())
+        );
     }
 }

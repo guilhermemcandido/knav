@@ -86,6 +86,10 @@ pub enum Overlay<'a> {
     /// a category has more kinds than the compact column can show at
     /// once (e.g. Custom Resources with many discovered groups).
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
+    /// The `/`/`f` live-filter input bar — a plain bottom bar like
+    /// `Command`, since you're still meant to see the list narrowing as
+    /// you type, not have it dimmed away.
+    Search { query: &'a str, matches: usize },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -104,24 +108,36 @@ pub fn draw(
     rows: Rows,
     table_state: &mut TableState,
     hover: Option<Hover>,
+    // The immediate parent screen, drawn dimmed just underneath `overlay`
+    // — e.g. Containers behind Logs, or NodeDetail behind Containers —
+    // so what's showing through is what you actually came from, not
+    // always the base list. `None` when the current overlay's parent
+    // *is* the base list (nothing more to show).
+    background: Option<Overlay>,
     overlay: Option<Overlay>,
+    // The full "how did I get here" path, rendered as a bottom bar on
+    // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
+    // Container: nginx › Logs".
+    breadcrumb: Option<&str>,
     icons: &mut IconCache,
 ) {
-    // The command line doesn't dim the background — you're still meant
-    // to see (and read) the view you're about to switch away from, same
-    // as k9s's own `:` prompt.
-    let dimmed = matches!(
-        overlay,
-        Some(Overlay::Spec { .. })
-            | Some(Overlay::Containers { .. })
-            | Some(Overlay::Logs { .. })
-            | Some(Overlay::Menu { .. })
-            | Some(Overlay::NodeDetail { .. })
-            | Some(Overlay::Events { .. })
-            | Some(Overlay::EventDetail { .. })
-            | Some(Overlay::ResourcesDetail { .. })
-            | Some(Overlay::ColumnDetail { .. })
-    );
+    // The command line and the search bar don't dim the background —
+    // you're still meant to see (and read) the view you're about to
+    // switch away from / the list actually narrowing, same as k9s's own
+    // `:` prompt.
+    let dimmed = background.is_some()
+        || matches!(
+            overlay,
+            Some(Overlay::Spec { .. })
+                | Some(Overlay::Containers { .. })
+                | Some(Overlay::Logs { .. })
+                | Some(Overlay::Menu { .. })
+                | Some(Overlay::NodeDetail { .. })
+                | Some(Overlay::Events { .. })
+                | Some(Overlay::EventDetail { .. })
+                | Some(Overlay::ResourcesDetail { .. })
+                | Some(Overlay::ColumnDetail { .. })
+        );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
     // these things fake depth in a TUI: mute every color in the
@@ -165,26 +181,70 @@ pub fn draw(
         }
     }
 
-    if let Some(overlay) = overlay {
-        match overlay {
-            Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state),
-            Overlay::Containers { title, containers, state } => draw_containers_popup(frame, title, containers, state),
-            Overlay::Logs { title, lines, scroll, follow, timestamp_format } => {
-                draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
-            }
-            Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
-            Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
-                draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state)
-            }
-            Overlay::Command { input } => draw_command_bar(frame, input),
-            Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state),
-            Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
-            Overlay::ResourcesDetail { overview, nodes, state } => draw_resources_detail_popup(frame, overview, nodes, state),
-            Overlay::ColumnDetail { title, items, selected, row_scroll } => {
-                draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
-            }
-        }
+    if let Some(bg) = background {
+        draw_overlay(frame, bg, true, icons);
     }
+    if let Some(overlay) = overlay {
+        draw_overlay(frame, overlay, false, icons);
+    }
+    if let Some(text) = breadcrumb {
+        draw_breadcrumb_bar(frame, text);
+    }
+}
+
+/// Dispatches one `Overlay` value to its actual draw function — shared
+/// between the focused (topmost, `dimmed: false`) and background
+/// (immediate-parent-preview, `dimmed: true`) render passes in `draw`.
+/// `dimmed` only actually changes anything for the handful of overlay
+/// kinds that can ever be used as a background layer (Containers,
+/// NodeDetail, Events, ResourcesDetail) — the rest just ignore it, since
+/// they're never drawn as anyone's background.
+fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
+    match overlay {
+        Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state),
+        Overlay::Containers { title, containers, state } => draw_containers_popup(frame, title, containers, state, dimmed),
+        Overlay::Logs { title, lines, scroll, follow, timestamp_format } => {
+            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
+        }
+        Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
+        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
+            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, dimmed)
+        }
+        Overlay::Command { input } => draw_command_bar(frame, input),
+        Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state, dimmed),
+        Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
+        Overlay::ResourcesDetail { overview, nodes, state } => draw_resources_detail_popup(frame, overview, nodes, state, dimmed),
+        Overlay::ColumnDetail { title, items, selected, row_scroll } => {
+            draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
+        }
+        Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
+    }
+}
+
+/// The bottom-row navigation path, e.g. "Nodes › Node: worker-1 › Pod:
+/// web-1 › Container: nginx › Logs" — drawn on top of everything
+/// (including a dimmed background layer), so "where am I and how did I
+/// get here" is always answerable at a glance.
+fn draw_breadcrumb_bar(frame: &mut Frame, text: &str) {
+    let area = frame.area();
+    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    frame.render_widget(Clear, bar);
+    let line = Line::styled(format!(" {text}"), Style::default().fg(Color::Cyan));
+    frame.render_widget(Paragraph::new(line), bar);
+}
+
+/// The `/`/`f` live-filter bar — same plain-bottom-bar treatment as the
+/// `:` command line (no dimming), since the point is watching the list
+/// narrow while you type.
+fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
+    let area = frame.area();
+    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    frame.render_widget(Clear, bar);
+    let line = Line::from(vec![
+        Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  ({matches} match{})", if matches == 1 { "" } else { "es" }), Style::default().fg(Color::DarkGray)),
+    ]);
+    frame.render_widget(Paragraph::new(line), bar);
 }
 
 fn container_dot(status: ContainerStatusKind) -> (&'static str, Color) {
@@ -1495,13 +1555,16 @@ fn draw_node_detail_popup(
     info: Option<&crate::k8s::NodeDetailInfo>,
     pods: &[PodRow],
     state: &mut TableState,
+    dimmed: bool,
 ) {
     let area = centered_rect(94, 92, frame.area());
     frame.render_widget(Clear, area);
 
+    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
+        .border_style(border_style)
         .title(format!("Node: {name}  —  j/k: move  enter: containers  d: spec  esc: back"));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
@@ -1512,9 +1575,9 @@ fn draw_node_detail_popup(
     match (cpu_usage, memory_usage) {
         (Some(cpu), Some(mem)) => {
             let lines = Layout::vertical([Constraint::Length(1); 3]).split(chunks[0]);
-            draw_meter(frame, lines[0], "CPU", cpu as f64, cpu_capacity as f64, |v| format!("{:.2} cores", v / 1000.0), false);
-            draw_meter(frame, lines[1], "Memory", mem as f64, memory_capacity as f64, format_bytes, false);
-            draw_meter(frame, lines[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), false);
+            draw_meter(frame, lines[0], "CPU", cpu as f64, cpu_capacity as f64, |v| format!("{:.2} cores", v / 1000.0), dimmed);
+            draw_meter(frame, lines[1], "Memory", mem as f64, memory_capacity as f64, format_bytes, dimmed);
+            draw_meter(frame, lines[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
         }
         _ => {
             let text = Paragraph::new(Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)))
@@ -1524,10 +1587,10 @@ fn draw_node_detail_popup(
     }
 
     if let Some(info) = info {
-        draw_node_info_panel(frame, chunks[1], info);
+        draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, false);
+    draw_table(frame, chunks[2], pods, state, dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
@@ -1544,13 +1607,19 @@ fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
 /// addresses and host OS/runtime details, the full condition list
 /// (healthy conditions included — unlike the Cluster Issues panel, this
 /// is a diagnostic view), and any taints.
-fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo) {
+fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo, dimmed: bool) {
     let label = Style::default().fg(Color::DarkGray);
-    let value = Style::default().add_modifier(Modifier::BOLD);
+    let value = if dimmed { label } else { Style::default().add_modifier(Modifier::BOLD) };
     let field = |l: &'static str, v: String| vec![Span::styled(format!("{l}: "), label), Span::styled(v, value)];
 
     let schedulable_text = if info.schedulable { "Schedulable".to_string() } else { "Cordoned".to_string() };
-    let schedulable_style = if info.schedulable { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Yellow) };
+    let schedulable_style = if dimmed {
+        label
+    } else if info.schedulable {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
 
     let mut line1 = field("Roles", info.roles.clone());
     line1.push(Span::raw("   "));
@@ -1570,12 +1639,18 @@ fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDe
 
     let mut lines = vec![Line::from(line1), Line::from(line2), Line::from(line3), Line::raw("")];
 
-    lines.push(Line::styled("CONDITIONS", Style::default().add_modifier(Modifier::BOLD)));
+    lines.push(Line::styled("CONDITIONS", value));
     for c in &info.conditions {
         let is_healthy = (c.type_ == "Ready") == (c.status == "True");
-        let color = if is_healthy { Color::Green } else { Color::Red };
+        let color = if dimmed {
+            Color::DarkGray
+        } else if is_healthy {
+            Color::Green
+        } else {
+            Color::Red
+        };
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<20}", c.type_), Style::default()),
+            Span::styled(format!("{:<20}", c.type_), if dimmed { label } else { Style::default() }),
             Span::styled(format!("{:<8}", c.status), Style::default().fg(color)),
             Span::styled(c.reason.clone(), label),
         ]));
@@ -1594,18 +1669,25 @@ fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDe
 /// `Normal`/`Warning` as event types, so that's the full set of filters;
 /// there's no separate "Errors" bucket to add since the API doesn't have
 /// one.
-fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilter, state: &mut TableState) {
+fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilter, state: &mut TableState, dimmed: bool) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
+    let muted = Style::default().fg(Color::DarkGray);
     let filtered: Vec<&EventEntry> = events.iter().filter(|e| filter.matches(e)).collect();
 
-    let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(header_style);
+    let cell_style = if dimmed { muted } else { Style::default() };
     let rows = filtered.iter().map(|e| {
-        let color = match (e.severity, e.kind.as_str()) {
-            (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
-            (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
-            (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+        let color = if dimmed {
+            Color::DarkGray
+        } else {
+            match (e.severity, e.kind.as_str()) {
+                (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
+                (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
+                (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+            }
         };
         let type_text = match e.severity {
             crate::k8s::EventSeverity::Normal => "Normal",
@@ -1613,11 +1695,11 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
         };
         Row::new(vec![
             Cell::from(type_text).style(Style::default().fg(color)),
-            Cell::from(e.reason.clone()),
-            Cell::from(e.object.clone()),
-            Cell::from(e.kind.clone()),
-            Cell::from(e.message.clone()),
-            Cell::from(e.age.clone()),
+            Cell::from(e.reason.clone()).style(cell_style),
+            Cell::from(e.object.clone()).style(cell_style),
+            Cell::from(e.kind.clone()).style(cell_style),
+            Cell::from(e.message.clone()).style(cell_style),
+            Cell::from(e.age.clone()).style(cell_style),
         ])
     });
 
@@ -1637,11 +1719,13 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
         filter.label()
     );
 
+    let border_style = if dimmed { muted } else { Style::default() };
+    let highlight_style = if dimmed { muted } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-        .highlight_symbol("➤ ");
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .row_highlight_style(highlight_style)
+        .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
@@ -1704,20 +1788,22 @@ fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
 /// (`draw_nodes_table`) the compact panel and the Nodes list already
 /// draw, just given a full-screen popup's worth of room instead of three
 /// cramped lines.
-fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[NodeRow], state: &mut TableState) {
+fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[NodeRow], state: &mut TableState, dimmed: bool) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
+    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
+        .border_style(border_style)
         .title("Resources  —  j/k: move  enter: node detail  esc: back");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
-    draw_metrics_lines(frame, chunks[0], overview, false);
-    draw_nodes_table(frame, chunks[1], nodes, state, false);
+    draw_metrics_lines(frame, chunks[0], overview, dimmed);
+    draw_nodes_table(frame, chunks[1], nodes, state, dimmed);
 }
 
 /// One category column, opened up into a bigger grid of the exact same
@@ -1783,13 +1869,17 @@ fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, St
     frame.render_stateful_widget(tree, area, state);
 }
 
-fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState) {
+fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, dimmed: bool) {
     let area = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, area);
 
-    let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let muted = Style::default().fg(Color::DarkGray);
+    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(header_style);
+    let cell_style = if dimmed { muted } else { Style::default() };
     let rows = containers.iter().map(|c| {
         let (glyph, color) = container_dot(c.status);
+        let dot_style = if dimmed { muted } else { Style::default().fg(color) };
         let state_text = c.reason.clone().unwrap_or_else(|| match c.status {
             ContainerStatusKind::Running => "Running".into(),
             ContainerStatusKind::Waiting => "Waiting".into(),
@@ -1797,10 +1887,10 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
             ContainerStatusKind::Unknown => "Unknown".into(),
         });
         Row::new(vec![
-            Cell::from(Span::styled(glyph, Style::default().fg(color))),
-            Cell::from(c.name.clone()),
-            Cell::from(state_text).style(Style::default().fg(color)),
-            Cell::from(c.restarts.to_string()),
+            Cell::from(Span::styled(glyph, dot_style)),
+            Cell::from(c.name.clone()).style(cell_style),
+            Cell::from(state_text).style(dot_style),
+            Cell::from(c.restarts.to_string()).style(cell_style),
         ])
     });
 
@@ -1811,11 +1901,19 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
         Constraint::Percentage(20),
     ];
 
+    let border_style = if dimmed { muted } else { Style::default() };
+    let highlight_style = if dimmed { muted } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{title}  —  j/k: move  enter: logs  esc: back")))
-        .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-        .highlight_symbol("➤ ");
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .title(format!("{title}  —  j/k: move  enter: logs  esc: back")),
+        )
+        .row_highlight_style(highlight_style)
+        .highlight_symbol(if dimmed { "  " } else { "➤ " });
 
     frame.render_stateful_widget(table, area, state);
 }
