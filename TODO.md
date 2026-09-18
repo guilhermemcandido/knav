@@ -1404,6 +1404,54 @@ no equivalent "recompute the same count a different way" step to drift.
   bookkeeping across a Resources<->Events switch — not needed yet since
   neither box has its own scrollable list.
 
+## Done since last update (2026-09-18, later still #7) — Resources/Events enterable, default cursor, icon/count swap, a real back-chain bug found
+
+- Overview now starts with `OverviewSelection::Resources` selected
+  instead of the first column's first item — per explicit request that
+  the cursor should land at the top of the page, not down in the
+  catalog.
+- Enter on Resources opens a new `Mode::ResourcesDetail`: full-size
+  cluster CPU/Memory/Pods gauges plus a per-node usage table (reuses
+  `draw_metrics_lines`/`draw_nodes_table` as-is, just given more room)
+  — Enter on a node there drills into the existing `NodeDetail` view.
+- Enter or a mouse click on a row in the Events browser opens that
+  event's full, untruncated detail (`Mode::EventDetail`) — the browser's
+  own MESSAGE column clips long text to fit the table width, so this is
+  the "view it properly" the user asked for.
+- Swapped each item card's icon and count position: count now sits in
+  the flexible left zone, icon in the small fixed-width zone on the
+  right (previously the reverse) — a literal "switch it around" per the
+  explicit request.
+
+### A real bug found while testing the above
+
+- `NodeDetail`'s Esc handler was hardcoded to `Mode::List`, which was
+  fine when reached the original way (from the Nodes list, where List +
+  current_kind=Nodes is exactly right) but wrong when reached via the
+  new Resources detail view — Esc there dropped straight to the
+  Overview, and a *second* Esc then hit Overview's own "Esc quits"
+  binding and killed the app. Fixed by giving `NodeDetail` a `back:
+  Box<Mode>` pointer, the same pattern `Containers`/`Logs` already use,
+  threaded through both places it's now opened from (the Nodes list and
+  Resources detail) and through the Containers-from-NodeDetail chain.
+- Caught this by actually testing the full navigation chain interactively
+  via `tmux send-keys`/`capture-pane` rather than just confirming each
+  new screen renders in isolation — worth calling out since it's exactly
+  the kind of bug that only shows up when you follow a real user path
+  (Overview -> Resources -> a node -> back -> back) rather than testing
+  each new mode as a dead end.
+
+### Verified against the live cluster
+
+- Full `tmux` interactive verification: cursor starts on Resources;
+  Enter opens the Resources detail with real gauges + the one real node;
+  Enter on that node opens NodeDetail; Esc returns to Resources detail
+  (not Overview); Esc again returns cleanly to Overview with the app
+  still running. Separately: Events -> Enter opens the browser -> Enter
+  on a row opens the full untruncated message -> Esc returns to the
+  browser with its filter/scroll state intact. 46/46 unit tests, clippy
+  clean.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
