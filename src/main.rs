@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod config;
 mod edit;
+mod favorites;
 mod fuzzy;
 mod icons;
 mod k8s;
@@ -40,6 +41,7 @@ use app::*;
 use catalog::*;
 use cli::*;
 use commands::*;
+use favorites::*;
 use mode::*;
 use scope::*;
 
@@ -88,6 +90,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         user: info.map(|c| c.user).unwrap_or_default(),
         role: "read-and-write".to_string(),
         namespace: "all".to_string(),
+        namespace_slots: Vec::new(),
         scope: String::new(),
         k8s_version,
         knav_version: format!("v{}", env!("CARGO_PKG_VERSION")),

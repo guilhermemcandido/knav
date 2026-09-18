@@ -27,6 +27,8 @@ pub(crate) fn run(
     // a Service's Pods, ...) and how to get back out, one level per
     // entry: the kind, scope and selected row we came from.
     let mut scope: Option<Scope> = None;
+    // Namespaces reserved to number keys 1-9 (`s` on a namespace).
+    let mut favorites = Favorites::load(active_context);
     let mut nav_stack: Vec<(ResourceKind, Option<Scope>, usize)> = Vec::new();
     // The active `/`/`f` filter — empty means "show everything." Persists
     // across `Mode::Search`/`Mode::List` so confirming a search (Enter)
@@ -200,6 +202,7 @@ pub(crate) fn run(
         let header_now = ui::HeaderInfo {
             namespace: namespace.clone().unwrap_or_else(|| "all".into()),
             scope: scope.as_ref().map(Scope::label).unwrap_or_default(),
+            namespace_slots: favorites.slots.clone(),
             ..header.clone()
         };
         let breadcrumb_text = breadcrumb(&mode, current_kind);
@@ -486,6 +489,20 @@ pub(crate) fn run(
                         });
                     }
                 }
+                // Number keys pick the active namespace: 0 is all, 1-9 are the
+                // ones reserved with `s`. Reachable from any list.
+                (Event::Key(key), Mode::List) if matches!(key.code, KeyCode::Char('0'..='9')) => {
+                    if let KeyCode::Char(c) = key.code {
+                        let n = c.to_digit(10).unwrap_or(0) as usize;
+                        if n == 0 {
+                            namespace = None;
+                            table_state.select(Some(0));
+                        } else if let Some(ns) = favorites.get(n) {
+                            namespace = Some(ns.to_string());
+                            table_state.select(Some(0));
+                        }
+                    }
+                }
                 (Event::Key(key), Mode::List) if current_kind == ResourceKind::Overview => {
                     let columns_area = ui::columns_area(ui::body_area(frame_area), &overview);
                     let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
@@ -494,7 +511,6 @@ pub(crate) fn run(
                         // "back" than the main screen. `q` still quits;
                         // `:q` also works, same as everywhere else.
                         KeyCode::Char('q') => return Ok(Outcome::Quit),
-                        KeyCode::Char('0') => namespace = None,
                         KeyCode::Char('j') | KeyCode::Down => {
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                         }
@@ -658,22 +674,17 @@ pub(crate) fn run(
                     }
                     // Enter drills into what a row owns or selects: a
                     // Deployment's ReplicaSets, a ReplicaSet's Pods, a
-                    // Service's Pods, a CronJob's Jobs. On a Namespace it
-                    // narrows every later query to that namespace.
+                    // Service's Pods, a CronJob's Jobs, a Namespace's Pods.
                     KeyCode::Enter if current_kind.drill_target().is_some() => {
                         let target = current_kind.drill_target().expect("guarded above");
                         let selected = table_state.selected().unwrap_or(0);
-                        let mut drilled_namespace = None;
                         let new_scope = match current_kind {
                             ResourceKind::Deployments => deployments.get(selected).map(|d| Scope::Owner {
                                 uid: d.metadata.uid.clone().unwrap_or_default(),
                                 kind: "Deployment".into(),
                                 name: d.metadata.name.clone().unwrap_or_default(),
                             }),
-                            ResourceKind::Namespaces => {
-                                drilled_namespace = generic_rows.get(selected).map(|r| r.name.clone());
-                                None
-                            }
+                            ResourceKind::Namespaces => generic_rows.get(selected).map(|r| Scope::Namespace { name: r.name.clone() }),
                             ResourceKind::Services => {
                                 let manifest = generic_visible
                                     .get(selected)
@@ -690,22 +701,28 @@ pub(crate) fn run(
                                 name: row.name.clone(),
                             }),
                         };
-                        if new_scope.is_some() || drilled_namespace.is_some() {
+                        if new_scope.is_some() {
                             nav_stack.push((current_kind, scope.take(), selected));
-                            if let Some(ns) = drilled_namespace {
-                                namespace = Some(ns);
-                            } else {
-                                scope = new_scope;
-                            }
+                            scope = new_scope;
                             current_kind = target;
                             table_state.select(Some(0));
                             search.clear();
                         }
                     }
-                    // `0`: back to every namespace.
-                    KeyCode::Char('0') => {
-                        namespace = None;
-                        table_state.select(Some(0));
+                    // `s` on a namespace reserves it to the next free number
+                    // key (1-9), or frees it if it already has one.
+                    KeyCode::Char('s') if current_kind == ResourceKind::Namespaces => {
+                        if let Some(name) = table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
+                            let text = match favorites.toggle(&name) {
+                                Toggled::Pinned(slot) => Some((format!("{name} reserved on key {slot}"), false)),
+                                Toggled::Unpinned(slot) => Some((format!("{name} released from key {slot}"), false)),
+                                Toggled::Full => Some(("All 9 number keys are taken — press s on one of them to release it first.".to_string(), true)),
+                            };
+                            favorites.save(active_context);
+                            if let Some((text, error)) = text {
+                                mode = Mode::Notice { text, error, back: Box::new(Mode::List) };
+                            }
+                        }
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),

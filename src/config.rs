@@ -96,9 +96,15 @@ impl Config {
     }
 
     fn path() -> PathBuf {
+        Self::dir().join("config.toml")
+    }
+
+    /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`) — the config file
+    /// and knav's small saved state live here.
+    pub fn dir() -> PathBuf {
         let base = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config"));
-        base.join("knav").join("config.toml")
+        base.join("knav")
     }
 }

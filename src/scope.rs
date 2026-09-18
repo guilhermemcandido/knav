@@ -13,6 +13,9 @@ pub(crate) enum Scope {
     Owner { uid: String, kind: String, name: String },
     /// Pods whose labels contain every pair of a Service's selector.
     Selector { labels: BTreeMap<String, String>, kind: String, name: String },
+    /// Pods in this namespace — Enter on a Namespace, without making it
+    /// the active namespace.
+    Namespace { name: String },
 }
 
 impl Scope {
@@ -20,12 +23,14 @@ impl Scope {
     pub(crate) fn label(&self) -> String {
         match self {
             Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => format!("{kind}/{name}"),
+            Scope::Namespace { name } => format!("Namespace/{name}"),
         }
     }
 
     pub(crate) fn matches_meta(&self, meta: &ObjectMeta) -> bool {
         match self {
             Scope::Owner { uid, .. } => meta.owner_references.iter().flatten().any(|o| &o.uid == uid),
+            Scope::Namespace { name } => meta.namespace.as_deref() == Some(name.as_str()),
             Scope::Selector { labels, .. } => {
                 !labels.is_empty() && labels.iter().all(|(k, v)| meta.labels.as_ref().and_then(|l| l.get(k)) == Some(v))
             }
@@ -35,7 +40,7 @@ impl Scope {
     pub(crate) fn matches_row(&self, row: &k8s::GenericRow) -> bool {
         match self {
             Scope::Owner { uid, .. } => row.owners.contains(uid),
-            Scope::Selector { .. } => false,
+            Scope::Selector { .. } | Scope::Namespace { .. } => false,
         }
     }
 }
@@ -82,6 +87,16 @@ mod tests {
         assert!(!scope.matches_meta(&ObjectMeta::default()));
         let empty = Scope::Selector { labels: BTreeMap::new(), kind: "Service".into(), name: "headless".into() };
         assert!(!empty.matches_meta(&pod));
+    }
+
+    #[test]
+    fn namespace_scope_matches_pods_in_that_namespace() {
+        let scope = Scope::Namespace { name: "kube-system".into() };
+        let inside = ObjectMeta { namespace: Some("kube-system".into()), ..Default::default() };
+        let outside = ObjectMeta { namespace: Some("default".into()), ..Default::default() };
+        assert!(scope.matches_meta(&inside));
+        assert!(!scope.matches_meta(&outside));
+        assert_eq!(scope.label(), "Namespace/kube-system");
     }
 
     #[test]

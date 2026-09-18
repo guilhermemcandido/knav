@@ -230,7 +230,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec")],
                 ResourceKind::Deployments => vec![("j/k", "move"), ("enter", "replicasets"), ("d", "spec")],
-                ResourceKind::Namespaces => vec![("j/k", "move"), ("enter", "pods in namespace"), ("d", "spec")],
+                ResourceKind::Namespaces => vec![("j/k", "move"), ("enter", "pods"), ("s", "reserve on a number key"), ("d", "spec")],
                 ResourceKind::CronJobs => vec![("j/k", "move"), ("enter", "jobs"), ("d", "spec")],
                 ResourceKind::ReplicaSets
                 | ResourceKind::StatefulSets
@@ -244,7 +244,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
             }
-            hints.push(("0", "all namespaces"));
+            hints.push(("0-9", "namespace"));
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
             hints.push(("C", "switch context"));

@@ -1,4 +1,5 @@
-//! The persistent one-line top bar (context, cluster, user, versions), after k9s.
+//! The persistent top bar, after k9s: a line of context/cluster/user/version
+//! info, and a line of namespace shortcuts (`<0> all <1> default ...`).
 
 use super::*;
 
@@ -13,6 +14,8 @@ pub struct HeaderInfo {
     pub role: String,
     /// The namespace queries are narrowed to (`all` when none).
     pub namespace: String,
+    /// What number keys 1-9 select (index 0 is key 1); `0` is always all.
+    pub namespace_slots: Vec<Option<String>>,
     /// What the current list is drilled into (`Deployment/web`), if anything.
     pub scope: String,
     pub k8s_version: String,
@@ -20,7 +23,7 @@ pub struct HeaderInfo {
 }
 
 /// Rows the header takes at the top of the main screen.
-pub const HEADER_HEIGHT: u16 = 1;
+pub const HEADER_HEIGHT: u16 = 2;
 
 /// Below this height the header is dropped — the resource list matters
 /// more than the context on a tiny terminal.
@@ -71,8 +74,32 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
         spans.push(Span::styled(v.to_string(), value));
         used += gap + width;
     }
-    let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: HEADER_HEIGHT };
+    let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 };
     frame.render_widget(Paragraph::new(Line::from(spans)), line_area);
+
+    // Namespace shortcuts: `<0> all` plus each reserved number. The
+    // active one is filled in.
+    let key = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)) };
+    let name = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(143, 191, 208)) };
+    let active = if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) };
+    let mut shortcuts: Vec<Span> = Vec::new();
+    let entries = std::iter::once((0usize, "all".to_string())).chain(
+        info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))),
+    );
+    for (n, ns) in entries {
+        let is_active = if n == 0 { info.namespace == "all" } else { info.namespace == ns };
+        if !shortcuts.is_empty() {
+            shortcuts.push(Span::raw("  "));
+        }
+        if is_active {
+            shortcuts.push(Span::styled(format!("<{n}> {ns}"), active));
+        } else {
+            shortcuts.push(Span::styled(format!("<{n}>"), key));
+            shortcuts.push(Span::styled(format!(" {ns}"), name));
+        }
+    }
+    let shortcut_area = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(1), height: 1 };
+    frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
 }
 
 #[cfg(test)]
