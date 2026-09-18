@@ -202,6 +202,7 @@ pub struct ContainerInfo {
 pub struct ContextInfo {
     pub name: String,
     pub cluster: String,
+    pub user: String,
     pub is_current: bool,
 }
 
@@ -216,8 +217,9 @@ pub fn list_contexts() -> Result<Vec<ContextInfo>> {
         .into_iter()
         .map(|c| {
             let cluster = c.context.as_ref().map(|ctx| ctx.cluster.clone()).unwrap_or_default();
+            let user = c.context.as_ref().and_then(|ctx| ctx.user.clone()).unwrap_or_default();
             let is_current = current.as_deref() == Some(c.name.as_str());
-            ContextInfo { name: c.name, cluster, is_current }
+            ContextInfo { name: c.name, cluster, user, is_current }
         })
         .collect())
 }
@@ -240,8 +242,9 @@ pub async fn connect_to_context(context: Option<&str>) -> Result<Client> {
 /// Fails fast, with a readable message, if the API server can't be
 /// reached — without this, an unreachable cluster just hangs forever in
 /// the reflectors' initial list (which retry silently), and knav never
-/// draws anything. `context` is only for the message.
-pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<()> {
+/// draws anything. `context` is only for the message. Returns the
+/// server's version (`v1.35.5+k3s1`).
+pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<String> {
     let label = match context {
         Some(name) => name.to_string(),
         None => list_contexts()
@@ -250,7 +253,7 @@ pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<
             .unwrap_or_else(|| "the current context".to_string()),
     };
     match tokio::time::timeout(std::time::Duration::from_secs(5), client.apiserver_version()).await {
-        Ok(Ok(_)) => Ok(()),
+        Ok(Ok(info)) => Ok(info.git_version),
         Ok(Err(e)) => anyhow::bail!(
             "can't reach cluster '{label}': {e}\n\nIs it running? Try another context with `knav -c <name>`, or set `startup.mode = \"menu\"` to pick one at launch."
         ),

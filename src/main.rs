@@ -74,10 +74,18 @@ fn main() -> Result<()> {
 
 pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Outcome> {
     let client = k8s::connect_to_context(context).await?;
-    k8s::ensure_reachable(&client, context).await?;
+    let k8s_version = k8s::ensure_reachable(&client, context).await?;
     let active_context = match context {
         Some(name) => name.to_string(),
         None => k8s::list_contexts().ok().and_then(|c| c.into_iter().find(|c| c.is_current).map(|c| c.name)).unwrap_or_default(),
+    };
+    let info = k8s::list_contexts().ok().and_then(|c| c.into_iter().find(|c| c.name == active_context));
+    let header = ui::HeaderInfo {
+        context: active_context.clone(),
+        cluster: info.as_ref().map(|c| c.cluster.clone()).unwrap_or_default(),
+        user: info.map(|c| c.user).unwrap_or_default(),
+        k8s_version,
+        knav_version: format!("v{}", env!("CARGO_PKG_VERSION")),
     };
     let (pod_store, _pod_watch_handle) = k8s::watch_pods(client.clone());
     let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());
@@ -108,6 +116,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         client,
         config,
         &active_context,
+        &header,
     );
 
     execute!(stdout(), DisableMouseCapture)?;

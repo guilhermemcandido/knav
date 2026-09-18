@@ -117,7 +117,7 @@ pub(crate) fn switch_target(name: &str, active_context: &str) -> std::result::Re
         })
     });
     match check {
-        Ok(()) => Ok(true),
+        Ok(_) => Ok(true),
         Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
     }
 }

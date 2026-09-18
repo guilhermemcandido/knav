@@ -20,6 +20,7 @@ use crate::k8s::{
 };
 
 mod columns;
+mod header;
 mod logs;
 mod menu;
 mod overview;
@@ -29,6 +30,7 @@ mod tables;
 mod theme;
 
 pub use self::columns::*;
+pub use self::header::*;
 use self::logs::*;
 pub use self::menu::*;
 pub use self::overview::*;
@@ -176,6 +178,7 @@ pub fn draw(
     // Container: nginx › Logs".
     breadcrumb: Option<&[BreadcrumbSegment]>,
     icons: &mut IconCache,
+    header: &HeaderInfo,
 ) {
     // `Command` is a real modal jump now, so it dims like everything
     // else; `Search` stays undimmed — you're meant to see (and read) the
@@ -203,13 +206,16 @@ pub fn draw(
     // these things fake depth in a TUI: mute every color in the
     // background down to gray while something's on top of it, so
     // whatever's in full color is the only thing that reads as "in focus."
+    let full = frame.area();
+    let body = body_area(full);
+    draw_header(frame, full, header, dimmed);
     match rows {
         Rows::Pods(pods) => {
             // A persistent status line below the table for the
             // keyboard-selected row's container breakdown — always
             // there, keyboard-driven, works regardless of mouse/terminal
             // support.
-            let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(frame.area());
+            let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(body);
             draw_table(frame, chunks[0], pods, table_state, dimmed);
             draw_status_line(frame, chunks[1], pods, table_state.selected(), dimmed);
 
@@ -221,23 +227,23 @@ pub fn draw(
                 && let Some(hover) = &hover
                 && let Some(pod) = pods.get(hover.row)
             {
-                draw_hover_popup(frame, pod, hover.column, hover.row_on_screen, frame.area());
+                draw_hover_popup(frame, pod, hover.column, hover.row_on_screen, full);
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, frame.area(), deployments, table_state, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, dimmed);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, frame.area(), nodes, table_state, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
-            draw_overview(frame, frame.area(), overview, selection, col_scroll, item_scroll, dimmed, icons);
+            draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
-            draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
+            draw_generic_table(frame, body, rows, label, table_state, dimmed);
         }
         Rows::CrdList(crds, heading) => {
-            draw_crd_list_table(frame, frame.area(), crds, heading, table_state, dimmed);
+            draw_crd_list_table(frame, body, crds, heading, table_state, dimmed);
         }
     }
 
