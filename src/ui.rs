@@ -40,7 +40,7 @@ pub enum Rows<'a> {
 
 pub struct MenuSection<'a> {
     pub title: &'a str,
-    pub tiles: &'a [ResourceKind],
+    pub tiles: Vec<ResourceKind>,
 }
 
 pub enum Overlay<'a> {
@@ -71,7 +71,12 @@ pub enum Overlay<'a> {
     /// Up/Down has highlighted. Unlike `Search`, this one *does* dim the
     /// background — it's a real modal jump, not a live-narrowing filter
     /// you're meant to keep watching.
-    Command { input: &'a str, suggestions: &'a [ResourceKind], selected: usize },
+    Command { input: &'a str, suggestions: &'a [String], selected: usize },
+    /// The kubeconfig context browser (`:ctx` / `C`) — a full-size
+    /// table like the Events browser, one row per `(name, cluster,
+    /// is_current)`, already filtered. `error` is why the last attempt
+    /// to connect to a chosen context failed, if it did.
+    Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str> },
     /// The dedicated Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
@@ -160,13 +165,14 @@ pub fn draw(
                 | Some(Overlay::Menu { .. })
                 | Some(Overlay::NodeDetail { .. })
                 | Some(Overlay::Command { .. })
+                | Some(Overlay::Context { .. })
                 | Some(Overlay::Events { .. })
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
                 | Some(Overlay::ColumnDetail { .. })
                 | Some(Overlay::ValueDetail { .. })
         );
-    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Search { .. }));
+    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }) | Some(Overlay::Search { .. }));
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
     // these things fake depth in a TUI: mute every color in the
@@ -243,6 +249,7 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
             draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, dimmed)
         }
         Overlay::Command { input, suggestions, selected } => draw_command_bar(frame, input, suggestions, selected),
+        Overlay::Context { items, total, filter, editing, state, error } => draw_context_popup(frame, items, total, filter, editing, state, error),
         Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
@@ -346,22 +353,23 @@ fn dim_style() -> Style {
     Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
 }
 
-/// A small floating input box, centered on the screen both ways — mac
-/// Spotlight style — used for the `/` filter and `:` command line
-/// instead of pinning either to an edge nobody's looking at.
+/// A small floating input box, horizontally centered and sitting a
+/// quarter of the way down the screen — Spotlight/command-palette style,
+/// nearer the top than the middle so it doesn't cover what you're
+/// filtering — used for the `/` filter and `:` command line.
 fn centered_input_box(area: Rect) -> Rect {
     centered_box(area, 3)
 }
 
-/// Same centering as `centered_input_box`, but for a box that grows —
-/// the `:` command line rises as its autocomplete list grows underneath
-/// it, since centering a taller box moves its top edge up while its
-/// bottom edge moves down, instead of just growing downward off-center.
+/// Same placement as `centered_input_box`, but for a box that grows —
+/// the `:` command line's autocomplete list. The top edge stays pinned
+/// at the quarter-mark (so the input line doesn't jump as suggestions
+/// come and go) and the box grows downward.
 fn centered_box(area: Rect, height: u16) -> Rect {
     let width = (area.width * 3 / 5).max(20).min(area.width);
     let height = height.min(area.height).max(1);
     let x = area.x + area.width.saturating_sub(width) / 2;
-    let y = area.y + area.height.saturating_sub(height) / 2;
+    let y = (area.y + area.height / 4).min(area.y + area.height.saturating_sub(height));
     Rect { x, y, width, height }
 }
 
@@ -423,7 +431,7 @@ fn container_state_text(c: &ContainerInfo) -> String {
 /// The `:` command line plus its live autocomplete list — one suggestion
 /// per matching resource kind, best match first, growing the box
 /// downward (and, since it's centered, rising upward too) as you type.
-fn draw_command_bar(frame: &mut Frame, input: &str, suggestions: &[ResourceKind], selected: usize) {
+fn draw_command_bar(frame: &mut Frame, input: &str, suggestions: &[String], selected: usize) {
     let box_height = 3 + suggestions.len() as u16;
     let bar = centered_box(frame.area(), box_height);
     frame.render_widget(Clear, bar);
@@ -443,9 +451,54 @@ fn draw_command_bar(frame: &mut Frame, input: &str, suggestions: &[ResourceKind]
         } else {
             Style::default()
         };
-        let text = format!("{:width$}", kind.label(), width = row.width as usize);
+        let text = format!("{:width$}", kind, width = row.width as usize);
         frame.render_widget(Paragraph::new(Span::styled(text, style)), *row);
     }
+}
+
+/// The `:ctx` / `C` context browser — same full-size table as the
+/// Events browser (and the same geometry, so `event_row_at` hit-tests
+/// its rows too). `/` live-filters by name.
+fn draw_context_popup(
+    frame: &mut Frame,
+    items: &[(String, String, bool)],
+    total: usize,
+    filter: &str,
+    editing: bool,
+    state: &mut TableState,
+    error: Option<&str>,
+) {
+    let area = centered_rect(94, 88, frame.area());
+    frame.render_widget(Clear, area);
+
+    let header = Row::new(vec!["CONTEXT", "CLUSTER", "STATUS"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let rows = items.iter().map(|(name, cluster, current)| {
+        Row::new(vec![
+            Cell::from(name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from(cluster.clone()),
+            Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(Color::Green)),
+        ])
+    });
+    let widths = [Constraint::Fill(2), Constraint::Fill(2), Constraint::Length(9)];
+
+    let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
+    if editing || !filter.is_empty() {
+        title.push_span(Span::styled(format!("  —  /{filter}{}", if editing { "▏" } else { "" }), Style::default().fg(Color::Yellow)));
+    }
+    if let Some(err) = error {
+        title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
+    }
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+        .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_symbol("➤ ");
+
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(items.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, area, state);
 }
 
 /// Shared namespace/name coloring — namespace in the app's cyan accent,
@@ -1672,50 +1725,68 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    // Sections can now hold up to ~7 tiles (Workloads) — one fixed-width
-    // row per section, like the old layout, would squeeze those down to
-    // unreadable slivers. Wrap each section's tiles the same way the
-    // Overview catalog wraps its own tile grid.
+    // Sections wrap their tiles into rows of `cols` (a section can hold
+    // dozens of tiles — Custom Resources has one per API group), so the
+    // whole menu is often taller than the popup. Lay everything out on a
+    // virtual canvas at full size (a title line plus 3 lines per bordered
+    // tile row) and scroll it just far enough to keep the selected tile
+    // in view; anything not fully inside the popup is skipped rather
+    // than squeezed, so tiles never lose their borders or labels.
     let cols = menu_cols(frame.area());
-    let section_heights: Vec<Constraint> = sections
-        .iter()
-        .map(|s| Constraint::Length(1 + s.tiles.len().div_ceil(cols).max(1) as u16 * 3))
-        .collect();
-    let section_areas = Layout::vertical(section_heights).split(inner);
-
-    for (section_idx, (section, section_area)) in sections.iter().zip(section_areas.iter()).enumerate() {
-        let rows_needed = section.tiles.len().div_ceil(cols).max(1);
-        let row_heights: Vec<Constraint> =
-            std::iter::once(Constraint::Length(1)).chain((0..rows_needed).map(|_| Constraint::Length(3))).collect();
-        let row_areas = Layout::vertical(row_heights).split(*section_area);
-
-        frame.render_widget(
-            Paragraph::new(Line::styled(section.title, Style::default().add_modifier(Modifier::BOLD))),
-            row_areas[0],
-        );
-
-        for (row, row_area) in row_areas[1..].iter().enumerate() {
-            let start = row * cols;
-            let row_tiles = &section.tiles[start..(start + cols).min(section.tiles.len())];
-            let tile_constraints: Vec<Constraint> =
-                row_tiles.iter().map(|_| Constraint::Ratio(1, row_tiles.len() as u32)).collect();
-            let tile_areas = Layout::horizontal(tile_constraints).split(*row_area);
-
-            for (col, (tile_area, kind)) in tile_areas.iter().zip(row_tiles.iter()).enumerate() {
-                let is_selected = selected == (section_idx, start + col);
-                // A colored border alone read as too subtle to notice at
-                // a glance — the selected tile now gets a solid filled
-                // background instead, unmistakable regardless of terminal
-                // theme.
-                let (border_style, text_style) = if is_selected {
-                    (Style::default().fg(Color::Cyan), Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
-                } else {
-                    (Style::default(), Style::default())
-                };
-                let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).style(text_style);
-                let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
-                frame.render_widget(label, *tile_area);
+    let view_h = inner.height;
+    let mut y: u16 = 0;
+    let mut selected_bottom: u16 = 0;
+    // (virtual y, section index, row index) for each tile row, plus each
+    // section's title y — collected first so the scroll is known before
+    // anything is drawn.
+    let mut layout: Vec<(u16, usize, usize)> = Vec::new();
+    let mut titles: Vec<u16> = Vec::new();
+    for (section_idx, section) in sections.iter().enumerate() {
+        titles.push(y);
+        y += 1;
+        for row in 0..section.tiles.len().div_ceil(cols).max(1) {
+            layout.push((y, section_idx, row));
+            if selected.0 == section_idx && selected.1 / cols == row {
+                selected_bottom = y + 3;
             }
+            y += 3;
+        }
+    }
+    let scroll = selected_bottom.saturating_sub(view_h);
+    let fits = |top: u16, h: u16| top >= scroll && top + h <= scroll + view_h;
+
+    for (section_idx, section) in sections.iter().enumerate() {
+        if fits(titles[section_idx], 1) {
+            let title_area = Rect { x: inner.x, y: inner.y + titles[section_idx] - scroll, width: inner.width, height: 1 };
+            frame.render_widget(Paragraph::new(Line::styled(section.title, Style::default().add_modifier(Modifier::BOLD))), title_area);
+        }
+    }
+
+    for &(row_y, section_idx, row) in &layout {
+        if !fits(row_y, 3) {
+            continue;
+        }
+        let section = &sections[section_idx];
+        let start = row * cols;
+        let row_tiles = &section.tiles[start..(start + cols).min(section.tiles.len())];
+        let row_area = Rect { x: inner.x, y: inner.y + row_y - scroll, width: inner.width, height: 3 };
+        let tile_constraints: Vec<Constraint> = row_tiles.iter().map(|_| Constraint::Ratio(1, row_tiles.len() as u32)).collect();
+        let tile_areas = Layout::horizontal(tile_constraints).split(row_area);
+
+        for (col, (tile_area, kind)) in tile_areas.iter().zip(row_tiles.iter()).enumerate() {
+            let is_selected = selected == (section_idx, start + col);
+            // A colored border alone read as too subtle to notice at
+            // a glance — the selected tile gets a solid filled
+            // background instead, unmistakable regardless of terminal
+            // theme.
+            let (border_style, text_style) = if is_selected {
+                (Style::default().fg(Color::Cyan), Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
+            } else {
+                (Style::default(), Style::default())
+            };
+            let tile = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).style(text_style);
+            let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
+            frame.render_widget(label, *tile_area);
         }
     }
 }

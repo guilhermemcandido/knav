@@ -42,6 +42,11 @@ enum Mode {
     /// stays applied once you're back in `List`, same as vim/fzf's own
     /// "type to narrow, Enter to keep browsing the narrowed list."
     Search,
+    /// The `:ctx` / `C` context browser, laid out like `Events` — Enter
+    /// on a context checks it is reachable, then hands control back to
+    /// `main` to reconnect; `/` filters by name. `error` is why the last
+    /// attempt failed. Esc returns to `back`.
+    Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     Menu { selected: (usize, usize) },
     Spec {
         title: String,
@@ -300,12 +305,21 @@ impl Catalog {
 /// The `m` menu's layout — same six categories as the Overview catalog.
 /// One shared function so the popup's render pass and its keyboard/Enter
 /// handling can't drift apart.
-fn menu_sections() -> [ui::MenuSection<'static>; 7] {
-    [
-        ui::MenuSection { title: "Cluster", tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
+fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'static>> {
+    // The whole unfiltered CRD picker, then one tile per discovered API
+    // group (`crds` is already sorted by group, so adjacent-dedup keeps
+    // order) — same shape as the Overview's Custom Resources column.
+    let mut custom = vec![ResourceKind::CustomResourceList];
+    for crd in crds {
+        if custom.last() != Some(&ResourceKind::CustomResourceGroup(crd.group)) {
+            custom.push(ResourceKind::CustomResourceGroup(crd.group));
+        }
+    }
+    vec![
+        ui::MenuSection { title: "Cluster", tiles: vec![ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
         ui::MenuSection {
             title: "Workloads",
-            tiles: &[
+            tiles: vec![
                 ResourceKind::Pods,
                 ResourceKind::Deployments,
                 ResourceKind::ReplicaSets,
@@ -315,15 +329,15 @@ fn menu_sections() -> [ui::MenuSection<'static>; 7] {
                 ResourceKind::CronJobs,
             ],
         },
-        ui::MenuSection { title: "Config", tiles: &[ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas] },
+        ui::MenuSection { title: "Config", tiles: vec![ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas] },
         ui::MenuSection {
             title: "Network",
-            tiles: &[ResourceKind::Services, ResourceKind::Endpoints, ResourceKind::Ingresses, ResourceKind::NetworkPolicies],
+            tiles: vec![ResourceKind::Services, ResourceKind::Endpoints, ResourceKind::Ingresses, ResourceKind::NetworkPolicies],
         },
-        ui::MenuSection { title: "Storage", tiles: &[ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses] },
+        ui::MenuSection { title: "Storage", tiles: vec![ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses] },
         ui::MenuSection {
             title: "Access Control",
-            tiles: &[
+            tiles: vec![
                 ResourceKind::ServiceAccounts,
                 ResourceKind::Roles,
                 ResourceKind::RoleBindings,
@@ -331,7 +345,7 @@ fn menu_sections() -> [ui::MenuSection<'static>; 7] {
                 ResourceKind::ClusterRoleBindings,
             ],
         },
-        ui::MenuSection { title: "Custom Resources", tiles: &[ResourceKind::CustomResourceList] },
+        ui::MenuSection { title: "Custom Resources", tiles: custom },
     ]
 }
 
@@ -340,24 +354,87 @@ fn menu_sections() -> [ui::MenuSection<'static>; 7] {
 /// sorted best-first, same scorer the search/filter and cluster picker
 /// already use. Empty input suggests nothing (an empty command bar with
 /// a giant list under it isn't "autocomplete," it's just the menu).
-fn command_suggestions(input: &str) -> Vec<ResourceKind> {
+fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Cmd> {
     if input.trim().is_empty() {
         return Vec::new();
     }
-    let mut scored: Vec<(i64, ResourceKind)> = menu_sections()
-        .iter()
-        .flat_map(|s| s.tiles.iter().copied())
-        .filter_map(|kind| fuzzy::score(input, kind.label()).map(|score| (score, kind)))
+    let mut scored: Vec<(i64, Cmd)> = std::iter::once(Cmd::Context)
+        .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
+        .filter_map(|cmd| fuzzy::score(input, &cmd.name()).map(|score| (score, cmd)))
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, kind)| kind).take(8).collect()
+    scored.into_iter().map(|(_, cmd)| cmd).take(8).collect()
+}
+
+/// One entry in the `:` autocomplete — a resource view to switch to, or
+/// the context switcher.
+#[derive(Clone, Copy)]
+enum Cmd {
+    Kind(ResourceKind),
+    Context,
+}
+
+impl Cmd {
+    /// The lowercase name you'd type (`pods`, `configmaps`, `context`) —
+    /// what the autocomplete shows and matches against.
+    fn name(self) -> String {
+        match self {
+            Cmd::Kind(k) => k.label().to_lowercase().replace(' ', ""),
+            Cmd::Context => "context".to_string(),
+        }
+    }
+}
+
+/// Whether a typed `:` command is the context switcher (`:ctx`, ...).
+fn is_context_command(cmd: &str) -> bool {
+    matches!(cmd, "ctx" | "context" | "contexts")
+}
+
+/// Opens the context switcher, listing every kubeconfig context with
+/// the one actually connected marked as current (the kubeconfig's own
+/// `current-context` can differ, e.g. after `-c`).
+fn open_context_switcher(mode: &mut Mode, active_context: &str) {
+    let mut contexts = k8s::list_contexts().unwrap_or_default();
+    for c in &mut contexts {
+        c.is_current = c.name == active_context;
+    }
+    let back = Box::new(std::mem::replace(mode, Mode::List));
+    *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, back };
+}
+
+/// Whether choosing `name` should reconnect: `Ok(false)` if it's already
+/// the connected context, `Err` (a one-line reason) if it can't be
+/// reached. Checked *before* tearing the session down, so a dead
+/// cluster leaves you where you are instead of nowhere.
+fn switch_target(name: &str, active_context: &str) -> std::result::Result<bool, String> {
+    if name == active_context {
+        return Ok(false);
+    }
+    let check = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let client = k8s::connect_to_context(Some(name)).await?;
+            k8s::ensure_reachable(&client, Some(name)).await
+        })
+    });
+    match check {
+        Ok(()) => Ok(true),
+        Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
+    }
+}
+
+/// Contexts matching the browser's filter, best match first.
+fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &str) -> Vec<&'a k8s::ContextInfo> {
+    let mut scored: Vec<(i64, &k8s::ContextInfo)> =
+        contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, c)| c).collect()
 }
 
 /// Where a `ResourceKind` sits in the menu grid, so opening the menu
 /// starts with the currently-viewed kind selected instead of always
 /// resetting to the top-left tile.
-fn menu_position_for(kind: ResourceKind) -> (usize, usize) {
-    let sections = menu_sections();
+fn menu_position_for(kind: ResourceKind, crds: &[k8s::CrdInfo]) -> (usize, usize) {
+    let sections = menu_sections(crds);
     for (section_idx, section) in sections.iter().enumerate() {
         if let Some(tile_idx) = section.tiles.iter().position(|k| *k == kind) {
             return (section_idx, tile_idx);
@@ -424,15 +501,44 @@ fn resolve_context(cli: &Cli, config: &Config) -> Result<Option<String>> {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// How one connected session ended: quit for good, or reconnect to a
+/// different kubeconfig context.
+enum Outcome {
+    Quit,
+    SwitchContext(String),
+}
+
+fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
     let cli = Cli::parse(std::env::args().skip(1))?;
-    let context = resolve_context(&cli, &config)?;
+    let mut context = resolve_context(&cli, &config)?;
 
-    let client = k8s::connect_to_context(context.as_deref()).await?;
+    // One runtime per connected session: dropping it kills every watch and
+    // log-stream task spawned against the old cluster, which switching
+    // context would otherwise leave running in the background forever.
+    loop {
+        let runtime = tokio::runtime::Runtime::new()?;
+        let outcome = runtime.block_on(session(&config, context.as_deref()));
+        runtime.shutdown_background();
+        match outcome? {
+            Outcome::Quit => return Ok(()),
+            Outcome::SwitchContext(name) => {
+                eprintln!("Connecting to {name}…");
+                context = Some(name);
+            }
+        }
+    }
+}
+
+async fn session(config: &Config, context: Option<&str>) -> Result<Outcome> {
+    let client = k8s::connect_to_context(context).await?;
+    k8s::ensure_reachable(&client, context).await?;
+    let active_context = match context {
+        Some(name) => name.to_string(),
+        None => k8s::list_contexts().ok().and_then(|c| c.into_iter().find(|c| c.is_current).map(|c| c.name)).unwrap_or_default(),
+    };
     let (pod_store, _pod_watch_handle) = k8s::watch_pods(client.clone());
     let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());
     let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());
@@ -451,8 +557,18 @@ async fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
 
-    let result =
-        run(&mut terminal, &pod_store, &dep_store, &node_store, &event_store, &node_metrics_rx, &mut catalog, client, &config);
+    let result = run(
+        &mut terminal,
+        &pod_store,
+        &dep_store,
+        &node_store,
+        &event_store,
+        &node_metrics_rx,
+        &mut catalog,
+        client,
+        config,
+        &active_context,
+    );
 
     execute!(stdout(), DisableMouseCapture)?;
     ratatui::restore();
@@ -470,7 +586,8 @@ fn run(
     catalog: &mut Catalog,
     client: Client,
     config: &Config,
-) -> Result<()> {
+    active_context: &str,
+) -> Result<Outcome> {
     let mut table_state = TableState::default().with_selected(0);
     let mut mode = Mode::List;
     let mut hovered: Option<ui::Hover> = None;
@@ -646,10 +763,19 @@ fn run(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions = command_suggestions(input);
+                    let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(Cmd::name).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
+                })?;
+            }
+            Mode::Context { contexts, filter, editing, state, error, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let items: Vec<(String, String, bool)> =
+                        filtered_contexts(contexts, filter).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
+                    let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref() };
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Search => {
@@ -662,7 +788,7 @@ fn run(
             Mode::Menu { selected } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let sections = menu_sections();
+                    let sections = menu_sections(&catalog.crds);
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
@@ -861,6 +987,12 @@ fn run(
                     let back = Box::new(std::mem::replace(current_mode, Mode::List));
                     *current_mode = Mode::Command { input: String::new(), selected: 0, back };
                 }
+                // `C` opens the context switcher from anywhere, same as `:ctx`.
+                (Event::Key(key), current_mode)
+                    if key.code == KeyCode::Char('C') && !is_typing(current_mode) =>
+                {
+                    open_context_switcher(current_mode, active_context);
+                }
                 (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if current_kind == ResourceKind::Overview {
                         let active_col = match overview_selection {
@@ -893,7 +1025,7 @@ fn run(
                         // Esc is a no-op here — there's nowhere further
                         // "back" than the main screen. `q` still quits;
                         // `:q` also works, same as everywhere else.
-                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('q') => return Ok(Outcome::Quit),
                         KeyCode::Char('j') | KeyCode::Down => {
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                         }
@@ -907,7 +1039,7 @@ fn run(
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Right);
                         }
                         KeyCode::Char('m') => {
-                            mode = Mode::Menu { selected: menu_position_for(current_kind) };
+                            mode = Mode::Menu { selected: menu_position_for(current_kind, &catalog.crds) };
                         }
                         KeyCode::Enter => match overview_selection {
                             ui::OverviewSelection::Resources => {
@@ -1041,7 +1173,7 @@ fn run(
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
                     KeyCode::Char('m') => {
-                        mode = Mode::Menu { selected: menu_position_for(current_kind) };
+                        mode = Mode::Menu { selected: menu_position_for(current_kind, &catalog.crds) };
                     }
                     KeyCode::Char('d') => match current_kind {
                         ResourceKind::Overview => unreachable!("handled in the Overview-specific arm above"),
@@ -1121,21 +1253,28 @@ fn run(
                     KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Up => *selected = selected.saturating_sub(1),
                     KeyCode::Down => {
-                        let len = command_suggestions(input).len();
+                        let len = command_suggestions(input, &catalog.crds).len();
                         *selected = (*selected + 1).min(len.saturating_sub(1));
                     }
                     KeyCode::Enter => {
                         let cmd = input.trim().to_lowercase();
                         if matches!(cmd.as_str(), "q" | "quit" | "exit") {
-                            return Ok(());
+                            return Ok(Outcome::Quit);
                         }
                         // The highlighted autocomplete suggestion wins
                         // when there is one; `from_command` is only the
                         // fallback for an exact alias that didn't happen
                         // to fuzzy-score into the visible list.
-                        let suggestions = command_suggestions(input);
-                        let kind = suggestions.get(*selected).copied().or_else(|| k8s::ResourceKind::from_command(&cmd));
-                        if let Some(kind) = kind {
+                        let suggestions = command_suggestions(input, &catalog.crds);
+                        let highlighted = suggestions.get(*selected).copied();
+                        if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
+                            let mut opened = std::mem::replace(&mut **back, Mode::List);
+                            open_context_switcher(&mut opened, active_context);
+                            mode = opened;
+                        } else if let Some(kind) = match highlighted {
+                            Some(Cmd::Kind(k)) => Some(k),
+                            _ => k8s::ResourceKind::from_command(&cmd),
+                        } {
                             current_kind = kind;
                             table_state.select(Some(0));
                             search.clear();
@@ -1154,6 +1293,59 @@ fn run(
                     }
                     _ => {}
                 },
+                (Event::Key(key), Mode::Context { filter, editing: true, state, error, .. }) => match key.code {
+                    KeyCode::Esc => {
+                        filter.clear();
+                        if let Mode::Context { editing, .. } = &mut mode {
+                            *editing = false;
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Mode::Context { editing, .. } = &mut mode {
+                            *editing = false;
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        filter.pop();
+                        state.select(Some(0));
+                        *error = None;
+                    }
+                    KeyCode::Char(c) => {
+                        filter.push(c);
+                        state.select(Some(0));
+                        *error = None;
+                    }
+                    _ => {}
+                },
+                (Event::Key(key), Mode::Context { contexts, filter, editing, state, error, back }) => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
+                    KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_contexts(contexts, filter).len()),
+                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter).len()),
+                    KeyCode::Enter => {
+                        let name = state.selected().and_then(|i| filtered_contexts(contexts, filter).get(i).map(|c| c.name.clone()));
+                        if let Some(name) = name {
+                            match switch_target(&name, active_context) {
+                                Ok(true) => return Ok(Outcome::SwitchContext(name)),
+                                Ok(false) => mode = std::mem::replace(&mut **back, Mode::List),
+                                Err(msg) => *error = Some(msg),
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let matches = filtered_contexts(contexts, filter);
+                    if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
+                        state.select(Some(idx));
+                        let name = matches[idx].name.clone();
+                        match switch_target(&name, active_context) {
+                            Ok(true) => return Ok(Outcome::SwitchContext(name)),
+                            Ok(false) => mode = std::mem::replace(&mut **back, Mode::List),
+                            Err(msg) => *error = Some(msg),
+                        }
+                    }
+                }
                 (Event::Key(key), Mode::Search) => match key.code {
                     KeyCode::Esc => {
                         search.clear();
@@ -1167,7 +1359,7 @@ fn run(
                     _ => {}
                 },
                 (Event::Key(key), Mode::Menu { selected }) => {
-                    let sections = menu_sections();
+                    let sections = menu_sections(&catalog.crds);
                     let cols = ui::menu_cols(frame_area);
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
@@ -1377,7 +1569,7 @@ fn run(
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Context { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -1464,6 +1656,7 @@ fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::Events { .. } => vec![plain_segment("Events")],
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
+        Mode::Context { .. } => vec![plain_segment("Contexts")],
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
 }
@@ -1502,10 +1695,13 @@ fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'st
             };
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
+            hints.push(("C", "switch context"));
             hints.push(("q/esc", "back"));
             hints
         }
         Mode::Command { .. } | Mode::Search => Vec::new(),
+        Mode::Context { editing: true, .. } => Vec::new(),
+        Mode::Context { .. } => vec![("j/k", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
         Mode::Spec { .. } => {
             vec![("j/k", "move"), ("enter", "toggle"), ("v", "view full value"), ("a", "expand/collapse all"), ("q/esc", "back")]
@@ -1637,7 +1833,7 @@ mod tests {
             ResourceKind::ClusterRoleBindings,
             ResourceKind::CustomResourceList,
         ];
-        let sections = menu_sections();
+        let sections = menu_sections(&[]);
         let total: usize = sections.iter().map(|s| s.tiles.len()).sum();
         assert_eq!(total, expected.len(), "a kind is missing from (or duplicated in) the menu");
         for kind in expected {
@@ -1646,9 +1842,27 @@ mod tests {
     }
 
     #[test]
+    fn menu_lists_one_tile_per_crd_group() {
+        let crd = |group: &'static str, kind: &'static str| k8s::CrdInfo {
+            group,
+            kind,
+            plural: kind.to_lowercase(),
+            version: "v1".into(),
+            namespaced: true,
+        };
+        let crds = [crd("a.io", "One"), crd("a.io", "Two"), crd("b.io", "Three")];
+        let sections = menu_sections(&crds);
+        let custom = &sections.last().unwrap().tiles;
+        assert_eq!(
+            custom,
+            &[ResourceKind::CustomResourceList, ResourceKind::CustomResourceGroup("a.io"), ResourceKind::CustomResourceGroup("b.io")]
+        );
+    }
+
+    #[test]
     fn menu_position_for_finds_the_matching_tile() {
-        let sections = menu_sections();
-        let pos = menu_position_for(ResourceKind::ConfigMaps);
+        let sections = menu_sections(&[]);
+        let pos = menu_position_for(ResourceKind::ConfigMaps, &[]);
         assert_eq!(sections[pos.0].tiles[pos.1], ResourceKind::ConfigMaps);
     }
 

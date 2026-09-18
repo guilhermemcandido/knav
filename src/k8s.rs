@@ -237,6 +237,29 @@ pub async fn connect_to_context(context: Option<&str>) -> Result<Client> {
     Ok(Client::try_from(config)?)
 }
 
+/// Fails fast, with a readable message, if the API server can't be
+/// reached — without this, an unreachable cluster just hangs forever in
+/// the reflectors' initial list (which retry silently), and knav never
+/// draws anything. `context` is only for the message.
+pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<()> {
+    let label = match context {
+        Some(name) => name.to_string(),
+        None => list_contexts()
+            .ok()
+            .and_then(|c| c.into_iter().find(|c| c.is_current).map(|c| c.name))
+            .unwrap_or_else(|| "the current context".to_string()),
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(5), client.apiserver_version()).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => anyhow::bail!(
+            "can't reach cluster '{label}': {e}\n\nIs it running? Try another context with `knav -c <name>`, or set `startup.mode = \"menu\"` to pick one at launch."
+        ),
+        Err(_) => anyhow::bail!(
+            "can't reach cluster '{label}': timed out after 5s\n\nIs it running? Try another context with `knav -c <name>`, or set `startup.mode = \"menu\"` to pick one at launch."
+        ),
+    }
+}
+
 /// Per-container state, straight from `status.containerStatuses` — this is
 /// what actually knows about crash-looping, unlike the pod-level `phase`
 /// (Kubernetes has no CrashLoopBackOff *phase*, only a waiting *reason* on
