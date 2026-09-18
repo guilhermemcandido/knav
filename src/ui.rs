@@ -357,6 +357,41 @@ fn dim_style() -> Style {
     Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
 }
 
+/// The table palette, after k9s: pale-teal rows, a lighter blue header,
+/// a solid pale-blue selection bar with dark text, and a slate border.
+/// Every list/table goes through these so they read as one theme.
+const ROW_FG: Color = Color::Rgb(143, 191, 208);
+const HEADER_FG: Color = Color::Rgb(137, 180, 250);
+const SELECT_BG: Color = Color::Rgb(148, 191, 206);
+const BORDER_FG: Color = Color::Rgb(96, 125, 139);
+
+fn theme_row(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(ROW_FG) }
+}
+
+fn theme_header(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(HEADER_FG) }
+}
+
+fn theme_highlight(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) }
+}
+
+fn theme_border(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }
+}
+
+/// k9s-style table title: the kind as a filled pill, the count in orange.
+fn table_title(label: &str, count: usize, dimmed: bool) -> Line<'static> {
+    if dimmed {
+        return Line::styled(format!(" {label} ({count}) "), dim_style());
+    }
+    Line::from(vec![
+        Span::styled(format!(" {label} "), Style::default().bg(Color::Rgb(50, 56, 72)).fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("({count})"), Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)),
+    ])
+}
+
 /// A small floating input box, horizontally centered and sitting a
 /// quarter of the way down the screen — Spotlight/command-palette style,
 /// nearer the top than the middle so it doesn't cover what you're
@@ -494,10 +529,11 @@ fn draw_context_popup(
     }
 
     let table = Table::new(rows, widths)
+        .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
-        .highlight_symbol("➤ ");
+        .row_highlight_style(theme_highlight(false))
+        .highlight_symbol("");
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -608,8 +644,8 @@ fn popup_near(column: u16, row: u16, width: u16, height: u16, bounds: Rect) -> R
 
 fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, dimmed: bool) {
     let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let border_style = if dimmed { muted } else { Style::default() };
+    let header_style = theme_header(dimmed);
+    let border_style = theme_border(dimmed);
 
     let header = Row::new(vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"])
         .style(header_style);
@@ -619,14 +655,14 @@ fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut 
             muted
         } else {
             let color = match p.phase.as_str() {
-                "Running" => Color::Green,
+                "Running" => ROW_FG,
                 "Pending" => Color::Yellow,
                 "Failed" => Color::Red,
                 _ => Color::Gray,
             };
             Style::default().fg(color)
         };
-        let cell_style = if dimmed { muted } else { Style::default() };
+        let cell_style = theme_row(dimmed);
         Row::new(vec![
             Cell::from(p.namespace.clone()).style(cell_style),
             Cell::from(p.name.clone()).style(cell_style),
@@ -639,19 +675,16 @@ fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut 
         ])
     });
 
-    let title = format!("Pods ({})", pods.len());
+    let title = table_title("Pods", pods.len(), dimmed);
 
-    let highlight_style = if dimmed {
-        muted
-    } else {
-        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-    };
+    let highlight_style = theme_highlight(dimmed);
 
     let table = Table::new(rows, pod_table_widths())
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -703,10 +736,9 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
 }
 
 fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, dimmed: bool) {
-    let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let border_style = if dimmed { muted } else { Style::default() };
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let header_style = theme_header(dimmed);
+    let border_style = theme_border(dimmed);
+    let cell_style = theme_row(dimmed);
 
     let header =
         Row::new(vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"]).style(header_style);
@@ -731,19 +763,16 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
         Constraint::Length(5),
     ];
 
-    let title = format!("Deployments ({})", deployments.len());
+    let title = table_title("Deployments", deployments.len(), dimmed);
 
-    let highlight_style = if dimmed {
-        muted
-    } else {
-        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-    };
+    let highlight_style = theme_highlight(dimmed);
 
     let table = Table::new(rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -784,9 +813,9 @@ fn usage_color(ratio: f64, dimmed: bool) -> Color {
 
 fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, dimmed: bool) {
     let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let border_style = if dimmed { muted } else { Style::default() };
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let header_style = theme_header(dimmed);
+    let border_style = theme_border(dimmed);
+    let cell_style = theme_row(dimmed);
 
     let header = Row::new(vec!["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"]).style(header_style);
 
@@ -794,7 +823,7 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
         let status_style = if dimmed {
             muted
         } else if n.ready && n.schedulable {
-            Style::default().fg(Color::Green)
+            Style::default().fg(ROW_FG)
         } else if n.ready {
             Style::default().fg(Color::Yellow) // cordoned, but otherwise healthy
         } else {
@@ -831,19 +860,16 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
         Constraint::Length(12),
     ];
 
-    let title = format!("Nodes ({})", nodes.len());
+    let title = table_title("Nodes", nodes.len(), dimmed);
 
-    let highlight_style = if dimmed {
-        muted
-    } else {
-        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-    };
+    let highlight_style = theme_highlight(dimmed);
 
     let table = Table::new(rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -860,10 +886,9 @@ fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
 }
 
 fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, dimmed: bool) {
-    let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let border_style = if dimmed { muted } else { Style::default() };
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let header_style = theme_header(dimmed);
+    let border_style = theme_border(dimmed);
+    let cell_style = theme_row(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
@@ -884,19 +909,16 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
         Row::new(cells)
     });
 
-    let title = format!("{label} ({})", rows.len());
+    let title = table_title(label, rows.len(), dimmed);
 
-    let highlight_style = if dimmed {
-        muted
-    } else {
-        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-    };
+    let highlight_style = theme_highlight(dimmed);
 
     let table = Table::new(table_rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -910,10 +932,9 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
 fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, dimmed: bool) {
-    let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
-    let border_style = if dimmed { muted } else { Style::default() };
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let header_style = theme_header(dimmed);
+    let border_style = theme_border(dimmed);
+    let cell_style = theme_row(dimmed);
 
     let header = Row::new(vec!["GROUP", "KIND", "SCOPE"]).style(header_style);
 
@@ -926,19 +947,16 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)],
     });
 
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = format!("{heading} ({})", crds.len());
+    let title = table_title(heading, crds.len(), dimmed);
 
-    let highlight_style = if dimmed {
-        muted
-    } else {
-        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-    };
+    let highlight_style = theme_highlight(dimmed);
 
     let table = Table::new(rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -1953,12 +1971,11 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let muted = dim_style();
     let filtered: Vec<&EventEntry> = events.iter().filter(|e| filter.matches(e)).collect();
 
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let header_style = theme_header(dimmed);
     let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(header_style);
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let cell_style = theme_row(dimmed);
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
             Color::Rgb(40, 40, 40)
@@ -1999,13 +2016,14 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
         filter.label()
     );
 
-    let border_style = if dimmed { muted } else { Style::default() };
-    let highlight_style = if dimmed { muted } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
+    let border_style = theme_border(dimmed);
+    let highlight_style = theme_highlight(dimmed);
     let table = Table::new(rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
@@ -2247,9 +2265,9 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
     frame.render_widget(Clear, area);
 
     let muted = dim_style();
-    let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
+    let header_style = theme_header(dimmed);
     let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(header_style);
-    let cell_style = if dimmed { muted } else { Style::default() };
+    let cell_style = theme_row(dimmed);
     let rows = containers.iter().map(|c| {
         let (glyph, color) = container_dot(c);
         let dot_style = if dimmed { muted } else { Style::default().fg(color) };
@@ -2274,9 +2292,10 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
         Constraint::Percentage(20),
     ];
 
-    let border_style = if dimmed { muted } else { Style::default() };
-    let highlight_style = if dimmed { muted } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
+    let border_style = theme_border(dimmed);
+    let highlight_style = theme_highlight(dimmed);
     let table = Table::new(rows, widths)
+        .style(theme_row(dimmed))
         .header(header)
         .block(
             Block::default()
@@ -2286,7 +2305,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
         .row_highlight_style(highlight_style)
-        .highlight_symbol(if dimmed { "  " } else { "➤ " });
+        .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, state);
 }
