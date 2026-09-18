@@ -72,6 +72,15 @@ pub enum Overlay<'a> {
     /// Overview's Events panel — every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
     Events { events: &'a [EventEntry], filter: EventFilter, state: &'a mut TableState },
+    /// One event's full detail — opened by pressing Enter or clicking a
+    /// row in the Events browser, since the browser's own MESSAGE column
+    /// clips long messages to fit the table.
+    EventDetail { entry: &'a EventEntry },
+    /// The Overview's Resources panel, opened up: the same cluster-wide
+    /// CPU/Memory/Pods gauges, full-size, plus a per-node usage
+    /// breakdown — reuses the exact same gauge/table drawing the compact
+    /// panel and the Nodes list already use, just with more room.
+    ResourcesDetail { overview: &'a Overview, nodes: &'a [NodeRow], state: &'a mut TableState },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -104,6 +113,8 @@ pub fn draw(
             | Some(Overlay::Menu { .. })
             | Some(Overlay::NodeDetail { .. })
             | Some(Overlay::Events { .. })
+            | Some(Overlay::EventDetail { .. })
+            | Some(Overlay::ResourcesDetail { .. })
     );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
@@ -161,6 +172,8 @@ pub fn draw(
             }
             Overlay::Command { input } => draw_command_bar(frame, input),
             Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state),
+            Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
+            Overlay::ResourcesDetail { overview, nodes, state } => draw_resources_detail_popup(frame, overview, nodes, state),
         }
     }
 }
@@ -805,6 +818,19 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
 }
 
 /// The CPU/Memory/Pods meters, one per line.
+/// Live pod count, read from the catalog rather than duplicated as its
+/// own field on `Overview` — Pods already has one live reflector feeding
+/// the catalog tile, so this just reads the same number back out.
+fn workloads_pod_count(overview: &Overview) -> usize {
+    overview
+        .catalog
+        .iter()
+        .find(|(section, _)| *section == "Workloads")
+        .and_then(|(_, tiles)| tiles.iter().find(|(label, _)| *label == "Pods"))
+        .map(|(_, count)| *count)
+        .unwrap_or(0)
+}
+
 fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
     if !overview.metrics_available {
         let text = vec![
@@ -815,13 +841,7 @@ fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overview, dimmed
         return;
     }
 
-    let pod_usage = overview
-        .catalog
-        .iter()
-        .find(|(section, _)| *section == "Workloads")
-        .and_then(|(_, tiles)| tiles.iter().find(|(label, _)| *label == "Pods"))
-        .map(|(_, count)| *count)
-        .unwrap_or(0);
+    let pod_usage = workloads_pod_count(overview);
 
     let lines = Layout::vertical([Constraint::Length(1); 3]).split(area);
     draw_meter(
@@ -1273,15 +1293,18 @@ fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, co
         return;
     }
 
+    // Swapped from the original icon-left/count-right layout, per
+    // explicit request — the count now sits in the flexible left zone,
+    // the icon in the small fixed-width zone on the right.
     let icon_w = 3u16.min(inner.width);
-    let split = Layout::horizontal([Constraint::Length(icon_w), Constraint::Min(0)]).split(inner);
+    let split = Layout::horizontal([Constraint::Min(0), Constraint::Length(icon_w)]).split(inner);
+
+    frame.render_widget(Paragraph::new(Line::styled(count.to_string(), count_style)).alignment(Alignment::Left), split[0]);
 
     match (dimmed, resolve_icon_kind(label, column_title)) {
-        (false, Some(kind)) => icons.draw(frame, icons.centered_square(split[0]), kind),
-        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[0]),
+        (false, Some(kind)) => icons.draw(frame, icons.centered_square(split[1]), kind),
+        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[1]),
     }
-
-    frame.render_widget(Paragraph::new(Line::styled(count.to_string(), count_style)).alignment(Alignment::Right), split[1]);
 }
 
 fn icon_for(label: &str) -> &'static str {
@@ -1574,7 +1597,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     ];
 
     let title = format!(
-        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  esc: back",
+        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  enter/click: detail  esc: back",
         filtered.len(),
         events.len(),
         filter.label()
@@ -1590,6 +1613,77 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
     }
     frame.render_stateful_widget(table, area, state);
+}
+
+/// Which row of the Events browser's table (if any) sits under an
+/// absolute terminal position — same `centered_rect(94, 88, ...)` and
+/// border/header layout `draw_events_popup` actually renders with.
+/// `offset` must be the table's own current scroll offset (`TableState::
+/// offset()`, valid only after that state has actually been rendered
+/// with once — same reasoning `row_at` already relies on for Pods).
+pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u16) -> Option<usize> {
+    let area = centered_rect(94, 88, frame_area);
+    let top = area.y + 2; // top border + header row
+    let bottom = area.y + area.height.saturating_sub(1); // bottom border
+    if row < top || row >= bottom {
+        return None;
+    }
+    let index = offset + usize::from(row - top);
+    (index < filtered_len).then_some(index)
+}
+
+/// One event's full detail — a plain wrapped-text popup rather than a
+/// table row, since the point is showing the *un*truncated message a
+/// narrow MESSAGE column would otherwise clip.
+fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
+    let area = centered_rect(70, 50, frame.area());
+    frame.render_widget(Clear, area);
+
+    let color = match (entry.severity, entry.kind.as_str()) {
+        (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
+        (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
+        (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+    };
+    let type_text = match entry.severity {
+        crate::k8s::EventSeverity::Normal => "Normal",
+        crate::k8s::EventSeverity::Warning => "Warning",
+    };
+    let label = Style::default().fg(Color::DarkGray);
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+
+    let lines = vec![
+        Line::from(vec![Span::styled("Type:   ", label), Span::styled(type_text, Style::default().fg(color).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled("Reason: ", label), Span::styled(entry.reason.clone(), bold)]),
+        Line::from(vec![Span::styled("Object: ", label), Span::raw(format!("{} ({})", entry.object, entry.kind))]),
+        Line::from(vec![Span::styled("Age:    ", label), Span::raw(entry.age.clone())]),
+        Line::raw(""),
+        Line::styled("Message:", bold),
+        Line::raw(entry.message.clone()),
+    ];
+
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail  —  esc: back");
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
+}
+
+/// The Overview's Resources panel, opened up — the exact same
+/// cluster-wide gauges (`draw_metrics_lines`) and per-node usage table
+/// (`draw_nodes_table`) the compact panel and the Nodes list already
+/// draw, just given a full-screen popup's worth of room instead of three
+/// cramped lines.
+fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[NodeRow], state: &mut TableState) {
+    let area = centered_rect(94, 88, frame.area());
+    frame.render_widget(Clear, area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title("Resources  —  j/k: move  enter: node detail  esc: back");
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
+    draw_metrics_lines(frame, chunks[0], overview, false);
+    draw_nodes_table(frame, chunks[1], nodes, state, false);
 }
 
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
@@ -1846,6 +1940,67 @@ mod generic_table_tests {
     fn namespace_column_shown_when_any_row_has_a_real_namespace() {
         assert!(any_row_has_namespace(&[row("-"), row("default")]));
         assert!(!any_row_has_namespace(&[]));
+    }
+}
+
+#[cfg(test)]
+mod events_popup_tests {
+    use super::*;
+
+    fn entry(severity: crate::k8s::EventSeverity) -> EventEntry {
+        EventEntry {
+            message: "m".into(),
+            reason: "r".into(),
+            object: "o".into(),
+            kind: "Pod".into(),
+            age: "1m".into(),
+            age_secs: 60,
+            severity,
+        }
+    }
+
+    #[test]
+    fn workloads_pod_count_reads_the_pods_tile_from_the_catalog() {
+        let overview = Overview {
+            events: vec![],
+            cpu_usage_millicores: 0,
+            cpu_capacity_millicores: 0,
+            memory_usage_bytes: 0,
+            memory_capacity_bytes: 0,
+            pod_capacity: 0,
+            metrics_available: false,
+            catalog: vec![("Workloads", vec![("Pods", 17), ("Deployments", 4)])],
+        };
+        assert_eq!(workloads_pod_count(&overview), 17);
+    }
+
+    #[test]
+    fn event_row_at_resolves_the_first_row_and_respects_offset() {
+        let frame_area = Rect { x: 0, y: 0, width: 100, height: 40 };
+        let area = centered_rect(94, 88, frame_area);
+        let top = area.y + 2;
+        assert_eq!(event_row_at(frame_area, 5, 0, top), Some(0));
+        assert_eq!(event_row_at(frame_area, 5, 2, top), Some(2));
+        assert_eq!(event_row_at(frame_area, 5, 0, top - 1), None); // header row, not a data row
+    }
+
+    #[test]
+    fn event_row_at_is_none_past_the_filtered_list_or_the_table() {
+        let frame_area = Rect { x: 0, y: 0, width: 100, height: 40 };
+        let area = centered_rect(94, 88, frame_area);
+        let top = area.y + 2;
+        assert_eq!(event_row_at(frame_area, 1, 0, top + 1), None); // only 1 row exists
+        let bottom = area.y + area.height - 1;
+        assert_eq!(event_row_at(frame_area, 100, 0, bottom), None); // bottom border row
+    }
+
+    #[test]
+    fn event_filter_matches_the_right_severities() {
+        let normal = entry(crate::k8s::EventSeverity::Normal);
+        let warning = entry(crate::k8s::EventSeverity::Warning);
+        assert!(EventFilter::All.matches(&normal) && EventFilter::All.matches(&warning));
+        assert!(EventFilter::Warnings.matches(&warning) && !EventFilter::Warnings.matches(&normal));
+        assert!(EventFilter::Normal.matches(&normal) && !EventFilter::Normal.matches(&warning));
     }
 }
 

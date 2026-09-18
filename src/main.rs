@@ -40,10 +40,25 @@ enum Mode {
     /// Freelens-style node drill-down: that node's own metrics + the
     /// pods scheduled on it. `current_kind` stays `Nodes` throughout —
     /// this just overlays on top, same as `Containers` overlays on Pods.
-    NodeDetail { name: String, state: TableState },
+    NodeDetail {
+        name: String,
+        state: TableState,
+        // Where Esc returns to — the Nodes list normally, or the
+        // Overview's Resources detail if this node was opened from
+        // there, same "remember where you came from" pattern as
+        // `Containers`/`Logs`.
+        back: Box<Mode>,
+    },
     /// The full Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event, filterable by severity.
     Events { filter: k8s::EventFilter, state: TableState },
+    /// One event's full, untruncated detail — opened from within the
+    /// Events browser. `back` restores that browser's filter/scroll
+    /// position exactly, same pattern as `Containers`/`Logs`.
+    EventDetail { entry: k8s::EventEntry, back: Box<Mode> },
+    /// The Overview's Resources panel, opened up: full-size cluster
+    /// gauges plus a per-node usage breakdown.
+    ResourcesDetail { state: TableState },
     Containers {
         title: String,
         namespace: String,
@@ -408,7 +423,7 @@ fn run(
     // enabled and before the event-read loop below starts, so its own
     // terminal query doesn't race with crossterm's stdin reads.
     let mut icons = icons::IconCache::detect();
-    let mut overview_selection = ui::OverviewSelection::Item(0, 0);
+    let mut overview_selection = ui::OverviewSelection::Resources;
     // Horizontal scroll offset into the Overview's columns (Cluster,
     // Workloads, Config, ... — one per catalog category).
     let mut overview_col_scroll: usize = 0;
@@ -541,7 +556,7 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
-            Mode::NodeDetail { name, state } => {
+            Mode::NodeDetail { name, state, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
@@ -566,6 +581,20 @@ fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                })?;
+            }
+            Mode::EventDetail { entry, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::EventDetail { entry };
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                })?;
+            }
+            Mode::ResourcesDetail { state } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
@@ -638,7 +667,11 @@ fn run(
                         mode = Mode::Menu { selected: menu_position_for(current_kind) };
                     }
                     KeyCode::Enter => match overview_selection {
-                        ui::OverviewSelection::Resources => {}
+                        ui::OverviewSelection::Resources => {
+                            mode = Mode::ResourcesDetail {
+                                state: TableState::default().with_selected(if node_rows.is_empty() { None } else { Some(0) }),
+                            };
+                        }
                         ui::OverviewSelection::Events => {
                             mode = Mode::Events {
                                 filter: k8s::EventFilter::default(),
@@ -680,6 +713,36 @@ fn run(
                 KeyCode::Char('k') | KeyCode::Up => {
                     let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
                     select_prev(state, filtered_len);
+                }
+                KeyCode::Enter => {
+                    if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
+                        let back = Box::new(Mode::Events { filter: *filter, state: *state });
+                        mode = Mode::EventDetail { entry: entry.clone(), back };
+                    }
+                }
+                _ => {}
+            },
+            (Event::Mouse(mouse), Mode::Events { filter, state }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                let filtered: Vec<&k8s::EventEntry> = overview.events.iter().filter(|e| filter.matches(e)).collect();
+                if let Some(idx) = ui::event_row_at(frame_area, filtered.len(), state.offset(), mouse.row) {
+                    state.select(Some(idx));
+                    let back = Box::new(Mode::Events { filter: *filter, state: *state });
+                    mode = Mode::EventDetail { entry: filtered[idx].clone(), back };
+                }
+            }
+            (Event::Key(key), Mode::EventDetail { back, .. }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                _ => {}
+            },
+            (Event::Key(key), Mode::ResourcesDetail { state }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                KeyCode::Char('j') | KeyCode::Down => select_next(state, node_rows.len()),
+                KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_rows.len()),
+                KeyCode::Enter => {
+                    if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
+                        let back = Box::new(Mode::ResourcesDetail { state: *state });
+                        mode = Mode::NodeDetail { name: node.name.clone(), state: TableState::default().with_selected(0), back };
+                    }
                 }
                 _ => {}
             },
@@ -761,7 +824,7 @@ fn run(
                     if let Some(index) = table_state.selected()
                         && let Some(row) = generic_rows.get(index)
                     {
-                        mode = Mode::NodeDetail { name: row.name.clone(), state: TableState::default().with_selected(0) };
+                        mode = Mode::NodeDetail { name: row.name.clone(), state: TableState::default().with_selected(0), back: Box::new(Mode::List) };
                     }
                 }
                 _ => {}
@@ -874,8 +937,8 @@ fn run(
                 }
                 _ => {}
             },
-            (Event::Key(key), Mode::NodeDetail { name, state }) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+            (Event::Key(key), Mode::NodeDetail { name, state, back }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                 KeyCode::Char('d') => {
                     if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
                         let title = name.clone();
@@ -890,14 +953,18 @@ fn run(
                         let namespace = pod.metadata.namespace.clone().unwrap_or_default();
                         let pod_name = pod.metadata.name.clone().unwrap_or_default();
                         let containers = k8s::containers_for(pod);
-                        let back = Box::new(Mode::NodeDetail { name: name.clone(), state: *state });
+                        let node_detail_snapshot = Mode::NodeDetail {
+                            name: name.clone(),
+                            state: *state,
+                            back: std::mem::replace(back, Box::new(Mode::List)),
+                        };
                         mode = Mode::Containers {
                             title,
                             namespace,
                             pod: pod_name,
                             containers,
                             state: TableState::default().with_selected(0),
-                            back,
+                            back: Box::new(node_detail_snapshot),
                         };
                     }
                 }

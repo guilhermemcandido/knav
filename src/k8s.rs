@@ -521,6 +521,7 @@ impl EventFilter {
 /// problem conditions folded in as synthetic Warning-severity entries
 /// (there's no Event object for "this node has been NotReady for an
 /// hour," but it's exactly the kind of thing this feed should surface).
+#[derive(Clone)]
 pub struct EventEntry {
     pub message: String,
     pub reason: String,
