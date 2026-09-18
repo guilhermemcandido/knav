@@ -773,12 +773,12 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
     frame.render_widget(resources_block, chunks[0]);
     draw_metrics_lines(frame, resources_inner, overview, dimmed);
 
+    // Yellow read as too low-contrast to notice at a glance — Red covers
+    // every warning now (not just Node ones), Green means none at all.
     let events_status_color = if dimmed {
         Color::DarkGray
-    } else if overview.events.iter().any(|e| e.severity == crate::k8s::EventSeverity::Warning && e.kind == "Node") {
-        Color::Red
     } else if overview.events.iter().any(|e| e.severity == crate::k8s::EventSeverity::Warning) {
-        Color::Yellow
+        Color::Red
     } else {
         Color::Green
     };
@@ -794,7 +794,7 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(events_border)
-        .title(Line::styled(format!(" Events ({}) — enter: browse/filter ", overview.events.len()), events_title_style));
+        .title(Line::styled(format!(" Events ({}) ", overview.events.len()), events_title_style));
     let events_inner = events_block.inner(chunks[2]);
     frame.render_widget(events_block, chunks[2]);
 
@@ -1298,10 +1298,17 @@ fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, co
         _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), rows[0]),
     }
 
+    // "<symbol> Pods       17" — a small emoji glyph ahead of the name,
+    // in addition to the bigger image banner above, so the kind is
+    // identifiable at a glance on the text row too.
     let count_text = count.to_string();
-    let label_width = (rows[1].width as usize).saturating_sub(count_text.chars().count() + 1).max(1);
+    let available = (rows[1].width as usize).saturating_sub(count_text.chars().count() + 1).max(1);
+    let icon = icon_for(label);
+    let prefix_width = icon.chars().count() + 1;
+    let label_width = available.saturating_sub(prefix_width).max(1);
+    let content = format!("{icon} {}", truncate(label, label_width));
     let line = Line::from(vec![
-        Span::styled(format!("{:<label_width$}", truncate(label, label_width)), text_style),
+        Span::styled(format!("{:<available$}", content), text_style),
         Span::styled(count_text, count_style),
     ]);
     frame.render_widget(Paragraph::new(line), rows[1]);
