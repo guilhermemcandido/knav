@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap},
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
@@ -44,7 +44,7 @@ pub struct MenuSection<'a> {
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState },
-    Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat },
+    Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, filter: &'a str, filter_editing: bool },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
     /// A single node's own CPU/Memory/Pods gauges plus the pods actually
     /// scheduled on it — Freelens-style node drill-down. `cpu_usage`/
@@ -80,7 +80,7 @@ pub enum Overlay<'a> {
     /// CPU/Memory/Pods gauges, full-size, plus a per-node usage
     /// breakdown — reuses the exact same gauge/table drawing the compact
     /// panel and the Nodes list already use, just with more room.
-    ResourcesDetail { overview: &'a Overview, nodes: &'a [NodeRow], state: &'a mut TableState },
+    ResourcesDetail { overview: &'a Overview },
     /// One category column (Workloads, Config, ...), opened up — its
     /// items laid out as a bigger grid of the exact same cards, for when
     /// a category has more kinds than the compact column can show at
@@ -128,8 +128,9 @@ pub fn draw(
     overlay: Option<Overlay>,
     // The current screen's keybinding hints and whether the panel
     // showing them is currently toggled open — see `draw_hints`.
-    // Suppressed whenever `Command`/`Search` is the active overlay,
-    // since both already occupy the very top row this indicator sits in.
+    // Suppressed whenever `Command`/`Search` is the active overlay —
+    // `hints_for` already returns nothing for either, since neither is
+    // really "a screen" with its own commands to look up mid-typing.
     hints: &[(&str, &str)],
     show_hints_panel: bool,
     // The full "how did I get here" path, rendered as a bottom bar on
@@ -224,8 +225,8 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state),
         Overlay::Containers { title, containers, state } => draw_containers_popup(frame, title, containers, state, dimmed),
-        Overlay::Logs { title, lines, scroll, follow, timestamp_format } => {
-            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
+        Overlay::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing } => {
+            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, filter, filter_editing)
         }
         Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
         Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
@@ -234,7 +235,7 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
         Overlay::Command { input } => draw_command_bar(frame, input),
         Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
-        Overlay::ResourcesDetail { overview, nodes, state } => draw_resources_detail_popup(frame, overview, nodes, state, dimmed),
+        Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
         Overlay::ColumnDetail { title, items, selected, row_scroll } => {
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
@@ -275,22 +276,23 @@ fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
 }
 
 /// The current screen's keybinding hints — kept out of the way until
-/// asked for. A small "?: cmds" indicator sits in the top-right corner
-/// always (whenever there's anything to show); pressing `?` toggles a
-/// bordered panel open just underneath it, off to the side, rather than
-/// cluttering the screen with a permanent hint list. Each hint's key and
-/// its description get their own color, same reasoning as the
-/// breadcrumb's kind/value split — a flat run of same-colored text reads
-/// as one undifferentiated blob, not a list of distinct commands.
+/// asked for. A small "commands: ?" indicator sits in the top-right
+/// corner always (whenever there's anything to show); pressing `?`
+/// toggles a bordered panel open just underneath it, off to the side,
+/// rather than cluttering the screen with a permanent hint list. Each
+/// hint's key and its description get their own color, same reasoning
+/// as the breadcrumb's kind/value split — a flat run of same-colored
+/// text reads as one undifferentiated blob, not a list of distinct
+/// commands.
 fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool) {
     let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
     let sep_style = Style::default().fg(Color::DarkGray);
 
     let indicator = Line::from(vec![
-        Span::styled("?", key_style),
+        Span::styled(if open { "close" } else { "commands" }, desc_style),
         Span::styled(": ", sep_style),
-        Span::styled(if open { "close" } else { "cmds" }, desc_style),
+        Span::styled("?", key_style),
     ]);
     let area = frame.area();
     let indicator_width = (indicator.width() as u16).min(area.width);
@@ -333,25 +335,43 @@ fn dim_style() -> Style {
     Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
 }
 
-/// The `/`/`f` live-filter bar — k9s-style, pinned to the very top
-/// (replacing the header row) rather than the bottom, so the rows it's
-/// actually narrowing read as sitting right underneath it. No dimming,
-/// since the point is watching the list narrow while you type.
+/// A small floating input box, centered on the screen both ways — mac
+/// Spotlight style — used for the `/` filter and `:` command line
+/// instead of pinning either to an edge nobody's looking at.
+fn centered_input_box(area: Rect) -> Rect {
+    let width = (area.width * 3 / 5).max(20).min(area.width);
+    let height = 3.min(area.height).max(1);
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect { x, y, width, height }
+}
+
+/// The `/`/`f` live-filter box — no dimming, since the point is
+/// watching the list narrow (right underneath, in the same spot) while
+/// you type.
 fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
-    let area = frame.area();
-    let bar = Rect { x: area.x, y: area.y, width: area.width, height: 1 };
+    let bar = centered_input_box(frame.area());
     frame.render_widget(Clear, bar);
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Search");
+    let inner = block.inner(bar);
+    frame.render_widget(block, bar);
     let line = Line::from(vec![
         Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  ({matches} match{})", if matches == 1 { "" } else { "es" }), Style::default().fg(Color::DarkGray)),
     ]);
-    frame.render_widget(Paragraph::new(line), bar);
+    frame.render_widget(Paragraph::new(line), inner);
 }
 
-fn container_dot(status: ContainerStatusKind) -> (&'static str, Color) {
-    match status {
+/// A `Terminated` container isn't necessarily a problem — a Job/init
+/// container that ran to completion and exited 0 gets this same status
+/// kind, distinguished only by `reason` being "Completed" rather than
+/// something like "Error"/"OOMKilled". Red is for the latter; a clean
+/// completion gets the same blue k9s/kubectl use for it.
+fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
+    match c.status {
         ContainerStatusKind::Running => ("●", Color::Green),
         ContainerStatusKind::Waiting => ("●", Color::Yellow),
+        ContainerStatusKind::Terminated if c.reason.as_deref() == Some("Completed") => ("●", Color::Blue),
         ContainerStatusKind::Terminated => ("●", Color::Red),
         ContainerStatusKind::Unknown => ("●", Color::Gray),
     }
@@ -362,7 +382,7 @@ fn container_dot(status: ContainerStatusKind) -> (&'static str, Color) {
 fn containers_cell(containers: &[ContainerInfo], muted: bool) -> Line<'static> {
     let mut spans = Vec::with_capacity(containers.len() * 2);
     for c in containers {
-        let (glyph, color) = container_dot(c.status);
+        let (glyph, color) = container_dot(c);
         let style = if muted { dim_style() } else { Style::default().fg(color) };
         spans.push(Span::styled(glyph, style));
         spans.push(Span::raw(" "));
@@ -379,33 +399,47 @@ fn container_state_text(c: &ContainerInfo) -> String {
     }
 }
 
-/// The `:` command bar — k9s-style, pinned to the very top (replacing
-/// the header row) rather than the bottom, on top of whatever's there.
+/// The `:` command line — a floating box centered on the screen, same
+/// as the search box, on top of whatever's there.
 fn draw_command_bar(frame: &mut Frame, input: &str) {
-    let area = frame.area();
-    let bar = Rect { x: area.x, y: area.y, width: area.width, height: 1 };
+    let bar = centered_input_box(frame.area());
     frame.render_widget(Clear, bar);
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Command");
+    let inner = block.inner(bar);
+    frame.render_widget(block, bar);
     let line = Line::styled(format!(":{input}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-    frame.render_widget(Paragraph::new(line), bar);
+    frame.render_widget(Paragraph::new(line), inner);
+}
+
+/// Shared namespace/name coloring — namespace in the app's cyan accent,
+/// name in plain bold, `/` muted — the same "kind vs value" split the
+/// breadcrumb uses, reused everywhere a `namespace/name` pair shows up
+/// (this status line, the Containers/Logs popup titles) so it's one
+/// defined color pairing rather than a different pick per screen.
+fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(namespace.to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled(name.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+    ]
 }
 
 fn draw_status_line(frame: &mut Frame, area: Rect, pods: &[PodRow], row: Option<usize>, dimmed: bool) {
     let line = match (dimmed, row.and_then(|i| pods.get(i))) {
         (false, Some(pod)) => {
-            let mut spans = vec![
-                Span::styled(format!("{}/{}", pod.namespace, pod.name), Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw("  —  "),
-            ];
+            let mut spans = namespace_name_spans(&pod.namespace, &pod.name);
+            spans.push(Span::raw(" ["));
             for (i, c) in pod.containers.iter().enumerate() {
                 if i > 0 {
-                    spans.push(Span::raw("   "));
+                    spans.push(Span::styled(" : ", Style::default().fg(Color::DarkGray)));
                 }
-                let (glyph, color) = container_dot(c.status);
+                let (glyph, color) = container_dot(c);
                 let style = Style::default().fg(color);
                 spans.push(Span::styled(format!("{glyph} "), style));
-                spans.push(Span::raw(format!("{}: ", c.name)));
-                spans.push(Span::styled(container_state_text(c), style));
+                spans.push(Span::styled(c.name.clone(), style));
+                spans.push(Span::styled(format!("({})", container_state_text(c)), style));
             }
+            spans.push(Span::raw("]"));
             Line::from(spans)
         }
         _ => Line::raw(""),
@@ -420,7 +454,7 @@ fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row: u16, boun
         .containers
         .iter()
         .map(|c| {
-            let (glyph, color) = container_dot(c.status);
+            let (glyph, color) = container_dot(c);
             let style = Style::default().fg(color);
             Line::from(vec![
                 Span::styled(format!("{glyph} "), style),
@@ -608,9 +642,12 @@ fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
     let ratio = if capacity > 0 { (used as f64 / capacity as f64).clamp(0.0, 1.0) } else { 0.0 };
     let filled = (ratio * WIDTH as f64).round() as usize;
     let color = usage_color(ratio, dimmed);
+    let bracket = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
     Line::from(vec![
+        Span::styled("[", bracket),
         Span::styled("▓".repeat(filled), Style::default().fg(color)),
         Span::styled("░".repeat(WIDTH - filled), Style::default().fg(Color::DarkGray)),
+        Span::styled("]", bracket),
         Span::raw(format!(" {:.0}%", ratio * 100.0)),
     ])
 }
@@ -828,9 +865,9 @@ fn draw_overview(
     icons: &mut IconCache,
 ) {
     let top_h = top_area_height(overview);
-    let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Min(0)]).split(area);
+    let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
     draw_top_panel(frame, chunks[0], overview, selection, dimmed);
-    draw_columns(frame, chunks[1], overview, selection, col_scroll, item_scroll, dimmed, icons);
+    draw_columns(frame, chunks[2], overview, selection, col_scroll, item_scroll, dimmed, icons);
 }
 
 /// How tall the Resources box is: a rounded border top/bottom (2) plus
@@ -871,7 +908,10 @@ fn events_content_height(overview: &Overview) -> u16 {
 /// — callers (keyboard navigation, mouse hit-testing) need this same
 /// rectangle to stay in sync with what's actually rendered.
 pub fn columns_area(frame_area: Rect, overview: &Overview) -> Rect {
-    let top_h = top_area_height(overview);
+    // +1 for the same gap `draw_overview` puts between the top strip and
+    // the columns — Resources-to-Events and top-strip-to-columns are now
+    // both a single blank row, not one bigger than the other.
+    let top_h = top_area_height(overview) + 1;
     Rect { x: frame_area.x, y: frame_area.y + top_h, width: frame_area.width, height: frame_area.height.saturating_sub(top_h) }
 }
 
@@ -1035,17 +1075,20 @@ fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f
     let detail = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
 
     let label_text = format!("{label:<8}");
-    let reserved = label_text.chars().count() as u16 + detail.chars().count() as u16 + 3;
+    let reserved = label_text.chars().count() as u16 + detail.chars().count() as u16 + 5;
     let bar_width = area.width.saturating_sub(reserved).max(4) as usize;
     let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
 
     let label_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let detail_style = if dimmed { dim_style() } else { Style::default() };
+    let bracket = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
 
     let line = Line::from(vec![
         Span::styled(label_text, label_style),
+        Span::styled("[", bracket),
         Span::styled("▓".repeat(filled), Style::default().fg(color)),
         Span::styled("░".repeat(bar_width - filled), Style::default().fg(Color::DarkGray)),
+        Span::styled("]", bracket),
         Span::styled(format!(" {detail}"), detail_style),
     ]);
     frame.render_widget(Paragraph::new(line), area);
@@ -1480,13 +1523,17 @@ fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, co
     let icon_w = 3u16.min(inner.width);
     let split = Layout::horizontal([Constraint::Length(icon_w), Constraint::Min(0)]).split(inner);
 
-    // A real vendored icon image where the terminal can render one;
-    // the small emoji glyph is only ever a fallback for when it can't
-    // (halfblocks rendering, or a dimmed/inactive frame) — never shown
-    // alongside the real image.
-    match (dimmed, resolve_icon_kind(label, column_title)) {
-        (false, Some(kind)) => icons.draw(frame, icons.centered_square(split[0]), kind),
-        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[0]),
+    // A real vendored icon image where the terminal can render one; the
+    // small emoji glyph is a fallback for when it can't (halfblocks
+    // rendering). Skipped entirely while dimmed — a color emoji glyph
+    // can't be muted via ANSI styling the way everything else here is,
+    // so it would just sit there in full color on top of a background
+    // that's supposed to read as out of focus.
+    if !dimmed {
+        match resolve_icon_kind(label, column_title) {
+            Some(kind) => icons.draw(frame, icons.centered_square(split[0]), kind),
+            None => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[0]),
+        }
     }
 
     let count_text = count.to_string();
@@ -1885,22 +1932,71 @@ fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
 /// (`draw_nodes_table`) the compact panel and the Nodes list already
 /// draw, just given a full-screen popup's worth of room instead of three
 /// cramped lines.
-fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[NodeRow], state: &mut TableState, dimmed: bool) {
-    let area = centered_rect(94, 88, frame.area());
-    frame.render_widget(Clear, area);
-
+/// One cluster-wide meter as a real gauge, not a hand-drawn bar — the
+/// popup has room to spare, unlike the compact Overview panel's
+/// three cramped lines (`draw_meter`), so there's no need for the
+/// label-clipping tradeoffs that ruled `Gauge` out there. The used/
+/// capacity/percentage text lives inside the gauge's own centered
+/// label instead of needing a separate line for it.
+fn draw_gauge_box(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
+    let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
     let border_style = if dimmed { dim_style() } else { Style::default() };
-    let outer = Block::default()
+    let title_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
+    let gauge_style = if dimmed { dim_style() } else { Style::default().fg(usage_color(ratio, dimmed)) };
+    let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title("Resources");
+        .title(Line::styled(format!(" {label} "), title_style));
+    let label_text = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
+    let gauge = Gauge::default().block(block).gauge_style(gauge_style).ratio(ratio).label(label_text);
+    frame.render_widget(gauge, area);
+}
+
+/// The Overview's Resources panel, opened up — cluster-wide CPU/Memory/
+/// Pods only, as real gauges now there's room for them. Deliberately
+/// doesn't repeat the per-node breakdown the Nodes list already owns —
+/// that duplication was the actual complaint, not "the bars aren't
+/// gauge-shaped enough."
+fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, dimmed: bool) {
+    let area = centered_rect(60, 30, frame.area());
+    frame.render_widget(Clear, area);
+
+    let border_style = if dimmed { dim_style() } else { Style::default() };
+    let outer = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title("Resources");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
-    draw_metrics_lines(frame, chunks[0], overview, dimmed);
-    draw_nodes_table(frame, chunks[1], nodes, state, dimmed);
+    if !overview.metrics_available {
+        let text = vec![
+            Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
+            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(Color::DarkGray)),
+        ];
+        frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), inner);
+        return;
+    }
+
+    let pod_usage = workloads_pod_count(overview);
+    let chunks = Layout::vertical([Constraint::Length(3); 3]).split(inner);
+    draw_gauge_box(
+        frame,
+        chunks[0],
+        "CPU",
+        overview.cpu_usage_millicores as f64,
+        overview.cpu_capacity_millicores as f64,
+        |v| format!("{:.2} cores", v / 1000.0),
+        dimmed,
+    );
+    draw_gauge_box(
+        frame,
+        chunks[1],
+        "Memory",
+        overview.memory_usage_bytes as f64,
+        overview.memory_capacity_bytes as f64,
+        format_bytes,
+        dimmed,
+    );
+    draw_gauge_box(frame, chunks[2], "Pods", pod_usage as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
 }
 
 /// One category column, opened up into a bigger grid of the exact same
@@ -1947,11 +2043,35 @@ fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usiz
     }
 }
 
+/// Colors a `/`-joined title (`namespace/name`, or `namespace/pod/
+/// container` for Logs) the same way as the breadcrumb: the outermost
+/// segment (namespace) in the app's cyan accent, the innermost (a
+/// container name, when there is one) in a distinct accent of its own,
+/// everything else plain bold — joined by muted `/`s instead of one
+/// flat-colored string. Falls back to plain bold for a title with no
+/// `/` at all (a bare node name, say).
+fn colored_slash_title(title: &str) -> Line<'static> {
+    let parts: Vec<&str> = title.split('/').collect();
+    if parts.len() < 2 {
+        return Line::styled(title.to_string(), Style::default().add_modifier(Modifier::BOLD));
+    }
+    let sep = Style::default().fg(Color::DarkGray);
+    let plain = Style::default().add_modifier(Modifier::BOLD);
+    let mut spans = vec![Span::styled(parts[0].to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
+    for (i, part) in parts[1..].iter().enumerate() {
+        spans.push(Span::styled("/", sep));
+        let is_last = i == parts.len() - 2;
+        let style = if is_last && parts.len() > 2 { Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD) } else { plain };
+        spans.push(Span::styled((*part).to_string(), style));
+    }
+    Line::from(spans)
+}
+
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title.to_string());
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(colored_slash_title(title));
 
     let tree = Tree::new(items)
         .expect("pod tree ids are unique per level by construction")
@@ -1973,7 +2093,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
     let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(header_style);
     let cell_style = if dimmed { muted } else { Style::default() };
     let rows = containers.iter().map(|c| {
-        let (glyph, color) = container_dot(c.status);
+        let (glyph, color) = container_dot(c);
         let dot_style = if dimmed { muted } else { Style::default().fg(color) };
         let state_text = c.reason.clone().unwrap_or_else(|| match c.status {
             ContainerStatusKind::Running => "Running".into(),
@@ -2005,7 +2125,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(title.to_string()),
+                .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
@@ -2013,34 +2133,63 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
     frame.render_stateful_widget(table, area, state);
 }
 
-fn draw_logs_popup(frame: &mut Frame, title: &str, lines: &[String], scroll: u16, follow: bool, timestamp_format: TimestampFormat) {
+#[allow(clippy::too_many_arguments)]
+fn draw_logs_popup(
+    frame: &mut Frame,
+    title: &str,
+    lines: &[String],
+    scroll: u16,
+    follow: bool,
+    timestamp_format: TimestampFormat,
+    filter: &str,
+    filter_editing: bool,
+) {
     let area = centered_rect(90, 90, frame.area());
     frame.render_widget(Clear, area);
 
-    let follow_status = if follow { "following — j/k or ↑↓ to pause" } else { "paused — G to resume following" };
+    // A plain substring match, not the fuzzy scorer the rest of the app
+    // uses — log lines are prose to scan, not identifiers to narrow.
+    let needle = filter.to_lowercase();
+    let filtered: Vec<&str> =
+        if filter.is_empty() { lines.iter().map(String::as_str).collect() } else { lines.iter().map(String::as_str).filter(|l| l.to_lowercase().contains(&needle)).collect() };
+
+    // Just the live state, not how to control it — the keybindings for
+    // pausing/resuming/toggling timestamps live in the `?` commands
+    // panel now instead of being spelled out here every time.
+    let follow_status = if follow { "following" } else { "paused" };
     let ts_status = match timestamp_format {
         TimestampFormat::Short => "short ts",
         TimestampFormat::Full => "full ts",
     };
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
-        "{title}  —  {follow_status}  ({ts_status}, {} lines)",
-        lines.len()
-    ));
+    let filter_status = if filter.is_empty() { String::new() } else { format!(", {}/{} match \"{filter}\"", filtered.len(), lines.len()) };
+    let mut title_line = colored_slash_title(title);
+    title_line.push_span(Span::raw(format!("  —  {follow_status}  ({ts_status}, {} lines{filter_status})", lines.len())));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title_line);
 
     // When following, always show exactly the tail that fits the visible
     // area — simpler and more robust than trusting Paragraph's own scroll
     // clamping to not show blank space past the end of the content.
     let (text, effective_scroll): (Vec<Line>, u16) = if follow {
         let visible = area.height.saturating_sub(2) as usize; // minus borders
-        let start = lines.len().saturating_sub(visible);
-        (lines[start..].iter().map(|l| colorize_log_line(l, timestamp_format)).collect(), 0)
+        let start = filtered.len().saturating_sub(visible);
+        (filtered[start..].iter().copied().map(|l| colorize_log_line(l, timestamp_format)).collect(), 0)
     } else {
-        (lines.iter().map(|l| colorize_log_line(l, timestamp_format)).collect(), scroll)
+        (filtered.iter().copied().map(|l| colorize_log_line(l, timestamp_format)).collect(), scroll)
     };
 
     let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false }).scroll((effective_scroll, 0));
 
     frame.render_widget(paragraph, area);
+
+    // The filter's own input line, pinned just inside the bottom border
+    // while actively being typed — same treatment as the `/` search box
+    // elsewhere, just scoped to this popup instead of floating over it.
+    if filter_editing {
+        let bar = Rect { x: area.x + 1, y: area.y + area.height.saturating_sub(2), width: area.width.saturating_sub(2), height: 1 };
+        frame.render_widget(Clear, bar);
+        let line = Line::styled(format!("/{filter}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        frame.render_widget(Paragraph::new(line), bar);
+    }
 }
 
 /// Kubernetes' log API merges stdout/stderr into one stream and doesn't
@@ -2453,7 +2602,9 @@ mod overview_selection_tests {
     fn column_hit_resolves_resources_events_header_and_item_rows() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         let frame_area = Rect { x: 0, y: 0, width: 80, height: 40 };
-        let top_h = top_area_height(&overview);
+        // +1 for the gap `columns_area` now puts between the top strip
+        // and the columns, matching the Resources-to-Events gap.
+        let top_h = top_area_height(&overview) + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events));
         // Row 0 of the columns area is the column box's top border (the
@@ -2467,7 +2618,7 @@ mod overview_selection_tests {
     fn column_hit_uses_item_scroll_only_for_the_active_column() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0), ("a3", 0)]), ("B", vec![("b1", 0), ("b2", 0)])]);
         let frame_area = Rect { x: 0, y: 0, width: 80, height: 40 };
-        let top_h = top_area_height(&overview);
+        let top_h = top_area_height(&overview) + 1;
         // Column 0 is active with item_scroll 1: its first visible card is
         // actually item index 1, not 0.
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, 1, top_h + 1), Some(OverviewSelection::Item(0, 1)));

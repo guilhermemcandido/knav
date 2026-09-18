@@ -1693,6 +1693,86 @@ no equivalent "recompute the same count a different way" step to drift.
   from inside Pods actually exits (confirmed via `ps` — process gone);
   raw ANSI capture confirms the darker `38;2;40;40;40` dimmed color.
 
+## Done since last update (2026-09-18, later still #15) — large polish batch: Overview spacing, emoji-in-background root cause, Resources redesign, colored titles, Logs filter, Spec expand-all
+
+This round bundled a lot of separate feedback; grouping by area:
+
+- **Overview spacing**: the Resources→Events gap and the top-strip→
+  columns gap are now both a single row (`draw_overview` reserves the
+  same `Constraint::Length(1)` for both; `columns_area`'s mouse
+  hit-testing math updated to match, two tests updated for the new
+  offset).
+- **Root-caused "emojis in the background"**: `draw_column_item` had a
+  `match (dimmed, resolve_icon_kind(...))` where the `_` arm — which
+  fires for *both* "no real icon" and "dimmed" — always drew the emoji
+  fallback. So every dimmed Overview column (behind the `m` menu, behind
+  any popup) showed full-color emoji, since an emoji glyph can't be
+  muted via ANSI styling the way everything else is. This was also
+  exactly what looked like "the m menu is missing names" — the emoji on
+  the dimmed left column reads as clutter, not the actual Workloads
+  section tiles (which do show all 7 names correctly — verified via
+  tmux). Fixed by skipping the icon entirely while dimmed.
+- **Commands indicator wording**: "?: cmds" → "commands: ?". The `c`
+  mouse toggle hint dropped its "(to copy)" suffix.
+- **Usage bars**: `usage_bar` (table cells) and `draw_meter` (the
+  Overview's own CPU/Memory/Pods lines) now wrap the bar in `[...]` so
+  the full-scale boundary is visible, not just an open-ended run of
+  blocks.
+- **Resources detail redesigned**: dropped the per-node table entirely
+  (it duplicated the Nodes list) and replaced the CPU/Memory/Pods lines
+  with real `ratatui::widgets::Gauge` widgets — actual gauges, not hand-
+  drawn bars, now that the popup doesn't need to spend its width on a
+  table. `Mode::ResourcesDetail`/`Overlay::ResourcesDetail` simplified
+  to drop the now-unused `TableState`/node list/Enter-to-NodeDetail path
+  that went with the table.
+- **Container status color**: a `Terminated` container whose reason is
+  "Completed" (ran to completion, exit 0 — Jobs/init containers) is now
+  blue, not red; still red for an actual failure reason.
+- **Pod status line** (bottom of the Pods list) reformatted to
+  `namespace/name [● container1(State) : ● container2(State)]`, per the
+  example given, instead of `namespace/name — ● container: State`.
+- **Defined namespace/name coloring**: new `namespace_name_spans`
+  (status line) and `colored_slash_title` (popup titles) — namespace in
+  the app's cyan accent, name plain bold, `/` muted; a `/`-joined
+  title's *last* segment (a container name, for Logs) gets its own
+  magenta accent. Applied to the Spec/Containers/Logs popup titles, not
+  just the breadcrumb.
+- **Logs title decluttered further**: dropped "— j/k or ↑↓ to pause
+  (short ts," entirely — that's what the `?` panel is for now, the title
+  just states current state (`following`/`paused`, `short ts`/`full
+  ts`, line count).
+- **Logs gained `/` filtering**: a plain substring match (not fuzzy —
+  log lines are prose, not identifiers) narrows displayed lines live;
+  Enter confirms and returns to normal scrolling with it applied, Esc
+  while typing clears it instead. Title shows `N/M match "query"` while
+  a filter's active.
+- **`/` and `:` are now a floating box centered on the screen** (mac
+  Spotlight-style) instead of pinned to the top row — supersedes the
+  #13 decision to move them to row 0. `centered_input_box` is the shared
+  sizing/positioning helper for both.
+- **Spec view**: `h`/`l` collapse/expand-only bindings removed (Enter
+  already toggles); added `a` to expand or collapse the *entire* tree at
+  once, toggling between the two on repeated presses (`TreeState` only
+  exposes bulk `close_all`, so expanding walks every identifier via a
+  new `all_tree_identifiers` helper and opens each one).
+- Verified live via tmux: spacing, bracketed bars, gauges, colored
+  titles (raw ANSI capture confirms `38;5;6` cyan namespace / plain bold
+  name), bracketed pod status line, centered Search/Command boxes,
+  `a` expand-all/collapse-all, `/` filter in Logs (title correctly shows
+  `0/0 match "err"`), and no emoji anywhere in a dimmed Overview.
+
+### Not done / uncertain
+
+- Couldn't independently confirm the "missing names" complaint was
+  *purely* the emoji clutter and not also a narrower-terminal-specific
+  truncation — couldn't reproduce any actual missing text at this
+  session's tested width. Worth a re-check if it still looks wrong.
+- "Pie charts or velocimeters" was interpreted as `ratatui::Gauge`
+  widgets, not literal circular/pie rendering (impractical to draw well
+  in a terminal) — flagged in case that's not what was meant.
+- Couldn't visually verify the "Completed" blue color against a real
+  completed container — this cluster's pods don't currently have one.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against

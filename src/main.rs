@@ -47,6 +47,11 @@ enum Mode {
         title: String,
         items: Vec<TreeItem<'static, String>>,
         state: TreeState<String>,
+        // Tracks which way `a` (expand/collapse everything) last left
+        // the tree, so pressing it again does the opposite — toggling
+        // between "everything open" and "everything closed" rather than
+        // needing two separate keys for it.
+        expanded_all: bool,
         // Where Esc returns to — normally the List we opened it from,
         // or NodeDetail if 'd' was pressed from there instead.
         back: Box<Mode>,
@@ -71,8 +76,9 @@ enum Mode {
     /// position exactly, same pattern as `Containers`/`Logs`.
     EventDetail { entry: k8s::EventEntry, back: Box<Mode> },
     /// The Overview's Resources panel, opened up: full-size cluster
-    /// gauges plus a per-node usage breakdown.
-    ResourcesDetail { state: TableState },
+    /// gauges. No per-node breakdown here anymore — that's what the
+    /// Nodes list is for; this is cluster-wide totals only.
+    ResourcesDetail,
     /// One Overview category column, opened up into a bigger grid —
     /// see `ui::Overlay::ColumnDetail`.
     ColumnDetail { col: usize, selected: usize, row_scroll: usize },
@@ -94,6 +100,14 @@ enum Mode {
         timestamp_format: TimestampFormat,
         rx: mpsc::UnboundedReceiver<String>,
         handle: tokio::task::JoinHandle<()>,
+        // `/` live-filters the log lines the same way it does everywhere
+        // else — a substring match here rather than fuzzy, since log
+        // lines are prose, not identifiers a fuzzy scorer makes sense
+        // against. `filter_editing` is only true while actually typing
+        // it; Enter confirms and goes back to normal scrolling with the
+        // filter applied, Esc while typing clears it instead.
+        filter: String,
+        filter_editing: bool,
         // What to go back to on Esc — the Containers view we came from,
         // so backing out of logs doesn't dump you all the way to the
         // pod list.
@@ -593,7 +607,7 @@ fn run(
         let breadcrumb_text = breadcrumb(&mode, current_kind);
         let mut hints = hints_for(&mode, current_kind);
         if !hints.is_empty() {
-            hints.push(("c", if mouse_capture_enabled { "mouse off (to copy)" } else { "mouse on" }));
+            hints.push(("c", if mouse_capture_enabled { "mouse off" } else { "mouse on" }));
         }
         let mut frame_area = Rect::default();
         match &mut mode {
@@ -688,7 +702,7 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::NodeDetail { name, state, back } => {
+            Mode::NodeDetail { name, state, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
@@ -706,13 +720,7 @@ fn run(
                         pods: &node_detail_rows,
                         state,
                     };
-                    let background = match &mut **back {
-                        Mode::ResourcesDetail { state: rd_state } => {
-                            Some(ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state: rd_state })
-                        }
-                        _ => None,
-                    };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Events { filter, state } => {
@@ -733,10 +741,10 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::ResourcesDetail { state } => {
+            Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
+                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
@@ -751,7 +759,7 @@ fn run(
                     }
                 })?;
             }
-            Mode::Logs { title, lines, scroll, follow, timestamp_format, back, .. } => {
+            Mode::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let background = match &mut **back {
@@ -764,6 +772,8 @@ fn run(
                         scroll: *scroll,
                         follow: *follow,
                         timestamp_format: *timestamp_format,
+                        filter,
+                        filter_editing: *filter_editing,
                     };
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
@@ -788,7 +798,7 @@ fn run(
                 // while typing a command/search, where `c` is just a
                 // character to type, not this toggle.
                 (Event::Key(key), current_mode)
-                    if key.code == KeyCode::Char('c') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                    if key.code == KeyCode::Char('c') && !is_typing(current_mode) =>
                 {
                     mouse_capture_enabled = !mouse_capture_enabled;
                     if mouse_capture_enabled {
@@ -800,7 +810,7 @@ fn run(
                 // `?` toggles the commands panel — reachable from any
                 // screen (except while typing), same as `c`.
                 (Event::Key(key), current_mode)
-                    if key.code == KeyCode::Char('?') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                    if key.code == KeyCode::Char('?') && !is_typing(current_mode) =>
                 {
                     show_hints_panel = !show_hints_panel;
                 }
@@ -809,7 +819,7 @@ fn run(
                 // Enter on a command that doesn't switch kind) returns to
                 // exactly where this was opened from, not always `List`.
                 (Event::Key(key), current_mode)
-                    if key.code == KeyCode::Char(':') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                    if key.code == KeyCode::Char(':') && !is_typing(current_mode) =>
                 {
                     let back = Box::new(std::mem::replace(current_mode, Mode::List));
                     *current_mode = Mode::Command { input: String::new(), back };
@@ -864,9 +874,7 @@ fn run(
                         }
                         KeyCode::Enter => match overview_selection {
                             ui::OverviewSelection::Resources => {
-                                mode = Mode::ResourcesDetail {
-                                    state: TableState::default().with_selected(if node_rows.is_empty() { None } else { Some(0) }),
-                                };
+                                mode = Mode::ResourcesDetail;
                             }
                             ui::OverviewSelection::Events => {
                                 mode = Mode::Events {
@@ -933,16 +941,8 @@ fn run(
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     _ => {}
                 },
-                (Event::Key(key), Mode::ResourcesDetail { state }) => match key.code {
+                (Event::Key(key), Mode::ResourcesDetail) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
-                    KeyCode::Char('j') | KeyCode::Down => select_next(state, node_rows.len()),
-                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_rows.len()),
-                    KeyCode::Enter => {
-                        if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
-                            let back = Box::new(Mode::ResourcesDetail { state: *state });
-                            mode = Mode::NodeDetail { name: node.name.clone(), state: TableState::default().with_selected(0), back };
-                        }
-                    }
                     _ => {}
                 },
                 (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
@@ -1142,7 +1142,7 @@ fn run(
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::Spec { state, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Spec { items, state, expanded_all, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('j') | KeyCode::Down => {
                         state.key_down();
@@ -1150,14 +1150,24 @@ fn run(
                     KeyCode::Char('k') | KeyCode::Up => {
                         state.key_up();
                     }
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        state.key_left();
-                    }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        state.key_right();
-                    }
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         state.toggle_selected();
+                    }
+                    // Toggles between "everything open" and "everything
+                    // closed" — `TreeState` only gives us the latter as a
+                    // single call, so expanding needs walking every
+                    // identifier ourselves.
+                    KeyCode::Char('a') => {
+                        if *expanded_all {
+                            state.close_all();
+                        } else {
+                            let mut ids = Vec::new();
+                            all_tree_identifiers(items, &mut Vec::new(), &mut ids);
+                            for id in ids {
+                                state.open(id);
+                            }
+                        }
+                        *expanded_all = !*expanded_all;
                     }
                     _ => {}
                 },
@@ -1198,6 +1208,8 @@ fn run(
                                 timestamp_format: config.logs.timestamp_format,
                                 rx,
                                 handle,
+                                filter: String::new(),
+                                filter_editing: false,
                                 back: Box::new(containers_snapshot),
                             };
                         }
@@ -1237,7 +1249,24 @@ fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Logs { scroll, follow, timestamp_format, handle, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Logs { filter, filter_editing: filter_editing @ true, .. }) => match key.code {
+                    // Esc while typing clears the filter rather than
+                    // leaving; Enter confirms and goes back to normal
+                    // scrolling with it applied — the filtered set is
+                    // what you land back on, having "scrolled past"
+                    // everything that didn't match.
+                    KeyCode::Esc => {
+                        filter.clear();
+                        *filter_editing = false;
+                    }
+                    KeyCode::Enter => *filter_editing = false,
+                    KeyCode::Backspace => {
+                        filter.pop();
+                    }
+                    KeyCode::Char(c) => filter.push(c),
+                    _ => {}
+                },
+                (Event::Key(key), Mode::Logs { scroll, follow, timestamp_format, handle, filter_editing, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         handle.abort();
                         mode = std::mem::replace(&mut **back, Mode::List);
@@ -1251,6 +1280,7 @@ fn run(
                         *scroll = scroll.saturating_sub(1);
                     }
                     KeyCode::Char('G') => *follow = true,
+                    KeyCode::Char('/') => *filter_editing = true,
                     KeyCode::Char(c) if c == config.keybindings.logs.toggle_timestamp => {
                         *timestamp_format = timestamp_format.toggled();
                     }
@@ -1274,6 +1304,14 @@ fn run(
             }
         }
     }
+}
+
+/// Whether `c`/`?`/`:` (each bound globally, see the top of the event
+/// loop) should instead just be typed as a character — `Command`/
+/// `Search` always, `Logs` only while its own `/` filter is actively
+/// being edited.
+fn is_typing(mode: &Mode) -> bool {
+    matches!(mode, Mode::Command { .. } | Mode::Search) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -1358,7 +1396,7 @@ fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path
         }
         Mode::Events { .. } => vec![plain_segment("Events")],
-        Mode::ResourcesDetail { .. } => vec![plain_segment("Resources")],
+        Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
@@ -1403,14 +1441,16 @@ fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'st
         }
         Mode::Command { .. } | Mode::Search => Vec::new(),
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
-        Mode::Spec { .. } => vec![("j/k", "move"), ("h/l", "collapse/expand"), ("enter", "toggle"), ("q/esc", "back")],
+        Mode::Spec { .. } => vec![("j/k", "move"), ("enter", "toggle"), ("a", "expand/collapse all"), ("q/esc", "back")],
         Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("q/esc", "back")],
         Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
-        Mode::ResourcesDetail { .. } => vec![("j/k", "move"), ("enter", "node detail"), ("q/esc", "back")],
+        Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
         Mode::Containers { .. } => vec![("j/k", "move"), ("enter", "logs"), ("q/esc", "back")],
-        Mode::Logs { .. } => vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("q/esc", "back")],
+        Mode::Logs { .. } => {
+            vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("/", "filter"), ("q/esc", "back")]
+        }
     }
 }
 
@@ -1429,7 +1469,19 @@ fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     // place regardless of which of `open_spec`'s several call sites
     // opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Spec { title, items, state, back };
+    *mode = Mode::Spec { title, items, state, expanded_all: false, back };
+}
+
+/// Every identifier path in the tree, depth-first — used by `a` (see the
+/// `Mode::Spec` keyboard handler) to expand every node at once, since
+/// `TreeState` only exposes a bulk `close_all`, not its `open` opposite.
+fn all_tree_identifiers(items: &[TreeItem<'static, String>], prefix: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
+    for item in items {
+        prefix.push(item.identifier().clone());
+        out.push(prefix.clone());
+        all_tree_identifiers(item.children(), prefix, out);
+        prefix.pop();
+    }
 }
 
 fn select_next(state: &mut TableState, len: usize) {
