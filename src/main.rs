@@ -347,6 +347,10 @@ fn run(
     // Horizontal scroll offset into the Overview's columns (Cluster,
     // Workloads, Config, ... — one per catalog category).
     let mut overview_col_scroll: usize = 0;
+    // Vertical scroll offset into whichever column currently holds the
+    // selection — item cards are tall enough now that a category like
+    // Workloads can't always fit on screen at once.
+    let mut overview_item_scroll: usize = 0;
     // Which Overview columns are collapsed, by index into `overview.catalog`.
     let mut overview_collapsed: HashSet<usize> = HashSet::new();
 
@@ -429,7 +433,9 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, &overview_collapsed),
+            ResourceKind::Overview => {
+                ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, overview_item_scroll, &overview_collapsed)
+            }
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
@@ -514,8 +520,20 @@ fn run(
         match (event::read()?, &mut mode) {
             (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                 if current_kind == ResourceKind::Overview {
+                    let active_col = match overview_selection {
+                        ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
+                    };
                     if matches!(mouse.kind, MouseEventKind::Down(_))
-                        && let Some(hit) = ui::column_hit(frame_area, &overview, overview_col_scroll, &overview_collapsed, mouse.column, mouse.row)
+                        && let Some(hit) = ui::column_hit(
+                            frame_area,
+                            &overview,
+                            overview_col_scroll,
+                            active_col,
+                            overview_item_scroll,
+                            &overview_collapsed,
+                            mouse.column,
+                            mouse.row,
+                        )
                     {
                         match hit {
                             ui::OverviewSelection::Header(col) => {
@@ -592,6 +610,12 @@ fn run(
                     ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
                 };
                 overview_col_scroll = ui::scroll_columns_to_show(overview_col_scroll, cols_visible, target_col);
+                let target_item = match overview_selection {
+                    ui::OverviewSelection::Item(_, i) => i,
+                    ui::OverviewSelection::Header(_) => 0,
+                };
+                let items_visible = ui::visible_items_per_column(columns_area.height);
+                overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
             }
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') => return Ok(()),
