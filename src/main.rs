@@ -31,10 +31,12 @@ use tui_tree_widget::{TreeItem, TreeState};
 
 enum Mode {
     List,
-    /// A vim/k9s-style `:` command line — `:q`/`:quit` exits, `:pods`/
-    /// `:namespaces`/etc. (see `ResourceKind::from_command`) switches the
-    /// current view. Esc cancels back to `List` without acting.
-    Command { input: String },
+    /// A vim/k9s-style `:` command line, reachable from any screen —
+    /// `:q`/`:quit` exits from anywhere, `:pods`/`:namespaces`/etc. (see
+    /// `ResourceKind::from_command`) switches the current view. Esc
+    /// cancels back to `back` without acting, same as every other
+    /// overlay's "where Esc returns to."
+    Command { input: String, back: Box<Mode> },
     /// The `/`/`f` live-filter input — editing the persistent `search`
     /// string directly (not its own copy), so the filter it produces
     /// stays applied once you're back in `List`, same as vim/fzf's own
@@ -445,6 +447,11 @@ fn run(
     // (and therefore copy) from working — see the `c` handler below.
     // Starts enabled, same as before this toggle existed.
     let mut mouse_capture_enabled = true;
+    // Toggled by `?` — whether the commands panel (the current screen's
+    // keybinding hints, off to the side) is currently open. Starts
+    // closed so the screen starts clean; only the small "?: cmds"
+    // indicator is always there (and only outside the main Overview).
+    let mut show_hints_panel = false;
     // Queries the terminal's actual graphics capability (Kitty/Sixel/
     // iTerm2, falling back to halfblocks) — must happen after raw mode is
     // enabled and before the event-read loop below starts, so its own
@@ -585,27 +592,29 @@ fn run(
 
         let breadcrumb_text = breadcrumb(&mode, current_kind);
         let mut hints = hints_for(&mode, current_kind);
-        hints.push(("c", if mouse_capture_enabled { "mouse off (to copy)" } else { "mouse on" }));
+        if !hints.is_empty() {
+            hints.push(("c", if mouse_capture_enabled { "mouse off (to copy)" } else { "mouse on" }));
+        }
         let mut frame_area = Rect::default();
         match &mut mode {
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::Command { input } => {
+            Mode::Command { input, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Command { input };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
             }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Search { query: &search, matches: row_count };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -613,7 +622,7 @@ fn run(
                     frame_area = frame.area();
                     let sections = menu_sections();
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
             }
             Mode::Spec { title, items, state, back, .. } => {
@@ -646,7 +655,7 @@ fn run(
                         None
                     };
                     let overlay = ui::Overlay::Spec { title, items, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Containers { title, containers, state, back, .. } => {
@@ -676,7 +685,7 @@ fn run(
                         None
                     };
                     let overlay = ui::Overlay::Containers { title, containers, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::NodeDetail { name, state, back } => {
@@ -703,14 +712,14 @@ fn run(
                         }
                         _ => None,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Events { filter, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -721,14 +730,14 @@ fn run(
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ResourcesDetail { state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -736,9 +745,9 @@ fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, None, &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons);
                     }
                 })?;
             }
@@ -756,7 +765,7 @@ fn run(
                         follow: *follow,
                         timestamp_format: *timestamp_format,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
         }
@@ -788,6 +797,23 @@ fn run(
                         execute!(stdout(), DisableMouseCapture)?;
                     }
                 }
+                // `?` toggles the commands panel — reachable from any
+                // screen (except while typing), same as `c`.
+                (Event::Key(key), current_mode)
+                    if key.code == KeyCode::Char('?') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                {
+                    show_hints_panel = !show_hints_panel;
+                }
+                // `:` opens the command line from anywhere — captures
+                // whatever mode was actually active as `back`, so Esc (or
+                // Enter on a command that doesn't switch kind) returns to
+                // exactly where this was opened from, not always `List`.
+                (Event::Key(key), current_mode)
+                    if key.code == KeyCode::Char(':') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                {
+                    let back = Box::new(std::mem::replace(current_mode, Mode::List));
+                    *current_mode = Mode::Command { input: String::new(), back };
+                }
                 (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if current_kind == ResourceKind::Overview {
                         let active_col = match overview_selection {
@@ -817,10 +843,10 @@ fn run(
                     let columns_area = ui::columns_area(frame_area, &overview);
                     let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Char(':') => {
-                            mode = Mode::Command { input: String::new() };
-                        }
+                        // Esc is a no-op here — there's nowhere further
+                        // "back" than the main screen. `q` still quits;
+                        // `:q` also works, same as everywhere else.
+                        KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('j') | KeyCode::Down => {
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                         }
@@ -956,13 +982,14 @@ fn run(
                     }
                 }
                 (Event::Key(key), Mode::List) => match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    // Esc backs out one level instead of quitting — to
+                    // `q` and Esc do the same thing everywhere except the
+                    // main Overview screen: back out one level — to
                     // Overview from any top-level kind, or to the specific
                     // CRD-group picker (or the flat list, if discovery
                     // somehow can't find it) one specific CRD kind's
                     // instances came from, mirroring how you got there.
-                    KeyCode::Esc => {
+                    // Quitting from in here is still reachable via `:q`.
+                    KeyCode::Char('q') | KeyCode::Esc => {
                         current_kind = match current_kind {
                             ResourceKind::CustomResource(index, _) => catalog
                                 .crds
@@ -973,9 +1000,6 @@ fn run(
                         };
                         table_state.select(Some(0));
                         search.clear();
-                    }
-                    KeyCode::Char(':') => {
-                        mode = Mode::Command { input: String::new() };
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
@@ -1056,11 +1080,10 @@ fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Command { input }) => match key.code {
-                    KeyCode::Esc => mode = Mode::List,
+                (Event::Key(key), Mode::Command { input, back }) => match key.code {
+                    KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Enter => {
                         let cmd = input.trim().to_lowercase();
-                        mode = Mode::List;
                         if matches!(cmd.as_str(), "q" | "quit" | "exit") {
                             return Ok(());
                         }
@@ -1068,6 +1091,9 @@ fn run(
                             current_kind = kind;
                             table_state.select(Some(0));
                             search.clear();
+                            mode = Mode::List;
+                        } else {
+                            mode = std::mem::replace(&mut **back, Mode::List);
                         }
                     }
                     KeyCode::Backspace => {
@@ -1358,9 +1384,10 @@ fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<Vec<ui::Breadcr
 /// input being typed, which matters more than a hint list right then.
 fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     match mode {
-        Mode::List if current_kind == ResourceKind::Overview => {
-            vec![("j/k/h/l", "move"), ("enter", "open"), ("m", "switch resource"), (":", "command"), ("q", "quit")]
-        }
+        // Nothing on the main screen — deliberately kept clean. The
+        // commands panel only exists once you've actually entered some
+        // resource view.
+        Mode::List if current_kind == ResourceKind::Overview => Vec::new(),
         Mode::List => {
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec")],
@@ -1371,19 +1398,19 @@ fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'st
             };
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
-            hints.push(("q", "quit"));
+            hints.push(("q/esc", "back"));
             hints
         }
         Mode::Command { .. } | Mode::Search => Vec::new(),
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
-        Mode::Spec { .. } => vec![("j/k", "move"), ("h/l", "collapse/expand"), ("enter", "toggle"), ("esc", "back")],
-        Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("esc", "back")],
-        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("esc", "back")],
-        Mode::EventDetail { .. } => vec![("esc", "back")],
-        Mode::ResourcesDetail { .. } => vec![("j/k", "move"), ("enter", "node detail"), ("esc", "back")],
-        Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("esc", "back")],
-        Mode::Containers { .. } => vec![("j/k", "move"), ("enter", "logs"), ("esc", "back")],
-        Mode::Logs { .. } => vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("esc", "back")],
+        Mode::Spec { .. } => vec![("j/k", "move"), ("h/l", "collapse/expand"), ("enter", "toggle"), ("q/esc", "back")],
+        Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("q/esc", "back")],
+        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("q/esc", "back")],
+        Mode::EventDetail { .. } => vec![("q/esc", "back")],
+        Mode::ResourcesDetail { .. } => vec![("j/k", "move"), ("enter", "node detail"), ("q/esc", "back")],
+        Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
+        Mode::Containers { .. } => vec![("j/k", "move"), ("enter", "logs"), ("q/esc", "back")],
+        Mode::Logs { .. } => vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("q/esc", "back")],
     }
 }
 

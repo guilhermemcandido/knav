@@ -126,11 +126,12 @@ pub fn draw(
     // *is* the base list (nothing more to show).
     background: Option<Overlay>,
     overlay: Option<Overlay>,
-    // The current screen's keybinding hints — see `draw_hint_bar`.
+    // The current screen's keybinding hints and whether the panel
+    // showing them is currently toggled open — see `draw_hints`.
     // Suppressed whenever `Command`/`Search` is the active overlay,
-    // since both already occupy that same bottom-of-screen space with
-    // the input actually being typed.
+    // since both already occupy the very top row this indicator sits in.
     hints: &[(&str, &str)],
+    show_hints_panel: bool,
     // The full "how did I get here" path, rendered as a bottom bar on
     // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
     // Container: nginx › Logs".
@@ -205,7 +206,7 @@ pub fn draw(
         draw_overlay(frame, overlay, false, icons);
     }
     if !suppress_hints && !hints.is_empty() {
-        draw_hint_bar(frame, hints);
+        draw_hints(frame, hints, show_hints_panel);
     }
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments);
@@ -273,34 +274,54 @@ fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
     frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }
 
-/// The current screen's keybinding hints — tucked into the top-right
-/// corner, on top of whatever's there, rather than a full-width bar
-/// nobody's looking at. Each hint's key and its description get their
-/// own color, same reasoning as the breadcrumb's kind/value split — a
-/// flat run of same-colored text reads as one undifferentiated blob,
-/// not a list of distinct commands.
-fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)]) {
+/// The current screen's keybinding hints — kept out of the way until
+/// asked for. A small "?: cmds" indicator sits in the top-right corner
+/// always (whenever there's anything to show); pressing `?` toggles a
+/// bordered panel open just underneath it, off to the side, rather than
+/// cluttering the screen with a permanent hint list. Each hint's key and
+/// its description get their own color, same reasoning as the
+/// breadcrumb's kind/value split — a flat run of same-colored text reads
+/// as one undifferentiated blob, not a list of distinct commands.
+fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool) {
     let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
     let sep_style = Style::default().fg(Color::DarkGray);
 
-    let mut spans = Vec::new();
-    for (i, (key, desc)) in hints.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::raw("   "));
-        }
-        spans.push(Span::styled(*key, key_style));
-        spans.push(Span::styled(": ", sep_style));
-        spans.push(Span::styled(*desc, desc_style));
-    }
-    spans.push(Span::raw(" "));
-    let line = Line::from(spans);
-
+    let indicator = Line::from(vec![
+        Span::styled("?", key_style),
+        Span::styled(": ", sep_style),
+        Span::styled(if open { "close" } else { "cmds" }, desc_style),
+    ]);
     let area = frame.area();
-    let width = (line.width() as u16).min(area.width);
-    let bar = Rect { x: area.x + area.width - width, y: area.y, width, height: 1 };
-    frame.render_widget(Clear, bar);
-    frame.render_widget(Paragraph::new(line), bar);
+    let indicator_width = (indicator.width() as u16).min(area.width);
+    let indicator_rect = Rect { x: area.x + area.width - indicator_width, y: area.y, width: indicator_width, height: 1 };
+    frame.render_widget(Clear, indicator_rect);
+    frame.render_widget(Paragraph::new(indicator), indicator_rect);
+
+    if !open {
+        return;
+    }
+
+    let content_width = hints.iter().map(|(key, desc)| key.chars().count() + 2 + desc.chars().count()).max().unwrap_or(0) as u16;
+    let panel_width = (content_width + 4).min(area.width);
+    let panel_height = (hints.len() as u16 + 2).min(area.height.saturating_sub(1));
+    let panel = Rect {
+        x: area.x + area.width.saturating_sub(panel_width),
+        y: area.y + 1,
+        width: panel_width,
+        height: panel_height,
+    };
+    frame.render_widget(Clear, panel);
+
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Commands ");
+    let inner = block.inner(panel);
+    frame.render_widget(block, panel);
+
+    let lines: Vec<Line> = hints
+        .iter()
+        .map(|(key, desc)| Line::from(vec![Span::styled(*key, key_style), Span::styled(": ", sep_style), Span::styled(*desc, desc_style)]))
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// The color everything in a dimmed "background" layer is muted down
@@ -309,7 +330,7 @@ fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)]) {
 /// modifier on top, so a screen sitting behind a popup reads as
 /// unmistakably out of focus rather than just "a bit gray."
 fn dim_style() -> Style {
-    Style::default().fg(Color::Rgb(80, 80, 80)).add_modifier(Modifier::DIM)
+    Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
 }
 
 /// The `/`/`f` live-filter bar — k9s-style, pinned to the very top
@@ -596,7 +617,7 @@ fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
 
 fn usage_color(ratio: f64, dimmed: bool) -> Color {
     if dimmed {
-        Color::Rgb(80, 80, 80)
+        Color::Rgb(40, 40, 40)
     } else if ratio > 0.9 {
         Color::Red
     } else if ratio > 0.7 {
@@ -1527,7 +1548,7 @@ fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
 /// green) is just routine activity, not a problem.
 fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
-        Color::Rgb(80, 80, 80)
+        Color::Rgb(40, 40, 40)
     } else {
         match (entry.severity, entry.kind.as_str()) {
             (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
@@ -1719,7 +1740,7 @@ fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDe
     for c in &info.conditions {
         let is_healthy = (c.type_ == "Ready") == (c.status == "True");
         let color = if dimmed {
-            Color::Rgb(80, 80, 80)
+            Color::Rgb(40, 40, 40)
         } else if is_healthy {
             Color::Green
         } else {
@@ -1757,7 +1778,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     let cell_style = if dimmed { muted } else { Style::default() };
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
-            Color::Rgb(80, 80, 80)
+            Color::Rgb(40, 40, 40)
         } else {
             match (e.severity, e.kind.as_str()) {
                 (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,

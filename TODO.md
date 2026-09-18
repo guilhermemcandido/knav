@@ -1662,6 +1662,37 @@ no equivalent "recompute the same count a different way" step to drift.
   and `:` both render at row 0 with the table/filtered rows visible
   directly beneath, matches count updates live while typing.
 
+## Done since last update (2026-09-18, later still #14) — commands panel toggle, q/Esc parity, `:` reachable everywhere, darker dimming
+
+- Confirmed the #13 corner hint bar was still the wrong call: replaced
+  it with a small "?: cmds" indicator (top-right, only shown once
+  you've actually entered a resource view — nothing on the main
+  Overview screen at all now) that `?` toggles into a bordered panel on
+  the right listing that screen's commands. Closed by default; nothing
+  on screen until asked for.
+- `q` and Esc now do the exact same thing everywhere except the main
+  Overview screen: back out one level. Previously `q` on a top-level
+  list (Pods/Deployments/Nodes/...) quit the whole program while Esc
+  went back — now both go back; quitting from in there is `:q`. On the
+  Overview screen itself, Esc is now a no-op (nowhere further "back" to
+  go) and `q` still quits.
+- `:` now opens the command line from *any* screen, not just the base
+  list — `Mode::Command` gained a `back: Box<Mode>` field (same pattern
+  every other overlay already uses) so Esc, or Enter on a command that
+  doesn't switch resource kind, returns to exactly where `:` was
+  pressed instead of always dropping to the base list. `:q`/`:quit`/
+  `:exit` now genuinely kill the program from inside any view.
+- Dimmed "background" layers darkened further: `Rgb(80, 80, 80)` →
+  `Rgb(40, 40, 40)`, everywhere that color is used (the shared
+  `dim_style()` plus the handful of bare-`Color` dimmed branches that
+  can't use it directly).
+- Verified live via tmux: no indicator on Overview; `?` opens/closes the
+  panel on Pods; `q` from inside Pods goes back to Overview instead of
+  quitting (process still running, confirmed via `ps`); Esc on Overview
+  is a genuine no-op (still on Overview, process still running); `:q`
+  from inside Pods actually exits (confirmed via `ps` — process gone);
+  raw ANSI capture confirms the darker `38;2;40;40;40` dimmed color.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
