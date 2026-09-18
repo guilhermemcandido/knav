@@ -773,28 +773,22 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
     frame.render_widget(resources_block, chunks[0]);
     draw_metrics_lines(frame, resources_inner, overview, dimmed);
 
-    // Yellow read as too low-contrast to notice at a glance — Red covers
-    // every warning now (not just Node ones), Green means none at all.
-    let events_status_color = if dimmed {
-        Color::DarkGray
-    } else if overview.events.iter().any(|e| e.severity == crate::k8s::EventSeverity::Warning) {
-        Color::Red
-    } else {
-        Color::Green
-    };
+    // Same plain default styling as the Resources box — no status color
+    // on the box chrome itself, only the highlight when selected. Each
+    // event's own line (in this preview and the full browser) still
+    // carries its own severity color.
     let events_border = if dimmed {
         Style::default().fg(Color::DarkGray)
     } else if selection == OverviewSelection::Events {
         highlight
     } else {
-        Style::default().fg(events_status_color)
+        Style::default()
     };
-    let events_title_style = if dimmed { events_border } else { Style::default().fg(events_status_color).add_modifier(Modifier::BOLD) };
     let events_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(events_border)
-        .title(Line::styled(format!(" Events ({}) ", overview.events.len()), events_title_style));
+        .title(Line::styled(format!(" Events ({}) ", overview.events.len()), if dimmed { events_border } else { Style::default().add_modifier(Modifier::BOLD) }));
     let events_inner = events_block.inner(chunks[2]);
     frame.render_widget(events_block, chunks[2]);
 
