@@ -1641,6 +1641,27 @@ no equivalent "recompute the same count a different way" step to drift.
   user confirming `c` then drag-selecting actually copies in their own
   terminal.
 
+## Done since last update (2026-09-18, later still #13) — hints moved to top-right corner, `/`/`:` moved to the top like k9s
+
+- The #12 hint bar (full-width, bottom) still wasn't liked. Confirmed
+  with the user it's the same element, not a different one — kept, but
+  relocated to the top-right corner instead of a dedicated bottom row,
+  same key/description coloring as before.
+- `/` search and `:` command bars moved from the bottom to the top,
+  replacing the header row instead of the last visible row — matches
+  k9s (filter bar at the top, matches narrowing directly underneath it)
+  and directly addresses "not on the bottom where no one looks at it."
+  The already-existing live-filtering *is* the "options appear
+  underneath" behavior once the bar sits above the table instead of
+  below it — no separate autocomplete-dropdown widget was built; that's
+  a bigger, separate feature if it turns out this isn't what was meant.
+- Left the `c` mouse-capture toggle alone this round — user said "not
+  sure if I like it yet," not a request to change anything.
+- Verified live via tmux: hint bar renders top-right (confirmed it
+  doesn't push the breadcrumb, which is unaffected at the bottom), `/`
+  and `:` both render at row 0 with the table/filtered rows visible
+  directly beneath, matches count updates live while typing.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against

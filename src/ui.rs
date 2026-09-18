@@ -205,10 +205,7 @@ pub fn draw(
         draw_overlay(frame, overlay, false, icons);
     }
     if !suppress_hints && !hints.is_empty() {
-        let area = frame.area();
-        let bottom = area.y + area.height.saturating_sub(1);
-        let row = if breadcrumb.is_some() { bottom.saturating_sub(1) } else { bottom };
-        draw_hint_bar(frame, hints, row);
+        draw_hint_bar(frame, hints);
     }
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments);
@@ -276,24 +273,18 @@ fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
     frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }
 
-/// The current screen's keybinding hints, in their own bar rather than
-/// crammed into the title — sitting just above the breadcrumb bar (or at
-/// the very bottom when there's nothing to breadcrumb), i.e. in what
-/// would otherwise just be empty (or dimmed-background) space rather
-/// than competing with the title for room. Each hint's key and its
-/// description get their own color, same reasoning as the breadcrumb's
-/// kind/value split — a flat run of same-colored text reads as one
-/// undifferentiated blob, not a list of distinct commands.
-fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)], row: u16) {
-    let area = frame.area();
-    let bar = Rect { x: area.x, y: row, width: area.width, height: 1 };
-    frame.render_widget(Clear, bar);
-
+/// The current screen's keybinding hints — tucked into the top-right
+/// corner, on top of whatever's there, rather than a full-width bar
+/// nobody's looking at. Each hint's key and its description get their
+/// own color, same reasoning as the breadcrumb's kind/value split — a
+/// flat run of same-colored text reads as one undifferentiated blob,
+/// not a list of distinct commands.
+fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)]) {
     let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
     let sep_style = Style::default().fg(Color::DarkGray);
 
-    let mut spans = vec![Span::raw(" ")];
+    let mut spans = Vec::new();
     for (i, (key, desc)) in hints.iter().enumerate() {
         if i > 0 {
             spans.push(Span::raw("   "));
@@ -302,7 +293,14 @@ fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)], row: u16) {
         spans.push(Span::styled(": ", sep_style));
         spans.push(Span::styled(*desc, desc_style));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), bar);
+    spans.push(Span::raw(" "));
+    let line = Line::from(spans);
+
+    let area = frame.area();
+    let width = (line.width() as u16).min(area.width);
+    let bar = Rect { x: area.x + area.width - width, y: area.y, width, height: 1 };
+    frame.render_widget(Clear, bar);
+    frame.render_widget(Paragraph::new(line), bar);
 }
 
 /// The color everything in a dimmed "background" layer is muted down
@@ -314,12 +312,13 @@ fn dim_style() -> Style {
     Style::default().fg(Color::Rgb(80, 80, 80)).add_modifier(Modifier::DIM)
 }
 
-/// The `/`/`f` live-filter bar — same plain-bottom-bar treatment as the
-/// `:` command line (no dimming), since the point is watching the list
-/// narrow while you type.
+/// The `/`/`f` live-filter bar — k9s-style, pinned to the very top
+/// (replacing the header row) rather than the bottom, so the rows it's
+/// actually narrowing read as sitting right underneath it. No dimming,
+/// since the point is watching the list narrow while you type.
 fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
     let area = frame.area();
-    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    let bar = Rect { x: area.x, y: area.y, width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
     let line = Line::from(vec![
         Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -359,15 +358,11 @@ fn container_state_text(c: &ContainerInfo) -> String {
     }
 }
 
-/// The always-visible status line below the table, for the
-/// keyboard-selected row — works regardless of mouse/terminal support.
-/// The `:` command bar — a single line pinned to the very bottom of the
-/// screen, on top of whatever's there (same spot the Pods status line
-/// uses, when there is one — you're not looking at container state while
-/// typing a command anyway).
+/// The `:` command bar — k9s-style, pinned to the very top (replacing
+/// the header row) rather than the bottom, on top of whatever's there.
 fn draw_command_bar(frame: &mut Frame, input: &str) {
     let area = frame.area();
-    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    let bar = Rect { x: area.x, y: area.y, width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
     let line = Line::styled(format!(":{input}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     frame.render_widget(Paragraph::new(line), bar);
