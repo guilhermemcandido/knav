@@ -6,7 +6,7 @@ mod metrics;
 mod picker;
 mod ui;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::stdout;
 use std::time::Duration;
 
@@ -41,6 +41,9 @@ enum Mode {
     /// pods scheduled on it. `current_kind` stays `Nodes` throughout —
     /// this just overlays on top, same as `Containers` overlays on Pods.
     NodeDetail { name: String, state: TableState },
+    /// The full Events browser, opened by pressing Enter on the
+    /// Overview's Events panel — every event, filterable by severity.
+    Events { filter: k8s::EventFilter, state: TableState },
     Containers {
         title: String,
         namespace: String,
@@ -413,8 +416,6 @@ fn run(
     // selection — item cards are tall enough now that a category like
     // Workloads can't always fit on screen at once.
     let mut overview_item_scroll: usize = 0;
-    // Which Overview columns are collapsed, by index into `overview.catalog`.
-    let mut overview_collapsed: HashSet<usize> = HashSet::new();
 
     loop {
         let pods = k8s::snapshot(pod_store);
@@ -470,7 +471,7 @@ fn run(
         };
 
         let row_count = match current_kind {
-            ResourceKind::Overview => overview.warnings.len(),
+            ResourceKind::Overview => overview.events.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
             ResourceKind::Nodes => node_rows.len(),
@@ -495,9 +496,7 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => {
-                ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, overview_item_scroll, &overview_collapsed)
-            }
+            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, overview_item_scroll),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
@@ -563,6 +562,13 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
+            Mode::Events { filter, state } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
+                    ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                })?;
+            }
             Mode::Logs { title, lines, scroll, follow, timestamp_format, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -587,6 +593,7 @@ fn run(
                 if current_kind == ResourceKind::Overview {
                     let active_col = match overview_selection {
                         ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
+                        ui::OverviewSelection::Resources | ui::OverviewSelection::Events => usize::MAX,
                     };
                     if matches!(mouse.kind, MouseEventKind::Down(_))
                         && let Some(hit) = ui::column_hit(
@@ -595,19 +602,10 @@ fn run(
                             overview_col_scroll,
                             active_col,
                             overview_item_scroll,
-                            &overview_collapsed,
                             mouse.column,
                             mouse.row,
                         )
                     {
-                        match hit {
-                            ui::OverviewSelection::Header(col) => {
-                                if !overview_collapsed.remove(&col) {
-                                    overview_collapsed.insert(col);
-                                }
-                            }
-                            ui::OverviewSelection::Item(_, _) => {}
-                        }
                         overview_selection = hit;
                     }
                 } else {
@@ -625,40 +623,29 @@ fn run(
                         mode = Mode::Command { input: String::new() };
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
-                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Down);
+                        overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
-                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Up);
+                        overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Up);
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
-                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Left);
+                        overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Left);
                     }
                     KeyCode::Char('l') | KeyCode::Right => {
-                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Right);
+                        overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Right);
                     }
-                    KeyCode::Tab => {
-                        // Collapse/expand the column the current
-                        // selection sits in — works whether you're on its
-                        // header or one of its items.
-                        let col = match overview_selection {
-                            ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
-                        };
-                        if !overview_collapsed.remove(&col) {
-                            overview_collapsed.insert(col);
-                        }
-                    }
-                    // Collapse/expand every column at once.
-                    KeyCode::Char('z') => overview_collapsed = (0..overview.catalog.len()).collect(),
-                    KeyCode::Char('Z') => overview_collapsed.clear(),
                     KeyCode::Char('m') => {
                         mode = Mode::Menu { selected: menu_position_for(current_kind) };
                     }
                     KeyCode::Enter => match overview_selection {
-                        ui::OverviewSelection::Header(col) => {
-                            if !overview_collapsed.remove(&col) {
-                                overview_collapsed.insert(col);
-                            }
+                        ui::OverviewSelection::Resources => {}
+                        ui::OverviewSelection::Events => {
+                            mode = Mode::Events {
+                                filter: k8s::EventFilter::default(),
+                                state: TableState::default().with_selected(if overview.events.is_empty() { None } else { Some(0) }),
+                            };
                         }
+                        ui::OverviewSelection::Header(_) => {}
                         ui::OverviewSelection::Item(col, item) => {
                             if let Some((_, items)) = overview.catalog.get(col)
                                 && let Some((label, _)) = items.get(item)
@@ -671,17 +658,31 @@ fn run(
                     },
                     _ => {}
                 }
-                let target_col = match overview_selection {
-                    ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
-                };
-                overview_col_scroll = ui::scroll_columns_to_show(overview_col_scroll, cols_visible, target_col);
-                let target_item = match overview_selection {
-                    ui::OverviewSelection::Item(_, i) => i,
-                    ui::OverviewSelection::Header(_) => 0,
-                };
-                let items_visible = ui::visible_items_per_column(columns_area.height);
-                overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
+                if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = overview_selection {
+                    overview_col_scroll = ui::scroll_columns_to_show(overview_col_scroll, cols_visible, c);
+                    let target_item = match overview_selection {
+                        ui::OverviewSelection::Item(_, i) => i,
+                        _ => 0,
+                    };
+                    let items_visible = ui::visible_items_per_column(columns_area.height);
+                    overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
+                }
             }
+            (Event::Key(key), Mode::Events { filter, state }) => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                KeyCode::Char('a') => *filter = k8s::EventFilter::All,
+                KeyCode::Char('w') => *filter = k8s::EventFilter::Warnings,
+                KeyCode::Char('n') => *filter = k8s::EventFilter::Normal,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
+                    select_next(state, filtered_len);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
+                    select_prev(state, filtered_len);
+                }
+                _ => {}
+            },
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') => return Ok(()),
                 // Esc backs out one level instead of quitting — to

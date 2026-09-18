@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Position, Rect},
@@ -11,13 +9,15 @@ use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::TimestampFormat;
 use crate::icons::IconCache;
-use crate::k8s::{ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, GenericRow, NodeRow, Overview, PodRow, ResourceKind, Warning};
+use crate::k8s::{
+    ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, EventEntry, EventFilter, GenericRow, NodeRow, Overview, PodRow, ResourceKind,
+};
 
 pub enum Rows<'a> {
     /// The two `usize`s are the horizontal column scroll offset and the
     /// vertical item scroll offset (within whichever column is currently
-    /// selected); the last field is which columns are collapsed.
-    Overview(&'a Overview, OverviewSelection, usize, usize, &'a HashSet<usize>),
+    /// selected).
+    Overview(&'a Overview, OverviewSelection, usize, usize),
     Pods(&'a [PodRow]),
     Deployments(&'a [DeploymentRow]),
     /// Nodes get their own specialized columns (CPU/Memory usage right
@@ -68,6 +68,10 @@ pub enum Overlay<'a> {
     /// you're still looking at (and can still see) the view you're
     /// about to switch away from.
     Command { input: &'a str },
+    /// The dedicated Events browser, opened by pressing Enter on the
+    /// Overview's Events panel — every event (not capped, unlike the
+    /// dashboard preview), filterable by severity with a/w/n.
+    Events { events: &'a [EventEntry], filter: EventFilter, state: &'a mut TableState },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -99,6 +103,7 @@ pub fn draw(
             | Some(Overlay::Logs { .. })
             | Some(Overlay::Menu { .. })
             | Some(Overlay::NodeDetail { .. })
+            | Some(Overlay::Events { .. })
     );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
@@ -132,8 +137,8 @@ pub fn draw(
         Rows::Nodes(nodes) => {
             draw_nodes_table(frame, frame.area(), nodes, table_state, dimmed);
         }
-        Rows::Overview(overview, selection, col_scroll, item_scroll, collapsed) => {
-            draw_overview(frame, frame.area(), overview, selection, col_scroll, item_scroll, collapsed, dimmed, icons);
+        Rows::Overview(overview, selection, col_scroll, item_scroll) => {
+            draw_overview(frame, frame.area(), overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
             draw_generic_table(frame, frame.area(), rows, label, table_state, dimmed);
@@ -155,6 +160,7 @@ pub fn draw(
                 draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state)
             }
             Overlay::Command { input } => draw_command_bar(frame, input),
+            Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state),
         }
     }
 }
@@ -618,18 +624,21 @@ const COLUMN_WIDTH: u16 = 28;
 /// content row for the icon + live count, and a rounded-border bottom
 /// edge.
 const ITEM_HEIGHT: u16 = 3;
-/// Cluster Issues is a fixed-size dashboard strip now, not a scrollable
-/// section — cap how many warnings it shows directly, with a "+N more"
-/// line instead of growing to fit all of them.
-const MAX_VISIBLE_ISSUES: usize = 5;
+/// The Events panel is a fixed-size dashboard strip, not a scrollable
+/// section — cap how many entries it shows directly, with a "+N more"
+/// line instead of growing to fit all of them. The full, uncapped,
+/// filterable feed is one Enter away (see `Overlay::Events`).
+const MAX_VISIBLE_EVENTS: usize = 5;
+/// Width of the left/right scroll-affordance gutters flanking the
+/// columns area (see `columns_inner`) — just wide enough for a single
+/// arrow glyph.
+const SCROLL_ARROW_WIDTH: u16 = 1;
 
-/// The home screen: a fixed-size dashboard strip up top (CPU/Memory/Pods
-/// meters, then Cluster Issues — verified against Freelens's actual
-/// `cluster-issues.tsx` source for what belongs there), and below it a
-/// horizontally-scrollable set of columns, one per resource category
-/// (Cluster, Workloads, Config, ...), each listing that category's kinds
-/// vertically — Miller-columns style, replacing the previous flow-
-/// wrapping tile grid.
+/// The home screen: a fixed-size dashboard strip up top (Resources, then
+/// Events — each its own rounded-border box, mirroring the column boxes
+/// below), and below it a horizontally-scrollable set of columns, one per
+/// resource category (Cluster, Workloads, Config, ...), each listing that
+/// category's kinds vertically — Miller-columns style.
 #[allow(clippy::too_many_arguments)]
 fn draw_overview(
     frame: &mut Frame,
@@ -638,35 +647,46 @@ fn draw_overview(
     selection: OverviewSelection,
     col_scroll: usize,
     item_scroll: usize,
-    collapsed: &HashSet<usize>,
     dimmed: bool,
     icons: &mut IconCache,
 ) {
     let top_h = top_area_height(overview);
     let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Min(0)]).split(area);
-    draw_top_panel(frame, chunks[0], overview, dimmed);
-    draw_columns(frame, chunks[1], overview, selection, col_scroll, item_scroll, collapsed, dimmed, icons);
+    draw_top_panel(frame, chunks[0], overview, selection, dimmed);
+    draw_columns(frame, chunks[1], overview, selection, col_scroll, item_scroll, dimmed, icons);
 }
 
-/// How tall the fixed top dashboard strip is — depends on how many
-/// warnings there actually are (up to `MAX_VISIBLE_ISSUES`), so callers
-/// (mouse hit-testing, the columns area below it) can't drift out of
-/// sync with what's actually rendered.
+/// How tall the Resources box is: a rounded border top/bottom (2) plus
+/// either 3 meter lines or the 2-line "unavailable" message.
+fn resources_box_height(overview: &Overview) -> u16 {
+    2 + if overview.metrics_available { 3 } else { 2 }
+}
+
+/// How tall the Events box is: a rounded border top/bottom (2) plus
+/// `events_content_height`.
+fn events_box_height(overview: &Overview) -> u16 {
+    2 + events_content_height(overview)
+}
+
+/// How tall the fixed top dashboard strip is: the Resources box, a 1-row
+/// gap, then the Events box. Callers (mouse hit-testing, the columns area
+/// below it) can't drift out of sync with what's actually rendered since
+/// they all go through this and the two box-height functions above.
 fn top_area_height(overview: &Overview) -> u16 {
-    1 + if overview.metrics_available { 3 } else { 2 } + 1 + issues_content_height(overview)
+    resources_box_height(overview) + 1 + events_box_height(overview)
 }
 
-/// Height of the Issues section's content only (below its "Cluster
-/// Issues" label line) — either the 2-line "no issues" message, or the
-/// column-header row plus up to `MAX_VISIBLE_ISSUES` warnings plus a
-/// "+N more" line if there are more than that. `top_area_height` and
-/// `draw_top_panel` both use this so they can't drift apart.
-fn issues_content_height(overview: &Overview) -> u16 {
-    if overview.warnings.is_empty() {
+/// Height of the Events box's content only (below its border) — either
+/// the 2-line "no events" message, or the column-header row plus up to
+/// `MAX_VISIBLE_EVENTS` entries plus a "+N more" line if there are more
+/// than that. `events_box_height` and `draw_top_panel` both use this so
+/// they can't drift apart.
+fn events_content_height(overview: &Overview) -> u16 {
+    if overview.events.is_empty() {
         return 2;
     }
-    let shown = overview.warnings.len().min(MAX_VISIBLE_ISSUES);
-    let more = usize::from(overview.warnings.len() > MAX_VISIBLE_ISSUES);
+    let shown = overview.events.len().min(MAX_VISIBLE_EVENTS);
+    let more = usize::from(overview.events.len() > MAX_VISIBLE_EVENTS);
     1 + (shown + more) as u16
 }
 
@@ -676,6 +696,15 @@ fn issues_content_height(overview: &Overview) -> u16 {
 pub fn columns_area(frame_area: Rect, overview: &Overview) -> Rect {
     let top_h = top_area_height(overview);
     Rect { x: frame_area.x, y: frame_area.y + top_h, width: frame_area.width, height: frame_area.height.saturating_sub(top_h) }
+}
+
+/// The columns area minus its left/right scroll-arrow gutters — every
+/// place that lays out or hit-tests the column boxes themselves
+/// (`draw_columns`, `column_hit`) works within this narrower rect so the
+/// arrows always sit outside the boxes rather than overlapping them.
+fn columns_inner(area: Rect) -> Rect {
+    let shrink = SCROLL_ARROW_WIDTH * 2;
+    Rect { x: area.x + SCROLL_ARROW_WIDTH, y: area.y, width: area.width.saturating_sub(shrink), height: area.height }
 }
 
 pub fn visible_columns(width: u16, total_columns: usize) -> usize {
@@ -704,29 +733,71 @@ fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rect]> {
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
-fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
-    let label_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
-    let metrics_h = 1 + if overview.metrics_available { 3 } else { 2 };
-    let chunks = Layout::vertical([Constraint::Length(metrics_h), Constraint::Min(0)]).split(area);
+/// Resources and Events, each its own rounded-border box — same visual
+/// language as the column boxes below, per the explicit request to make
+/// the dashboard read as boxes/cards throughout rather than plain labeled
+/// regions. Selecting one (see `OverviewSelection`) highlights its whole
+/// border, herdr-style, same as a column header/item; otherwise the
+/// Events box's border reflects cluster health at a glance (green/
+/// yellow/red) the same way an individual event line already did.
+fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, dimmed: bool) {
+    let resources_h = resources_box_height(overview);
+    let chunks = Layout::vertical([Constraint::Length(resources_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
 
-    let metrics_rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(chunks[0]);
-    frame.render_widget(Paragraph::new(Line::styled("Cluster Resources", label_style)), metrics_rows[0]);
-    draw_metrics_lines(frame, metrics_rows[1], overview, dimmed);
-
-    let issues_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(issues_content_height(overview))]).split(chunks[1]);
-    frame.render_widget(Paragraph::new(Line::styled("Cluster Issues", label_style)), issues_rows[0]);
-    if overview.warnings.is_empty() {
-        draw_issues_empty(frame, issues_rows[1], dimmed);
+    let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let resources_border = if dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else if selection == OverviewSelection::Resources {
+        highlight
     } else {
-        let shown = overview.warnings.len().min(MAX_VISIBLE_ISSUES);
-        let has_more = overview.warnings.len() > MAX_VISIBLE_ISSUES;
-        let lines = Layout::vertical((0..1 + shown + usize::from(has_more)).map(|_| Constraint::Length(1))).split(issues_rows[1]);
-        draw_issues_header(frame, lines[0], overview.warnings.len(), dimmed);
-        for (i, w) in overview.warnings.iter().take(shown).enumerate() {
-            draw_issue_line(frame, lines[i + 1], w, dimmed);
+        Style::default()
+    };
+    let resources_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(resources_border)
+        .title(Line::styled(" Resources ", if dimmed { resources_border } else { Style::default().add_modifier(Modifier::BOLD) }));
+    let resources_inner = resources_block.inner(chunks[0]);
+    frame.render_widget(resources_block, chunks[0]);
+    draw_metrics_lines(frame, resources_inner, overview, dimmed);
+
+    let events_status_color = if dimmed {
+        Color::DarkGray
+    } else if overview.events.iter().any(|e| e.severity == crate::k8s::EventSeverity::Warning && e.kind == "Node") {
+        Color::Red
+    } else if overview.events.iter().any(|e| e.severity == crate::k8s::EventSeverity::Warning) {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let events_border = if dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else if selection == OverviewSelection::Events {
+        highlight
+    } else {
+        Style::default().fg(events_status_color)
+    };
+    let events_title_style = if dimmed { events_border } else { Style::default().fg(events_status_color).add_modifier(Modifier::BOLD) };
+    let events_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(events_border)
+        .title(Line::styled(format!(" Events ({}) — enter: browse/filter ", overview.events.len()), events_title_style));
+    let events_inner = events_block.inner(chunks[2]);
+    frame.render_widget(events_block, chunks[2]);
+
+    if overview.events.is_empty() {
+        draw_events_empty(frame, events_inner, dimmed);
+    } else {
+        let shown = overview.events.len().min(MAX_VISIBLE_EVENTS);
+        let has_more = overview.events.len() > MAX_VISIBLE_EVENTS;
+        let lines = Layout::vertical((0..1 + shown + usize::from(has_more)).map(|_| Constraint::Length(1))).split(events_inner);
+        draw_events_header(frame, lines[0], dimmed);
+        for (i, e) in overview.events.iter().take(shown).enumerate() {
+            draw_event_line(frame, lines[i + 1], e, dimmed);
         }
         if has_more {
-            let more = overview.warnings.len() - shown;
+            let more = overview.events.len() - shown;
             let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC) };
             frame.render_widget(Paragraph::new(Line::styled(format!("… and {more} more"), style)).alignment(Alignment::Center), lines[1 + shown]);
         }
@@ -813,11 +884,16 @@ fn format_bytes(bytes: f64) -> String {
     format!("{value:.1}{}", UNITS[unit])
 }
 
-/// Selection within the Overview's column browser — either a column's
-/// own header (selectable so it can be toggled without a mouse) or a
-/// specific item within a column.
+/// Selection across the whole Overview page: the Resources box, the
+/// Events box, a column's own header (selectable so its name reads
+/// clearly even without a mouse), or a specific item within a column.
+/// `Resources`/`Events` sit "above" every column — Up from any column
+/// header lands on `Events`, and Down from `Events` returns to the first
+/// column's header.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OverviewSelection {
+    Resources,
+    Events,
     Header(usize),
     Item(usize, usize),
 }
@@ -829,37 +905,53 @@ pub enum Direction {
     Right,
 }
 
-fn column_len(overview: &Overview, collapsed: &HashSet<usize>, col: usize) -> usize {
-    if collapsed.contains(&col) { 0 } else { overview.catalog.get(col).map(|(_, items)| items.len()).unwrap_or(0) }
+fn column_len(overview: &Overview, col: usize) -> usize {
+    overview.catalog.get(col).map(|(_, items)| items.len()).unwrap_or(0)
 }
 
-/// Moves the Overview selection one step in a direction across the
-/// column browser. Up/Down move into and out of a column's own header
-/// (pressing Up at a column's first item lands on its header; pressing
-/// Down on a header enters its first item, or does nothing if the
-/// column is collapsed/empty) — Left/Right move directly between
-/// columns at the same item index, landing on the target column's
-/// header instead if it's collapsed or has nothing at that index.
-pub fn move_overview_selection(overview: &Overview, collapsed: &HashSet<usize>, selection: OverviewSelection, dir: Direction) -> OverviewSelection {
+/// Moves the Overview selection one step in a direction. Up/Down move
+/// into and out of a column's own header (pressing Up at a column's
+/// first item lands on its header, pressing Up again from the header
+/// lands on `Events`; pressing Down on a header enters its first item,
+/// or does nothing if the column is empty) — Left/Right move directly
+/// between columns at the same item index, landing on the target
+/// column's header instead if it has nothing at that index.
+/// `Resources`/`Events` only respond to Up/Down (there's nothing beside
+/// them to move to horizontally).
+pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection, dir: Direction) -> OverviewSelection {
     let total = overview.catalog.len();
-    if total == 0 {
-        return selection;
-    }
     match selection {
+        OverviewSelection::Resources => match dir {
+            Direction::Down => OverviewSelection::Events,
+            _ => selection,
+        },
+        OverviewSelection::Events => match dir {
+            Direction::Up => OverviewSelection::Resources,
+            Direction::Down => {
+                if total == 0 { selection } else { OverviewSelection::Header(0) }
+            }
+            _ => selection,
+        },
         OverviewSelection::Header(col) => {
+            if total == 0 {
+                return selection;
+            }
             let col = col.min(total - 1);
             match dir {
                 Direction::Down => {
-                    if column_len(overview, collapsed, col) > 0 { OverviewSelection::Item(col, 0) } else { selection }
+                    if column_len(overview, col) > 0 { OverviewSelection::Item(col, 0) } else { selection }
                 }
-                Direction::Up => selection,
+                Direction::Up => OverviewSelection::Events,
                 Direction::Left => if col > 0 { OverviewSelection::Header(col - 1) } else { selection },
                 Direction::Right => if col + 1 < total { OverviewSelection::Header(col + 1) } else { selection },
             }
         }
         OverviewSelection::Item(col, item) => {
+            if total == 0 {
+                return selection;
+            }
             let col = col.min(total - 1);
-            let len = column_len(overview, collapsed, col).max(1);
+            let len = column_len(overview, col).max(1);
             let item = item.min(len - 1);
             match dir {
                 Direction::Up => {
@@ -872,7 +964,7 @@ pub fn move_overview_selection(overview: &Overview, collapsed: &HashSet<usize>, 
                     if col == 0 {
                         selection
                     } else {
-                        let target_len = column_len(overview, collapsed, col - 1);
+                        let target_len = column_len(overview, col - 1);
                         if target_len == 0 { OverviewSelection::Header(col - 1) } else { OverviewSelection::Item(col - 1, item.min(target_len - 1)) }
                     }
                 }
@@ -880,7 +972,7 @@ pub fn move_overview_selection(overview: &Overview, collapsed: &HashSet<usize>, 
                     if col + 1 >= total {
                         selection
                     } else {
-                        let target_len = column_len(overview, collapsed, col + 1);
+                        let target_len = column_len(overview, col + 1);
                         if target_len == 0 { OverviewSelection::Header(col + 1) } else { OverviewSelection::Item(col + 1, item.min(target_len - 1)) }
                     }
                 }
@@ -994,24 +1086,35 @@ pub fn scroll_columns_to_show(col_scroll: usize, cols_visible: usize, target_col
 }
 
 /// Which column header or item (if any) sits under an absolute terminal
-/// position — same column layout `draw_columns` actually renders with, so
-/// a click always resolves to what's really on screen. `active_col`/
-/// `item_scroll` must be whatever was actually passed to the last
-/// `draw_columns` call — only the active column's items are vertically
-/// scrolled, everything else always renders starting from its own first
-/// item.
-#[allow(clippy::too_many_arguments)]
+/// position, or the Resources/Events box above them — same layout
+/// `draw_top_panel`/`draw_columns` actually render with, so a click
+/// always resolves to what's really on screen. `active_col`/`item_scroll`
+/// must be whatever was actually passed to the last `draw_columns` call —
+/// only the active column's items are vertically scrolled, everything
+/// else always renders starting from its own first item.
 pub fn column_hit(
     frame_area: Rect,
     overview: &Overview,
     col_scroll: usize,
     active_col: usize,
     item_scroll: usize,
-    collapsed: &HashSet<usize>,
     column: u16,
     row: u16,
 ) -> Option<OverviewSelection> {
-    let area = columns_area(frame_area, overview);
+    if row < frame_area.y {
+        return None;
+    }
+    let resources_h = resources_box_height(overview);
+    let rel = row - frame_area.y;
+    if rel < resources_h {
+        return Some(OverviewSelection::Resources);
+    }
+    let events_start = resources_h + 1;
+    if rel >= events_start && rel < events_start + events_box_height(overview) {
+        return Some(OverviewSelection::Events);
+    }
+
+    let area = columns_inner(columns_area(frame_area, overview));
     if row < area.y || row >= area.y + area.height || column < area.x || column >= area.x + area.width {
         return None;
     }
@@ -1029,9 +1132,6 @@ pub fn column_hit(
     if row == col_area.y {
         return Some(OverviewSelection::Header(col_idx));
     }
-    if collapsed.contains(&col_idx) {
-        return None;
-    }
     let inner = Block::default().borders(Borders::ALL).inner(col_area);
     if row < inner.y || row >= inner.y + inner.height {
         return None;
@@ -1042,43 +1142,49 @@ pub fn column_hit(
     if item_i < items.len() { Some(OverviewSelection::Item(col_idx, item_i)) } else { None }
 }
 
+/// Draws the columns themselves plus, in the 1-cell gutters flanking
+/// them, a "◀"/"▶" arrow whenever scrolling that way would actually
+/// reveal another column — the replacement for the old per-column
+/// collapse toggle as the way to signal "there's more here."
 #[allow(clippy::too_many_arguments)]
-fn draw_columns(
-    frame: &mut Frame,
-    area: Rect,
-    overview: &Overview,
-    selection: OverviewSelection,
-    col_scroll: usize,
-    item_scroll: usize,
-    collapsed: &HashSet<usize>,
-    dimmed: bool,
-    icons: &mut IconCache,
-) {
+fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, col_scroll: usize, item_scroll: usize, dimmed: bool, icons: &mut IconCache) {
     let total = overview.catalog.len();
     if total == 0 {
         return;
     }
-    let cols_visible = visible_columns(area.width, total);
+    let inner = columns_inner(area);
+    let cols_visible = visible_columns(inner.width, total);
     let col_scroll = col_scroll.min(total - cols_visible);
-    let areas = column_layout(area, cols_visible);
+    let areas = column_layout(inner, cols_visible);
     let active_col = match selection {
         OverviewSelection::Header(c) | OverviewSelection::Item(c, _) => c,
+        OverviewSelection::Resources | OverviewSelection::Events => usize::MAX,
     };
     for (i, col_area) in areas.iter().enumerate() {
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, col_idx, title, items, selection, collapsed.contains(&col_idx), scroll, dimmed, icons);
+        draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
+    }
+
+    let arrow_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
+    if col_scroll > 0 {
+        let left = Rect { x: area.x, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled("◀", arrow_style)), left);
+    }
+    if col_scroll + cols_visible < total {
+        let right = Rect { x: area.x + area.width - SCROLL_ARROW_WIDTH, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled("▶", arrow_style)), right);
     }
 }
 
 /// One column: a rounded-border box — herdr-style, the whole box's border
 /// takes on the highlight color when its header is selected — carrying
-/// the collapse indicator and category name as its title, with that
-/// category's kinds listed vertically inside as their own item cards (see
-/// `draw_column_item`). `item_scroll` is only meaningful for whichever
-/// column is actually the current selection's — every other column
-/// always renders from its own first item.
+/// the category name as its title, with that category's kinds listed
+/// vertically inside as their own item cards (see `draw_column_item`).
+/// `item_scroll` is only meaningful for whichever column is actually the
+/// current selection's — every other column always renders from its own
+/// first item.
 #[allow(clippy::too_many_arguments)]
 fn draw_column(
     frame: &mut Frame,
@@ -1087,13 +1193,11 @@ fn draw_column(
     title: &str,
     items: &[(&str, usize)],
     selection: OverviewSelection,
-    collapsed: bool,
     item_scroll: usize,
     dimmed: bool,
     icons: &mut IconCache,
 ) {
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
-    let indicator = if collapsed { "▸" } else { "▾" };
     let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 
     let (border_style, title_style) = if dimmed {
@@ -1108,11 +1212,11 @@ fn draw_column(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title(Line::styled(format!(" {indicator} {title} "), title_style));
+        .title(Line::styled(format!(" {title} "), title_style));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    if collapsed || items.is_empty() || inner.height < ITEM_HEIGHT {
+    if items.is_empty() || inner.height < ITEM_HEIGHT {
         return;
     }
 
@@ -1211,32 +1315,39 @@ fn icon_for(label: &str) -> &'static str {
     }
 }
 
-fn draw_issues_header(frame: &mut Frame, area: Rect, count: usize, dimmed: bool) {
+fn draw_events_header(frame: &mut Frame, area: Rect, dimmed: bool) {
     let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
-    let line = format!("{:<50} {:<18} {:<12} AGE  ({count})", "MESSAGE", "OBJECT", "KIND");
+    let line = format!("{:<8}{:<44} {:<18} {:<12} AGE", "TYPE", "MESSAGE", "OBJECT", "KIND");
     frame.render_widget(Paragraph::new(Line::styled(line, style)), area);
 }
 
-fn draw_issues_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
+fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
     let ok_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
     let sub_style = Style::default().fg(Color::DarkGray);
-    let text = vec![
-        Line::styled("✓ No issues found", ok_style),
-        Line::styled("Everything is fine in the cluster", sub_style),
-    ];
+    let text = vec![Line::styled("✓ No events yet", ok_style), Line::styled("Nothing has happened on the cluster", sub_style)];
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
 
-fn draw_issue_line(frame: &mut Frame, area: Rect, warning: &Warning, dimmed: bool) {
+/// One dashboard-preview line: color reflects severity — a not-ready/
+/// pressured node (Red) affects everything scheduled on it, an ordinary
+/// Warning event (Yellow) is worth a look, and a Normal event (a muted
+/// green) is just routine activity, not a problem.
+fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
         Color::DarkGray
-    } else if warning.kind == "Node" {
-        Color::Red // a not-ready/pressured node affects everything scheduled on it
     } else {
-        Color::Yellow
+        match (entry.severity, entry.kind.as_str()) {
+            (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
+            (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
+            (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+        }
     };
-    let message = truncate(&warning.message, 48);
-    let line = format!("{message:<50} {:<18} {:<12} {}", warning.object, warning.kind, warning.age);
+    let type_text = match entry.severity {
+        crate::k8s::EventSeverity::Normal => "Normal",
+        crate::k8s::EventSeverity::Warning => "Warning",
+    };
+    let message = truncate(&entry.message, 42);
+    let line = format!("{type_text:<8}{message:<44} {:<18} {:<12} {}", entry.object, entry.kind, entry.age);
     frame.render_widget(Paragraph::new(Line::styled(line, Style::default().fg(color))), area);
 }
 
@@ -1419,6 +1530,66 @@ fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDe
     }
 
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// The full Events browser — every event (not capped, unlike the
+/// dashboard preview), filterable by severity. Kubernetes only defines
+/// `Normal`/`Warning` as event types, so that's the full set of filters;
+/// there's no separate "Errors" bucket to add since the API doesn't have
+/// one.
+fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilter, state: &mut TableState) {
+    let area = centered_rect(94, 88, frame.area());
+    frame.render_widget(Clear, area);
+
+    let filtered: Vec<&EventEntry> = events.iter().filter(|e| filter.matches(e)).collect();
+
+    let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let rows = filtered.iter().map(|e| {
+        let color = match (e.severity, e.kind.as_str()) {
+            (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
+            (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
+            (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+        };
+        let type_text = match e.severity {
+            crate::k8s::EventSeverity::Normal => "Normal",
+            crate::k8s::EventSeverity::Warning => "Warning",
+        };
+        Row::new(vec![
+            Cell::from(type_text).style(Style::default().fg(color)),
+            Cell::from(e.reason.clone()),
+            Cell::from(e.object.clone()),
+            Cell::from(e.kind.clone()),
+            Cell::from(e.message.clone()),
+            Cell::from(e.age.clone()),
+        ])
+    });
+
+    let widths = [
+        Constraint::Length(9),
+        Constraint::Fill(2),
+        Constraint::Fill(2),
+        Constraint::Length(12),
+        Constraint::Fill(4),
+        Constraint::Length(5),
+    ];
+
+    let title = format!(
+        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  esc: back",
+        filtered.len(),
+        events.len(),
+        filter.label()
+    );
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+        .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_symbol("➤ ");
+
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(filtered.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, area, state);
 }
 
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
@@ -1726,7 +1897,7 @@ mod overview_selection_tests {
 
     fn test_overview(catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>) -> Overview {
         Overview {
-            warnings: vec![],
+            events: vec![],
             cpu_usage_millicores: 0,
             cpu_capacity_millicores: 0,
             memory_usage_bytes: 0,
@@ -1737,15 +1908,11 @@ mod overview_selection_tests {
         }
     }
 
-    fn none_collapsed() -> HashSet<usize> {
-        HashSet::new()
-    }
-
     #[test]
     fn down_moves_to_next_item_within_a_column() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Item(0, 0), Direction::Down),
+            move_overview_selection(&overview, OverviewSelection::Item(0, 0), Direction::Down),
             OverviewSelection::Item(0, 1)
         );
     }
@@ -1754,14 +1921,14 @@ mod overview_selection_tests {
     fn down_stops_at_the_last_item_of_a_column() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         let last = OverviewSelection::Item(0, 1);
-        assert_eq!(move_overview_selection(&overview, &none_collapsed(), last, Direction::Down), last);
+        assert_eq!(move_overview_selection(&overview, last, Direction::Down), last);
     }
 
     #[test]
     fn up_at_the_first_item_goes_to_the_columns_own_header() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Item(0, 0), Direction::Up),
+            move_overview_selection(&overview, OverviewSelection::Item(0, 0), Direction::Up),
             OverviewSelection::Header(0)
         );
     }
@@ -1770,28 +1937,43 @@ mod overview_selection_tests {
     fn down_from_a_header_enters_its_first_item() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Header(0), Direction::Down),
+            move_overview_selection(&overview, OverviewSelection::Header(0), Direction::Down),
             OverviewSelection::Item(0, 0)
         );
     }
 
     #[test]
-    fn down_from_a_collapsed_columns_header_does_nothing() {
-        let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
-        let collapsed: HashSet<usize> = [0].into_iter().collect();
-        let header = OverviewSelection::Header(0);
-        assert_eq!(move_overview_selection(&overview, &collapsed, header, Direction::Down), header);
+    fn up_from_any_column_header_goes_to_events() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)])]);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(0), Direction::Up), OverviewSelection::Events);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(1), Direction::Up), OverviewSelection::Events);
+    }
+
+    #[test]
+    fn events_and_resources_navigate_vertically_into_each_other_and_the_columns() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)])]);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Down), OverviewSelection::Events);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Up), OverviewSelection::Resources);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Down), OverviewSelection::Header(0));
+    }
+
+    #[test]
+    fn resources_and_events_ignore_left_right_and_resources_ignores_up() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)])]);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Up), OverviewSelection::Resources);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Left), OverviewSelection::Resources);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Right), OverviewSelection::Events);
     }
 
     #[test]
     fn left_right_move_headers_directly_between_columns() {
         let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)])]);
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Header(0), Direction::Right),
+            move_overview_selection(&overview, OverviewSelection::Header(0), Direction::Right),
             OverviewSelection::Header(1)
         );
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Header(1), Direction::Left),
+            move_overview_selection(&overview, OverviewSelection::Header(1), Direction::Left),
             OverviewSelection::Header(0)
         );
     }
@@ -1800,18 +1982,8 @@ mod overview_selection_tests {
     fn left_right_move_items_at_the_same_index_between_columns() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)]), ("B", vec![("b1", 0), ("b2", 0)])]);
         assert_eq!(
-            move_overview_selection(&overview, &none_collapsed(), OverviewSelection::Item(0, 1), Direction::Right),
+            move_overview_selection(&overview, OverviewSelection::Item(0, 1), Direction::Right),
             OverviewSelection::Item(1, 1)
-        );
-    }
-
-    #[test]
-    fn right_into_a_collapsed_column_lands_on_its_header_instead_of_a_nonexistent_item() {
-        let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)])]);
-        let collapsed: HashSet<usize> = [1].into_iter().collect();
-        assert_eq!(
-            move_overview_selection(&overview, &collapsed, OverviewSelection::Item(0, 0), Direction::Right),
-            OverviewSelection::Header(1)
         );
     }
 
@@ -1819,8 +1991,8 @@ mod overview_selection_tests {
     fn movement_clamps_at_the_first_and_last_column() {
         let overview = test_overview(vec![("A", vec![("a1", 0)])]);
         let only = OverviewSelection::Header(0);
-        assert_eq!(move_overview_selection(&overview, &none_collapsed(), only, Direction::Left), only);
-        assert_eq!(move_overview_selection(&overview, &none_collapsed(), only, Direction::Right), only);
+        assert_eq!(move_overview_selection(&overview, only, Direction::Left), only);
+        assert_eq!(move_overview_selection(&overview, only, Direction::Right), only);
     }
 
     #[test]
@@ -1831,15 +2003,17 @@ mod overview_selection_tests {
     }
 
     #[test]
-    fn column_hit_resolves_header_and_item_rows() {
+    fn column_hit_resolves_resources_events_header_and_item_rows() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         let frame_area = Rect { x: 0, y: 0, width: 80, height: 40 };
         let top_h = top_area_height(&overview);
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events));
         // Row 0 of the columns area is the column box's top border (the
         // header); rows 1-3 are the first item card (border/content/border).
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, &none_collapsed(), 1, top_h), Some(OverviewSelection::Header(0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, &none_collapsed(), 1, top_h + 1), Some(OverviewSelection::Item(0, 0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, &none_collapsed(), 1, top_h + 4), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h), Some(OverviewSelection::Header(0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 1), Some(OverviewSelection::Item(0, 0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 4), Some(OverviewSelection::Item(0, 1)));
     }
 
     #[test]
@@ -1849,11 +2023,13 @@ mod overview_selection_tests {
         let top_h = top_area_height(&overview);
         // Column 0 is active with item_scroll 1: its first visible card is
         // actually item index 1, not 0.
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, &none_collapsed(), 1, top_h + 1), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, 1, top_h + 1), Some(OverviewSelection::Item(0, 1)));
         // Column 1 isn't active, so it always renders from item 0
-        // regardless of the (irrelevant, for it) item_scroll value.
-        let col1_x = COLUMN_WIDTH + 1 + 1;
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, &none_collapsed(), col1_x, top_h + 1), Some(OverviewSelection::Item(1, 0)));
+        // regardless of the (irrelevant, for it) item_scroll value. The
+        // columns area has a 1-cell left scroll-arrow gutter before the
+        // first column box starts.
+        let col1_x = 1 + COLUMN_WIDTH + 1;
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 1), Some(OverviewSelection::Item(1, 0)));
     }
 
     #[test]
