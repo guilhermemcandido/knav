@@ -1452,6 +1452,111 @@ no equivalent "recompute the same count a different way" step to drift.
   browser with its filter/scroll state intact. 46/46 unit tests, clippy
   clean.
 
+## Done since last update (2026-09-18, later still #8) — item card layout iterated to what was actually meant, twice
+
+- Round #7 read "switch the images around" as icon-and-count, swapped
+  those. Actual ask was icon-and-*name* — reverted, then misread again
+  as "icon banner on top, name+count row below" (2 content rows,
+  `ITEM_HEIGHT` 3->4) plus added a redundant emoji prefix that was never
+  asked for. Corrected once the user drew the actual intended layout:
+  back to a single content row, `<image> Name          count`,
+  `ITEM_HEIGHT` back to 3, emoji glyph now only a fallback for when a
+  real image can't render (never shown alongside one).
+- Events box: dropped the status-based border/title color entirely
+  (green/red were already borderline; yellow specifically read as too
+  low-contrast to notice) — now plain default styling, matching
+  Resources, with only the cyan selection highlight. Also dropped the
+  "— enter: browse/filter" hint text from the title; that affordance
+  doesn't need to be spelled out.
+- Each of these was a one-message correction cycle — worth noting since
+  it's a reminder that a text description of a visual layout (even a
+  careful one) is lossy; an actual ASCII sketch from the user resolved
+  the ambiguity immediately where two rounds of prose hadn't.
+
+## Done since last update (2026-09-18, later still #9) — breadcrumb bar, fixed the dimmed backdrop, /-f live search
+
+### Breadcrumb bar
+
+- New bottom bar showing the full navigation path (e.g. "Overview ›
+  Resources › Node: worker-1 › Pod: default/web-1 › Logs: nginx"),
+  built by walking each `Mode`'s `back` chain (`breadcrumb_path` in
+  main.rs) — directly answers "where am I and how did I get here,"
+  which had no indication at all past one level deep.
+
+### The dimmed backdrop was showing home, not the actual parent screen
+
+- Real bug, exactly as the user described it: nested popups (Logs
+  behind Containers behind NodeDetail, etc.) always dimmed the *base*
+  list/Overview behind them, regardless of how many levels deep you'd
+  actually drilled — so opening Logs from a pod opened from a node
+  opened from Resources still showed the Overview dimmed behind it, not
+  any of the screens actually in between.
+- Fixed by giving `ui::draw` a new `background: Option<Overlay>` layer,
+  rendered dimmed between the base rows and the focused overlay, built
+  from whatever `back` points to. Added `dimmed: bool` support to the
+  four popup-drawing functions that can now be someone else's
+  background layer (`draw_containers_popup`, `draw_node_detail_popup`,
+  `draw_events_popup`, `draw_resources_detail_popup`).
+- Found and fixed the same bug class in `Mode::Spec` while at it — its
+  Esc was hardcoded to `Mode::List`, wrong when opened via NodeDetail's
+  own 'd' key (same mistake as the NodeDetail-via-ResourcesDetail bug
+  from round #7, just a different mode). Gave it a `back: Box<Mode>`
+  too; `open_spec_value` now captures whatever `mode` was via
+  `std::mem::replace` instead of every call site needing to pass it
+  explicitly.
+- `node_detail_name`/`node_detail_pods` had to become chain-aware (not
+  just "is the *top* mode NodeDetail") so the right pods list is still
+  available when NodeDetail is a background layer rather than the
+  focused view.
+
+### `/`/`f` live search
+
+- Opens a plain (non-dimming) bottom filter bar for Pods/Deployments/
+  Nodes/the generic catalog kinds/the CRD picker — narrows live by
+  fuzzy match (reusing `fuzzy::score`, the same matcher the cluster
+  picker's own search already used) as you type. Enter keeps the filter
+  applied while you keep browsing the narrowed list; Esc clears it.
+- The persistent `search` string is cleared on every resource-kind
+  switch (menu, `:`, Overview item, Esc back to Overview, CRD drill-in)
+  — a filter typed against one kind's names shouldn't silently apply to
+  a completely different kind's list.
+- Filtering Pods/Deployments is safe by construction: the *source*
+  `Vec<Arc<T>>` is filtered first, then rows are derived from that
+  filtered source, so nothing else indexing into it can drift out of
+  alignment. Nodes and the generic catalog kinds needed more care:
+  Nodes' 'd'/Enter handlers used to piggyback on the generic catalog's
+  own (always-unfiltered) `rows()`/`spec_at()` for indexing — reworked
+  them to index straight into the (now filtered) `sorted_nodes` instead.
+  The generic kinds keep an explicit `generic_visible: Vec<usize>` map
+  from filtered display position back to the real index `spec_at` needs.
+
+### Verified against the live cluster
+
+- Full interactive chain via `tmux`: Overview -> Resources -> a node ->
+  a pod -> its logs, confirming the breadcrumb text grows correctly at
+  each depth and the dimmed layer shows the correct immediate parent
+  (NodeDetail behind Containers) rather than Overview; backed out with
+  Esc one level at a time, landing correctly at each step with the app
+  still running afterward. Separately: `/traefik` on the live Pods list
+  narrowed 17 -> 4 matches live as typed, stayed narrowed after Enter,
+  and returned to 17 after clearing the query; `d` on the Nodes list
+  still opened the right node's spec after these changes. 52/52 unit
+  tests, clippy clean.
+
+### Not done on purpose
+
+- The dimmed background layer only ever shows the *immediate* parent,
+  not the full ancestor stack rendered N layers deep — e.g. opening
+  Logs from Containers from NodeDetail shows Containers dimmed behind
+  Logs, but not also NodeDetail behind that. The breadcrumb bar covers
+  "how did I get here" for the full chain regardless; going further
+  (true recursive stacking) wasn't judged worth the complexity given
+  larger popups already visually cover smaller ones underneath them in
+  most cases.
+- No search support in the Overview's Miller-columns (doesn't fit the
+  category-grid model) or the Events browser (which already has its
+  own a/w/n severity filter).
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
