@@ -102,6 +102,17 @@ pub struct Hover {
     pub row_on_screen: u16,
 }
 
+/// One breadcrumb segment — `kind` (e.g. "Node", "Pod") in one color,
+/// its bracketed `value` (e.g. "worker-1") in another, so the two read
+/// as visually distinct without either one shouting. `value` is `None`
+/// for segments that are just a label with no specific identifier
+/// (`Resources`, `Events`, `Category`).
+#[derive(Debug, PartialEq, Eq)]
+pub struct BreadcrumbSegment {
+    pub kind: String,
+    pub value: Option<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     frame: &mut Frame,
@@ -118,7 +129,7 @@ pub fn draw(
     // The full "how did I get here" path, rendered as a bottom bar on
     // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
     // Container: nginx › Logs".
-    breadcrumb: Option<&str>,
+    breadcrumb: Option<&[BreadcrumbSegment]>,
     icons: &mut IconCache,
 ) {
     // The command line and the search bar don't dim the background —
@@ -187,8 +198,8 @@ pub fn draw(
     if let Some(overlay) = overlay {
         draw_overlay(frame, overlay, false, icons);
     }
-    if let Some(text) = breadcrumb {
-        draw_breadcrumb_bar(frame, text);
+    if let Some(segments) = breadcrumb {
+        draw_breadcrumb_bar(frame, segments);
     }
 }
 
@@ -221,16 +232,36 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
     }
 }
 
-/// The bottom-row navigation path, e.g. "Nodes › Node: worker-1 › Pod:
-/// web-1 › Container: nginx › Logs" — drawn on top of everything
+/// The bottom-row navigation path, e.g. "Nodes>>Node[worker-1]>>
+/// Pod[default/web-1]>>Logs[nginx]" — drawn on top of everything
 /// (including a dimmed background layer), so "where am I and how did I
-/// get here" is always answerable at a glance.
-fn draw_breadcrumb_bar(frame: &mut Frame, text: &str) {
+/// get here" is always answerable at a glance. Each segment's kind and
+/// value get their own color (kind in the app's cyan accent, value in a
+/// calmer gray) so they read as visually distinct without either one
+/// shouting; `>>` between segments is muted so it doesn't compete with
+/// either.
+fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
     let area = frame.area();
     let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
-    let line = Line::styled(format!(" {text}"), Style::default().fg(Color::Cyan));
-    frame.render_widget(Paragraph::new(line), bar);
+
+    let kind_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let value_style = Style::default().fg(Color::Gray);
+    let punct_style = Style::default().fg(Color::DarkGray);
+
+    let mut spans = vec![Span::raw(" ")];
+    for (i, segment) in segments.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(">>", punct_style));
+        }
+        spans.push(Span::styled(segment.kind.clone(), kind_style));
+        if let Some(value) = &segment.value {
+            spans.push(Span::styled("[", punct_style));
+            spans.push(Span::styled(value.clone(), value_style));
+            spans.push(Span::styled("]", punct_style));
+        }
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }
 
 /// The `/`/`f` live-filter bar — same plain-bottom-bar treatment as the
@@ -390,7 +421,7 @@ fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut 
         ])
     });
 
-    let title = format!("Pods ({})  —  j/k: move  enter: containers  d: spec  q: quit", pods.len());
+    let title = format!("Pods ({})  —  j/k: move  enter: containers  d: spec  y: copy  q: quit", pods.len());
 
     let highlight_style = if dimmed {
         muted
@@ -482,7 +513,7 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
         Constraint::Length(5),
     ];
 
-    let title = format!("Deployments ({})  —  j/k: move  d: spec  m: switch resource  q: quit", deployments.len());
+    let title = format!("Deployments ({})  —  j/k: move  d: spec  y: copy  m: switch resource  q: quit", deployments.len());
 
     let highlight_style = if dimmed {
         muted
@@ -579,7 +610,7 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
         Constraint::Length(12),
     ];
 
-    let title = format!("Nodes ({})  —  j/k: move  enter: what's running  d: spec  m: switch resource  q: quit", nodes.len());
+    let title = format!("Nodes ({})  —  j/k: move  enter: what's running  d: spec  y: copy  m: switch resource  q: quit", nodes.len());
 
     let highlight_style = if dimmed {
         muted
@@ -632,7 +663,7 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
         Row::new(cells)
     });
 
-    let title = format!("{label} ({})  —  j/k: move  d: spec  m: switch resource  q: quit", rows.len());
+    let title = format!("{label} ({})  —  j/k: move  d: spec  y: copy  m: switch resource  q: quit", rows.len());
 
     let highlight_style = if dimmed {
         muted
@@ -674,7 +705,7 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)],
     });
 
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = format!("{heading} ({})  —  j/k: move  enter: open  m: switch resource  q: quit", crds.len());
+    let title = format!("{heading} ({})  —  j/k: move  enter: open  y: copy  m: switch resource  q: quit", crds.len());
 
     let highlight_style = if dimmed {
         muted
@@ -1565,7 +1596,7 @@ fn draw_node_detail_popup(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title(format!("Node: {name}  —  j/k: move  enter: containers  d: spec  esc: back"));
+        .title(format!("Node: {name}  —  j/k: move  enter: containers  d: spec  y: copy  esc: back"));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1713,7 +1744,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     ];
 
     let title = format!(
-        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  enter/click: detail  esc: back",
+        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  enter/click: detail  y: copy  esc: back",
         filtered.len(),
         events.len(),
         filter.label()
@@ -1779,7 +1810,7 @@ fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
         Line::raw(entry.message.clone()),
     ];
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail  —  esc: back");
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail  —  y: copy message  esc: back");
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -1797,7 +1828,7 @@ fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title("Resources  —  j/k: move  enter: node detail  esc: back");
+        .title("Resources  —  j/k: move  enter: node detail  y: copy  esc: back");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1855,7 +1886,7 @@ fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, St
     frame.render_widget(Clear, area);
 
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
-        "{title}  —  ↑↓/jk: move  ←→/hl: collapse/expand  enter/click: toggle  esc: back"
+        "{title}  —  ↑↓/jk: move  ←→/hl: collapse/expand  enter/click: toggle  y: copy YAML  esc: back"
     ));
 
     let tree = Tree::new(items)
@@ -1910,7 +1941,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(format!("{title}  —  j/k: move  enter: logs  esc: back")),
+                .title(format!("{title}  —  j/k: move  enter: logs  y: copy  esc: back")),
         )
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });

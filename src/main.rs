@@ -7,7 +7,7 @@ mod picker;
 mod ui;
 
 use std::collections::HashMap;
-use std::io::stdout;
+use std::io::{Write, stdout};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -45,6 +45,10 @@ enum Mode {
         title: String,
         items: Vec<TreeItem<'static, String>>,
         state: TreeState<String>,
+        // The full manifest as YAML text, for `y` to copy whole —
+        // `items`/`state` are the collapsible tree built *from* this,
+        // not something worth re-serializing just to copy.
+        yaml: String,
         // Where Esc returns to — normally the List we opened it from,
         // or NodeDetail if 'd' was pressed from there instead.
         back: Box<Mode>,
@@ -440,6 +444,12 @@ fn run(
     // filter meant for one kind's names rarely makes sense carried over
     // to a completely different kind's list.
     let mut search = String::new();
+    // Set by `y` (copy) anywhere it's bound; shown in place of the
+    // breadcrumb bar for one frame's worth of display, then cleared the
+    // next time any key is actually handled (see just above the event
+    // drain loop below) — a lightweight "toast" reusing the breadcrumb
+    // bar's own rendering slot rather than a whole new UI element.
+    let mut last_copied: Option<String> = None;
     // Queries the terminal's actual graphics capability (Kitty/Sixel/
     // iTerm2, falling back to halfblocks) — must happen after raw mode is
     // enabled and before the event-read loop below starts, so its own
@@ -578,13 +588,16 @@ fn run(
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
-        let breadcrumb_text = breadcrumb(&mode, current_kind);
+        let breadcrumb_text = match &last_copied {
+            Some(text) => Some(vec![segment("Copied", text.clone())]),
+            None => breadcrumb(&mode, current_kind),
+        };
         let mut frame_area = Rect::default();
         match &mut mode {
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Command { input } => {
@@ -609,7 +622,7 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
                 })?;
             }
-            Mode::Spec { title, items, state, back } => {
+            Mode::Spec { title, items, state, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     // Hoisted out of the `if let` below so these live for
@@ -703,7 +716,7 @@ fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -721,7 +734,7 @@ fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -757,6 +770,13 @@ fn run(
         if !event::poll(Duration::from_millis(200))? {
             continue;
         }
+
+        // The "Copied: ..." notice was already shown for one frame (the
+        // draw pass just above); clear it before handling new input so
+        // it disappears once you move on, unless the very next thing you
+        // do is copy something else (which re-sets it for the next
+        // frame).
+        last_copied = None;
 
         // Handle every event already queued before looping back to
         // redraw — not just the one that just arrived. A trackpad
@@ -865,6 +885,12 @@ fn run(
                         let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
                         select_prev(state, filtered_len);
                     }
+                    KeyCode::Char('y') => {
+                        if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
+                            copy_to_clipboard(&entry.message);
+                            last_copied = Some(entry.message.clone());
+                        }
+                    }
                     KeyCode::Enter => {
                         if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
                             let back = Box::new(Mode::Events { filter: *filter, state: *state });
@@ -881,14 +907,24 @@ fn run(
                         mode = Mode::EventDetail { entry: filtered[idx].clone(), back };
                     }
                 }
-                (Event::Key(key), Mode::EventDetail { back, .. }) => match key.code {
+                (Event::Key(key), Mode::EventDetail { entry, back }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('y') => {
+                        copy_to_clipboard(&entry.message);
+                        last_copied = Some(entry.message.clone());
+                    }
                     _ => {}
                 },
                 (Event::Key(key), Mode::ResourcesDetail { state }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_rows.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_rows.len()),
+                    KeyCode::Char('y') => {
+                        if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
+                            copy_to_clipboard(&node.name);
+                            last_copied = Some(node.name.clone());
+                        }
+                    }
                     KeyCode::Enter => {
                         if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
                             let back = Box::new(Mode::ResourcesDetail { state: *state });
@@ -996,6 +1032,37 @@ fn run(
                             }
                         }
                     },
+                    // Copies the selected row's identifier to the system
+                    // clipboard via OSC 52 — see `copy_to_clipboard` for
+                    // why this exists at all: enabling mouse reporting
+                    // (needed for click/hover elsewhere) is exactly what
+                    // stops the terminal's own click-drag text selection
+                    // from working.
+                    KeyCode::Char('y') => {
+                        let copied = match current_kind {
+                            ResourceKind::Pods => table_state
+                                .selected()
+                                .and_then(|i| pods.get(i))
+                                .map(|pod| title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref())),
+                            ResourceKind::Deployments => table_state
+                                .selected()
+                                .and_then(|i| deployments.get(i))
+                                .map(|dep| title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref())),
+                            ResourceKind::Nodes => table_state
+                                .selected()
+                                .and_then(|i| sorted_nodes.get(i))
+                                .map(|n| n.metadata.name.clone().unwrap_or_default()),
+                            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => table_state
+                                .selected()
+                                .and_then(|i| crd_rows.get(i))
+                                .map(|(_, crd)| format!("{}/{}", crd.group, crd.kind)),
+                            _ => table_state.selected().and_then(|i| generic_rows.get(i)).map(|row| format!("{}/{}", row.namespace, row.name)),
+                        };
+                        if let Some(text) = copied {
+                            copy_to_clipboard(&text);
+                            last_copied = Some(text);
+                        }
+                    }
                     KeyCode::Enter if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
                         if let Some(index) = table_state.selected()
                             && let Some((real_index, crd)) = crd_rows.get(index)
@@ -1094,8 +1161,12 @@ fn run(
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::Spec { state, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Spec { state, back, yaml, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('y') => {
+                        copy_to_clipboard(yaml);
+                        last_copied = Some("full YAML".to_string());
+                    }
                     KeyCode::Char('j') | KeyCode::Down => {
                         state.key_down();
                     }
@@ -1129,6 +1200,13 @@ fn run(
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
+                    KeyCode::Char('y') => {
+                        if let Some(container) = state.selected().and_then(|i| containers.get(i)) {
+                            let text = format!("{namespace}/{pod}/{}", container.name);
+                            copy_to_clipboard(&text);
+                            last_copied = Some(text);
+                        }
+                    }
                     KeyCode::Enter => {
                         if let Some(container) = state.selected().and_then(|i| containers.get(i)) {
                             let log_title = format!("{namespace}/{pod}/{}", container.name);
@@ -1166,6 +1244,10 @@ fn run(
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_detail_rows.len()),
+                    KeyCode::Char('y') => {
+                        copy_to_clipboard(name);
+                        last_copied = Some(name.clone());
+                    }
                     KeyCode::Enter => {
                         if let Some(pod) = state.selected().and_then(|i| node_detail_pods.get(i)) {
                             let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
@@ -1228,6 +1310,45 @@ fn run(
     }
 }
 
+const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Plain standard base64 with `=` padding — OSC 52 (the clipboard-copy
+/// escape sequence below) requires the payload encoded this way. Hand-
+/// rolled rather than pulling in a crate for the one thing that needs it.
+fn base64_encode(input: &[u8]) -> String {
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+        let n = (u32::from(b0) << 16) | (u32::from(b1) << 8) | u32::from(b2);
+        out.push(BASE64_ALPHABET[((n >> 18) & 0x3f) as usize] as char);
+        out.push(BASE64_ALPHABET[((n >> 12) & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 { BASE64_ALPHABET[((n >> 6) & 0x3f) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { BASE64_ALPHABET[(n & 0x3f) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Sets the system clipboard via OSC 52 — the standard way a full-screen
+/// TUI copies text, since enabling mouse reporting (needed for click/
+/// hover elsewhere in the app) is exactly what stops the terminal's own
+/// click-drag text selection from working. Supported by every terminal
+/// that matters (iTerm2, Kitty, WezTerm, Alacritty, Windows Terminal,
+/// ...) and — unlike drag-selection — works the same over SSH.
+///
+/// Inside tmux, OSC 52 is swallowed by default unless wrapped in a DCS
+/// passthrough sequence with every embedded ESC doubled so tmux forwards
+/// it to the real terminal instead of interpreting it itself; detected
+/// via `$TMUX`, which tmux always sets for its own panes.
+fn copy_to_clipboard(text: &str) {
+    let osc52 = format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes()));
+    let sequence =
+        if std::env::var("TMUX").is_ok() { format!("\x1bPtmux;{}\x1b\\", osc52.replace('\x1b', "\x1b\x1b")) } else { osc52 };
+    let _ = std::io::stdout().write_all(sequence.as_bytes());
+    let _ = std::io::stdout().flush();
+}
+
 fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
     format!("{}/{}", namespace.unwrap_or("?"), name.unwrap_or("?"))
 }
@@ -1267,24 +1388,32 @@ fn node_detail_name(mode: &Mode) -> Option<&str> {
 /// already home) and for modes that don't chain back further than the
 /// base list (Menu, Command, Events, ResourcesDetail, ColumnDetail),
 /// since their own overlay title already says what they are.
-/// Each segment is `Kind[identifier]` — e.g. `Node[worker-1]`,
+fn segment(kind: &str, value: impl Into<String>) -> ui::BreadcrumbSegment {
+    ui::BreadcrumbSegment { kind: kind.to_string(), value: Some(value.into()) }
+}
+
+fn plain_segment(kind: &str) -> ui::BreadcrumbSegment {
+    ui::BreadcrumbSegment { kind: kind.to_string(), value: None }
+}
+
+/// Each segment carries `Kind[identifier]` — e.g. `Node[worker-1]`,
 /// `Pod[default/web-1]`, `Logs[nginx]` — so the breadcrumb reads as a
 /// literal address into the cluster, not just a label trail.
-fn breadcrumb_path(mode: &Mode) -> Vec<String> {
+fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
     match mode {
         Mode::NodeDetail { name, back, .. } => {
             let mut path = breadcrumb_path(back);
-            path.push(format!("Node[{name}]"));
+            path.push(segment("Node", name.clone()));
             path
         }
         Mode::Containers { title, back, .. } => {
             let mut path = breadcrumb_path(back);
-            path.push(format!("Pod[{title}]"));
+            path.push(segment("Pod", title.clone()));
             path
         }
         Mode::Spec { title, back, .. } => {
             let mut path = breadcrumb_path(back);
-            path.push(format!("Spec[{title}]"));
+            path.push(segment("Spec", title.clone()));
             path
         }
         Mode::Logs { title, back, .. } => {
@@ -1293,34 +1422,32 @@ fn breadcrumb_path(mode: &Mode) -> Vec<String> {
             // the Containers Enter handler) — just the container name is
             // enough here, the pod/node segments already came from `back`.
             let container = title.rsplit('/').next().unwrap_or(title);
-            path.push(format!("Logs[{container}]"));
+            path.push(segment("Logs", container));
             path
         }
         Mode::EventDetail { back, .. } => {
             let mut path = breadcrumb_path(back);
-            path.push("Event".to_string());
+            path.push(plain_segment("Event"));
             path
         }
-        Mode::Events { .. } => vec!["Events".to_string()],
-        Mode::ResourcesDetail { .. } => vec!["Resources".to_string()],
-        Mode::ColumnDetail { .. } => vec!["Category".to_string()],
+        Mode::Events { .. } => vec![plain_segment("Events")],
+        Mode::ResourcesDetail { .. } => vec![plain_segment("Resources")],
+        Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
 }
 
-/// The rendered breadcrumb bar text, or `None` when there's nothing
-/// worth showing (plain `List`, or a shallow overlay whose own title
-/// already says everything — Menu/Command/Events/ResourcesDetail/
-/// ColumnDetail). `>>` throughout, no other separator — e.g.
-/// `Nodes>>Node[worker-1]>>Pod[default/web-1]>>Logs[nginx]`.
-fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<String> {
+/// The breadcrumb bar's segments, or `None` when there's nothing worth
+/// showing (plain `List`, or a shallow overlay whose own title already
+/// says everything — Menu/Command/Events/ResourcesDetail/ColumnDetail).
+fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<Vec<ui::BreadcrumbSegment>> {
     let path = breadcrumb_path(mode);
     if path.is_empty() {
         return None;
     }
-    let mut segments = vec![current_kind.label().to_string()];
+    let mut segments = vec![plain_segment(current_kind.label())];
     segments.extend(path);
-    Some(segments.join(">>"))
+    Some(segments)
 }
 
 fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
@@ -1333,12 +1460,13 @@ fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     for item in &items {
         state.open(vec![item.identifier().clone()]);
     }
+    let yaml = serde_yaml::to_string(&value).unwrap_or_default();
     // Captures whatever `mode` actually was (List, or NodeDetail if 'd'
     // was pressed from there) as `back`, so Esc returns to the right
     // place regardless of which of `open_spec`'s several call sites
     // opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Spec { title, items, state, back };
+    *mode = Mode::Spec { title, items, state, yaml, back };
 }
 
 fn select_next(state: &mut TableState, len: usize) {
@@ -1442,6 +1570,15 @@ mod tests {
     }
 
     #[test]
+    fn base64_encode_matches_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
     fn empty_search_matches_everything() {
         assert!(row_matches("", "anything at all"));
     }
@@ -1468,6 +1605,14 @@ mod tests {
             state: TableState::default(),
             back: Box::new(node_detail),
         };
-        assert_eq!(breadcrumb(&containers, ResourceKind::Overview), Some("Overview>>Node[worker-1]>>Pod[default/web-1]".to_string()));
+        let rendered: Vec<String> = breadcrumb(&containers, ResourceKind::Overview)
+            .unwrap()
+            .into_iter()
+            .map(|s| match s.value {
+                Some(v) => format!("{}[{v}]", s.kind),
+                None => s.kind,
+            })
+            .collect();
+        assert_eq!(rendered.join(">>"), "Overview>>Node[worker-1]>>Pod[default/web-1]");
     }
 }
