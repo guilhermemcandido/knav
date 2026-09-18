@@ -1573,6 +1573,28 @@ no equivalent "recompute the same count a different way" step to drift.
   `Kind[value]>>Kind[value]` per explicit request — e.g.
   `Overview>>Resources>>Node[k3d-knav-test-server-0]`.
 
+## Done since last update (2026-09-18, later still #11) — breadcrumb colors, y-to-copy via OSC 52
+
+- Breadcrumb: kind (Node, Pod, Logs, ...) is cyan/bold, its bracketed
+  value a calmer gray, `>>` separators dark gray — visually distinct
+  without either one competing for attention.
+- Copy: there was genuinely no way to copy anything out of knav —
+  enabling mouse reporting (`EnableMouseCapture`, needed for click/
+  hover elsewhere) is exactly what disables a terminal's native
+  click-drag text selection. `y` now copies via OSC 52 (hand-rolled
+  base64 encoder, RFC 4648 vectors verified; wrapped in tmux's DCS
+  passthrough convention when `$TMUX` is set, same approach Neovim's
+  own OSC 52 clipboard provider uses) — bound across every List-mode
+  kind, NodeDetail, Containers, EventDetail, ResourcesDetail, and Spec
+  (the full YAML there, not just a name). Shows a "Copied[...]"
+  confirmation by reusing the breadcrumb bar's own slot and new
+  coloring rather than adding a separate UI element.
+- Not verified end-to-end: actual system-clipboard delivery, since this
+  headless test session has no real terminal attached to receive the
+  escape sequence. Verified the mechanism instead (well-formed OSC 52 +
+  correct tmux wrapping) — an inherent limitation of testing without a
+  real attached terminal, same class as the visual/color checks earlier.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
