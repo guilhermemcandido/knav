@@ -57,6 +57,9 @@ pub enum Overlay<'a> {
         memory_usage: Option<i64>,
         memory_capacity: i64,
         pod_capacity: i64,
+        /// `None` only in the brief window where the node has vanished
+        /// from the store between frames (e.g. right after deletion).
+        info: Option<&'a crate::k8s::NodeDetailInfo>,
         pods: &'a [PodRow],
         state: &'a mut TableState,
     },
@@ -148,8 +151,8 @@ pub fn draw(
                 draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format)
             }
             Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
-            Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, pods, state } => {
-                draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, pods, state)
+            Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
+                draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state)
             }
             Overlay::Command { input } => draw_command_bar(frame, input),
         }
@@ -445,33 +448,47 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
 
-    let header = Row::new(vec!["NAME", "STATUS", "CPU", "MEMORY", "PODS", "AGE"]).style(header_style);
+    let header = Row::new(vec!["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"]).style(header_style);
 
     let rows = nodes.iter().map(|n| {
         let status_style = if dimmed {
             muted
-        } else if n.ready {
+        } else if n.ready && n.schedulable {
             Style::default().fg(Color::Green)
+        } else if n.ready {
+            Style::default().fg(Color::Yellow) // cordoned, but otherwise healthy
         } else {
             Style::default().fg(Color::Red)
         };
+        // kubectl's own convention: append ",SchedulingDisabled" to STATUS
+        // rather than a separate column.
+        let status = match (n.ready, n.schedulable) {
+            (true, true) => "Ready".to_string(),
+            (true, false) => "Ready,SchedulingDisabled".to_string(),
+            (false, true) => "NotReady".to_string(),
+            (false, false) => "NotReady,SchedulingDisabled".to_string(),
+        };
         Row::new(vec![
             Cell::from(n.name.clone()).style(cell_style),
-            Cell::from(if n.ready { "Ready" } else { "NotReady" }).style(status_style),
+            Cell::from(status).style(status_style),
+            Cell::from(n.roles.clone()).style(cell_style),
             Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
             Cell::from(usage_bar(n.memory_bytes, n.memory_capacity, dimmed)),
             Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)).style(cell_style),
             Cell::from(n.age.clone()).style(cell_style),
+            Cell::from(n.version.clone()).style(cell_style),
         ])
     });
 
     let widths = [
         Constraint::Fill(2),
-        Constraint::Length(9),
+        Constraint::Length(24),
+        Constraint::Fill(1),
         Constraint::Length(16),
         Constraint::Length(16),
         Constraint::Length(9),
         Constraint::Length(5),
+        Constraint::Length(12),
     ];
 
     let title = format!("Nodes ({})  —  j/k: move  enter: what's running  d: spec  m: switch resource  q: quit", nodes.len());
@@ -1307,10 +1324,11 @@ fn draw_node_detail_popup(
     memory_usage: Option<i64>,
     memory_capacity: i64,
     pod_capacity: i64,
+    info: Option<&crate::k8s::NodeDetailInfo>,
     pods: &[PodRow],
     state: &mut TableState,
 ) {
-    let area = centered_rect(90, 88, frame.area());
+    let area = centered_rect(94, 92, frame.area());
     frame.render_widget(Clear, area);
 
     let outer = Block::default()
@@ -1320,7 +1338,8 @@ fn draw_node_detail_popup(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
+    let info_h = info.map(node_info_height).unwrap_or(0);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Length(info_h), Constraint::Min(0)]).split(inner);
 
     match (cpu_usage, memory_usage) {
         (Some(cpu), Some(mem)) => {
@@ -1336,7 +1355,70 @@ fn draw_node_detail_popup(
         }
     }
 
-    draw_table(frame, chunks[1], pods, state, false);
+    if let Some(info) = info {
+        draw_node_info_panel(frame, chunks[1], info);
+    }
+
+    draw_table(frame, chunks[2], pods, state, false);
+}
+
+/// How tall the node-info panel is: three summary lines, a blank
+/// separator, the conditions header + one row per condition, then (if
+/// there are any) a blank separator and a taints line — computed once so
+/// sizing and drawing can't drift apart, same pattern as the Overview's
+/// `top_area_height`/`issues_content_height`.
+fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
+    let base = 3 + 1 + 1 + info.conditions.len() as u16;
+    if info.taints.is_empty() { base } else { base + 1 + info.taints.len() as u16 }
+}
+
+/// Freelens-style node summary: schedulability/roles/version, network
+/// addresses and host OS/runtime details, the full condition list
+/// (healthy conditions included — unlike the Cluster Issues panel, this
+/// is a diagnostic view), and any taints.
+fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo) {
+    let label = Style::default().fg(Color::DarkGray);
+    let value = Style::default().add_modifier(Modifier::BOLD);
+    let field = |l: &'static str, v: String| vec![Span::styled(format!("{l}: "), label), Span::styled(v, value)];
+
+    let schedulable_text = if info.schedulable { "Schedulable".to_string() } else { "Cordoned".to_string() };
+    let schedulable_style = if info.schedulable { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Yellow) };
+
+    let mut line1 = field("Roles", info.roles.clone());
+    line1.push(Span::raw("   "));
+    line1.extend(vec![Span::styled("Status: ", label), Span::styled(schedulable_text, schedulable_style)]);
+    line1.push(Span::raw("   "));
+    line1.extend(field("Kubelet", info.kubelet_version.clone()));
+
+    let mut line2 = field("Internal IP", info.internal_ip.clone());
+    line2.push(Span::raw("   "));
+    line2.extend(field("External IP", info.external_ip.clone()));
+
+    let mut line3 = field("OS", info.os_image.clone());
+    line3.push(Span::raw("   "));
+    line3.extend(field("Kernel", info.kernel_version.clone()));
+    line3.push(Span::raw("   "));
+    line3.extend(field("Runtime", info.container_runtime.clone()));
+
+    let mut lines = vec![Line::from(line1), Line::from(line2), Line::from(line3), Line::raw("")];
+
+    lines.push(Line::styled("CONDITIONS", Style::default().add_modifier(Modifier::BOLD)));
+    for c in &info.conditions {
+        let is_healthy = (c.type_ == "Ready") == (c.status == "True");
+        let color = if is_healthy { Color::Green } else { Color::Red };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:<20}", c.type_), Style::default()),
+            Span::styled(format!("{:<8}", c.status), Style::default().fg(color)),
+            Span::styled(c.reason.clone(), label),
+        ]));
+    }
+
+    if !info.taints.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![Span::styled("Taints: ", label), Span::styled(info.taints.join(", "), value)]));
+    }
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {

@@ -545,7 +545,9 @@ fn run(
             Mode::NodeDetail { name, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let capacity = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())).map(|n| k8s::node_capacity(n));
+                    let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
+                    let capacity = found_node.map(|n| k8s::node_capacity(n));
+                    let detail_info = found_node.map(|n| k8s::node_detail_info(n));
                     let node_usage = usage.as_ref().and_then(|u| u.for_node(name));
                     let overlay = ui::Overlay::NodeDetail {
                         name: name.as_str(),
@@ -554,6 +556,7 @@ fn run(
                         memory_usage: node_usage.map(|u| u.memory_bytes),
                         memory_capacity: capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
                         pod_capacity: capacity.as_ref().map(|c| c.pods).unwrap_or(0),
+                        info: detail_info.as_ref(),
                         pods: &node_detail_rows,
                         state,
                     };
