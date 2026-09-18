@@ -31,7 +31,7 @@ mod theme;
 
 pub use self::columns::*;
 pub use self::header::*;
-use self::logs::*;
+pub use self::logs::*;
 pub use self::menu::*;
 pub use self::overview::*;
 pub use self::popups::*;

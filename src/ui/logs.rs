@@ -25,7 +25,7 @@ pub(super) fn draw_logs_popup(
     // Just the live state, not how to control it — the keybindings for
     // pausing/resuming/toggling timestamps live in the `?` commands
     // panel now instead of being spelled out here every time.
-    let follow_status = if follow { "following" } else { "paused" };
+    let follow_status = if follow { "following" } else { "scrolled back — G to follow" };
     let filter_status = if filter.is_empty() { String::new() } else { format!(", {}/{} match \"{filter}\"", filtered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
     title_line.push_span(Span::raw(format!("  —  {follow_status}  ({} lines{filter_status})", lines.len())));
@@ -54,6 +54,39 @@ pub(super) fn draw_logs_popup(
         frame.render_widget(Clear, bar);
         let line = Line::styled(format!("/{filter}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
         frame.render_widget(Paragraph::new(line), bar);
+    }
+}
+
+/// The furthest a non-following view can scroll: everything past the
+/// last screenful. Also where scrolling down hands back to following.
+fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str) -> u16 {
+    let needle = filter.to_lowercase();
+    let shown = if filter.is_empty() { lines.len() } else { lines.iter().filter(|l| l.to_lowercase().contains(&needle)).count() };
+    let visible = centered_rect(90, 90, frame_area).height.saturating_sub(2) as usize;
+    shown.saturating_sub(visible).min(u16::MAX as usize) as u16
+}
+
+/// Scrolling up leaves following, starting from where the tail *was* —
+/// not from wherever `scroll` was last left, which would jump the view
+/// to the top of the log. New lines keep arriving either way.
+pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, follow: &mut bool, scroll: &mut u16) {
+    if *follow {
+        *scroll = logs_max_scroll(frame_area, lines, filter);
+        *follow = false;
+    }
+    *scroll = scroll.saturating_sub(1);
+}
+
+/// Scrolling down while following does nothing (already at the end);
+/// otherwise it moves down and, on reaching the end, resumes following
+/// by itself, like `tail -f` in a pager.
+pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, follow: &mut bool, scroll: &mut u16) {
+    if *follow {
+        return;
+    }
+    *scroll = scroll.saturating_add(1);
+    if *scroll >= logs_max_scroll(frame_area, lines, filter) {
+        *follow = true;
     }
 }
 
@@ -207,5 +240,41 @@ mod log_color_tests {
         let line = colorize_log_line("[failed to start log stream: connection reset]", TimestampFormat::Short, "");
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].style.fg, Some(Color::Red)); // "failed" matches
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+
+    fn lines(n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("line {i}")).collect()
+    }
+
+    const AREA: Rect = Rect { x: 0, y: 0, width: 100, height: 30 };
+
+    #[test]
+    fn scrolling_down_while_following_keeps_following() {
+        let (mut follow, mut scroll) = (true, 0);
+        logs_scroll_down(AREA, &lines(500), "", &mut follow, &mut scroll);
+        assert!(follow);
+    }
+
+    #[test]
+    fn scrolling_up_leaves_follow_from_the_tail_not_the_top() {
+        let (mut follow, mut scroll) = (true, 0);
+        let l = lines(500);
+        logs_scroll_up(AREA, &l, "", &mut follow, &mut scroll);
+        assert!(!follow);
+        assert_eq!(scroll, logs_max_scroll(AREA, &l, "") - 1);
+    }
+
+    #[test]
+    fn scrolling_back_to_the_end_resumes_following() {
+        let (mut follow, mut scroll) = (true, 0);
+        let l = lines(500);
+        logs_scroll_up(AREA, &l, "", &mut follow, &mut scroll);
+        logs_scroll_down(AREA, &l, "", &mut follow, &mut scroll);
+        assert!(follow);
     }
 }

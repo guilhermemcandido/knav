@@ -591,7 +591,11 @@ pub(crate) fn run(
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::List) => match key.code {
+                (Event::Key(key), Mode::List) => match if key.code == KeyCode::Enter && current_kind.opens_spec_on_enter() {
+                    KeyCode::Char('d')
+                } else {
+                    key.code
+                } {
                     // `q` and Esc do the same thing everywhere except the
                     // main Overview screen: back out one level — to
                     // Overview from any top-level kind, or to the specific
@@ -998,19 +1002,13 @@ pub(crate) fn run(
                     KeyCode::Char(c) => filter.push(c),
                     _ => {}
                 },
-                (Event::Key(key), Mode::Logs { scroll, follow, timestamp_format, handle, filter_editing, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, handle, filter_editing, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         handle.abort();
                         mode = std::mem::replace(&mut **back, Mode::List);
                     }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        *follow = false;
-                        *scroll = scroll.saturating_add(1);
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        *follow = false;
-                        *scroll = scroll.saturating_sub(1);
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, follow, scroll),
+                    KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, follow, scroll),
                     KeyCode::Char('G') => *follow = true,
                     KeyCode::Char('/') => *filter_editing = true,
                     KeyCode::Char(c) if c == config.keybindings.logs.toggle_timestamp => {
@@ -1018,15 +1016,9 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Mouse(mouse), Mode::Logs { scroll, follow, .. }) => match mouse.kind {
-                    MouseEventKind::ScrollDown => {
-                        *follow = false;
-                        *scroll = scroll.saturating_add(1);
-                    }
-                    MouseEventKind::ScrollUp => {
-                        *follow = false;
-                        *scroll = scroll.saturating_sub(1);
-                    }
+                (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, .. }) => match mouse.kind {
+                    MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, follow, scroll),
+                    MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, follow, scroll),
                     _ => {}
                 },
                 _ => {}

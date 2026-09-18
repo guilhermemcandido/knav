@@ -90,6 +90,32 @@ impl ResourceKind {
         }
     }
 
+    /// Whether Enter on a row of this kind opens its manifest (`d`).
+    /// True for kinds with nothing underneath them to drill into — a
+    /// ConfigMap, a Secret, a PVC, an instance of a custom resource.
+    /// Kinds that own other resources (Deployments -> ReplicaSets ->
+    /// Pods, Nodes -> Pods, ...) are deliberately left out.
+    pub fn opens_spec_on_enter(self) -> bool {
+        matches!(
+            self,
+            ResourceKind::ConfigMaps
+                | ResourceKind::Secrets
+                | ResourceKind::Hpas
+                | ResourceKind::Endpoints
+                | ResourceKind::Ingresses
+                | ResourceKind::NetworkPolicies
+                | ResourceKind::Pvcs
+                | ResourceKind::Pvs
+                | ResourceKind::StorageClasses
+                | ResourceKind::ServiceAccounts
+                | ResourceKind::Roles
+                | ResourceKind::RoleBindings
+                | ResourceKind::ClusterRoles
+                | ResourceKind::ClusterRoleBindings
+                | ResourceKind::CustomResource(_, _)
+        )
+    }
+
     /// The reverse of `label()` — for the fixed, compile-time-known kinds
     /// only (never `CustomResource`, which needs a live index and can't
     /// be reconstructed from its label alone). The join key between the
@@ -1085,6 +1111,15 @@ pub fn watch_crd(client: Client, crd: &CrdInfo) -> (Box<dyn CatalogKind>, JoinHa
 #[cfg(test)]
 mod resource_kind_tests {
     use super::*;
+
+    #[test]
+    fn enter_opens_the_spec_only_for_kinds_without_children() {
+        assert!(ResourceKind::ConfigMaps.opens_spec_on_enter());
+        assert!(ResourceKind::CustomResource(0, "Widget").opens_spec_on_enter());
+        assert!(!ResourceKind::Deployments.opens_spec_on_enter());
+        assert!(!ResourceKind::Pods.opens_spec_on_enter());
+        assert!(!ResourceKind::Nodes.opens_spec_on_enter());
+    }
 
     #[test]
     fn command_resolves_full_names_and_short_aliases() {
