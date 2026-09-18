@@ -59,6 +59,9 @@ enum Mode {
     /// The Overview's Resources panel, opened up: full-size cluster
     /// gauges plus a per-node usage breakdown.
     ResourcesDetail { state: TableState },
+    /// One Overview category column, opened up into a bigger grid —
+    /// see `ui::Overlay::ColumnDetail`.
+    ColumnDetail { col: usize, selected: usize, row_scroll: usize },
     Containers {
         title: String,
         namespace: String,
@@ -598,6 +601,17 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
                 })?;
             }
+            Mode::ColumnDetail { col, selected, row_scroll } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    if let Some((title, items)) = overview.catalog.get(*col) {
+                        let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
+                        ui::draw(frame, rows_view(), &mut table_state, None, Some(overlay), &mut icons);
+                    } else {
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, &mut icons);
+                    }
+                })?;
+            }
             Mode::Logs { title, lines, scroll, follow, timestamp_format, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -678,7 +692,9 @@ fn run(
                                 state: TableState::default().with_selected(if overview.events.is_empty() { None } else { Some(0) }),
                             };
                         }
-                        ui::OverviewSelection::Header(_) => {}
+                        ui::OverviewSelection::Header(col) => {
+                            mode = Mode::ColumnDetail { col, selected: 0, row_scroll: 0 };
+                        }
                         ui::OverviewSelection::Item(col, item) => {
                             if let Some((_, items)) = overview.catalog.get(col)
                                 && let Some((label, _)) = items.get(item)
@@ -746,6 +762,41 @@ fn run(
                 }
                 _ => {}
             },
+            (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
+                let items_len = overview.catalog.get(*col).map(|(_, items)| items.len()).unwrap_or(0);
+                let cols = ui::column_detail_cols(frame_area);
+                // The scroll recompute has to happen inside each
+                // navigation branch, not after the whole match — the
+                // Enter/Esc branches below reassign `mode` itself, which
+                // would leave `selected`/`row_scroll` dangling if used
+                // afterward.
+                macro_rules! move_and_rescroll {
+                    ($dir:expr) => {{
+                        *selected = ui::move_column_detail_selection(items_len, cols, *selected, $dir);
+                        let visible_rows = ui::column_detail_visible_rows(frame_area);
+                        let selected_row = if cols > 0 { *selected / cols } else { 0 };
+                        *row_scroll = ui::scroll_columns_to_show(*row_scroll, visible_rows, selected_row);
+                    }};
+                }
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                    KeyCode::Char('j') | KeyCode::Down => move_and_rescroll!(ui::Direction::Down),
+                    KeyCode::Char('k') | KeyCode::Up => move_and_rescroll!(ui::Direction::Up),
+                    KeyCode::Char('h') | KeyCode::Left => move_and_rescroll!(ui::Direction::Left),
+                    KeyCode::Char('l') | KeyCode::Right => move_and_rescroll!(ui::Direction::Right),
+                    KeyCode::Enter => {
+                        if let Some((_, items)) = overview.catalog.get(*col)
+                            && let Some((label, _)) = items.get(*selected)
+                            && let Some(kind) = catalog.kind_for_tile_label(label)
+                        {
+                            current_kind = kind;
+                            table_state.select(Some(0));
+                            mode = Mode::List;
+                        }
+                    }
+                    _ => {}
+                }
+            }
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') => return Ok(()),
                 // Esc backs out one level instead of quitting — to

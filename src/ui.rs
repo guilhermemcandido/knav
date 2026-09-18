@@ -81,6 +81,11 @@ pub enum Overlay<'a> {
     /// breakdown — reuses the exact same gauge/table drawing the compact
     /// panel and the Nodes list already use, just with more room.
     ResourcesDetail { overview: &'a Overview, nodes: &'a [NodeRow], state: &'a mut TableState },
+    /// One category column (Workloads, Config, ...), opened up — its
+    /// items laid out as a bigger grid of the exact same cards, for when
+    /// a category has more kinds than the compact column can show at
+    /// once (e.g. Custom Resources with many discovered groups).
+    ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -115,6 +120,7 @@ pub fn draw(
             | Some(Overlay::Events { .. })
             | Some(Overlay::EventDetail { .. })
             | Some(Overlay::ResourcesDetail { .. })
+            | Some(Overlay::ColumnDetail { .. })
     );
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
@@ -174,6 +180,9 @@ pub fn draw(
             Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state),
             Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
             Overlay::ResourcesDetail { overview, nodes, state } => draw_resources_detail_popup(frame, overview, nodes, state),
+            Overlay::ColumnDetail { title, items, selected, row_scroll } => {
+                draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
+            }
         }
     }
 }
@@ -1082,6 +1091,37 @@ pub fn menu_cols(frame_area: Rect) -> usize {
     (inner.width / TILE_WIDTH).max(1) as usize
 }
 
+/// The area a column-detail popup (see `Overlay::ColumnDetail`) actually
+/// renders into — one place so its own draw pass, the grid column count,
+/// and the visible-row count can't drift apart.
+fn column_detail_area(frame_area: Rect) -> Rect {
+    centered_rect(85, 80, frame_area)
+}
+
+/// How many item cards fit per row in a column-detail popup — same
+/// card width the compact Overview columns use, so a kind's card looks
+/// identical whether you're looking at it there or here.
+pub fn column_detail_cols(frame_area: Rect) -> usize {
+    let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
+    ((inner.width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize
+}
+
+/// How many grid rows of item cards fit vertically in a column-detail
+/// popup at once.
+pub fn column_detail_visible_rows(frame_area: Rect) -> usize {
+    let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
+    (inner.height / ITEM_HEIGHT).max(1) as usize
+}
+
+/// Same movement rules as `move_selection`/`move_menu_selection`, for a
+/// column-detail popup's own single-list item grid — reuses `move_selection`
+/// with exactly one "section" (there's nothing to jump to when you run off
+/// an edge, so it just clamps there, which is exactly what a single list
+/// needs).
+pub fn move_column_detail_selection(items_len: usize, cols: usize, selected: usize, dir: Direction) -> usize {
+    move_selection(&[items_len], cols, (0, selected), dir).1
+}
+
 /// Adjusts a scroll offset (if needed) so `target` is fully within the
 /// `visible` window currently on screen — scrolls back immediately if the
 /// selection moved before the window, or forward just far enough if it
@@ -1680,6 +1720,50 @@ fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[
     draw_nodes_table(frame, chunks[1], nodes, state, false);
 }
 
+/// One category column, opened up into a bigger grid of the exact same
+/// item cards `draw_column` draws in the compact Overview — for a
+/// category with more kinds than fit in that narrow column at once
+/// (Custom Resources, with many discovered API groups, is the case this
+/// exists for). Scrolls vertically the same way the compact column does,
+/// just over grid rows instead of single items.
+fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usize)], selected: usize, row_scroll: usize, icons: &mut IconCache) {
+    let area = column_detail_area(frame.area());
+    frame.render_widget(Clear, area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(format!("{title}  —  arrows/hjkl: move  enter: open  esc: back"));
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    if items.is_empty() {
+        frame.render_widget(Paragraph::new("Nothing here.").alignment(Alignment::Center), inner);
+        return;
+    }
+
+    let cols = ((inner.width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize;
+    let total_rows = items.len().div_ceil(cols);
+    let visible_rows = (inner.height / ITEM_HEIGHT).max(1) as usize;
+    let row_scroll = row_scroll.min(total_rows.saturating_sub(visible_rows));
+    let rows_shown = visible_rows.min(total_rows.saturating_sub(row_scroll));
+
+    let row_constraints: Vec<Constraint> = (0..rows_shown).map(|_| Constraint::Length(ITEM_HEIGHT)).collect();
+    let row_areas = Layout::vertical(row_constraints).split(inner);
+
+    for (slot, row_area) in row_areas.iter().enumerate() {
+        let row_idx = row_scroll + slot;
+        let start = row_idx * cols;
+        let row_items = &items[start..(start + cols).min(items.len())];
+        let col_constraints: Vec<Constraint> = row_items.iter().map(|_| Constraint::Length(COLUMN_WIDTH)).collect();
+        let col_areas = Layout::horizontal(col_constraints).spacing(1).split(*row_area);
+        for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
+            let idx = start + i;
+            draw_column_item(frame, *item_area, label, *count, title, idx == selected, false, icons);
+        }
+    }
+}
+
 fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
@@ -1995,6 +2079,27 @@ mod events_popup_tests {
         assert!(EventFilter::All.matches(&normal) && EventFilter::All.matches(&warning));
         assert!(EventFilter::Warnings.matches(&warning) && !EventFilter::Warnings.matches(&normal));
         assert!(EventFilter::Normal.matches(&normal) && !EventFilter::Normal.matches(&warning));
+    }
+}
+
+#[cfg(test)]
+mod column_detail_tests {
+    use super::*;
+
+    #[test]
+    fn move_column_detail_selection_wraps_rows_within_a_single_grid() {
+        // 5 items, 2 per row: [0 1] [2 3] [4]
+        assert_eq!(move_column_detail_selection(5, 2, 0, Direction::Right), 1);
+        assert_eq!(move_column_detail_selection(5, 2, 1, Direction::Down), 3);
+        assert_eq!(move_column_detail_selection(5, 2, 4, Direction::Right), 4); // clamps, nothing after
+        assert_eq!(move_column_detail_selection(5, 2, 0, Direction::Left), 0); // clamps, nothing before
+    }
+
+    #[test]
+    fn column_detail_cols_and_visible_rows_are_at_least_one() {
+        let tiny = Rect { x: 0, y: 0, width: 1, height: 1 };
+        assert!(column_detail_cols(tiny) >= 1);
+        assert!(column_detail_visible_rows(tiny) >= 1);
     }
 }
 
