@@ -20,6 +20,14 @@ pub(crate) fn run(
     let mut mode = Mode::List;
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
+    // The namespace every namespaced list is narrowed to (`Enter` on a
+    // namespace sets it, `0` clears it) — sticks across kind switches.
+    let mut namespace: Option<String> = None;
+    // What the current list is drilled into (a Deployment's ReplicaSets,
+    // a Service's Pods, ...) and how to get back out, one level per
+    // entry: the kind, scope and selected row we came from.
+    let mut scope: Option<Scope> = None;
+    let mut nav_stack: Vec<(ResourceKind, Option<Scope>, usize)> = Vec::new();
     // The active `/`/`f` filter — empty means "show everything." Persists
     // across `Mode::Search`/`Mode::List` so confirming a search (Enter)
     // keeps the list narrowed while you go on navigating it; switching
@@ -58,13 +66,21 @@ pub(crate) fn run(
         // filtering every kind's source list by it unconditionally is
         // safe: for every kind other than the one actively being
         // searched, `search` is "" and `row_matches` always returns true.
+        // The Overview stays cluster-wide even with a namespace set.
+        let ns_filter: Option<&str> = if current_kind == ResourceKind::Overview { None } else { namespace.as_deref() };
+        let in_namespace = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| {
+            ns_filter.is_none_or(|ns| meta.namespace.as_deref() == Some(ns))
+        };
         let pods: Vec<std::sync::Arc<Pod>> = k8s::snapshot(pod_store)
             .into_iter()
+            .filter(|p| in_namespace(&p.metadata))
+            .filter(|p| current_kind != ResourceKind::Pods || scope.as_ref().is_none_or(|s| s.matches_meta(&p.metadata)))
             .filter(|p| row_matches(&search, &meta_search_text(&p.metadata)))
             .collect();
         let pod_rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
         let deployments: Vec<std::sync::Arc<Deployment>> = k8s::snapshot_deployments(dep_store)
             .into_iter()
+            .filter(|d| in_namespace(&d.metadata))
             .filter(|d| row_matches(&search, &meta_search_text(&d.metadata)))
             .collect();
         let dep_rows: Vec<k8s::DeploymentRow> = deployments.iter().map(|d| k8s::row_for_deployment(d)).collect();
@@ -116,6 +132,12 @@ pub(crate) fn run(
         // takes that real index, not the display one.
         let generic_rows_full: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
         let generic_visible: Vec<usize> = (0..generic_rows_full.len())
+            .filter(|&i| {
+                let row = &generic_rows_full[i];
+                // Cluster-scoped rows (namespace "-") are never hidden by a namespace.
+                ns_filter.is_none_or(|ns| row.namespace == "-" || row.namespace == ns)
+                    && scope.as_ref().is_none_or(|s| s.matches_row(row))
+            })
             .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
             .collect();
         let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
@@ -175,6 +197,11 @@ pub(crate) fn run(
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
+        let header_now = ui::HeaderInfo {
+            namespace: namespace.clone().unwrap_or_else(|| "all".into()),
+            scope: scope.as_ref().map(Scope::label).unwrap_or_default(),
+            ..header.clone()
+        };
         let breadcrumb_text = breadcrumb(&mode, current_kind);
         let mut hints = hints_for(&mode, current_kind);
         if !hints.is_empty() {
@@ -185,7 +212,7 @@ pub(crate) fn run(
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::Command { input, selected, .. } => {
@@ -194,7 +221,7 @@ pub(crate) fn run(
                     let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(Cmd::name).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now);
                 })?;
             }
             Mode::Context { contexts, filter, editing, state, error, .. } => {
@@ -203,21 +230,21 @@ pub(crate) fn run(
                     let items: Vec<(String, String, bool)> =
                         filtered_contexts(contexts, filter).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
                     let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::Notice { text, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Notice { text, error: *error };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Search { query: &search, matches: row_count };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -225,7 +252,7 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     let sections = menu_sections(&catalog.crds);
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now);
                 })?;
             }
             Mode::Spec { title, items, state, viewing, back, .. } => {
@@ -267,7 +294,7 @@ pub(crate) fn run(
                         }
                         None => (node_background, ui::Overlay::Spec { title, items, state }),
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::Containers { title, containers, state, back, .. } => {
@@ -297,7 +324,7 @@ pub(crate) fn run(
                         None
                     };
                     let overlay = ui::Overlay::Containers { title, containers, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::NodeDetail { name, state, .. } => {
@@ -318,14 +345,14 @@ pub(crate) fn run(
                         pods: &node_detail_rows,
                         state,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::Events { filter, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -336,14 +363,14 @@ pub(crate) fn run(
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -351,9 +378,9 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, header);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, header);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now);
                     }
                 })?;
             }
@@ -373,7 +400,7 @@ pub(crate) fn run(
                         filter,
                         filter_editing: *filter_editing,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, header);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
         }
@@ -467,6 +494,7 @@ pub(crate) fn run(
                         // "back" than the main screen. `q` still quits;
                         // `:q` also works, same as everywhere else.
                         KeyCode::Char('q') => return Ok(Outcome::Quit),
+                        KeyCode::Char('0') => namespace = None,
                         KeyCode::Char('j') | KeyCode::Down => {
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                         }
@@ -501,6 +529,8 @@ pub(crate) fn run(
                                     && let Some(kind) = catalog.kind_for_tile_label(label)
                                 {
                                     current_kind = kind;
+                                    scope = None;
+                                    nav_stack.clear();
                                     table_state.select(Some(0));
                                     search.clear();
                                 }
@@ -583,6 +613,8 @@ pub(crate) fn run(
                                 && let Some(kind) = catalog.kind_for_tile_label(label)
                             {
                                 current_kind = kind;
+                                scope = None;
+                                nav_stack.clear();
                                 table_state.select(Some(0));
                                 search.clear();
                                 mode = Mode::List;
@@ -603,6 +635,15 @@ pub(crate) fn run(
                     // somehow can't find it) one specific CRD kind's
                     // instances came from, mirroring how you got there.
                     // Quitting from in here is still reachable via `:q`.
+                    KeyCode::Char('q') | KeyCode::Esc if !nav_stack.is_empty() => {
+                        // Back out of a drill-down to the list it came from.
+                        if let Some((kind, previous_scope, selected)) = nav_stack.pop() {
+                            current_kind = kind;
+                            scope = previous_scope;
+                            table_state.select(Some(selected));
+                        }
+                        search.clear();
+                    }
                     KeyCode::Char('q') | KeyCode::Esc => {
                         current_kind = match current_kind {
                             ResourceKind::CustomResource(index, _) => catalog
@@ -614,6 +655,57 @@ pub(crate) fn run(
                         };
                         table_state.select(Some(0));
                         search.clear();
+                    }
+                    // Enter drills into what a row owns or selects: a
+                    // Deployment's ReplicaSets, a ReplicaSet's Pods, a
+                    // Service's Pods, a CronJob's Jobs. On a Namespace it
+                    // narrows every later query to that namespace.
+                    KeyCode::Enter if current_kind.drill_target().is_some() => {
+                        let target = current_kind.drill_target().expect("guarded above");
+                        let selected = table_state.selected().unwrap_or(0);
+                        let mut drilled_namespace = None;
+                        let new_scope = match current_kind {
+                            ResourceKind::Deployments => deployments.get(selected).map(|d| Scope::Owner {
+                                uid: d.metadata.uid.clone().unwrap_or_default(),
+                                kind: "Deployment".into(),
+                                name: d.metadata.name.clone().unwrap_or_default(),
+                            }),
+                            ResourceKind::Namespaces => {
+                                drilled_namespace = generic_rows.get(selected).map(|r| r.name.clone());
+                                None
+                            }
+                            ResourceKind::Services => {
+                                let manifest = generic_visible
+                                    .get(selected)
+                                    .and_then(|&real| catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real)));
+                                generic_rows.get(selected).zip(manifest).map(|(row, manifest)| Scope::Selector {
+                                    labels: service_selector(&manifest),
+                                    kind: "Service".into(),
+                                    name: row.name.clone(),
+                                })
+                            }
+                            _ => generic_rows.get(selected).map(|row| Scope::Owner {
+                                uid: row.uid.clone(),
+                                kind: singular(current_kind),
+                                name: row.name.clone(),
+                            }),
+                        };
+                        if new_scope.is_some() || drilled_namespace.is_some() {
+                            nav_stack.push((current_kind, scope.take(), selected));
+                            if let Some(ns) = drilled_namespace {
+                                namespace = Some(ns);
+                            } else {
+                                scope = new_scope;
+                            }
+                            current_kind = target;
+                            table_state.select(Some(0));
+                            search.clear();
+                        }
+                    }
+                    // `0`: back to every namespace.
+                    KeyCode::Char('0') => {
+                        namespace = None;
+                        table_state.select(Some(0));
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
@@ -682,6 +774,8 @@ pub(crate) fn run(
                             && let Some((real_index, crd)) = crd_rows.get(index)
                         {
                             current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
+                            scope = None;
+                            nav_stack.clear();
                             table_state.select(Some(0));
                             search.clear();
                         }
@@ -742,6 +836,8 @@ pub(crate) fn run(
                             _ => k8s::ResourceKind::from_command(&cmd),
                         } {
                             current_kind = kind;
+                            scope = None;
+                            nav_stack.clear();
                             table_state.select(Some(0));
                             search.clear();
                             mode = Mode::List;
@@ -844,6 +940,8 @@ pub(crate) fn run(
                         KeyCode::Enter => {
                             if let Some(kind) = sections.get(selected.0).and_then(|s| s.tiles.get(selected.1)) {
                                 current_kind = *kind;
+                                scope = None;
+                                nav_stack.clear();
                                 table_state.select(Some(0));
                                 search.clear();
                                 mode = Mode::List;

@@ -10,6 +10,7 @@ mod k8s;
 mod metrics;
 mod mode;
 mod picker;
+mod scope;
 mod ui;
 
 use std::collections::HashMap;
@@ -40,6 +41,7 @@ use catalog::*;
 use cli::*;
 use commands::*;
 use mode::*;
+use scope::*;
 
 /// How one connected session ended: quit for good, or reconnect to a
 /// different kubeconfig context.
@@ -85,6 +87,8 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         cluster: info.as_ref().map(|c| c.cluster.clone()).unwrap_or_default(),
         user: info.map(|c| c.user).unwrap_or_default(),
         role: "read-and-write".to_string(),
+        namespace: "all".to_string(),
+        scope: String::new(),
         k8s_version,
         knav_version: format!("v{}", env!("CARGO_PKG_VERSION")),
     };

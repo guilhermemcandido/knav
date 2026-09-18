@@ -3,6 +3,7 @@
 use super::*;
 
 /// What the header shows — built once per connected session.
+#[derive(Clone)]
 pub struct HeaderInfo {
     pub context: String,
     pub cluster: String,
@@ -10,6 +11,10 @@ pub struct HeaderInfo {
     /// What knav is allowed to do: `read-and-write` today; a future
     /// read-only mode would show `read-only`.
     pub role: String,
+    /// The namespace queries are narrowed to (`all` when none).
+    pub namespace: String,
+    /// What the current list is drilled into (`Deployment/web`), if anything.
+    pub scope: String,
     pub k8s_version: String,
     pub knav_version: String,
 }
@@ -40,6 +45,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
 
     let fields = [
         ("Context:", info.context.as_str()),
+        ("Namespace:", info.namespace.as_str()),
+        ("Scope:", info.scope.as_str()),
         ("Cluster:", info.cluster.as_str()),
         ("User:", info.user.as_str()),
         ("Role:", info.role.as_str()),

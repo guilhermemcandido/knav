@@ -229,14 +229,22 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::List => {
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec")],
-                ResourceKind::Deployments => vec![("j/k", "move"), ("d", "spec")],
+                ResourceKind::Deployments => vec![("j/k", "move"), ("enter", "replicasets"), ("d", "spec")],
+                ResourceKind::Namespaces => vec![("j/k", "move"), ("enter", "pods in namespace"), ("d", "spec")],
+                ResourceKind::CronJobs => vec![("j/k", "move"), ("enter", "jobs"), ("d", "spec")],
+                ResourceKind::ReplicaSets
+                | ResourceKind::StatefulSets
+                | ResourceKind::DaemonSets
+                | ResourceKind::Jobs
+                | ResourceKind::Services => vec![("j/k", "move"), ("enter", "pods"), ("d", "spec")],
                 ResourceKind::Nodes => vec![("j/k", "move"), ("enter", "what's running"), ("d", "spec")],
                 ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => vec![("j/k", "move"), ("enter", "open")],
-                _ => vec![("j/k", "move"), ("d", "spec")],
+                _ => vec![("j/k", "move"), ("enter", "spec"), ("d", "spec")],
             };
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
             }
+            hints.push(("0", "all namespaces"));
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
             hints.push(("C", "switch context"));

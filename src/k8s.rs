@@ -90,21 +90,37 @@ impl ResourceKind {
         }
     }
 
-    /// Whether Enter on a row of this kind opens its manifest (`d`).
-    /// Everything does, except the kinds where Enter already drills
-    /// somewhere else: Pods (containers), Nodes (what's running on
-    /// them) and the custom-resource pickers (open that kind). When
-    /// drill-down into owned resources lands (Deployment -> ReplicaSets
-    /// -> Pods, ...) those kinds move to this exclusion list.
+    /// What Enter on a row of this kind drills into, if anything: a
+    /// Deployment's ReplicaSets, a ReplicaSet's/StatefulSet's/
+    /// DaemonSet's/Job's/Service's Pods, a CronJob's Jobs, a Namespace's
+    /// Pods (and every later query narrowed to that namespace). Pods and
+    /// Nodes drill too, but into their own popups rather than a list.
+    pub fn drill_target(self) -> Option<ResourceKind> {
+        match self {
+            ResourceKind::Deployments => Some(ResourceKind::ReplicaSets),
+            ResourceKind::ReplicaSets
+            | ResourceKind::StatefulSets
+            | ResourceKind::DaemonSets
+            | ResourceKind::Jobs
+            | ResourceKind::Services
+            | ResourceKind::Namespaces => Some(ResourceKind::Pods),
+            ResourceKind::CronJobs => Some(ResourceKind::Jobs),
+            _ => None,
+        }
+    }
+
+    /// Whether Enter on a row of this kind opens its manifest (`d`):
+    /// everything that doesn't drill somewhere else.
     pub fn opens_spec_on_enter(self) -> bool {
-        !matches!(
-            self,
-            ResourceKind::Overview
-                | ResourceKind::Pods
-                | ResourceKind::Nodes
-                | ResourceKind::CustomResourceList
-                | ResourceKind::CustomResourceGroup(_)
-        )
+        self.drill_target().is_none()
+            && !matches!(
+                self,
+                ResourceKind::Overview
+                    | ResourceKind::Pods
+                    | ResourceKind::Nodes
+                    | ResourceKind::CustomResourceList
+                    | ResourceKind::CustomResourceGroup(_)
+            )
     }
 
     /// The reverse of `label()` — for the fixed, compile-time-known kinds
@@ -900,6 +916,10 @@ pub struct GenericRow {
     pub namespace: String,
     pub name: String,
     pub age: String,
+    pub uid: String,
+    /// UIDs of this object's owners (`ownerReferences`) — what lets a
+    /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
+    pub owners: Vec<String>,
 }
 
 /// Not pinned to `DynamicType = ()` — `Resource::meta()` only reads
@@ -911,7 +931,9 @@ pub fn generic_row<K: kube::Resource>(item: &K) -> GenericRow {
     let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
     let name = meta.name.clone().unwrap_or_default();
     let age = meta.creation_timestamp.as_ref().map(|t| humanize_age(t.0)).unwrap_or_else(|| "-".into());
-    GenericRow { namespace, name, age }
+    let uid = meta.uid.clone().unwrap_or_default();
+    let owners = meta.owner_references.iter().flatten().map(|o| o.uid.clone()).collect();
+    GenericRow { namespace, name, age, uid, owners }
 }
 
 /// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic
@@ -1106,8 +1128,11 @@ mod resource_kind_tests {
     #[test]
     fn enter_opens_the_spec_except_where_it_drills_elsewhere() {
         assert!(ResourceKind::ConfigMaps.opens_spec_on_enter());
-        assert!(ResourceKind::Services.opens_spec_on_enter());
-        assert!(ResourceKind::Deployments.opens_spec_on_enter());
+        assert!(!ResourceKind::Services.opens_spec_on_enter());
+        assert!(!ResourceKind::Deployments.opens_spec_on_enter());
+        assert_eq!(ResourceKind::Deployments.drill_target(), Some(ResourceKind::ReplicaSets));
+        assert_eq!(ResourceKind::CronJobs.drill_target(), Some(ResourceKind::Jobs));
+        assert_eq!(ResourceKind::ConfigMaps.drill_target(), None);
         assert!(ResourceKind::CustomResource(0, "Widget").opens_spec_on_enter());
         assert!(!ResourceKind::CustomResourceList.opens_spec_on_enter());
         assert!(!ResourceKind::Pods.opens_spec_on_enter());

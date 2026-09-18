@@ -419,7 +419,7 @@ mod generic_table_tests {
     use super::*;
 
     fn row(namespace: &str) -> GenericRow {
-        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string() }
+        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), uid: String::new(), owners: Vec::new() }
     }
 
     #[test]
