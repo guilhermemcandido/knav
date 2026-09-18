@@ -1322,6 +1322,88 @@ no equivalent "recompute the same count a different way" step to drift.
   order happens to return; fine for realistic kubeconfig naming, could
   bite someone with near-duplicate context names.
 
+## Done since last update (2026-09-18, later still #6) — Resources/Events boxes, broadened feed, filterable browser, collapse removed
+
+### Dashboard: renamed, boxed, colored
+
+- "Cluster Resources" -> "Resources", "Cluster Issues" -> "Events" —
+  both now their own rounded-border box, same visual language as the
+  column boxes below (per explicit request: "do one for the Events and
+  Resources at the top"). Selecting either (keyboard or mouse) highlights
+  its whole border, herdr-style; otherwise the Events box's border
+  reflects overall cluster health at a glance — green (no warnings),
+  yellow (a warning exists), red (a Node-condition warning exists,
+  since that affects everything scheduled on it).
+
+### Events feed broadened from warnings-only to everything, chronologically
+
+- `k8s::Warning` renamed/widened to `EventEntry` with a `severity`
+  (`Normal`/`Warning` — the only two Kubernetes itself defines, so no
+  fabricated third "Errors" bucket). The feed now includes every cluster
+  Event, not just Warning-type ones, plus each node's own problem
+  conditions folded in as synthetic Warning entries — same chronological
+  sort as before.
+- Dashboard preview line gained a TYPE column and Normal-severity color
+  (a muted green, reads as "routine" next to Warning's yellow and a
+  Node-warning's red).
+
+### A full, filterable Events browser
+
+- Pressing Enter while the Events box is selected opens a new
+  full-screen browser (`Mode::Events`/`Overlay::Events`) — every event,
+  uncapped (unlike the 5-line dashboard preview), with `a`/`w`/`n`
+  keyboard shortcuts to filter to all/warnings/normal. Table columns:
+  TYPE, REASON, OBJECT, KIND, MESSAGE, AGE.
+
+### Per-column collapse removed, replaced with scroll arrows
+
+- Asked the user directly whether collapse (Tab/z/Z, the ▾/▸ header
+  indicator) was still worth keeping now that columns are boxed
+  side-by-side — their answer: remove it, since collapsing one column
+  doesn't free space for the others in this layout (unlike the old 1-row
+  design), so it wasn't earning its keybindings/visual noise anymore.
+  Removed entirely: the `overview_collapsed: HashSet<usize>` state, Tab/
+  z/Z key handling, the indicator glyph, and `collapsed` parameters
+  threaded through `move_overview_selection`/`column_hit`/`draw_columns`/
+  `draw_column`.
+- Replaced with "◀"/"▶" arrows in 1-cell gutters flanking the columns
+  area, shown only when scrolling that direction would actually reveal
+  another column — the intended replacement affordance for "there's more
+  here," suggested by the user themselves.
+
+### Resources/Events are now part of Overview's keyboard/mouse navigation
+
+- `OverviewSelection` gained `Resources`/`Events` variants sitting above
+  the column grid in the Up/Down chain: Up from any column header lands
+  on Events, Up from Events lands on Resources, Down reverses it. Left/
+  Right are no-ops on both (nothing beside them to move to). Mouse clicks
+  on either box select it the same way clicking a column header does.
+
+### Verified against the live cluster
+
+- `tmux capture-pane` screenshots (not just pty logs, which are full of
+  cursor-positioning escapes and unreadable) at three terminal sizes
+  (240x55, 140x45, 60x20/50x15 for a no-panic stress check) confirmed:
+  the boxed Resources/Events panels render correctly with real data,
+  horizontal column scrolling and the new ◀/▶ arrows work, Up/Down
+  correctly walks Resources -> Events -> column headers and back, Enter
+  on Events opens the browser showing all 11 real events with correct
+  TYPE/REASON/OBJECT/KIND/MESSAGE/AGE, and `a`/`w`/`n` filtering narrowed
+  the list correctly (11 -> 2 for warnings, 11 -> 9 for normal). No
+  panics at any tested size. 42/42 unit tests, clippy clean.
+
+### Not done on purpose
+
+- No "Errors" filter/severity in the Events browser — Kubernetes Events
+  only have `Normal`/`Warning` as a `type`; a substring heuristic on the
+  message (like the log viewer's error/warn keyword coloring) could
+  fabricate one, but that's guessing at intent rather than reflecting
+  real API structure, so it was left out.
+- No ambiguity/tie-break handling if a future column ever wants both
+  Resources/Events-style navigation *and* per-item vertical scroll
+  bookkeeping across a Resources<->Events switch — not needed yet since
+  neither box has its own scrollable list.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
