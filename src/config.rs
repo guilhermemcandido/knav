@@ -43,11 +43,32 @@ pub struct Keybindings {
     pub logs: LogsKeybindings,
 }
 
+/// How knav starts up, k9s/Lens-style: `direct` connects straight to
+/// whatever context `kube` would infer (in-cluster, or the kubeconfig's
+/// `current-context`) — no extra screen, matching k9s's default. `menu`
+/// always shows the freelens-style cluster picker first, even if there's
+/// only one context. `--context` on the command line bypasses this
+/// entirely regardless of which mode is configured.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StartupMode {
+    #[default]
+    Direct,
+    Menu,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct StartupConfig {
+    pub mode: StartupMode,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub logs: LogsConfig,
     pub keybindings: Keybindings,
+    pub startup: StartupConfig,
 }
 
 impl Config {

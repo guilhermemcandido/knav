@@ -1,15 +1,17 @@
 mod config;
+mod fuzzy;
 mod icons;
 mod k8s;
 mod metrics;
+mod picker;
 mod ui;
 
 use std::collections::{HashMap, HashSet};
 use std::io::stdout;
 use std::time::Duration;
 
-use anyhow::Result;
-use config::{Config, TimestampFormat};
+use anyhow::{Context as _, Result};
+use config::{Config, StartupMode, TimestampFormat};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind};
 use crossterm::execute;
 use k8s::ResourceKind;
@@ -289,13 +291,73 @@ fn menu_position_for(kind: ResourceKind) -> (usize, usize) {
     (0, 0)
 }
 
+/// Command-line arguments — deliberately hand-rolled instead of pulling in
+/// a full argument-parsing crate for what's currently a single flag.
+struct Cli {
+    /// `-c`/`--context <query>` — fuzzy-matched against the kubeconfig's
+    /// contexts and connected to directly, bypassing the cluster picker
+    /// regardless of `startup.mode`.
+    context_query: Option<String>,
+}
+
+impl Cli {
+    fn parse(args: impl Iterator<Item = String>) -> Result<Self> {
+        let mut context_query = None;
+        let mut args = args;
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-c" | "--context" => {
+                    context_query = Some(args.next().with_context(|| format!("{arg} requires a value"))?);
+                }
+                "-h" | "--help" => {
+                    println!(
+                        "knav [-c|--context <name>]\n\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -h, --help            show this help"
+                    );
+                    std::process::exit(0);
+                }
+                other => anyhow::bail!("unrecognized argument: {other} (try --help)"),
+            }
+        }
+        Ok(Cli { context_query })
+    }
+}
+
+/// Resolves which kubeconfig context to connect to, before anything else
+/// starts up — `--context` always wins (resolved once, non-interactively,
+/// via fuzzy match); otherwise the config's `startup.mode` decides between
+/// connecting directly (k9s-style, the default) or showing the
+/// freelens-style cluster picker first. `Ok(None)` from the picker means
+/// the user cancelled, which should exit knav entirely rather than
+/// silently falling back to some default cluster.
+fn resolve_context(cli: &Cli, config: &Config) -> Result<Option<String>> {
+    if let Some(query) = &cli.context_query {
+        let contexts = k8s::list_contexts()?;
+        return fuzzy::best_match(query, contexts.iter().map(|c| c.name.as_str()))
+            .map(|name| Some(name.to_string()))
+            .with_context(|| format!("no kubeconfig context matches '{query}'"));
+    }
+
+    match config.startup.mode {
+        StartupMode::Direct => Ok(None),
+        StartupMode::Menu => {
+            let contexts = k8s::list_contexts()?;
+            match picker::run(&contexts)? {
+                Some(name) => Ok(Some(name)),
+                None => std::process::exit(0),
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
+    let cli = Cli::parse(std::env::args().skip(1))?;
+    let context = resolve_context(&cli, &config)?;
 
-    let client = k8s::connect().await?;
+    let client = k8s::connect_to_context(context.as_deref()).await?;
     let (pod_store, _pod_watch_handle) = k8s::watch_pods(client.clone());
     let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());
     let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());

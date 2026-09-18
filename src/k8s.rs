@@ -194,8 +194,47 @@ pub struct ContainerInfo {
     pub restarts: i32,
 }
 
-pub async fn connect() -> Result<Client> {
-    Ok(Client::try_default().await?)
+/// One kubeconfig context, for the cluster picker — just enough to list
+/// and identify it. `cluster`/`namespace` are shown alongside the name
+/// since two contexts can share a name pattern (e.g. "prod-us"/"prod-eu")
+/// but point at very different clusters, which the name alone wouldn't
+/// make obvious.
+pub struct ContextInfo {
+    pub name: String,
+    pub cluster: String,
+    pub is_current: bool,
+}
+
+/// Every context in the kubeconfig (`$KUBECONFIG` or `~/.kube/config`,
+/// same resolution `kube` itself uses) — the picker's whole candidate
+/// list. Ordering matches the file, same as `kubectl config get-contexts`.
+pub fn list_contexts() -> Result<Vec<ContextInfo>> {
+    let kubeconfig = kube::config::Kubeconfig::read()?;
+    let current = kubeconfig.current_context.clone();
+    Ok(kubeconfig
+        .contexts
+        .into_iter()
+        .map(|c| {
+            let cluster = c.context.as_ref().map(|ctx| ctx.cluster.clone()).unwrap_or_default();
+            let is_current = current.as_deref() == Some(c.name.as_str());
+            ContextInfo { name: c.name, cluster, is_current }
+        })
+        .collect())
+}
+
+/// Connects to a specific kubeconfig context by name, or (`None`) whatever
+/// `kube` itself would infer — in-cluster config if running inside a pod,
+/// else the kubeconfig's own `current-context`. The same "infer" path
+/// `connect` already used, just exposed so a chosen context can override it.
+pub async fn connect_to_context(context: Option<&str>) -> Result<Client> {
+    let config = match context {
+        Some(name) => {
+            kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions { context: Some(name.to_string()), ..Default::default() })
+                .await?
+        }
+        None => kube::Config::infer().await?,
+    };
+    Ok(Client::try_from(config)?)
 }
 
 /// Per-container state, straight from `status.containerStatuses` — this is
