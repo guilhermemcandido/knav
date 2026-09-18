@@ -631,12 +631,11 @@ const TILE_WIDTH: u16 = 22;
 /// `column_layout`) so each reads as a distinct bordered pane, herdr-style,
 /// rather than boxes sharing an edge.
 const COLUMN_WIDTH: u16 = 28;
-/// Each item card's fixed height: a rounded-border top edge (carrying the
-/// kind's name as its title, so the name reads as a large, bold label
-/// rather than competing with an icon on a cramped single line), one
-/// content row for the icon + live count, and a rounded-border bottom
-/// edge.
-const ITEM_HEIGHT: u16 = 3;
+/// Each item card's fixed height: a rounded-border top edge, an icon
+/// banner row, a name + live count row below it, and a rounded-border
+/// bottom edge — icon-above-caption, like a file manager's icon grid,
+/// not text squeezed to one side of the icon.
+const ITEM_HEIGHT: u16 = 4;
 /// The Events panel is a fixed-size dashboard strip, not a scrollable
 /// section — cap how many entries it shows directly, with a "+N more"
 /// line instead of growing to fit all of them. The full, uncapped,
@@ -1270,9 +1269,12 @@ fn resolve_icon_kind(label: &str, column_title: &str) -> Option<ResourceKind> {
 /// the whole card's border into a solid highlight color rather than just
 /// tinting the background.
 #[allow(clippy::too_many_arguments)]
+/// The icon gets its own banner row across the top of the card, the name
+/// and count share a plain text row below it — like a file manager's
+/// icon-above-caption layout, not text squeezed to one side of the icon.
 fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
     let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let (border_style, title_style, count_style) = if dimmed {
+    let (border_style, text_style, count_style) = if dimmed {
         let muted = Style::default().fg(Color::DarkGray);
         (muted, muted, muted)
     } else if selected {
@@ -1281,30 +1283,28 @@ fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, co
         (Style::default(), Style::default().add_modifier(Modifier::BOLD), Style::default().fg(Color::Cyan))
     };
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(border_style)
-        .title(Line::styled(format!(" {label} "), title_style));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    if inner.height == 0 {
+    if inner.height < 2 {
         return;
     }
 
-    // Swapped from the original icon-left/count-right layout, per
-    // explicit request — the count now sits in the flexible left zone,
-    // the icon in the small fixed-width zone on the right.
-    let icon_w = 3u16.min(inner.width);
-    let split = Layout::horizontal([Constraint::Min(0), Constraint::Length(icon_w)]).split(inner);
-
-    frame.render_widget(Paragraph::new(Line::styled(count.to_string(), count_style)).alignment(Alignment::Left), split[0]);
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
 
     match (dimmed, resolve_icon_kind(label, column_title)) {
-        (false, Some(kind)) => icons.draw(frame, icons.centered_square(split[1]), kind),
-        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[1]),
+        (false, Some(kind)) => icons.draw(frame, icons.centered_square(rows[0]), kind),
+        _ => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), rows[0]),
     }
+
+    let count_text = count.to_string();
+    let label_width = (rows[1].width as usize).saturating_sub(count_text.chars().count() + 1).max(1);
+    let line = Line::from(vec![
+        Span::styled(format!("{:<label_width$}", truncate(label, label_width)), text_style),
+        Span::styled(count_text, count_style),
+    ]);
+    frame.render_widget(Paragraph::new(line), rows[1]);
 }
 
 fn icon_for(label: &str) -> &'static str {
@@ -2165,10 +2165,10 @@ mod overview_selection_tests {
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events));
         // Row 0 of the columns area is the column box's top border (the
-        // header); rows 1-3 are the first item card (border/content/border).
+        // header); rows 1-4 are the first item card (border/icon/text/border).
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h), Some(OverviewSelection::Header(0)));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 1), Some(OverviewSelection::Item(0, 0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 4), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 5), Some(OverviewSelection::Item(0, 1)));
     }
 
     #[test]
