@@ -36,7 +36,7 @@ enum Mode {
     /// `ResourceKind::from_command`) switches the current view. Esc
     /// cancels back to `back` without acting, same as every other
     /// overlay's "where Esc returns to."
-    Command { input: String, back: Box<Mode> },
+    Command { input: String, selected: usize, back: Box<Mode> },
     /// The `/`/`f` live-filter input — editing the persistent `search`
     /// string directly (not its own copy), so the filter it produces
     /// stays applied once you're back in `List`, same as vim/fzf's own
@@ -52,6 +52,14 @@ enum Mode {
         // between "everything open" and "everything closed" rather than
         // needing two separate keys for it.
         expanded_all: bool,
+        // A leaf's full `(label, value)`, keyed by its own tree
+        // identifier — `v` looks up whatever's selected here to show it
+        // untruncated, since the tree itself clips long values to the
+        // box's width with no indication or way to see the rest.
+        leaf_values: ui::LeafValues,
+        // Set by `v`, cleared by q/Esc — which leaf's full value (if
+        // any) is currently shown in its own popup on top of the tree.
+        viewing: Option<(String, String)>,
         // Where Esc returns to — normally the List we opened it from,
         // or NodeDetail if 'd' was pressed from there instead.
         back: Box<Mode>,
@@ -325,6 +333,24 @@ fn menu_sections() -> [ui::MenuSection<'static>; 7] {
         },
         ui::MenuSection { title: "Custom Resources", tiles: &[ResourceKind::CustomResourceList] },
     ]
+}
+
+/// Live autocomplete for the `:` command line — every switchable
+/// resource kind, fuzzy-scored against whatever's typed so far and
+/// sorted best-first, same scorer the search/filter and cluster picker
+/// already use. Empty input suggests nothing (an empty command bar with
+/// a giant list under it isn't "autocomplete," it's just the menu).
+fn command_suggestions(input: &str) -> Vec<ResourceKind> {
+    if input.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<(i64, ResourceKind)> = menu_sections()
+        .iter()
+        .flat_map(|s| s.tiles.iter().copied())
+        .filter_map(|kind| fuzzy::score(input, kind.label()).map(|score| (score, kind)))
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, kind)| kind).take(8).collect()
 }
 
 /// Where a `ResourceKind` sits in the menu grid, so opening the menu
@@ -617,10 +643,12 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
-            Mode::Command { input, .. } => {
+            Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Command { input };
+                    let suggestions = command_suggestions(input);
+                    let selected = (*selected).min(suggestions.len().saturating_sub(1));
+                    let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
             }
@@ -639,7 +667,7 @@ fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons);
                 })?;
             }
-            Mode::Spec { title, items, state, back, .. } => {
+            Mode::Spec { title, items, state, viewing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     // Hoisted out of the `if let` below so these live for
@@ -653,7 +681,7 @@ fn run(
                     let back_capacity = back_found_node.map(|n| k8s::node_capacity(n));
                     let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
                     let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
-                    let background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
+                    let node_background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
                         Some(ui::Overlay::NodeDetail {
                             name: back_node_name.as_deref().unwrap_or(""),
                             cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
@@ -668,7 +696,16 @@ fn run(
                     } else {
                         None
                     };
-                    let overlay = ui::Overlay::Spec { title, items, state };
+                    // While viewing a leaf's full value, the Spec tree
+                    // itself becomes the (dimmed) background instead of
+                    // the focused overlay — the NodeDetail-behind-Spec
+                    // case above doesn't apply two layers deep at once.
+                    let (background, overlay) = match viewing {
+                        Some((label, value)) => {
+                            (Some(ui::Overlay::Spec { title, items, state }), ui::Overlay::ValueDetail { label, value })
+                        }
+                        None => (node_background, ui::Overlay::Spec { title, items, state }),
+                    };
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
@@ -822,7 +859,7 @@ fn run(
                     if key.code == KeyCode::Char(':') && !is_typing(current_mode) =>
                 {
                     let back = Box::new(std::mem::replace(current_mode, Mode::List));
-                    *current_mode = Mode::Command { input: String::new(), back };
+                    *current_mode = Mode::Command { input: String::new(), selected: 0, back };
                 }
                 (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if current_kind == ResourceKind::Overview {
@@ -1080,14 +1117,25 @@ fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Command { input, back }) => match key.code {
+                (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
                     KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Up => *selected = selected.saturating_sub(1),
+                    KeyCode::Down => {
+                        let len = command_suggestions(input).len();
+                        *selected = (*selected + 1).min(len.saturating_sub(1));
+                    }
                     KeyCode::Enter => {
                         let cmd = input.trim().to_lowercase();
                         if matches!(cmd.as_str(), "q" | "quit" | "exit") {
                             return Ok(());
                         }
-                        if let Some(kind) = k8s::ResourceKind::from_command(&cmd) {
+                        // The highlighted autocomplete suggestion wins
+                        // when there is one; `from_command` is only the
+                        // fallback for an exact alias that didn't happen
+                        // to fuzzy-score into the visible list.
+                        let suggestions = command_suggestions(input);
+                        let kind = suggestions.get(*selected).copied().or_else(|| k8s::ResourceKind::from_command(&cmd));
+                        if let Some(kind) = kind {
                             current_kind = kind;
                             table_state.select(Some(0));
                             search.clear();
@@ -1098,8 +1146,12 @@ fn run(
                     }
                     KeyCode::Backspace => {
                         input.pop();
+                        *selected = 0;
                     }
-                    KeyCode::Char(c) => input.push(c),
+                    KeyCode::Char(c) => {
+                        input.push(c);
+                        *selected = 0;
+                    }
                     _ => {}
                 },
                 (Event::Key(key), Mode::Search) => match key.code {
@@ -1142,7 +1194,11 @@ fn run(
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::Spec { items, state, expanded_all, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Spec { viewing: viewing @ Some(_), .. }) => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => *viewing = None,
+                    _ => {}
+                },
+                (Event::Key(key), Mode::Spec { items, state, expanded_all, leaf_values, viewing, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('j') | KeyCode::Down => {
                         state.key_down();
@@ -1168,6 +1224,16 @@ fn run(
                             }
                         }
                         *expanded_all = !*expanded_all;
+                    }
+                    // Shows the selected leaf's full value, untruncated —
+                    // a no-op on a branch node (nothing in `leaf_values`
+                    // for it).
+                    KeyCode::Char('v') => {
+                        if let Some(id) = state.selected().last()
+                            && let Some((label, value)) = leaf_values.get(id)
+                        {
+                            *viewing = Some((label.clone(), value.clone()));
+                        }
                     }
                     _ => {}
                 },
@@ -1441,7 +1507,9 @@ fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'st
         }
         Mode::Command { .. } | Mode::Search => Vec::new(),
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
-        Mode::Spec { .. } => vec![("j/k", "move"), ("enter", "toggle"), ("a", "expand/collapse all"), ("q/esc", "back")],
+        Mode::Spec { .. } => {
+            vec![("j/k", "move"), ("enter", "toggle"), ("v", "view full value"), ("a", "expand/collapse all"), ("q/esc", "back")]
+        }
         Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("q/esc", "back")],
         Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
@@ -1459,7 +1527,7 @@ fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
 }
 
 fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
-    let items = ui::build_manifest_tree(&value);
+    let (items, leaf_values) = ui::build_manifest_tree(&value);
     let mut state = TreeState::default();
     for item in &items {
         state.open(vec![item.identifier().clone()]);
@@ -1469,7 +1537,7 @@ fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     // place regardless of which of `open_spec`'s several call sites
     // opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Spec { title, items, state, expanded_all: false, back };
+    *mode = Mode::Spec { title, items, state, expanded_all: false, leaf_values, viewing: None, back };
 }
 
 /// Every identifier path in the tree, depth-first — used by `a` (see the

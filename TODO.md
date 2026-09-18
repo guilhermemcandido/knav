@@ -1773,6 +1773,44 @@ This round bundled a lot of separate feedback; grouping by area:
 - Couldn't visually verify the "Completed" blue color against a real
   completed container — this cluster's pods don't currently have one.
 
+## Done since last update (2026-09-18, later still #16) — command autocomplete, spec value popup, more cleanup
+
+- Logs title: dropped the ts_status fragment entirely (the literal
+  "(short ts," complaint) — `t: toggle timestamp` is already in the `?`
+  panel, no info actually lost.
+- `:` command line rebuilt with live autocomplete: every switchable
+  resource kind, fuzzy-scored against what's typed (same scorer as `/`
+  search/the cluster picker) and sorted best-first, up to 8 shown.
+  Up/Down moves the highlight, Enter picks it (falling back to
+  `ResourceKind::from_command` only if nothing's highlighted — still
+  covers `:q`/`:quit`/`:exit`). The box grows downward as suggestions
+  appear and — because it's still centered — rises upward at the same
+  time. It also now dims everything behind it (a real modal jump, not a
+  live-narrowing filter like `/`, which still doesn't dim).
+- New: `v` in the Spec/YAML tree shows a leaf's full, untruncated value
+  in its own popup — the tree itself was silently clipping anything
+  wider than the box with zero indication or way to see the rest (a
+  cert blob, a long annotation). `build_manifest_tree` now returns a
+  `(items, LeafValues)` pair — a lookup from a leaf's own tree
+  identifier (already unique) to its `(label, full value)` — instead of
+  just the tree, since the pre-styled `Line`s it builds don't hold onto
+  the raw string.
+- Investigated the "Workloads section labels sometimes render as empty
+  boxes" screenshot: tried to reproduce at several terminal widths
+  bracketing the one in the screenshot (where the layout math suggested
+  it would happen, ~130-160 columns) and couldn't — every width tried
+  rendered every tile's label correctly. Not fixed because not
+  reproduced; flagged for the user to say whether it's persistent
+  (worth their exact terminal size to chase further) or was a one-off.
+- Not treated as an action item: "the search is now highlighting the
+  results" read as a neutral observation, not a complaint — no code
+  changed for it. Worth the user confirming that's the right read.
+- Verified live via tmux: `:po` correctly suggests Pods/Endpoints/
+  NetworkPolicies/Deployments and Enter on the highlighted one switches
+  to Pods; background dims behind the command box; `v` on a leaf
+  ("kind") opens a popup showing "Pod" untruncated, `v` on a branch node
+  is correctly a no-op, Esc closes the value popup back to the tree.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Position, Rect},
@@ -63,11 +65,13 @@ pub enum Overlay<'a> {
         pods: &'a [PodRow],
         state: &'a mut TableState,
     },
-    /// A vim/k9s-style `:` command line, drawn as a plain bottom bar —
-    /// unlike every other overlay it doesn't dim the background, since
-    /// you're still looking at (and can still see) the view you're
-    /// about to switch away from.
-    Command { input: &'a str },
+    /// A vim/k9s-style `:` command line with live autocomplete —
+    /// `suggestions` are already fuzzy-matched and sorted (see
+    /// `command_suggestions` in `main.rs`), `selected` is which one
+    /// Up/Down has highlighted. Unlike `Search`, this one *does* dim the
+    /// background — it's a real modal jump, not a live-narrowing filter
+    /// you're meant to keep watching.
+    Command { input: &'a str, suggestions: &'a [ResourceKind], selected: usize },
     /// The dedicated Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
@@ -86,10 +90,15 @@ pub enum Overlay<'a> {
     /// a category has more kinds than the compact column can show at
     /// once (e.g. Custom Resources with many discovered groups).
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
-    /// The `/`/`f` live-filter input bar — a plain bottom bar like
-    /// `Command`, since you're still meant to see the list narrowing as
-    /// you type, not have it dimmed away.
+    /// The `/`/`f` live-filter input bar — still doesn't dim the
+    /// background, since you're meant to see the list narrowing as you
+    /// type, unlike `Command`'s modal jump.
     Search { query: &'a str, matches: usize },
+    /// A tree leaf's full, untruncated value — `v` in `Mode::Spec`,
+    /// since a long value (a cert blob, a long annotation) just gets
+    /// silently clipped by the box's width otherwise, with no way to
+    /// see the rest of it.
+    ValueDetail { label: &'a str, value: &'a str },
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -139,10 +148,9 @@ pub fn draw(
     breadcrumb: Option<&[BreadcrumbSegment]>,
     icons: &mut IconCache,
 ) {
-    // The command line and the search bar don't dim the background —
-    // you're still meant to see (and read) the view you're about to
-    // switch away from / the list actually narrowing, same as k9s's own
-    // `:` prompt.
+    // `Command` is a real modal jump now, so it dims like everything
+    // else; `Search` stays undimmed — you're meant to see (and read) the
+    // list actually narrowing as you type.
     let dimmed = background.is_some()
         || matches!(
             overlay,
@@ -151,10 +159,12 @@ pub fn draw(
                 | Some(Overlay::Logs { .. })
                 | Some(Overlay::Menu { .. })
                 | Some(Overlay::NodeDetail { .. })
+                | Some(Overlay::Command { .. })
                 | Some(Overlay::Events { .. })
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
                 | Some(Overlay::ColumnDetail { .. })
+                | Some(Overlay::ValueDetail { .. })
         );
     let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Search { .. }));
 
@@ -223,7 +233,7 @@ pub fn draw(
 /// they're never drawn as anyone's background.
 fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
-        Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state),
+        Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
         Overlay::Containers { title, containers, state } => draw_containers_popup(frame, title, containers, state, dimmed),
         Overlay::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing } => {
             draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, filter, filter_editing)
@@ -232,7 +242,7 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
         Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
             draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, dimmed)
         }
-        Overlay::Command { input } => draw_command_bar(frame, input),
+        Overlay::Command { input, suggestions, selected } => draw_command_bar(frame, input, suggestions, selected),
         Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
@@ -240,6 +250,7 @@ fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut I
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
+        Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
 }
 
@@ -339,8 +350,16 @@ fn dim_style() -> Style {
 /// Spotlight style — used for the `/` filter and `:` command line
 /// instead of pinning either to an edge nobody's looking at.
 fn centered_input_box(area: Rect) -> Rect {
+    centered_box(area, 3)
+}
+
+/// Same centering as `centered_input_box`, but for a box that grows —
+/// the `:` command line rises as its autocomplete list grows underneath
+/// it, since centering a taller box moves its top edge up while its
+/// bottom edge moves down, instead of just growing downward off-center.
+fn centered_box(area: Rect, height: u16) -> Rect {
     let width = (area.width * 3 / 5).max(20).min(area.width);
-    let height = 3.min(area.height).max(1);
+    let height = height.min(area.height).max(1);
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect { x, y, width, height }
@@ -401,14 +420,32 @@ fn container_state_text(c: &ContainerInfo) -> String {
 
 /// The `:` command line — a floating box centered on the screen, same
 /// as the search box, on top of whatever's there.
-fn draw_command_bar(frame: &mut Frame, input: &str) {
-    let bar = centered_input_box(frame.area());
+/// The `:` command line plus its live autocomplete list — one suggestion
+/// per matching resource kind, best match first, growing the box
+/// downward (and, since it's centered, rising upward too) as you type.
+fn draw_command_bar(frame: &mut Frame, input: &str, suggestions: &[ResourceKind], selected: usize) {
+    let box_height = 3 + suggestions.len() as u16;
+    let bar = centered_box(frame.area(), box_height);
     frame.render_widget(Clear, bar);
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Command");
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
+
+    let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
     let line = Line::styled(format!(":{input}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-    frame.render_widget(Paragraph::new(line), inner);
+    frame.render_widget(Paragraph::new(line), rows[0]);
+
+    for (i, kind) in suggestions.iter().enumerate() {
+        let Some(row) = rows.get(i + 1) else { break };
+        let is_selected = i == selected;
+        let style = if is_selected {
+            Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        let text = format!("{:width$}", kind.label(), width = row.width as usize);
+        frame.render_widget(Paragraph::new(Span::styled(text, style)), *row);
+    }
 }
 
 /// Shared namespace/name coloring — namespace in the app's cyan accent,
@@ -2067,21 +2104,43 @@ fn colored_slash_title(title: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>) {
+/// `dimmed` only ever applies when this is the background behind its
+/// own `ValueDetail` popup (`v` on a leaf) — the tree's own per-node
+/// colors (baked into each `TreeItem`'s `Line` at build time in
+/// `build_manifest_tree`) aren't re-muted, just the border/title and
+/// selection highlight, same lighter-touch dimming `EventDetail`'s
+/// background gets.
+fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, dimmed: bool) {
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(colored_slash_title(title));
+    let border_style = if dimmed { dim_style() } else { Style::default() };
+    let title_line = if dimmed { Line::styled(title.to_string(), dim_style()) } else { colored_slash_title(title) };
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title_line);
 
+    let highlight_style = if dimmed { dim_style() } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
     let tree = Tree::new(items)
         .expect("pod tree ids are unique per level by construction")
         .block(block)
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_style(highlight_style)
         .node_closed_symbol("▸ ")
         .node_open_symbol("▾ ")
         .node_no_children_symbol("  ");
 
     frame.render_stateful_widget(tree, area, state);
+}
+
+/// A tree leaf's full value, untruncated — opened by `v`. Plain wrapped
+/// text, same treatment as `draw_event_detail_popup` for the same
+/// reason: a narrow column/box clips long content with no indication or
+/// way to see the rest.
+fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &str) {
+    let area = centered_rect(70, 50, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{label}  —  q/esc: back"));
+    let paragraph = Paragraph::new(value.to_string()).wrap(Wrap { trim: false }).block(block);
+    frame.render_widget(paragraph, area);
 }
 
 fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, dimmed: bool) {
@@ -2157,13 +2216,9 @@ fn draw_logs_popup(
     // pausing/resuming/toggling timestamps live in the `?` commands
     // panel now instead of being spelled out here every time.
     let follow_status = if follow { "following" } else { "paused" };
-    let ts_status = match timestamp_format {
-        TimestampFormat::Short => "short ts",
-        TimestampFormat::Full => "full ts",
-    };
     let filter_status = if filter.is_empty() { String::new() } else { format!(", {}/{} match \"{filter}\"", filtered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
-    title_line.push_span(Span::raw(format!("  —  {follow_status}  ({ts_status}, {} lines{filter_status})", lines.len())));
+    title_line.push_span(Span::raw(format!("  —  {follow_status}  ({} lines{filter_status})", lines.len())));
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title_line);
 
     // When following, always show exactly the tail that fits the visible
@@ -2271,17 +2326,27 @@ pub fn click_tree(state: &mut TreeState<String>, column: u16, row: u16) {
 /// root (e.g. `root/spec/containers/[0]/image`), which is what
 /// `TreeState` uses to track open/closed and selection — so it stays
 /// unique even though sibling branches reuse field names like `name`.
-pub fn build_manifest_tree(value: &serde_yaml::Value) -> Vec<TreeItem<'static, String>> {
-    children_of(value, "root")
+/// Alongside the tree itself, a lookup from a leaf's identifier (opaque,
+/// but guaranteed unique — see below) to its `(label, full value)` —
+/// tree items only ever show a value clipped to the box's width with no
+/// indication it's cut off or way to see the rest, so `v` (see the
+/// `Mode::Spec` keyboard handler) looks it up here to show untruncated.
+/// A leaf's `(label, full value)`, by its tree identifier.
+pub type LeafValues = HashMap<String, (String, String)>;
+
+pub fn build_manifest_tree(value: &serde_yaml::Value) -> (Vec<TreeItem<'static, String>>, LeafValues) {
+    let mut leaf_values = HashMap::new();
+    let items = children_of(value, "root", &mut leaf_values);
+    (items, leaf_values)
 }
 
-fn children_of(value: &serde_yaml::Value, path: &str) -> Vec<TreeItem<'static, String>> {
+fn children_of(value: &serde_yaml::Value, path: &str, leaf_values: &mut LeafValues) -> Vec<TreeItem<'static, String>> {
     match value {
         serde_yaml::Value::Mapping(map) => map
             .iter()
             .map(|(k, v)| {
                 let label = scalar_to_string(k);
-                node(&format!("{path}/{label}"), &label, v)
+                node(&format!("{path}/{label}"), &label, v, leaf_values)
             })
             .collect(),
         serde_yaml::Value::Sequence(seq) => seq
@@ -2289,17 +2354,17 @@ fn children_of(value: &serde_yaml::Value, path: &str) -> Vec<TreeItem<'static, S
             .enumerate()
             .map(|(i, v)| {
                 let label = format!("[{i}]");
-                node(&format!("{path}/{label}"), &label, v)
+                node(&format!("{path}/{label}"), &label, v, leaf_values)
             })
             .collect(),
         _ => Vec::new(),
     }
 }
 
-fn node(id: &str, label: &str, value: &serde_yaml::Value) -> TreeItem<'static, String> {
+fn node(id: &str, label: &str, value: &serde_yaml::Value, leaf_values: &mut LeafValues) -> TreeItem<'static, String> {
     match value {
         serde_yaml::Value::Mapping(_) | serde_yaml::Value::Sequence(_) => {
-            let children = children_of(value, id);
+            let children = children_of(value, id, leaf_values);
             let text = Line::from(Span::styled(
                 label.to_string(),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
@@ -2308,10 +2373,9 @@ fn node(id: &str, label: &str, value: &serde_yaml::Value) -> TreeItem<'static, S
                 .expect("child identifiers are unique per level by construction")
         }
         scalar => {
-            let text = Line::from(vec![
-                Span::styled(format!("{label}: "), Style::default().fg(Color::Cyan)),
-                Span::raw(scalar_to_string(scalar)),
-            ]);
+            let full_value = scalar_to_string(scalar);
+            leaf_values.insert(id.to_string(), (label.to_string(), full_value.clone()));
+            let text = Line::from(vec![Span::styled(format!("{label}: "), Style::default().fg(Color::Cyan)), Span::raw(full_value)]);
             TreeItem::new_leaf(id.to_string(), text)
         }
     }
