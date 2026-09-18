@@ -240,8 +240,7 @@ impl Catalog {
 
 /// The `m` menu's layout — same six categories as the Overview catalog.
 /// One shared function so the popup's render pass and its keyboard/Enter
-/// handling can't drift apart (same principle as `build_catalog_rows`
-/// backing the Overview grid's render + navigation).
+/// handling can't drift apart.
 fn menu_sections() -> [ui::MenuSection<'static>; 7] {
     [
         ui::MenuSection { title: "Cluster", tiles: &[ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
@@ -339,15 +338,16 @@ fn run(
     let mut mode = Mode::List;
     let mut hovered: Option<ui::Hover> = None;
     let mut current_kind = ResourceKind::Overview;
-    let mut overview_scroll: usize = 0;
     // Queries the terminal's actual graphics capability (Kitty/Sixel/
     // iTerm2, falling back to halfblocks) — must happen after raw mode is
     // enabled and before the event-read loop below starts, so its own
     // terminal query doesn't race with crossterm's stdin reads.
     let mut icons = icons::IconCache::detect();
-    let mut overview_selected: (usize, usize) = (0, 0);
-    // Which Overview sections are collapsed — index `0..overview.catalog.len()`
-    // for a regular section, `overview.catalog.len()` for "Cluster Issues".
+    let mut overview_selection = ui::OverviewSelection::Item(0, 0);
+    // Horizontal scroll offset into the Overview's columns (Cluster,
+    // Workloads, Config, ... — one per catalog category).
+    let mut overview_col_scroll: usize = 0;
+    // Which Overview columns are collapsed, by index into `overview.catalog`.
     let mut overview_collapsed: HashSet<usize> = HashSet::new();
 
     loop {
@@ -429,7 +429,7 @@ fn run(
         }
 
         let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_scroll, overview_selected, &overview_collapsed),
+            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, &overview_collapsed),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
@@ -512,33 +512,20 @@ fn run(
         }
 
         match (event::read()?, &mut mode) {
-            // Scrolling the Overview page itself — independent of tile
-            // selection, since with bigger tiles and the metrics section
-            // now part of the scroll, a lot of content can sit below one
-            // screen's worth of height and mouse wheel is the natural
-            // way to browse a "just a scrollable page" like this.
-            (Event::Mouse(mouse), Mode::List)
-                if current_kind == ResourceKind::Overview && matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) =>
-            {
-                let catalog_area = ui::catalog_area(frame_area);
-                let cols = ui::tile_cols(catalog_area.width);
-                let max_scroll = ui::catalog_row_count(&overview, &overview_collapsed, cols).saturating_sub(1);
-                match mouse.kind {
-                    MouseEventKind::ScrollDown => overview_scroll = (overview_scroll + 3).min(max_scroll),
-                    MouseEventKind::ScrollUp => overview_scroll = overview_scroll.saturating_sub(3),
-                    _ => unreachable!(),
-                }
-            }
             (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                 if current_kind == ResourceKind::Overview {
                     if matches!(mouse.kind, MouseEventKind::Down(_))
-                        && let Some(section) = ui::header_at(frame_area, &overview, &overview_collapsed, overview_scroll, mouse.row)
+                        && let Some(hit) = ui::column_hit(frame_area, &overview, overview_col_scroll, &overview_collapsed, mouse.column, mouse.row)
                     {
-                        if !overview_collapsed.remove(&section) {
-                            overview_collapsed.insert(section);
+                        match hit {
+                            ui::OverviewSelection::Header(col) => {
+                                if !overview_collapsed.remove(&col) {
+                                    overview_collapsed.insert(col);
+                                }
+                            }
+                            ui::OverviewSelection::Item(_, _) => {}
                         }
-                    } else if let Some(tile) = ui::tile_at(frame_area, &overview, &overview_collapsed, overview_scroll, mouse.column, mouse.row) {
-                        overview_selected = tile;
+                        overview_selection = hit;
                     }
                 } else {
                     hovered = ui::row_at(frame_area, &table_state, row_count, mouse.column, mouse.row).map(|row| {
@@ -547,56 +534,64 @@ fn run(
                 }
             }
             (Event::Key(key), Mode::List) if current_kind == ResourceKind::Overview => {
-                let catalog_area = ui::catalog_area(frame_area);
-                let cols = ui::tile_cols(catalog_area.width);
-                let mut moved = true;
+                let columns_area = ui::columns_area(frame_area, &overview);
+                let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                     KeyCode::Char(':') => {
                         mode = Mode::Command { input: String::new() };
-                        moved = false;
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
-                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Down);
+                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Down);
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
-                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Up);
+                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Up);
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
-                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Left);
+                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Left);
                     }
                     KeyCode::Char('l') | KeyCode::Right => {
-                        overview_selected = ui::move_tile_selection(&overview, &overview_collapsed, cols, overview_selected, ui::Direction::Right);
+                        overview_selection = ui::move_overview_selection(&overview, &overview_collapsed, overview_selection, ui::Direction::Right);
                     }
                     KeyCode::Tab => {
-                        // Collapse/expand the section the current
-                        // selection sits in — mirrors the spec tree's own
-                        // toggle, just keyboard-driven instead of Enter
-                        // (Enter here means "open this tile's view").
-                        let section = overview_selected.0;
-                        if !overview_collapsed.remove(&section) {
-                            overview_collapsed.insert(section);
+                        // Collapse/expand the column the current
+                        // selection sits in — works whether you're on its
+                        // header or one of its items.
+                        let col = match overview_selection {
+                            ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
+                        };
+                        if !overview_collapsed.remove(&col) {
+                            overview_collapsed.insert(col);
                         }
                     }
+                    // Collapse/expand every column at once.
+                    KeyCode::Char('z') => overview_collapsed = (0..overview.catalog.len()).collect(),
+                    KeyCode::Char('Z') => overview_collapsed.clear(),
                     KeyCode::Char('m') => {
                         mode = Mode::Menu { selected: menu_position_for(current_kind) };
-                        moved = false;
                     }
-                    KeyCode::Enter => {
-                        moved = false;
-                        if let Some((_, tiles)) = overview.catalog.get(overview_selected.0)
-                            && let Some((label, _)) = tiles.get(overview_selected.1)
-                            && let Some(kind) = catalog.kind_for_tile_label(label)
-                        {
-                            current_kind = kind;
-                            table_state.select(Some(0));
+                    KeyCode::Enter => match overview_selection {
+                        ui::OverviewSelection::Header(col) => {
+                            if !overview_collapsed.remove(&col) {
+                                overview_collapsed.insert(col);
+                            }
                         }
-                    }
-                    _ => moved = false,
+                        ui::OverviewSelection::Item(col, item) => {
+                            if let Some((_, items)) = overview.catalog.get(col)
+                                && let Some((label, _)) = items.get(item)
+                                && let Some(kind) = catalog.kind_for_tile_label(label)
+                            {
+                                current_kind = kind;
+                                table_state.select(Some(0));
+                            }
+                        }
+                    },
+                    _ => {}
                 }
-                if moved {
-                    overview_scroll = ui::scroll_to_show(&overview, &overview_collapsed, cols, catalog_area.height, overview_scroll, overview_selected);
-                }
+                let target_col = match overview_selection {
+                    ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
+                };
+                overview_col_scroll = ui::scroll_columns_to_show(overview_col_scroll, cols_visible, target_col);
             }
             (Event::Key(key), Mode::List) => match key.code {
                 KeyCode::Char('q') => return Ok(()),

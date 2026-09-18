@@ -1168,6 +1168,86 @@ page" — silently did nothing.
 - Overview grid's own tile selection wasn't changed to a filled
   background — only the `m` menu was, per what was actually asked.
 
+## Done since last update (2026-09-18, later still #4) — Overview rebuilt as Miller-columns, fixed dashboard header
+
+A genuine redesign, not a tweak: replaced the flow-wrapping tile grid
+entirely with a Miller-columns-style browser (one column per category —
+Cluster, Workloads, Config, ...— each listing its kinds vertically,
+horizontal scroll between columns), plus a fixed-size dashboard strip
+(CPU/Memory/Pods meters + a capped Cluster Issues) that no longer
+scrolls away at all. Discussed the tradeoff against a smaller
+incremental fix first (selectable headers + collapse-all on the
+existing vertical grid) — the user chose the full column rewrite.
+
+While investigating this, found and fixed a **real pre-existing bug**:
+`row_index_of_tile` (keyboard auto-scroll) never accounted for the
+Metrics section's rows after it was added two rounds ago — meaning
+keyboard navigation toward later sections was under-scrolling too, not
+just the mouse wheel gap fixed last round. This whole class of bug is
+now structurally impossible: the old approach re-derived row offsets by
+hand in three different places (`row_index_of_tile`, `scroll_to_show`,
+`tile_at`/`header_at`) and they drifted out of sync; the new design has
+no equivalent "recompute the same count a different way" step to drift.
+
+- [x] **Fixed dashboard header** (`draw_top_panel`, `top_area_height`):
+  CPU/Memory/Pods meters, then Cluster Issues capped at
+  `MAX_VISIBLE_ISSUES` (5) with a "… and N more" line — always visible,
+  bounded height, not part of any scroll or collapse system anymore
+  (collapsing was only useful when this was taking a lot of scroll
+  space; now it's small and fixed, so it just stays visible).
+- [x] **Columns replace the tile grid** (`draw_columns`/`draw_column`/
+  `draw_column_item`): one column per catalog category, each a header
+  (`▾`/`▸`, same convention as the spec tree) plus its kinds listed
+  vertically as compact single-line items (small icon + name + count).
+  `OverviewSelection::{Header, Item}` replaces the old `(usize, usize)`
+  tile coordinate.
+- [x] **Headers are directly selectable and toggleable** — `Up` from a
+  column's first item lands on its own header; `Down` from a header
+  enters its first item (or does nothing if collapsed/empty); `Enter`
+  on a header toggles it, same as `Tab` already did indirectly.
+  `Left`/`Right` move directly between columns, landing on the target
+  column's header instead of a nonexistent item if it's collapsed.
+- [x] **`z`/`Z` collapse all / expand all** columns at once.
+- [x] **Continuous horizontal scroll**: `Left`/`Right` past the visible
+  edge scrolls the column view via `scroll_columns_to_show`, the
+  horizontal analog of the old vertical auto-scroll. Mouse click
+  resolves to a header or item via `column_hit`, replacing the old
+  `tile_at`/`header_at` pair.
+- [x] Per user's mid-turn note: made icons short (one row tall) and
+  items compact (one line each: small icon + bold name + count) instead
+  of the earlier idea of 2-row items — more kinds visible per column
+  without scrolling, at the cost of the icon being quite small (a real
+  Kitty-protocol image at 1×3 cells will look tiny, not detailed — an
+  honest tradeoff for density over icon fidelity).
+- [x] Removed the entire old tile-grid stack now that nothing uses it:
+  `CatalogRow`, `build_catalog_rows`, `move_tile_selection`,
+  `row_index_of_tile`, the old vertical `scroll_to_show`, `tile_at`,
+  `header_at`, `draw_catalog`, `draw_section_header`, `draw_tiles_row`,
+  `draw_tile`, `TILE_HEIGHT`/`TILE_ICON_HEIGHT`. `move_selection`/
+  `next_nonempty_section`/`prev_nonempty_section`/`move_menu_selection`
+  were kept — they're shared with (and still used by) the `m` menu
+  popup's own unrelated tile grid.
+- [x] Rewrote the whole test module for the new model (13 tests:
+  within-column movement, header enter/exit transitions, collapsed-
+  column handling, cross-column Left/Right including landing on a
+  collapsed target's header, horizontal scroll-into-view, mouse hit-
+  testing) — 33/33 total, clippy clean.
+- [x] Verified with real interactive input (not just a static render):
+  used `expect` to drive the actual release binary through a pty —
+  column navigation (Left/Right/Up/Down), Tab, `z`/`Z`, scrolling across
+  many columns, and the full Node → NodeDetail → Esc → Esc → quit chain
+  — all against the live cluster, no panics, clean exit both times.
+
+### Not done on purpose
+
+- No per-column vertical scrolling — the widest column (Workloads, 7
+  items) fits comfortably in a normal terminal height at 1 row/item, so
+  this wasn't needed for the current catalog's realistic sizes. Would
+  need revisiting if a category ever grew much larger.
+- The Cluster Resources/Issues dashboard strip lost its own collapse
+  toggle (it had one two rounds ago) — now fixed-size and always shown,
+  per this round's explicit request.
+
 ## Open questions / next steps
 
 - [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real
