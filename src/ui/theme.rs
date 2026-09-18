@@ -1,0 +1,84 @@
+//! The shared colour palette and small styling helpers every screen uses.
+
+use super::*;
+
+/// The color everything in a dimmed "background" layer is muted down
+/// to — deliberately darker than plain ANSI `DarkGray` (which most
+/// terminals render as a fairly legible mid-gray) plus the `DIM`
+/// modifier on top, so a screen sitting behind a popup reads as
+/// unmistakably out of focus rather than just "a bit gray."
+pub(super) fn dim_style() -> Style {
+    Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
+}
+
+/// The table palette, after k9s: pale-teal rows, a lighter blue header,
+/// a solid pale-blue selection bar with dark text, and a slate border.
+/// Every list/table goes through these so they read as one theme.
+pub(super) const ROW_FG: Color = Color::Rgb(143, 191, 208);
+pub(super) const HEADER_FG: Color = Color::Rgb(137, 180, 250);
+pub(super) const SELECT_BG: Color = Color::Rgb(148, 191, 206);
+pub(super) const BORDER_FG: Color = Color::Rgb(96, 125, 139);
+
+pub(super) fn theme_row(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(ROW_FG) }
+}
+
+pub(super) fn theme_header(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(HEADER_FG) }
+}
+
+pub(super) fn theme_highlight(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) }
+}
+
+pub(super) fn theme_border(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }
+}
+
+/// k9s-style table title: the kind as a filled pill, the count in orange.
+pub(super) fn table_title(label: &str, count: usize, dimmed: bool) -> Line<'static> {
+    if dimmed {
+        return Line::styled(format!(" {label} ({count}) "), dim_style());
+    }
+    Line::from(vec![
+        Span::styled(format!(" {label} "), Style::default().bg(Color::Rgb(50, 56, 72)).fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("({count})"), Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)),
+    ])
+}
+
+/// Shared namespace/name coloring — namespace in the app's cyan accent,
+/// name in plain bold, `/` muted — the same "kind vs value" split the
+/// breadcrumb uses, reused everywhere a `namespace/name` pair shows up
+/// (this status line, the Containers/Logs popup titles) so it's one
+/// defined color pairing rather than a different pick per screen.
+pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(namespace.to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled(name.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+    ]
+}
+
+/// Colors a `/`-joined title (`namespace/name`, or `namespace/pod/
+/// container` for Logs) the same way as the breadcrumb: the outermost
+/// segment (namespace) in the app's cyan accent, the innermost (a
+/// container name, when there is one) in a distinct accent of its own,
+/// everything else plain bold — joined by muted `/`s instead of one
+/// flat-colored string. Falls back to plain bold for a title with no
+/// `/` at all (a bare node name, say).
+pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
+    let parts: Vec<&str> = title.split('/').collect();
+    if parts.len() < 2 {
+        return Line::styled(title.to_string(), Style::default().add_modifier(Modifier::BOLD));
+    }
+    let sep = Style::default().fg(Color::DarkGray);
+    let plain = Style::default().add_modifier(Modifier::BOLD);
+    let mut spans = vec![Span::styled(parts[0].to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
+    for (i, part) in parts[1..].iter().enumerate() {
+        spans.push(Span::styled("/", sep));
+        let is_last = i == parts.len() - 2;
+        let style = if is_last && parts.len() > 2 { Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD) } else { plain };
+        spans.push(Span::styled((*part).to_string(), style));
+    }
+    Line::from(spans)
+}
