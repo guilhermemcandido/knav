@@ -126,6 +126,11 @@ pub fn draw(
     // *is* the base list (nothing more to show).
     background: Option<Overlay>,
     overlay: Option<Overlay>,
+    // The current screen's keybinding hints — see `draw_hint_bar`.
+    // Suppressed whenever `Command`/`Search` is the active overlay,
+    // since both already occupy that same bottom-of-screen space with
+    // the input actually being typed.
+    hints: &[(&str, &str)],
     // The full "how did I get here" path, rendered as a bottom bar on
     // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
     // Container: nginx › Logs".
@@ -149,6 +154,7 @@ pub fn draw(
                 | Some(Overlay::ResourcesDetail { .. })
                 | Some(Overlay::ColumnDetail { .. })
         );
+    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Search { .. }));
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
     // these things fake depth in a TUI: mute every color in the
@@ -197,6 +203,12 @@ pub fn draw(
     }
     if let Some(overlay) = overlay {
         draw_overlay(frame, overlay, false, icons);
+    }
+    if !suppress_hints && !hints.is_empty() {
+        let area = frame.area();
+        let bottom = area.y + area.height.saturating_sub(1);
+        let row = if breadcrumb.is_some() { bottom.saturating_sub(1) } else { bottom };
+        draw_hint_bar(frame, hints, row);
     }
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments);
@@ -264,6 +276,44 @@ fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
     frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }
 
+/// The current screen's keybinding hints, in their own bar rather than
+/// crammed into the title — sitting just above the breadcrumb bar (or at
+/// the very bottom when there's nothing to breadcrumb), i.e. in what
+/// would otherwise just be empty (or dimmed-background) space rather
+/// than competing with the title for room. Each hint's key and its
+/// description get their own color, same reasoning as the breadcrumb's
+/// kind/value split — a flat run of same-colored text reads as one
+/// undifferentiated blob, not a list of distinct commands.
+fn draw_hint_bar(frame: &mut Frame, hints: &[(&str, &str)], row: u16) {
+    let area = frame.area();
+    let bar = Rect { x: area.x, y: row, width: area.width, height: 1 };
+    frame.render_widget(Clear, bar);
+
+    let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(Color::Gray);
+    let sep_style = Style::default().fg(Color::DarkGray);
+
+    let mut spans = vec![Span::raw(" ")];
+    for (i, (key, desc)) in hints.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("   "));
+        }
+        spans.push(Span::styled(*key, key_style));
+        spans.push(Span::styled(": ", sep_style));
+        spans.push(Span::styled(*desc, desc_style));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), bar);
+}
+
+/// The color everything in a dimmed "background" layer is muted down
+/// to — deliberately darker than plain ANSI `DarkGray` (which most
+/// terminals render as a fairly legible mid-gray) plus the `DIM`
+/// modifier on top, so a screen sitting behind a popup reads as
+/// unmistakably out of focus rather than just "a bit gray."
+fn dim_style() -> Style {
+    Style::default().fg(Color::Rgb(80, 80, 80)).add_modifier(Modifier::DIM)
+}
+
 /// The `/`/`f` live-filter bar — same plain-bottom-bar treatment as the
 /// `:` command line (no dimming), since the point is watching the list
 /// narrow while you type.
@@ -293,7 +343,7 @@ fn containers_cell(containers: &[ContainerInfo], muted: bool) -> Line<'static> {
     let mut spans = Vec::with_capacity(containers.len() * 2);
     for c in containers {
         let (glyph, color) = container_dot(c.status);
-        let style = if muted { Style::default().fg(Color::DarkGray) } else { Style::default().fg(color) };
+        let style = if muted { dim_style() } else { Style::default().fg(color) };
         spans.push(Span::styled(glyph, style));
         spans.push(Span::raw(" "));
     }
@@ -389,7 +439,7 @@ fn popup_near(column: u16, row: u16, width: u16, height: u16, bounds: Rect) -> R
 }
 
 fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
 
@@ -421,7 +471,7 @@ fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut 
         ])
     });
 
-    let title = format!("Pods ({})  —  j/k: move  enter: containers  d: spec  y: copy  q: quit", pods.len());
+    let title = format!("Pods ({})", pods.len());
 
     let highlight_style = if dimmed {
         muted
@@ -485,7 +535,7 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
 }
 
 fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
@@ -513,7 +563,7 @@ fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[Deploymen
         Constraint::Length(5),
     ];
 
-    let title = format!("Deployments ({})  —  j/k: move  d: spec  y: copy  m: switch resource  q: quit", deployments.len());
+    let title = format!("Deployments ({})", deployments.len());
 
     let highlight_style = if dimmed {
         muted
@@ -551,7 +601,7 @@ fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
 
 fn usage_color(ratio: f64, dimmed: bool) -> Color {
     if dimmed {
-        Color::DarkGray
+        Color::Rgb(80, 80, 80)
     } else if ratio > 0.9 {
         Color::Red
     } else if ratio > 0.7 {
@@ -562,7 +612,7 @@ fn usage_color(ratio: f64, dimmed: bool) -> Color {
 }
 
 fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
@@ -610,7 +660,7 @@ fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_stat
         Constraint::Length(12),
     ];
 
-    let title = format!("Nodes ({})  —  j/k: move  enter: what's running  d: spec  y: copy  m: switch resource  q: quit", nodes.len());
+    let title = format!("Nodes ({})", nodes.len());
 
     let highlight_style = if dimmed {
         muted
@@ -639,7 +689,7 @@ fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
 }
 
 fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
@@ -663,7 +713,7 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
         Row::new(cells)
     });
 
-    let title = format!("{label} ({})  —  j/k: move  d: spec  y: copy  m: switch resource  q: quit", rows.len());
+    let title = format!("{label} ({})", rows.len());
 
     let highlight_style = if dimmed {
         muted
@@ -689,7 +739,7 @@ fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label:
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
 fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, dimmed: bool) {
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let border_style = if dimmed { muted } else { Style::default() };
     let cell_style = if dimmed { muted } else { Style::default() };
@@ -705,7 +755,7 @@ fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)],
     });
 
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = format!("{heading} ({})  —  j/k: move  enter: open  y: copy  m: switch resource  q: quit", crds.len());
+    let title = format!("{heading} ({})", crds.len());
 
     let highlight_style = if dimmed {
         muted
@@ -857,7 +907,7 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
 
     let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     let resources_border = if dimmed {
-        Style::default().fg(Color::DarkGray)
+        dim_style()
     } else if selection == OverviewSelection::Resources {
         highlight
     } else {
@@ -877,7 +927,7 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
     // event's own line (in this preview and the full browser) still
     // carries its own severity color.
     let events_border = if dimmed {
-        Style::default().fg(Color::DarkGray)
+        dim_style()
     } else if selection == OverviewSelection::Events {
         highlight
     } else {
@@ -903,7 +953,7 @@ fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection:
         }
         if has_more {
             let more = overview.events.len() - shown;
-            let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC) };
+            let style = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC) };
             frame.render_widget(Paragraph::new(Line::styled(format!("… and {more} more"), style)).alignment(Alignment::Center), lines[1 + shown]);
         }
     }
@@ -973,8 +1023,8 @@ fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f
     let bar_width = area.width.saturating_sub(reserved).max(4) as usize;
     let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
 
-    let label_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
-    let detail_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+    let label_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
+    let detail_style = if dimmed { dim_style() } else { Style::default() };
 
     let line = Line::from(vec![
         Span::styled(label_text, label_style),
@@ -1310,7 +1360,7 @@ fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, selection: O
         draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
     }
 
-    let arrow_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
+    let arrow_style = if dimmed { dim_style() } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
     if col_scroll > 0 {
         let left = Rect { x: area.x, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
         frame.render_widget(Paragraph::new(Span::styled("◀", arrow_style)), left);
@@ -1344,7 +1394,7 @@ fn draw_column(
     let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 
     let (border_style, title_style) = if dimmed {
-        (Style::default().fg(Color::DarkGray), Style::default().fg(Color::DarkGray))
+        (dim_style(), dim_style())
     } else if header_selected {
         (highlight, highlight)
     } else {
@@ -1395,7 +1445,7 @@ fn resolve_icon_kind(label: &str, column_title: &str) -> Option<ResourceKind> {
 fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
     let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
-        let muted = Style::default().fg(Color::DarkGray);
+        let muted = dim_style();
         (muted, muted, muted)
     } else if selected {
         (highlight, highlight, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
@@ -1464,13 +1514,13 @@ fn icon_for(label: &str) -> &'static str {
 }
 
 fn draw_events_header(frame: &mut Frame, area: Rect, dimmed: bool) {
-    let style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().add_modifier(Modifier::BOLD) };
+    let style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let line = format!("{:<8}{:<44} {:<18} {:<12} AGE", "TYPE", "MESSAGE", "OBJECT", "KIND");
     frame.render_widget(Paragraph::new(Line::styled(line, style)), area);
 }
 
 fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
-    let ok_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
+    let ok_style = if dimmed { dim_style() } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
     let sub_style = Style::default().fg(Color::DarkGray);
     let text = vec![Line::styled("✓ No events yet", ok_style), Line::styled("Nothing has happened on the cluster", sub_style)];
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
@@ -1482,7 +1532,7 @@ fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
 /// green) is just routine activity, not a problem.
 fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
-        Color::DarkGray
+        Color::Rgb(80, 80, 80)
     } else {
         match (entry.severity, entry.kind.as_str()) {
             (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
@@ -1518,7 +1568,7 @@ fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("Switch resource  —  arrows/hjkl: move  enter: select  esc: cancel");
+        .title("Switch resource");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1591,12 +1641,12 @@ fn draw_node_detail_popup(
     let area = centered_rect(94, 92, frame.area());
     frame.render_widget(Clear, area);
 
-    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+    let border_style = if dimmed { dim_style() } else { Style::default() };
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title(format!("Node: {name}  —  j/k: move  enter: containers  d: spec  y: copy  esc: back"));
+        .title(format!("Node: {name}"));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1640,12 +1690,12 @@ fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
 /// is a diagnostic view), and any taints.
 fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo, dimmed: bool) {
     let label = Style::default().fg(Color::DarkGray);
-    let value = if dimmed { label } else { Style::default().add_modifier(Modifier::BOLD) };
+    let value = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let field = |l: &'static str, v: String| vec![Span::styled(format!("{l}: "), label), Span::styled(v, value)];
 
     let schedulable_text = if info.schedulable { "Schedulable".to_string() } else { "Cordoned".to_string() };
     let schedulable_style = if dimmed {
-        label
+        dim_style()
     } else if info.schedulable {
         Style::default().fg(Color::Green)
     } else {
@@ -1674,14 +1724,14 @@ fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDe
     for c in &info.conditions {
         let is_healthy = (c.type_ == "Ready") == (c.status == "True");
         let color = if dimmed {
-            Color::DarkGray
+            Color::Rgb(80, 80, 80)
         } else if is_healthy {
             Color::Green
         } else {
             Color::Red
         };
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<20}", c.type_), if dimmed { label } else { Style::default() }),
+            Span::styled(format!("{:<20}", c.type_), if dimmed { dim_style() } else { Style::default() }),
             Span::styled(format!("{:<8}", c.status), Style::default().fg(color)),
             Span::styled(c.reason.clone(), label),
         ]));
@@ -1704,7 +1754,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let filtered: Vec<&EventEntry> = events.iter().filter(|e| filter.matches(e)).collect();
 
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
@@ -1712,7 +1762,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     let cell_style = if dimmed { muted } else { Style::default() };
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
-            Color::DarkGray
+            Color::Rgb(80, 80, 80)
         } else {
             match (e.severity, e.kind.as_str()) {
                 (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
@@ -1744,7 +1794,7 @@ fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilt
     ];
 
     let title = format!(
-        "Events ({}/{})  —  filter: {} (a: all  w: warnings  n: normal)  j/k: move  enter/click: detail  y: copy  esc: back",
+        "Events ({}/{})  —  filter: {}",
         filtered.len(),
         events.len(),
         filter.label()
@@ -1810,7 +1860,7 @@ fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
         Line::raw(entry.message.clone()),
     ];
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail  —  y: copy message  esc: back");
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail");
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -1823,12 +1873,12 @@ fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let border_style = if dimmed { Style::default().fg(Color::DarkGray) } else { Style::default() };
+    let border_style = if dimmed { dim_style() } else { Style::default() };
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title("Resources  —  j/k: move  enter: node detail  y: copy  esc: back");
+        .title("Resources");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1850,7 +1900,7 @@ fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usiz
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(format!("{title}  —  arrows/hjkl: move  enter: open  esc: back"));
+        .title(title.to_string());
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -1885,9 +1935,7 @@ fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, St
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
-        "{title}  —  ↑↓/jk: move  ←→/hl: collapse/expand  enter/click: toggle  y: copy YAML  esc: back"
-    ));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title.to_string());
 
     let tree = Tree::new(items)
         .expect("pod tree ids are unique per level by construction")
@@ -1904,7 +1952,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
     let area = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, area);
 
-    let muted = Style::default().fg(Color::DarkGray);
+    let muted = dim_style();
     let header_style = if dimmed { muted } else { Style::default().add_modifier(Modifier::BOLD) };
     let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(header_style);
     let cell_style = if dimmed { muted } else { Style::default() };
@@ -1941,7 +1989,7 @@ fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[Container
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(format!("{title}  —  j/k: move  enter: logs  y: copy  esc: back")),
+                .title(title.to_string()),
         )
         .row_highlight_style(highlight_style)
         .highlight_symbol(if dimmed { "  " } else { "➤ " });
@@ -1959,7 +2007,7 @@ fn draw_logs_popup(frame: &mut Frame, title: &str, lines: &[String], scroll: u16
         TimestampFormat::Full => "full ts",
     };
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!(
-        "{title}  —  {follow_status}  t: toggle timestamp ({ts_status})  esc: back  ({} lines)",
+        "{title}  —  {follow_status}  ({ts_status}, {} lines)",
         lines.len()
     ));
 

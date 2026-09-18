@@ -1595,6 +1595,52 @@ no equivalent "recompute the same count a different way" step to drift.
   correct tmux wrapping) — an inherent limitation of testing without a
   real attached terminal, same class as the visual/color checks earlier.
 
+## Done since last update (2026-09-18, later still #12) — reverted `y`/OSC 52, mouse toggle instead, hints moved out of titles, dimming darkened
+
+- The `y`-to-copy/OSC 52 feature from #11 was explicitly unwanted — "I
+  did not ask for that, I asked for you to make sure i could copy in
+  the terminal." Removed entirely: the `y` bindings, `copy_to_clipboard`/
+  `base64_encode`/`BASE64_ALPHABET`, the "Copied[...]" breadcrumb toast,
+  the now-unused `yaml` field on `Mode::Spec`, and the base64 unit test.
+- What actually causes "can't copy" is `EnableMouseCapture` itself —
+  it's what disables a terminal's native click-drag text selection, and
+  it's needed for hover/click elsewhere. Fix: `c` now toggles mouse
+  reporting on/off at runtime (disabled while typing `:`/`/` commands,
+  where `c` is just a character). Turn it off, drag-select and copy
+  with the terminal's own mechanism, turn it back on for hover/click.
+  Current state shown live in the hint bar ("mouse off (to copy)" /
+  "mouse on").
+- Per-screen keybinding hints ("j/k: move", "d: spec", ...) pulled out
+  of every title bar into their own bar, sitting just above the
+  breadcrumb (or at the very bottom when there's no breadcrumb) —
+  reclaims the title for just the screen's name/count, and lands the
+  hints in what's otherwise empty/dimmed space rather than competing
+  with the title for room. Key and description are separately colored
+  (yellow key, gray description, dark-gray `:` separator) instead of
+  one flat run of text, same reasoning as the breadcrumb's kind/value
+  split from #11.
+- Dimmed "background" layers (the screen behind a popup) were still
+  too legible — ANSI `DarkGray` renders as a fairly readable mid-gray
+  in most terminals. Replaced every dimmed style with a shared
+  `dim_style()`: true-color `Rgb(80, 80, 80)` plus the `DIM` modifier,
+  applied consistently across every table/panel/popup that can serve
+  as a background (Pods/Deployments/Nodes/Generic/CrdList tables, the
+  Overview's Resources/Events boxes and columns, NodeDetail, Containers,
+  Events, ResourcesDetail).
+- Verified live against the k3d cluster via tmux: hint bar renders with
+  the three distinct colors (confirmed via raw ANSI capture — ESC[38;5;3
+  for the key, ESC[38;5;7 for the description), `c` flips the hint text
+  between "mouse off (to copy)"/"mouse on" and actually toggles
+  `EnableMouseCapture`/`DisableMouseCapture`, `y` is now a no-op
+  everywhere, and the dimmed NodeDetail/Containers stack renders with
+  ESC[2m + ESC[38;2;80;80;80m (confirmed darker than the old plain
+  DarkGray).
+- Not verified: actual click-drag copy behavior once mouse capture is
+  off, since this is still a headless tmux test session with no real
+  terminal attached — same inherent limitation as before. Worth the
+  user confirming `c` then drag-selecting actually copies in their own
+  terminal.
+
 ## Open questions / next steps
 
 - [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against

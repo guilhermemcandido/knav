@@ -7,7 +7,7 @@ mod picker;
 mod ui;
 
 use std::collections::HashMap;
-use std::io::{Write, stdout};
+use std::io::stdout;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -45,10 +45,6 @@ enum Mode {
         title: String,
         items: Vec<TreeItem<'static, String>>,
         state: TreeState<String>,
-        // The full manifest as YAML text, for `y` to copy whole —
-        // `items`/`state` are the collapsible tree built *from* this,
-        // not something worth re-serializing just to copy.
-        yaml: String,
         // Where Esc returns to — normally the List we opened it from,
         // or NodeDetail if 'd' was pressed from there instead.
         back: Box<Mode>,
@@ -444,12 +440,11 @@ fn run(
     // filter meant for one kind's names rarely makes sense carried over
     // to a completely different kind's list.
     let mut search = String::new();
-    // Set by `y` (copy) anywhere it's bound; shown in place of the
-    // breadcrumb bar for one frame's worth of display, then cleared the
-    // next time any key is actually handled (see just above the event
-    // drain loop below) — a lightweight "toast" reusing the breadcrumb
-    // bar's own rendering slot rather than a whole new UI element.
-    let mut last_copied: Option<String> = None;
+    // Mouse reporting is what makes hover/click work, but it's also
+    // exactly what stops the terminal's own click-drag text selection
+    // (and therefore copy) from working — see the `c` handler below.
+    // Starts enabled, same as before this toggle existed.
+    let mut mouse_capture_enabled = true;
     // Queries the terminal's actual graphics capability (Kitty/Sixel/
     // iTerm2, falling back to halfblocks) — must happen after raw mode is
     // enabled and before the event-read loop below starts, so its own
@@ -588,30 +583,29 @@ fn run(
             _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
         };
 
-        let breadcrumb_text = match &last_copied {
-            Some(text) => Some(vec![segment("Copied", text.clone())]),
-            None => breadcrumb(&mode, current_kind),
-        };
+        let breadcrumb_text = breadcrumb(&mode, current_kind);
+        let mut hints = hints_for(&mode, current_kind);
+        hints.push(("c", if mouse_capture_enabled { "mouse off (to copy)" } else { "mouse on" }));
         let mut frame_area = Rect::default();
         match &mut mode {
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Command { input } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Command { input };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, None, &mut icons);
                 })?;
             }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Search { query: &search, matches: row_count };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -619,7 +613,7 @@ fn run(
                     frame_area = frame.area();
                     let sections = menu_sections();
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
                 })?;
             }
             Mode::Spec { title, items, state, back, .. } => {
@@ -652,7 +646,7 @@ fn run(
                         None
                     };
                     let overlay = ui::Overlay::Spec { title, items, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Containers { title, containers, state, back, .. } => {
@@ -682,7 +676,7 @@ fn run(
                         None
                     };
                     let overlay = ui::Overlay::Containers { title, containers, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::NodeDetail { name, state, back } => {
@@ -709,14 +703,14 @@ fn run(
                         }
                         _ => None,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::Events { filter, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -727,14 +721,14 @@ fn run(
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ResourcesDetail { state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: &node_rows, state };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -742,9 +736,9 @@ fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), None, &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, None, &mut icons);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, None, &mut icons);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, None, &mut icons);
                     }
                 })?;
             }
@@ -762,7 +756,7 @@ fn run(
                         follow: *follow,
                         timestamp_format: *timestamp_format,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), breadcrumb_text.as_deref(), &mut icons);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, breadcrumb_text.as_deref(), &mut icons);
                 })?;
             }
         }
@@ -770,13 +764,6 @@ fn run(
         if !event::poll(Duration::from_millis(200))? {
             continue;
         }
-
-        // The "Copied: ..." notice was already shown for one frame (the
-        // draw pass just above); clear it before handling new input so
-        // it disappears once you move on, unless the very next thing you
-        // do is copy something else (which re-sets it for the next
-        // frame).
-        last_copied = None;
 
         // Handle every event already queued before looping back to
         // redraw — not just the one that just arrived. A trackpad
@@ -786,6 +773,21 @@ fn run(
         // whole backlog instead of being handled almost immediately.
         loop {
             match (event::read()?, &mut mode) {
+                // Toggling mouse reporting off hands click-drag text
+                // selection (and therefore copy) back to the terminal
+                // itself — the only thing enabling it took away. Skipped
+                // while typing a command/search, where `c` is just a
+                // character to type, not this toggle.
+                (Event::Key(key), current_mode)
+                    if key.code == KeyCode::Char('c') && !matches!(current_mode, Mode::Command { .. } | Mode::Search) =>
+                {
+                    mouse_capture_enabled = !mouse_capture_enabled;
+                    if mouse_capture_enabled {
+                        execute!(stdout(), EnableMouseCapture)?;
+                    } else {
+                        execute!(stdout(), DisableMouseCapture)?;
+                    }
+                }
                 (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if current_kind == ResourceKind::Overview {
                         let active_col = match overview_selection {
@@ -885,12 +887,6 @@ fn run(
                         let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
                         select_prev(state, filtered_len);
                     }
-                    KeyCode::Char('y') => {
-                        if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
-                            copy_to_clipboard(&entry.message);
-                            last_copied = Some(entry.message.clone());
-                        }
-                    }
                     KeyCode::Enter => {
                         if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
                             let back = Box::new(Mode::Events { filter: *filter, state: *state });
@@ -907,24 +903,14 @@ fn run(
                         mode = Mode::EventDetail { entry: filtered[idx].clone(), back };
                     }
                 }
-                (Event::Key(key), Mode::EventDetail { entry, back }) => match key.code {
+                (Event::Key(key), Mode::EventDetail { back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
-                    KeyCode::Char('y') => {
-                        copy_to_clipboard(&entry.message);
-                        last_copied = Some(entry.message.clone());
-                    }
                     _ => {}
                 },
                 (Event::Key(key), Mode::ResourcesDetail { state }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_rows.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_rows.len()),
-                    KeyCode::Char('y') => {
-                        if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
-                            copy_to_clipboard(&node.name);
-                            last_copied = Some(node.name.clone());
-                        }
-                    }
                     KeyCode::Enter => {
                         if let Some(node) = state.selected().and_then(|i| node_rows.get(i)) {
                             let back = Box::new(Mode::ResourcesDetail { state: *state });
@@ -1032,37 +1018,6 @@ fn run(
                             }
                         }
                     },
-                    // Copies the selected row's identifier to the system
-                    // clipboard via OSC 52 — see `copy_to_clipboard` for
-                    // why this exists at all: enabling mouse reporting
-                    // (needed for click/hover elsewhere) is exactly what
-                    // stops the terminal's own click-drag text selection
-                    // from working.
-                    KeyCode::Char('y') => {
-                        let copied = match current_kind {
-                            ResourceKind::Pods => table_state
-                                .selected()
-                                .and_then(|i| pods.get(i))
-                                .map(|pod| title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref())),
-                            ResourceKind::Deployments => table_state
-                                .selected()
-                                .and_then(|i| deployments.get(i))
-                                .map(|dep| title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref())),
-                            ResourceKind::Nodes => table_state
-                                .selected()
-                                .and_then(|i| sorted_nodes.get(i))
-                                .map(|n| n.metadata.name.clone().unwrap_or_default()),
-                            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => table_state
-                                .selected()
-                                .and_then(|i| crd_rows.get(i))
-                                .map(|(_, crd)| format!("{}/{}", crd.group, crd.kind)),
-                            _ => table_state.selected().and_then(|i| generic_rows.get(i)).map(|row| format!("{}/{}", row.namespace, row.name)),
-                        };
-                        if let Some(text) = copied {
-                            copy_to_clipboard(&text);
-                            last_copied = Some(text);
-                        }
-                    }
                     KeyCode::Enter if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
                         if let Some(index) = table_state.selected()
                             && let Some((real_index, crd)) = crd_rows.get(index)
@@ -1161,12 +1116,8 @@ fn run(
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::Spec { state, back, yaml, .. }) => match key.code {
+                (Event::Key(key), Mode::Spec { state, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
-                    KeyCode::Char('y') => {
-                        copy_to_clipboard(yaml);
-                        last_copied = Some("full YAML".to_string());
-                    }
                     KeyCode::Char('j') | KeyCode::Down => {
                         state.key_down();
                     }
@@ -1200,13 +1151,6 @@ fn run(
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
-                    KeyCode::Char('y') => {
-                        if let Some(container) = state.selected().and_then(|i| containers.get(i)) {
-                            let text = format!("{namespace}/{pod}/{}", container.name);
-                            copy_to_clipboard(&text);
-                            last_copied = Some(text);
-                        }
-                    }
                     KeyCode::Enter => {
                         if let Some(container) = state.selected().and_then(|i| containers.get(i)) {
                             let log_title = format!("{namespace}/{pod}/{}", container.name);
@@ -1244,10 +1188,6 @@ fn run(
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, node_detail_rows.len()),
-                    KeyCode::Char('y') => {
-                        copy_to_clipboard(name);
-                        last_copied = Some(name.clone());
-                    }
                     KeyCode::Enter => {
                         if let Some(pod) = state.selected().and_then(|i| node_detail_pods.get(i)) {
                             let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
@@ -1308,45 +1248,6 @@ fn run(
             }
         }
     }
-}
-
-const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/// Plain standard base64 with `=` padding — OSC 52 (the clipboard-copy
-/// escape sequence below) requires the payload encoded this way. Hand-
-/// rolled rather than pulling in a crate for the one thing that needs it.
-fn base64_encode(input: &[u8]) -> String {
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b0 = chunk[0];
-        let b1 = chunk.get(1).copied().unwrap_or(0);
-        let b2 = chunk.get(2).copied().unwrap_or(0);
-        let n = (u32::from(b0) << 16) | (u32::from(b1) << 8) | u32::from(b2);
-        out.push(BASE64_ALPHABET[((n >> 18) & 0x3f) as usize] as char);
-        out.push(BASE64_ALPHABET[((n >> 12) & 0x3f) as usize] as char);
-        out.push(if chunk.len() > 1 { BASE64_ALPHABET[((n >> 6) & 0x3f) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { BASE64_ALPHABET[(n & 0x3f) as usize] as char } else { '=' });
-    }
-    out
-}
-
-/// Sets the system clipboard via OSC 52 — the standard way a full-screen
-/// TUI copies text, since enabling mouse reporting (needed for click/
-/// hover elsewhere in the app) is exactly what stops the terminal's own
-/// click-drag text selection from working. Supported by every terminal
-/// that matters (iTerm2, Kitty, WezTerm, Alacritty, Windows Terminal,
-/// ...) and — unlike drag-selection — works the same over SSH.
-///
-/// Inside tmux, OSC 52 is swallowed by default unless wrapped in a DCS
-/// passthrough sequence with every embedded ESC doubled so tmux forwards
-/// it to the real terminal instead of interpreting it itself; detected
-/// via `$TMUX`, which tmux always sets for its own panes.
-fn copy_to_clipboard(text: &str) {
-    let osc52 = format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes()));
-    let sequence =
-        if std::env::var("TMUX").is_ok() { format!("\x1bPtmux;{}\x1b\\", osc52.replace('\x1b', "\x1b\x1b")) } else { osc52 };
-    let _ = std::io::stdout().write_all(sequence.as_bytes());
-    let _ = std::io::stdout().flush();
 }
 
 fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -1450,6 +1351,42 @@ fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<Vec<ui::Breadcr
     Some(segments)
 }
 
+/// The keybindings actually available on whatever's currently focused —
+/// (key, description) pairs, handed to `ui::draw` to render in their own
+/// bar instead of crammed into each screen's title. `Command`/`Search`
+/// return nothing: both already occupy that bar themselves with the
+/// input being typed, which matters more than a hint list right then.
+fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
+    match mode {
+        Mode::List if current_kind == ResourceKind::Overview => {
+            vec![("j/k/h/l", "move"), ("enter", "open"), ("m", "switch resource"), (":", "command"), ("q", "quit")]
+        }
+        Mode::List => {
+            let mut hints = match current_kind {
+                ResourceKind::Pods => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec")],
+                ResourceKind::Deployments => vec![("j/k", "move"), ("d", "spec")],
+                ResourceKind::Nodes => vec![("j/k", "move"), ("enter", "what's running"), ("d", "spec")],
+                ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => vec![("j/k", "move"), ("enter", "open")],
+                _ => vec![("j/k", "move"), ("d", "spec")],
+            };
+            hints.push(("/", "search"));
+            hints.push(("m", "switch resource"));
+            hints.push(("q", "quit"));
+            hints
+        }
+        Mode::Command { .. } | Mode::Search => Vec::new(),
+        Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
+        Mode::Spec { .. } => vec![("j/k", "move"), ("h/l", "collapse/expand"), ("enter", "toggle"), ("esc", "back")],
+        Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("esc", "back")],
+        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("esc", "back")],
+        Mode::EventDetail { .. } => vec![("esc", "back")],
+        Mode::ResourcesDetail { .. } => vec![("j/k", "move"), ("enter", "node detail"), ("esc", "back")],
+        Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("esc", "back")],
+        Mode::Containers { .. } => vec![("j/k", "move"), ("enter", "logs"), ("esc", "back")],
+        Mode::Logs { .. } => vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("esc", "back")],
+    }
+}
+
 fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
     open_spec_value(mode, title, k8s::manifest_value(item));
 }
@@ -1460,13 +1397,12 @@ fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml::Value) {
     for item in &items {
         state.open(vec![item.identifier().clone()]);
     }
-    let yaml = serde_yaml::to_string(&value).unwrap_or_default();
     // Captures whatever `mode` actually was (List, or NodeDetail if 'd'
     // was pressed from there) as `back`, so Esc returns to the right
     // place regardless of which of `open_spec`'s several call sites
     // opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Spec { title, items, state, yaml, back };
+    *mode = Mode::Spec { title, items, state, back };
 }
 
 fn select_next(state: &mut TableState, len: usize) {
@@ -1567,15 +1503,6 @@ mod tests {
         let sections = menu_sections();
         let pos = menu_position_for(ResourceKind::ConfigMaps);
         assert_eq!(sections[pos.0].tiles[pos.1], ResourceKind::ConfigMaps);
-    }
-
-    #[test]
-    fn base64_encode_matches_known_vectors() {
-        assert_eq!(base64_encode(b""), "");
-        assert_eq!(base64_encode(b"f"), "Zg==");
-        assert_eq!(base64_encode(b"fo"), "Zm8=");
-        assert_eq!(base64_encode(b"foo"), "Zm9v");
-        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
     }
 
     #[test]
