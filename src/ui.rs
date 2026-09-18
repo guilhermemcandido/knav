@@ -2227,9 +2227,9 @@ fn draw_logs_popup(
     let (text, effective_scroll): (Vec<Line>, u16) = if follow {
         let visible = area.height.saturating_sub(2) as usize; // minus borders
         let start = filtered.len().saturating_sub(visible);
-        (filtered[start..].iter().copied().map(|l| colorize_log_line(l, timestamp_format)).collect(), 0)
+        (filtered[start..].iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), 0)
     } else {
-        (filtered.iter().copied().map(|l| colorize_log_line(l, timestamp_format)).collect(), scroll)
+        (filtered.iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), scroll)
     };
 
     let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false }).scroll((effective_scroll, 0));
@@ -2261,7 +2261,7 @@ fn draw_logs_popup(
 /// still show red, since it's just checking for the substring "error."
 /// Same approach most terminal log viewers fall back to in the absence
 /// of real stream/level metadata.
-fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat) -> Line<'static> {
+fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, filter: &str) -> Line<'static> {
     let (timestamp, message) = match raw.split_once(' ') {
         Some((ts, rest)) if looks_like_timestamp(ts) => (Some(ts), rest),
         _ => (None, raw),
@@ -2284,8 +2284,47 @@ fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat) -> Line<'stat
         };
         spans.push(Span::styled(format!("[{display}] "), Style::default().fg(Color::Cyan)));
     }
-    spans.push(Span::styled(message.to_string(), Style::default().fg(level_color)));
+    spans.extend(highlight_matches(message, filter, Style::default().fg(level_color)));
     Line::from(spans)
+}
+
+/// Splits `text` around every case-insensitive occurrence of `needle`,
+/// highlighting the matched part — otherwise a live filter narrows
+/// *which* lines show up but gives no indication of *where* in each one
+/// it actually matched. `needle` empty means no filter is active, so
+/// the whole text just gets `base_style` unchanged.
+fn highlight_matches(text: &str, needle: &str, base_style: Style) -> Vec<Span<'static>> {
+    if needle.is_empty() {
+        return vec![Span::styled(text.to_string(), base_style)];
+    }
+    let highlight_style = Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD);
+    let lower_text = text.to_lowercase();
+    let lower_needle = needle.to_lowercase();
+    // Lowercasing can change byte lengths for some Unicode; byte offsets
+    // wouldn't line up with `text`, so skip highlighting rather than panic.
+    if lower_text.len() != text.len() || lower_needle.len() != needle.len() {
+        return vec![Span::styled(text.to_string(), base_style)];
+    }
+    let mut spans = Vec::new();
+    let mut rest = text;
+    let mut rest_lower = lower_text.as_str();
+    let mut consumed = 0;
+    while let Some(pos) = rest_lower.find(&lower_needle) {
+        if pos > 0 {
+            spans.push(Span::styled(rest[..pos].to_string(), base_style));
+        }
+        spans.push(Span::styled(rest[pos..pos + needle.len()].to_string(), highlight_style));
+        consumed += pos + needle.len();
+        rest = &text[consumed..];
+        rest_lower = &lower_text[consumed..];
+    }
+    if !rest.is_empty() {
+        spans.push(Span::styled(rest.to_string(), base_style));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(text.to_string(), base_style));
+    }
+    spans
 }
 
 /// `2026-09-16T18:36:38.477289255Z` -> `18:36:38.477` — drops the date
@@ -2518,6 +2557,7 @@ mod log_color_tests {
         let line = colorize_log_line(
             "2026-09-16T18:36:38.477289255Z connection refused: ERROR dialing upstream",
             TimestampFormat::Full,
+            ""
         );
         assert_eq!(line.spans.len(), 2);
         assert_eq!(line.spans[0].content, "[2026-09-16T18:36:38.477289255Z] ");
@@ -2527,25 +2567,33 @@ mod log_color_tests {
 
     #[test]
     fn short_format_truncates_to_millisecond_time_of_day() {
-        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z line 0", TimestampFormat::Short);
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z line 0", TimestampFormat::Short, "");
         assert_eq!(line.spans[0].content, "[18:36:38.477] ");
     }
 
     #[test]
     fn warning_line_colors_yellow() {
-        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z WARN: retrying in 5s", TimestampFormat::Full);
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z WARN: retrying in 5s", TimestampFormat::Full, "");
         assert_eq!(line.spans[1].style.fg, Some(Color::Yellow));
     }
 
     #[test]
     fn plain_line_colors_gray() {
-        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z line 0", TimestampFormat::Full);
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z line 0", TimestampFormat::Full, "");
         assert_eq!(line.spans[1].style.fg, Some(Color::Gray));
     }
 
     #[test]
+    fn filter_match_is_highlighted_case_insensitively() {
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z hello World", TimestampFormat::Full, "world");
+        let hl: Vec<_> = line.spans.iter().filter(|s| s.style.bg == Some(Color::Yellow)).collect();
+        assert_eq!(hl.len(), 1);
+        assert_eq!(hl[0].content, "World");
+    }
+
+    #[test]
     fn line_without_timestamp_has_no_timestamp_span() {
-        let line = colorize_log_line("[failed to start log stream: connection reset]", TimestampFormat::Short);
+        let line = colorize_log_line("[failed to start log stream: connection reset]", TimestampFormat::Short, "");
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].style.fg, Some(Color::Red)); // "failed" matches
     }
