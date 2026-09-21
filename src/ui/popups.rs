@@ -110,6 +110,26 @@ pub(super) fn draw_context_popup(
 /// The `n` namespace picker — the same full-size table as the context
 /// browser (same geometry, so `event_row_at` hit-tests its rows too).
 /// Enter on a row moves on to choosing that namespace's number key.
+/// The chip strip along the namespace picker's bottom border: a label, then
+/// `1`..`9`, each three cells wide, one cell apart.
+const CHIP_LABEL: &str = " assign to key: ";
+
+fn chips_origin(picker_area: Rect) -> u16 {
+    picker_area.x + 1 + CHIP_LABEL.chars().count() as u16
+}
+
+/// Which number chip (1-9) a click on the namespace picker's bottom border
+/// lands on.
+pub fn slot_chip_at(frame_area: Rect, column: u16, row: u16) -> Option<usize> {
+    let area = centered_rect(94, 88, frame_area);
+    if row != area.y + area.height.saturating_sub(1) || column < chips_origin(area) {
+        return None;
+    }
+    let offset = column - chips_origin(area);
+    let (chip, within) = (usize::from(offset / 4), offset % 4);
+    (chip < 9 && within < 3).then_some(chip + 1)
+}
+
 pub(super) fn draw_namespace_picker(
     frame: &mut Frame,
     items: &[(String, Option<usize>)],
@@ -137,11 +157,28 @@ pub(super) fn draw_namespace_picker(
         title.push_span(span);
     }
 
+    // The number chips: each key, lit when the highlighted namespace has it,
+    // orange when another namespace does.
+    let selected_key = state.selected().and_then(|i| items.get(i)).and_then(|(_, key)| *key);
+    let mut chips = vec![Span::styled(CHIP_LABEL, Style::default().fg(MUTED_FG))];
+    for key in 1..=9usize {
+        let taken = items.iter().any(|(_, k)| *k == Some(key));
+        let style = if selected_key == Some(key) {
+            Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD)
+        } else if taken {
+            Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Rgb(200, 205, 218))
+        };
+        chips.push(Span::styled(format!(" {key} "), style));
+        chips.push(Span::raw(" "));
+    }
+
     let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_bottom(Line::from(chips)))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
 
@@ -769,6 +806,35 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
 
     frame.render_stateful_widget(table, area, state);
+}
+
+#[cfg(test)]
+mod chip_tests {
+    use super::*;
+
+    #[test]
+    fn a_click_on_a_chip_gives_its_number() {
+        let frame = Rect { x: 0, y: 0, width: 120, height: 40 };
+        let area = centered_rect(94, 88, frame);
+        let bottom = area.y + area.height - 1;
+        let origin = chips_origin(area);
+        assert_eq!(slot_chip_at(frame, origin, bottom), Some(1));
+        assert_eq!(slot_chip_at(frame, origin + 2, bottom), Some(1));
+        assert_eq!(slot_chip_at(frame, origin + 4, bottom), Some(2));
+        assert_eq!(slot_chip_at(frame, origin + 4 * 8, bottom), Some(9));
+    }
+
+    #[test]
+    fn the_gaps_the_label_and_other_rows_are_not_chips() {
+        let frame = Rect { x: 0, y: 0, width: 120, height: 40 };
+        let area = centered_rect(94, 88, frame);
+        let bottom = area.y + area.height - 1;
+        let origin = chips_origin(area);
+        assert_eq!(slot_chip_at(frame, origin + 3, bottom), None, "the gap between chips");
+        assert_eq!(slot_chip_at(frame, origin - 1, bottom), None, "the label");
+        assert_eq!(slot_chip_at(frame, origin + 4 * 9, bottom), None, "past 9");
+        assert_eq!(slot_chip_at(frame, origin, bottom - 1), None, "not the border row");
+    }
 }
 
 #[cfg(test)]

@@ -369,7 +369,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
-        Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
+        Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("↑↓/jk", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
         Mode::Spec { .. } => {

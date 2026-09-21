@@ -30,7 +30,22 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, sort, back }) => {
             let mut chosen: Option<String> = None;
             let mut close = false;
+            // A number gives the highlighted namespace that key right here;
+            // `d` (or Delete) takes its key away.
+            let highlighted = state.selected().and_then(|i| filtered_names(names, filter, *sort, &st.favorites).get(i).map(|n| (*n).clone()));
             match key.code {
+                KeyCode::Char(c @ '1'..='9') => {
+                    if let Some(name) = &highlighted {
+                        st.favorites.assign(c as usize - '0' as usize, name);
+                        st.favorites.save(active_context);
+                    }
+                }
+                KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+                    if let Some(key) = highlighted.as_ref().and_then(|n| st.favorites.key_of(n)) {
+                        st.favorites.clear(key);
+                        st.favorites.save(active_context);
+                    }
+                }
                 KeyCode::Char('q') | KeyCode::Esc => close = true,
                 KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                 KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter, *sort, &st.favorites).len()),
@@ -54,16 +69,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
             wheel_select(mouse.kind, state, filtered_names(names, filter, *sort, &st.favorites).len());
         }
-        (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-            let matches = filtered_names(names, filter, *sort, &st.favorites);
-            if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
-                let name = matches[idx].clone();
-                let back = std::mem::replace(&mut **back, Mode::List);
-                let mut next = key_picker(name, &st.favorites);
-                if let Mode::Slots { back: slot_back, .. } = &mut next {
-                    *slot_back = Box::new(back);
+        // A click selects a row, or (on the chip strip below) puts the
+        // highlighted namespace on that number.
+        (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+            let matches: Vec<String> = filtered_names(names, filter, *sort, &st.favorites).into_iter().cloned().collect();
+            if let Some(key) = ui::slot_chip_at(frame_area, mouse.column, mouse.row) {
+                if let Some(name) = state.selected().and_then(|i| matches.get(i)) {
+                    st.favorites.assign(key, name);
+                    st.favorites.save(active_context);
                 }
-                st.mode = next;
+            } else if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
+                state.select(Some(idx));
             }
         }
         (Event::Key(key), Mode::Slots { namespace, selected, back }) => {
