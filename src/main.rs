@@ -12,6 +12,7 @@ mod metrics;
 mod mode;
 mod picker;
 mod scope;
+mod sort;
 mod ui;
 
 use std::collections::HashMap;
@@ -44,6 +45,7 @@ use commands::*;
 use favorites::*;
 use mode::*;
 use scope::*;
+use sort::*;
 
 /// How one connected session ended: quit for good, or reconnect to a
 /// different kubeconfig context.

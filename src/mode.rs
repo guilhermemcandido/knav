@@ -252,6 +252,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             }
             hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));
+            hints.push(("s", "sort"));
             hints.push(("/", "search"));
             hints.push(("m", "resources"));
             hints.push(("C", "contexts"));

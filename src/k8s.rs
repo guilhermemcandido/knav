@@ -217,6 +217,7 @@ pub struct PodRow {
     pub ready: String,
     pub node: String,
     pub age: String,
+    pub age_secs: i64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -351,11 +352,18 @@ pub fn row_for(pod: &Pod) -> PodRow {
         .map(|t| humanize_age(t.0))
         .unwrap_or_else(|| "-".into());
 
-    PodRow { namespace, name, phase, restarts, containers, ready, node, age }
+    let age_secs = age_seconds(pod.metadata.creation_timestamp.as_ref());
+    PodRow { namespace, name, phase, restarts, containers, ready, node, age, age_secs }
 }
 
 /// A short "5m"/"3h"/"2d" style duration, matching kubectl/k9s's AGE
 /// column convention (single dominant unit, not a full breakdown).
+/// Seconds since creation, for sorting by AGE — unknown ages sort last
+/// when ascending.
+fn age_seconds(created: Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::Time>) -> i64 {
+    created.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.0.as_second()).max(0)).unwrap_or(i64::MAX)
+}
+
 fn humanize_age(created: k8s_openapi::jiff::Timestamp) -> String {
     let secs = (k8s_openapi::jiff::Timestamp::now().as_second() - created.as_second()).max(0);
     if secs < 60 {
@@ -433,6 +441,7 @@ pub struct DeploymentRow {
     pub up_to_date: i32,
     pub available: i32,
     pub age: String,
+    pub age_secs: i64,
 }
 
 pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
@@ -450,7 +459,8 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
         .map(|t| humanize_age(t.0))
         .unwrap_or_else(|| "-".into());
 
-    DeploymentRow { namespace, name, ready, up_to_date, available, age }
+    let age_secs = age_seconds(dep.metadata.creation_timestamp.as_ref());
+    DeploymentRow { namespace, name, ready, up_to_date, available, age, age_secs }
 }
 
 /// Same live-watch pattern as `watch_pods`, for Deployments — see there
@@ -773,6 +783,7 @@ pub struct NodeRow {
     pub pod_count: usize,
     pub pod_capacity: i64,
     pub age: String,
+    pub age_secs: i64,
 }
 
 /// The `node-role.kubernetes.io/<role>` label convention kubectl itself
@@ -825,6 +836,7 @@ pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_coun
         pod_count,
         pod_capacity: capacity.pods,
         age,
+        age_secs: age_seconds(node.metadata.creation_timestamp.as_ref()),
     }
 }
 
@@ -931,6 +943,7 @@ pub struct GenericRow {
     pub namespace: String,
     pub name: String,
     pub age: String,
+    pub age_secs: i64,
     pub uid: String,
     /// UIDs of this object's owners (`ownerReferences`) — what lets a
     /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
@@ -948,7 +961,8 @@ pub fn generic_row<K: kube::Resource>(item: &K) -> GenericRow {
     let age = meta.creation_timestamp.as_ref().map(|t| humanize_age(t.0)).unwrap_or_else(|| "-".into());
     let uid = meta.uid.clone().unwrap_or_default();
     let owners = meta.owner_references.iter().flatten().map(|o| o.uid.clone()).collect();
-    GenericRow { namespace, name, age, uid, owners }
+    let age_secs = age_seconds(meta.creation_timestamp.as_ref());
+    GenericRow { namespace, name, age, age_secs, uid, owners }
 }
 
 /// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic

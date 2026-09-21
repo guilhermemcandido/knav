@@ -95,13 +95,11 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
     let muted = dim_style();
-    let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
 
-    let header = Row::new(vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"])
-        .style(header_style);
+    let header = header_row(&["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"], sort, dimmed);
 
     let rows = pods.iter().map(|p| {
         let status_style = if dimmed {
@@ -146,11 +144,11 @@ pub(super) fn pod_table_widths() -> [Constraint; 8] {
     [
         Constraint::Fill(2),   // namespace
         Constraint::Fill(3),   // name
-        Constraint::Length(6), // ready
+        Constraint::Length(11), // (3)READY ▲
         Constraint::Fill(2),   // status
-        Constraint::Length(9), // restarts
+        Constraint::Length(14), // (5)RESTARTS ▲
         Constraint::Fill(2),   // node
-        Constraint::Length(5), // age
+        Constraint::Length(9), // (7)AGE ▲
         Constraint::Fill(3),   // containers
     ]
 }
@@ -188,13 +186,11 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
     (index < row_count).then_some(index)
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, dimmed: bool) {
-    let header_style = theme_header(dimmed);
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header =
-        Row::new(vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"]).style(header_style);
+    let header = header_row(&["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"], sort, dimmed);
 
     let rows = deployments.iter().map(|d| {
         Row::new(vec![
@@ -210,10 +206,10 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     let widths = [
         Constraint::Fill(2),
         Constraint::Fill(3),
-        Constraint::Length(6),
         Constraint::Length(11),
-        Constraint::Length(10),
-        Constraint::Length(5),
+        Constraint::Length(17),
+        Constraint::Length(14),
+        Constraint::Length(9),
     ];
 
     let title = table_title("Deployments", deployments.len(), search, dimmed);
@@ -264,13 +260,12 @@ pub(super) fn usage_color(ratio: f64, dimmed: bool) -> Color {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, dimmed: bool) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
     let muted = dim_style();
-    let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header = Row::new(vec!["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"]).style(header_style);
+    let header = header_row(&["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"], sort, dimmed);
 
     let rows = nodes.iter().map(|n| {
         let status_style = if dimmed {
@@ -309,7 +304,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         Constraint::Length(16),
         Constraint::Length(16),
         Constraint::Length(9),
-        Constraint::Length(5),
+        Constraint::Length(9),
         Constraint::Length(12),
     ];
 
@@ -338,19 +333,17 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, dimmed: bool) {
-    let header_style = theme_header(dimmed);
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
     let (header, widths): (Row, Vec<Constraint>) = if show_namespace {
-        (Row::new(vec!["NAMESPACE", "NAME", "AGE"]), vec![Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(5)])
+        (header_row(&["NAMESPACE", "NAME", "AGE"], sort, dimmed), vec![Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(9)])
     } else {
-        (Row::new(vec!["NAME", "AGE"]), vec![Constraint::Fill(1), Constraint::Length(5)])
+        (header_row(&["NAME", "AGE"], sort, dimmed), vec![Constraint::Fill(1), Constraint::Length(9)])
     };
-    let header = header.style(header_style);
 
     let table_rows = rows.iter().map(|r| {
         let mut cells = Vec::with_capacity(3);
@@ -384,12 +377,11 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 /// that kind (see the CustomResourceList Enter handler in main.rs) —
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, dimmed: bool) {
-    let header_style = theme_header(dimmed);
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header = Row::new(vec!["GROUP", "KIND", "SCOPE"]).style(header_style);
+    let header = header_row(&["GROUP", "KIND", "SCOPE"], sort, dimmed);
 
     let rows = crds.iter().map(|(_, c)| {
         Row::new(vec![
@@ -419,7 +411,7 @@ mod generic_table_tests {
     use super::*;
 
     fn row(namespace: &str) -> GenericRow {
-        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), uid: String::new(), owners: Vec::new() }
+        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, uid: String::new(), owners: Vec::new() }
     }
 
     #[test]

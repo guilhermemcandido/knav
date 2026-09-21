@@ -139,6 +139,15 @@ pub struct Search<'a> {
     pub editing: bool,
 }
 
+/// How the main list is sorted: which column (0-based) and direction, and
+/// whether the next digit chooses a column (`s` pressed).
+#[derive(Clone, Copy, Default)]
+pub struct SortState {
+    pub column: Option<usize>,
+    pub descending: bool,
+    pub choosing: bool,
+}
+
 /// Mouse hover state: which row it's over, and the raw cursor position
 /// (needed to place the floating popup right next to the cursor). Only
 /// meaningful for the Pods view — Deployments have no per-row containers.
@@ -189,6 +198,7 @@ pub fn draw(
     // The `/` search on the main list: shown in its title and highlighted
     // in the rows.
     search: Search,
+    sort: SortState,
 ) {
     // `Command` is a real modal jump now, so it dims like everything
     // else; `Search` stays undimmed — you're meant to see (and read) the
@@ -233,7 +243,7 @@ pub fn draw(
             // there, keyboard-driven, works regardless of mouse/terminal
             // support.
             let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(body);
-            draw_table(frame, chunks[0], pods, table_state, search, dimmed);
+            draw_table(frame, chunks[0], pods, table_state, search, sort, dimmed);
             draw_status_line(frame, chunks[1], pods, table_state.selected(), dimmed);
 
             // The mouse-hover popup is separate from the status line and
@@ -248,19 +258,19 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, search, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, search, sort, dimmed);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, search, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, search, sort, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
-            draw_generic_table(frame, body, rows, label, table_state, search, dimmed);
+            draw_generic_table(frame, body, rows, label, table_state, search, sort, dimmed);
         }
         Rows::CrdList(crds, heading) => {
-            draw_crd_list_table(frame, body, crds, heading, table_state, search, dimmed);
+            draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, dimmed);
         }
     }
 

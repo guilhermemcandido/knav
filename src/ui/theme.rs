@@ -146,3 +146,25 @@ mod highlight_tests {
         assert_eq!(texts(&highlight_fuzzy("default", "zzz", Style::default())), [("default".into(), false)]);
     }
 }
+
+/// A table header where every column carries its number, `(1)NAME`, and
+/// the sorted column an arrow, `(2)AGE ▲` (ascending) / `▼` (descending).
+/// The numbers light up while the sort key is being chosen (`s`).
+pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool) -> Row<'static> {
+    let text = theme_header(dimmed);
+    let number = if dimmed {
+        dim_style()
+    } else if sort.choosing {
+        Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Rgb(96, 125, 139))
+    };
+    let cells = names.iter().enumerate().map(|(i, name)| {
+        let mut spans = vec![Span::styled(format!("({})", i + 1), number), Span::styled((*name).to_string(), text)];
+        if sort.column == Some(i) {
+            spans.push(Span::styled(if sort.descending { " ▼" } else { " ▲" }, text));
+        }
+        Cell::from(Line::from(spans))
+    });
+    Row::new(cells)
+}

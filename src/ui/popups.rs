@@ -238,7 +238,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, Search::default(), dimmed);
+    draw_table(frame, chunks[2], pods, state, Search::default(), SortState::default(), dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
