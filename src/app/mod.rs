@@ -2,6 +2,9 @@
 
 mod derive;
 mod draw;
+mod state;
+
+use state::State;
 
 use super::*;
 
@@ -19,64 +22,14 @@ pub(crate) fn run(
     active_context: &str,
     header: &ui::HeaderInfo,
 ) -> Result<Outcome> {
-    let mut table_state = TableState::default().with_selected(0);
-    let mut mode = Mode::List;
-    let mut hovered: Option<ui::Hover> = None;
-    let mut current_kind = ResourceKind::Overview;
-    // The namespace every namespaced list is narrowed to (`Enter` on a
-    // namespace sets it, `0` clears it) — sticks across kind switches.
-    let mut namespace: Option<String> = None;
-    // What the current list is drilled into (a Deployment's ReplicaSets,
-    // a Service's Pods, ...) and how to get back out, one level per
-    // entry: the kind, scope and selected row we came from.
-    let mut scope: Option<Scope> = None;
-    // The list's sort column/direction (`s` then a column number), and
-    // whether the next digit is choosing one. Reset when the kind changes.
-    let mut sort: Option<SortSpec> = None;
-    let mut sort_choosing = false;
-    // How many columns the list is scrolled to the right (←/→ or h/l) when
-    // its columns don't all fit the screen.
-    let mut hscroll: usize = 0;
-    // Namespaces reserved to number keys 1-9 (`s` on a namespace).
-    let mut favorites = Favorites::load(active_context);
-    let mut nav_stack: Vec<(ResourceKind, Option<Scope>, usize)> = Vec::new();
-    // The active `/`/`f` filter — empty means "show everything." Persists
-    // across `Mode::Search`/`Mode::List` so confirming a search (Enter)
-    // keeps the list narrowed while you go on navigating it; switching
-    // resource kind (`m`, `:`, Esc back to Overview) clears it, since a
-    // filter meant for one kind's names rarely makes sense carried over
-    // to a completely different kind's list.
-    let mut search = String::new();
-    // Mouse reporting is what makes hover/click work, but it's also
-    // exactly what stops the terminal's own click-drag text selection
-    // (and therefore copy) from working — see the `c` handler below.
-    // Starts enabled, same as before this toggle existed.
-    let mut mouse_capture_enabled = true;
-    // Toggled by `?` — whether the commands panel (the current screen's
-    // keybinding hints, off to the side) is currently open. Starts
-    // closed so the screen starts clean; only the small "?: cmds"
-    // indicator is always there (and only outside the main Overview).
-    let mut show_hints_panel = false;
-    // Queries the terminal's actual graphics capability (Kitty/Sixel/
-    // iTerm2, falling back to halfblocks) — must happen after raw mode is
-    // enabled and before the event-read loop below starts, so its own
-    // terminal query doesn't race with crossterm's stdin reads.
-    let mut icons = icons::IconCache::detect();
-    let mut overview_selection = ui::OverviewSelection::Resources;
-    // Horizontal scroll offset into the Overview's columns (Cluster,
-    // Workloads, Config, ... — one per catalog category).
-    let mut overview_col_scroll: usize = 0;
-    // Vertical scroll offset into whichever column currently holds the
-    // selection — item cards are tall enough now that a category like
-    // Workloads can't always fit on screen at once.
-    let mut overview_item_scroll: usize = 0;
+    let mut st = State::new(active_context);
 
     loop {
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client };
-        let query = derive::Query { current_kind, namespace: namespace.as_deref(), scope: scope.as_ref(), search: &search, sort };
-        let derive::Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows } = derive::derive(&src, catalog, &mode, &query);
+        let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort };
+        let derive::Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows } = derive::derive(&src, catalog, &st.mode, &query);
 
-        let row_count = match current_kind {
+        let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
             ResourceKind::Pods => pod_rows.len(),
             ResourceKind::Deployments => dep_rows.len(),
@@ -88,39 +41,39 @@ pub(crate) fn run(
         // underneath it. Overview has no selectable row — it scrolls
         // instead (see `overview_scroll`) — so this only matters for
         // Pods/Deployments.
-        if current_kind != ResourceKind::Overview && row_count > 0 {
-            let clamped = table_state.selected().unwrap_or(0).min(row_count - 1);
-            table_state.select(Some(clamped));
+        if st.current_kind != ResourceKind::Overview && row_count > 0 {
+            let clamped = st.table_state.selected().unwrap_or(0).min(row_count - 1);
+            st.table_state.select(Some(clamped));
         }
 
         // Logs keep arriving in the background regardless of what key was
         // last pressed — drain whatever's ready before every redraw.
-        if let Mode::Logs { lines, rx, .. } = &mut mode {
+        if let Mode::Logs { lines, rx, .. } = &mut st.mode {
             while let Ok(line) = rx.try_recv() {
                 lines.push(line);
             }
         }
 
-        let rows_view = || match current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, overview_selection, overview_col_scroll, overview_item_scroll),
+        let rows_view = || match st.current_kind {
+            ResourceKind::Overview => ui::Rows::Overview(&overview, st.overview_selection, st.overview_col_scroll, st.overview_item_scroll),
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
-            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, current_kind.label()),
-            _ => ui::Rows::Generic(&generic_rows, current_kind.label(), &generic_headers),
+            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, st.current_kind.label()),
+            _ => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
         };
 
         let header_now = ui::HeaderInfo {
-            namespace: namespace.clone().unwrap_or_else(|| "all".into()),
-            scope: scope.as_ref().map(Scope::label).unwrap_or_default(),
-            namespace_slots: favorites.slots.clone(),
+            namespace: st.namespace.clone().unwrap_or_else(|| "all".into()),
+            scope: st.scope.as_ref().map(Scope::label).unwrap_or_default(),
+            namespace_slots: st.favorites.slots.clone(),
             ..header.clone()
         };
-        let sort_view = ui::SortState { column: sort.map(|s| s.column), descending: sort.is_some_and(|s| s.descending), choosing: sort_choosing };
-        let breadcrumb_segments = breadcrumb(&mode, location(current_kind, &nav_stack, scope.as_ref()));
-        let mut hints = hints_for(&mode, current_kind);
+        let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing };
+        let breadcrumb_segments = breadcrumb(&st.mode, location(st.current_kind, &st.nav_stack, st.scope.as_ref()));
+        let mut hints = hints_for(&st.mode, st.current_kind);
         if !hints.is_empty() {
-            hints.push(("c", if mouse_capture_enabled { "mouse off" } else { "mouse on" }));
+            hints.push(("c", if st.mouse_capture_enabled { "mouse off" } else { "mouse on" }));
         }
         let view = draw::View {
             rows: &rows_view,
@@ -129,15 +82,15 @@ pub(crate) fn run(
             usage: usage.as_ref(),
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,
-            favorites: &favorites,
+            favorites: &st.favorites,
             hints: &hints,
-            show_hints_panel,
+            show_hints_panel: st.show_hints_panel,
             breadcrumb: &breadcrumb_segments,
             header_now: &header_now,
-            search: &search,
+            search: &st.search,
             sort_view,
         };
-        let frame_area = draw::draw_mode(terminal, &mut mode, &view, &mut table_state, hovered, &mut icons, &mut hscroll)?;
+        let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
         if !event::poll(Duration::from_millis(200))? {
             continue;
@@ -152,26 +105,26 @@ pub(crate) fn run(
         loop {
             let event = event::read()?;
             // `s` and the digits sort a popup's table when one has focus.
-            let sort_key_used = matches!(&event, Event::Key(key) if popup_sort_key(&mut mode, key.code));
-            match (event, &mut mode) {
+            let sort_key_used = matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code));
+            match (event, &mut st.mode) {
                 (Event::Key(_), _) if sort_key_used => {}
                 // Sort mode (`s`): the headers show their column numbers and a
                 // digit sorts by that column — the same one again flips
                 // ascending, descending, off. It stays on until `s`, Esc or
                 // `q`; every other key still works as usual meanwhile.
                 (Event::Key(key), Mode::List)
-                    if sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
+                    if st.sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
                 {
                     match key.code {
                         KeyCode::Char(c @ '0'..='9') => {
                             // 1-9 are columns 1-9; 0 is the tenth.
                             let column = (c as usize + 9 - '0' as usize) % 10;
-                            if column < column_count(current_kind, generic_columns) {
-                                sort = Some(SortSpec::pressed(sort, column));
-                                table_state.select(Some(0));
+                            if column < column_count(st.current_kind, generic_columns) {
+                                st.sort = Some(SortSpec::pressed(st.sort, column));
+                                st.table_state.select(Some(0));
                             }
                         }
-                        _ => sort_choosing = false,
+                        _ => st.sort_choosing = false,
                     }
                 }
                 // Any key (or click) closes a notice — checked before the
@@ -198,34 +151,34 @@ pub(crate) fn run(
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => close = true,
                         KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
-                        KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter, *sort, &favorites).len()),
-                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_names(names, filter, *sort, &favorites).len()),
-                        KeyCode::Enter => chosen = state.selected().and_then(|i| filtered_names(names, filter, *sort, &favorites).get(i).map(|n| (*n).clone())),
+                        KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter, *sort, &st.favorites).len()),
+                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_names(names, filter, *sort, &st.favorites).len()),
+                        KeyCode::Enter => chosen = state.selected().and_then(|i| filtered_names(names, filter, *sort, &st.favorites).get(i).map(|n| (*n).clone())),
                         _ => {}
                     }
                     if let Some(name) = chosen {
                         // Straight on to choosing its key; Esc from there goes
                         // back to the view this was opened from.
                         let back = std::mem::replace(&mut **back, Mode::List);
-                        let mut next = key_picker(name, &favorites);
+                        let mut next = key_picker(name, &st.favorites);
                         if let Mode::Slots { back: slot_back, .. } = &mut next {
                             *slot_back = Box::new(back);
                         }
-                        mode = next;
+                        st.mode = next;
                     } else if close {
-                        mode = std::mem::replace(&mut **back, Mode::List);
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
                     }
                 }
                 (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    let matches = filtered_names(names, filter, *sort, &favorites);
+                    let matches = filtered_names(names, filter, *sort, &st.favorites);
                     if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
                         let name = matches[idx].clone();
                         let back = std::mem::replace(&mut **back, Mode::List);
-                        let mut next = key_picker(name, &favorites);
+                        let mut next = key_picker(name, &st.favorites);
                         if let Mode::Slots { back: slot_back, .. } = &mut next {
                             *slot_back = Box::new(back);
                         }
-                        mode = next;
+                        st.mode = next;
                     }
                 }
                 (Event::Key(key), Mode::Slots { namespace, selected, back }) => {
@@ -238,23 +191,23 @@ pub(crate) fn run(
                         KeyCode::Char(c @ '1'..='9') => assign_to = c.to_digit(10).map(|d| d as usize),
                         KeyCode::Enter => assign_to = Some(*selected + 1),
                         KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
-                            favorites.clear(*selected + 1);
-                            favorites.save(active_context);
+                            st.favorites.clear(*selected + 1);
+                            st.favorites.save(active_context);
                         }
                         _ => {}
                     }
                     if let Some(key_number) = assign_to {
-                        favorites.assign(key_number, namespace);
-                        favorites.save(active_context);
+                        st.favorites.assign(key_number, namespace);
+                        st.favorites.save(active_context);
                         close = true;
                     }
                     if close {
-                        mode = std::mem::replace(&mut **back, Mode::List);
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
                     }
                 }
-                (Event::Key(_), Mode::Notice { back, .. }) => mode = std::mem::replace(&mut **back, Mode::List),
+                (Event::Key(_), Mode::Notice { back, .. }) => st.mode = std::mem::replace(&mut **back, Mode::List),
                 (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
-                    mode = std::mem::replace(&mut **back, Mode::List)
+                    st.mode = std::mem::replace(&mut **back, Mode::List)
                 }
                 // Toggling mouse reporting off hands click-drag text
                 // selection (and therefore copy) back to the terminal
@@ -264,8 +217,8 @@ pub(crate) fn run(
                 (Event::Key(key), current_mode)
                     if key.code == KeyCode::Char('c') && !is_typing(current_mode) =>
                 {
-                    mouse_capture_enabled = !mouse_capture_enabled;
-                    if mouse_capture_enabled {
+                    st.mouse_capture_enabled = !st.mouse_capture_enabled;
+                    if st.mouse_capture_enabled {
                         execute!(stdout(), EnableMouseCapture)?;
                     } else {
                         execute!(stdout(), DisableMouseCapture)?;
@@ -276,7 +229,7 @@ pub(crate) fn run(
                 (Event::Key(key), current_mode)
                     if key.code == KeyCode::Char('?') && !is_typing(current_mode) =>
                 {
-                    show_hints_panel = !show_hints_panel;
+                    st.show_hints_panel = !st.show_hints_panel;
                 }
                 // `:` opens the command line from anywhere — captures
                 // whatever mode was actually active as `back`, so Esc (or
@@ -295,8 +248,8 @@ pub(crate) fn run(
                     open_context_switcher(current_mode, active_context);
                 }
                 (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    if current_kind == ResourceKind::Overview {
-                        let active_col = match overview_selection {
+                    if st.current_kind == ResourceKind::Overview {
+                        let active_col = match st.overview_selection {
                             ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
                             ui::OverviewSelection::Resources | ui::OverviewSelection::Events => usize::MAX,
                         };
@@ -304,17 +257,17 @@ pub(crate) fn run(
                             && let Some(hit) = ui::column_hit(
                                 ui::body_area(frame_area, false),
                                 &overview,
-                                overview_col_scroll,
+                                st.overview_col_scroll,
                                 active_col,
-                                overview_item_scroll,
+                                st.overview_item_scroll,
                                 mouse.column,
                                 mouse.row,
                             )
                         {
-                            overview_selection = hit;
+                            st.overview_selection = hit;
                         }
                     } else {
-                        hovered = ui::row_at(ui::body_area(frame_area, true), &pod_rows, hscroll, &table_state, row_count, mouse.column, mouse.row).map(|row| {
+                        st.hovered = ui::row_at(ui::body_area(frame_area, true), &pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row).map(|row| {
                             ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
                         });
                     }
@@ -325,47 +278,47 @@ pub(crate) fn run(
                     if let KeyCode::Char(c) = key.code {
                         let n = c.to_digit(10).unwrap_or(0) as usize;
                         if n == 0 {
-                            namespace = None;
-                            table_state.select(Some(0));
-                        } else if let Some(ns) = favorites.get(n) {
-                            namespace = Some(ns.to_string());
-                            table_state.select(Some(0));
+                            st.namespace = None;
+                            st.table_state.select(Some(0));
+                        } else if let Some(ns) = st.favorites.get(n) {
+                            st.namespace = Some(ns.to_string());
+                            st.table_state.select(Some(0));
                         }
                     }
                 }
-                (Event::Key(key), Mode::List) if current_kind == ResourceKind::Overview => {
+                (Event::Key(key), Mode::List) if st.current_kind == ResourceKind::Overview => {
                     let columns_area = ui::columns_area(ui::body_area(frame_area, false), &overview);
                     let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
                     match key.code {
                         KeyCode::Char('n') => {
                             let names: Vec<String> =
                                 catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name).collect();
-                            open_namespace_picker(&mut mode, names);
+                            open_namespace_picker(&mut st.mode, names);
                         }
                         // Esc and `q` are no-ops here — there's nowhere
                         // further "back" than the main screen, and quitting
                         // takes a deliberate `:q` so a stray key can't do it.
                         KeyCode::Char('j') | KeyCode::Down => {
-                            overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
+                            st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Down);
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Up);
+                            st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Up);
                         }
                         KeyCode::Char('h') | KeyCode::Left => {
-                            overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Left);
+                            st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Left);
                         }
                         KeyCode::Char('l') | KeyCode::Right => {
-                            overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Right);
+                            st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Right);
                         }
                         KeyCode::Char('m') => {
-                            mode = Mode::Menu { selected: menu_position_for(current_kind, &catalog.crds) };
+                            st.mode = Mode::Menu { selected: menu_position_for(st.current_kind, &catalog.crds) };
                         }
-                        KeyCode::Enter => match overview_selection {
+                        KeyCode::Enter => match st.overview_selection {
                             ui::OverviewSelection::Resources => {
-                                mode = Mode::ResourcesDetail;
+                                st.mode = Mode::ResourcesDetail;
                             }
                             ui::OverviewSelection::Events => {
-                                mode = Mode::Events {
+                                st.mode = Mode::Events {
                                     filter: k8s::EventFilter::default(),
                                     search: String::new(),
                                     editing: false,
@@ -374,33 +327,27 @@ pub(crate) fn run(
                                 };
                             }
                             ui::OverviewSelection::Header(col) => {
-                                mode = Mode::ColumnDetail { col, selected: 0, row_scroll: 0 };
+                                st.mode = Mode::ColumnDetail { col, selected: 0, row_scroll: 0 };
                             }
                             ui::OverviewSelection::Item(col, item) => {
                                 if let Some((_, items)) = overview.catalog.get(col)
                                     && let Some((label, _)) = items.get(item)
                                     && let Some(kind) = catalog.kind_for_tile_label(label)
                                 {
-                                    current_kind = kind;
-                                    scope = None;
-                                    nav_stack.clear();
-                                    sort = None;
-                                    hscroll = 0;
-                                    table_state.select(Some(0));
-                                    search.clear();
+                                    st.switch_kind(kind);
                                 }
                             }
                         },
                         _ => {}
                     }
-                    if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = overview_selection {
-                        overview_col_scroll = ui::scroll_columns_to_show(overview_col_scroll, cols_visible, c);
-                        let target_item = match overview_selection {
+                    if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = st.overview_selection {
+                        st.overview_col_scroll = ui::scroll_columns_to_show(st.overview_col_scroll, cols_visible, c);
+                        let target_item = match st.overview_selection {
                             ui::OverviewSelection::Item(_, i) => i,
                             _ => 0,
                         };
                         let items_visible = ui::visible_items_per_column(columns_area.height, ui::column_item_height(&overview, c));
-                        overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
+                        st.overview_item_scroll = ui::scroll_columns_to_show(st.overview_item_scroll, items_visible, target_item);
                     }
                 }
                 (Event::Key(key), Mode::Events { search, editing: editing @ true, state, .. }) => match key.code {
@@ -422,7 +369,7 @@ pub(crate) fn run(
                     _ => {}
                 },
                 (Event::Key(key), Mode::Events { filter, search, editing, state, sort }) => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
                     KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                     KeyCode::Char('a') => *filter = k8s::EventFilter::All,
                     KeyCode::Char('w') => *filter = k8s::EventFilter::Warnings,
@@ -433,7 +380,7 @@ pub(crate) fn run(
                         let entry = state.selected().and_then(|i| k8s::filter_events(&overview.events, *filter, search, sort.spec).get(i).map(|e| (*e).clone()));
                         if let Some(entry) = entry {
                             let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state, sort: *sort });
-                            mode = Mode::EventDetail { entry, back };
+                            st.mode = Mode::EventDetail { entry, back };
                         }
                     }
                     _ => {}
@@ -444,15 +391,15 @@ pub(crate) fn run(
                         state.select(Some(idx));
                         let entry = filtered[idx].clone();
                         let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state, sort: *sort });
-                        mode = Mode::EventDetail { entry, back };
+                        st.mode = Mode::EventDetail { entry, back };
                     }
                 }
                 (Event::Key(key), Mode::EventDetail { back, .. }) => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
                     _ => {}
                 },
                 (Event::Key(key), Mode::ResourcesDetail) => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
                     _ => {}
                 },
                 (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
@@ -472,7 +419,7 @@ pub(crate) fn run(
                         }};
                     }
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                        KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
                         KeyCode::Char('j') | KeyCode::Down => move_and_rescroll!(ui::Direction::Down),
                         KeyCode::Char('k') | KeyCode::Up => move_and_rescroll!(ui::Direction::Up),
                         KeyCode::Char('h') | KeyCode::Left => move_and_rescroll!(ui::Direction::Left),
@@ -482,20 +429,14 @@ pub(crate) fn run(
                                 && let Some((label, _)) = items.get(*selected)
                                 && let Some(kind) = catalog.kind_for_tile_label(label)
                             {
-                                current_kind = kind;
-                                scope = None;
-                                nav_stack.clear();
-                                sort = None;
-                                hscroll = 0;
-                                table_state.select(Some(0));
-                                search.clear();
-                                mode = Mode::List;
+                                st.switch_kind(kind);
+                                st.mode = Mode::List;
                             }
                         }
                         _ => {}
                     }
                 }
-                (Event::Key(key), Mode::List) => match if key.code == KeyCode::Enter && current_kind.opens_spec_on_enter() {
+                (Event::Key(key), Mode::List) => match if key.code == KeyCode::Enter && st.current_kind.opens_spec_on_enter() {
                     KeyCode::Char('d')
                 } else {
                     key.code
@@ -507,19 +448,19 @@ pub(crate) fn run(
                     // somehow can't find it) one specific CRD kind's
                     // instances came from, mirroring how you got there.
                     // Quitting from in here is still reachable via `:q`.
-                    KeyCode::Char('q') | KeyCode::Esc if !nav_stack.is_empty() => {
+                    KeyCode::Char('q') | KeyCode::Esc if !st.nav_stack.is_empty() => {
                         // Back out of a drill-down to the list it came from.
-                        if let Some((kind, previous_scope, selected)) = nav_stack.pop() {
-                            current_kind = kind;
-                            scope = previous_scope;
-                            sort = None;
-                            hscroll = 0;
-                            table_state.select(Some(selected));
+                        if let Some((kind, previous_scope, selected)) = st.nav_stack.pop() {
+                            st.current_kind = kind;
+                            st.scope = previous_scope;
+                            st.sort = None;
+                            st.hscroll = 0;
+                            st.table_state.select(Some(selected));
                         }
-                        search.clear();
+                        st.search.clear();
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        current_kind = match current_kind {
+                        st.current_kind = match st.current_kind {
                             ResourceKind::CustomResource(index, _) => catalog
                                 .crds
                                 .get(index)
@@ -527,16 +468,16 @@ pub(crate) fn run(
                                 .unwrap_or(ResourceKind::CustomResourceList),
                             _ => ResourceKind::Overview,
                         };
-                        table_state.select(Some(0));
-                        search.clear();
+                        st.table_state.select(Some(0));
+                        st.search.clear();
                     }
                     // Enter drills into what a row owns or selects: a
                     // Deployment's ReplicaSets, a ReplicaSet's Pods, a
                     // Service's Pods, a CronJob's Jobs, a Namespace's Pods.
-                    KeyCode::Enter if current_kind.drill_target().is_some() => {
-                        let target = current_kind.drill_target().expect("guarded above");
-                        let selected = table_state.selected().unwrap_or(0);
-                        let new_scope = match current_kind {
+                    KeyCode::Enter if st.current_kind.drill_target().is_some() => {
+                        let target = st.current_kind.drill_target().expect("guarded above");
+                        let selected = st.table_state.selected().unwrap_or(0);
+                        let new_scope = match st.current_kind {
                             ResourceKind::Deployments => deployments.get(selected).map(|d| Scope::Owner {
                                 uid: d.metadata.uid.clone().unwrap_or_default(),
                                 kind: "Deployment".into(),
@@ -546,7 +487,7 @@ pub(crate) fn run(
                             ResourceKind::Services => {
                                 let manifest = generic_visible
                                     .get(selected)
-                                    .and_then(|&real| catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real)));
+                                    .and_then(|&real| catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real)));
                                 generic_rows.get(selected).zip(manifest).map(|(row, manifest)| Scope::Selector {
                                     labels: service_selector(&manifest),
                                     kind: "Service".into(),
@@ -555,57 +496,57 @@ pub(crate) fn run(
                             }
                             _ => generic_rows.get(selected).map(|row| Scope::Owner {
                                 uid: row.uid.clone(),
-                                kind: singular(current_kind),
+                                kind: singular(st.current_kind),
                                 name: row.name.clone(),
                             }),
                         };
                         if new_scope.is_some() {
-                            nav_stack.push((current_kind, scope.take(), selected));
-                            scope = new_scope;
-                            sort = None;
-                            hscroll = 0;
-                            current_kind = target;
-                            table_state.select(Some(0));
-                            search.clear();
+                            st.nav_stack.push((st.current_kind, st.scope.take(), selected));
+                            st.scope = new_scope;
+                            st.sort = None;
+                            st.hscroll = 0;
+                            st.current_kind = target;
+                            st.table_state.select(Some(0));
+                            st.search.clear();
                         }
                     }
                     // ←/→ (or h/l) scroll a table sideways when its columns don't
                     // all fit; the title shows `‹ ›` for what's out of view.
-                    KeyCode::Left | KeyCode::Char('h') => hscroll = hscroll.saturating_sub(1),
-                    KeyCode::Right | KeyCode::Char('l') => hscroll += 1,
+                    KeyCode::Left | KeyCode::Char('h') => st.hscroll = st.hscroll.saturating_sub(1),
+                    KeyCode::Right | KeyCode::Char('l') => st.hscroll += 1,
                     // `s` sorts: the column numbers in the header light up and the
                     // next digit picks one.
-                    KeyCode::Char('s') if column_count(current_kind, generic_columns) > 0 => sort_choosing = true,
+                    KeyCode::Char('s') if column_count(st.current_kind, generic_columns) > 0 => st.sort_choosing = true,
                     // `n` gives a namespace one of the number keys 1-9. On the
                     // Namespaces list it acts on the highlighted row right
                     // away; from every other view it first shows the
                     // namespaces to choose from.
                     KeyCode::Char('n') => {
-                        if current_kind == ResourceKind::Namespaces {
-                            if let Some(name) = table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
-                                mode = key_picker(name, &favorites);
+                        if st.current_kind == ResourceKind::Namespaces {
+                            if let Some(name) = st.table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
+                                st.mode = key_picker(name, &st.favorites);
                             }
                         } else {
                             let names: Vec<String> =
                                 catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name).collect();
-                            open_namespace_picker(&mut mode, names);
+                            open_namespace_picker(&mut st.mode, names);
                         }
                     }
-                    KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),
-                    KeyCode::Char('k') | KeyCode::Up => select_prev(&mut table_state, row_count),
+                    KeyCode::Char('j') | KeyCode::Down => select_next(&mut st.table_state, row_count),
+                    KeyCode::Char('k') | KeyCode::Up => select_prev(&mut st.table_state, row_count),
                     KeyCode::Char('m') => {
-                        mode = Mode::Menu { selected: menu_position_for(current_kind, &catalog.crds) };
+                        st.mode = Mode::Menu { selected: menu_position_for(st.current_kind, &catalog.crds) };
                     }
-                    KeyCode::Char('d') => match current_kind {
+                    KeyCode::Char('d') => match st.current_kind {
                         ResourceKind::Overview => unreachable!("handled in the Overview-specific arm above"),
                         ResourceKind::Pods => {
-                            if let Some(pod) = table_state.selected().and_then(|i| pods.get(i)) {
-                                open_spec(&mut mode, title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref()), pod.as_ref());
+                            if let Some(pod) = st.table_state.selected().and_then(|i| pods.get(i)) {
+                                open_spec(&mut st.mode, title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref()), pod.as_ref());
                             }
                         }
                         ResourceKind::Deployments => {
-                            if let Some(dep) = table_state.selected().and_then(|i| deployments.get(i)) {
-                                open_spec(&mut mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
+                            if let Some(dep) = st.table_state.selected().and_then(|i| deployments.get(i)) {
+                                open_spec(&mut st.mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
                             }
                         }
                         // Indexes straight into the (already filtered)
@@ -614,21 +555,21 @@ pub(crate) fn run(
                         // which would misalign with what's actually
                         // displayed whenever a search is active.
                         ResourceKind::Nodes => {
-                            if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
-                                open_spec(&mut mode, node.metadata.name.clone().unwrap_or_default(), node.as_ref());
+                            if let Some(node) = st.table_state.selected().and_then(|i| sorted_nodes.get(i)) {
+                                open_spec(&mut st.mode, node.metadata.name.clone().unwrap_or_default(), node.as_ref());
                             }
                         }
                         _ => {
                             // `table_state.selected()` is a position in the
                             // *filtered* display; `generic_visible` maps it
                             // back to `spec_at`'s real index.
-                            if let Some(display_index) = table_state.selected()
+                            if let Some(display_index) = st.table_state.selected()
                                 && let Some(&real_index) = generic_visible.get(display_index)
                                 && let Some(row) = generic_rows_full.get(real_index)
-                                && let Some(value) = catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real_index))
+                                && let Some(value) = catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real_index))
                             {
                                 let title = format!("{}/{}", row.namespace, row.name);
-                                open_spec_value(&mut mode, title, value);
+                                open_spec_value(&mut st.mode, title, value);
                             }
                         }
                     },
@@ -636,43 +577,37 @@ pub(crate) fn run(
                     // the same manifest `d` shows, for every kind that has
                     // a selectable row.
                     KeyCode::Char('e') => {
-                        let manifest: Option<serde_yaml::Value> = match current_kind {
+                        let manifest: Option<serde_yaml::Value> = match st.current_kind {
                             ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
-                            ResourceKind::Pods => table_state.selected().and_then(|i| pods.get(i)).map(|p| k8s::manifest_value(p.as_ref())),
+                            ResourceKind::Pods => st.table_state.selected().and_then(|i| pods.get(i)).map(|p| k8s::manifest_value(p.as_ref())),
                             ResourceKind::Deployments => {
-                                table_state.selected().and_then(|i| deployments.get(i)).map(|d| k8s::manifest_value(d.as_ref()))
+                                st.table_state.selected().and_then(|i| deployments.get(i)).map(|d| k8s::manifest_value(d.as_ref()))
                             }
-                            ResourceKind::Nodes => table_state.selected().and_then(|i| sorted_nodes.get(i)).map(|n| k8s::manifest_value(n.as_ref())),
-                            _ => table_state
+                            ResourceKind::Nodes => st.table_state.selected().and_then(|i| sorted_nodes.get(i)).map(|n| k8s::manifest_value(n.as_ref())),
+                            _ => st.table_state
                                 .selected()
                                 .and_then(|i| generic_visible.get(i).copied())
-                                .and_then(|real| catalog.resolve(current_kind, &client).and_then(|k| k.spec_at(real))),
+                                .and_then(|real| catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real))),
                         };
                         if let Some(manifest) = manifest {
-                            let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
-                            mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                            let outcome = edit::edit_resource(terminal, &client, st.mouse_capture_enabled, &manifest);
+                            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
                         }
                     }
-                    KeyCode::Enter if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
-                        if let Some(index) = table_state.selected()
+                    KeyCode::Enter if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
+                        if let Some(index) = st.table_state.selected()
                             && let Some((real_index, crd)) = crd_rows.get(index)
                         {
-                            current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
-                            scope = None;
-                            nav_stack.clear();
-                            sort = None;
-                            hscroll = 0;
-                            table_state.select(Some(0));
-                            search.clear();
+                            st.switch_kind(ResourceKind::CustomResource(*real_index, crd.kind));
                         }
                     }
-                    KeyCode::Enter if current_kind == ResourceKind::Pods => {
-                        if let Some(pod) = table_state.selected().and_then(|i| pods.get(i)) {
+                    KeyCode::Enter if st.current_kind == ResourceKind::Pods => {
+                        if let Some(pod) = st.table_state.selected().and_then(|i| pods.get(i)) {
                             let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
                             let pod_namespace = pod.metadata.namespace.clone().unwrap_or_default();
                             let name = pod.metadata.name.clone().unwrap_or_default();
                             let containers = k8s::containers_for(pod);
-                            mode = Mode::Containers {
+                            st.mode = Mode::Containers {
                                 title,
                                 namespace: pod_namespace,
                                 pod: name,
@@ -685,19 +620,19 @@ pub(crate) fn run(
                     }
                     // Freelens-style node drill-down: what's actually running
                     // on this node, plus its own CPU/Memory/Pods gauges.
-                    KeyCode::Enter if current_kind == ResourceKind::Nodes => {
-                        if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
+                    KeyCode::Enter if st.current_kind == ResourceKind::Nodes => {
+                        if let Some(node) = st.table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                             let name = node.metadata.name.clone().unwrap_or_default();
-                            mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
+                            st.mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
                         }
                     }
                     KeyCode::Char('/') | KeyCode::Char('f') => {
-                        mode = Mode::Search;
+                        st.mode = Mode::Search;
                     }
                     _ => {}
                 },
                 (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
-                    KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Up => *selected = selected.saturating_sub(1),
                     KeyCode::Down => {
                         let len = command_suggestions(input, &catalog.crds).len();
@@ -715,25 +650,19 @@ pub(crate) fn run(
                             return Ok(Outcome::Quit);
                         }
                         if matches!(highlighted, Some(Cmd::Events)) {
-                            mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
+                            st.mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
                         } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
                             let mut opened = std::mem::replace(&mut **back, Mode::List);
                             open_context_switcher(&mut opened, active_context);
-                            mode = opened;
+                            st.mode = opened;
                         } else if let Some(kind) = match highlighted {
                             Some(Cmd::Kind(k)) => Some(k),
                             _ => k8s::ResourceKind::from_command(&cmd),
                         } {
-                            current_kind = kind;
-                            scope = None;
-                            nav_stack.clear();
-                            sort = None;
-                            hscroll = 0;
-                            table_state.select(Some(0));
-                            search.clear();
-                            mode = Mode::List;
+                            st.switch_kind(kind);
+                            st.mode = Mode::List;
                         } else {
-                            mode = std::mem::replace(&mut **back, Mode::List);
+                            st.mode = std::mem::replace(&mut **back, Mode::List);
                         }
                     }
                     KeyCode::Backspace => {
@@ -749,12 +678,12 @@ pub(crate) fn run(
                 (Event::Key(key), Mode::Context { filter, editing: true, state, error, .. }) => match key.code {
                     KeyCode::Esc => {
                         filter.clear();
-                        if let Mode::Context { editing, .. } = &mut mode {
+                        if let Mode::Context { editing, .. } = &mut st.mode {
                             *editing = false;
                         }
                     }
                     KeyCode::Enter => {
-                        if let Mode::Context { editing, .. } = &mut mode {
+                        if let Mode::Context { editing, .. } = &mut st.mode {
                             *editing = false;
                         }
                     }
@@ -771,7 +700,7 @@ pub(crate) fn run(
                     _ => {}
                 },
                 (Event::Key(key), Mode::Context { contexts, filter, editing, state, error, sort, back }) => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_contexts(contexts, filter, *sort).len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter, *sort).len()),
@@ -780,7 +709,7 @@ pub(crate) fn run(
                         if let Some(name) = name {
                             match switch_target(&name, active_context) {
                                 Ok(true) => return Ok(Outcome::SwitchContext(name)),
-                                Ok(false) => mode = std::mem::replace(&mut **back, Mode::List),
+                                Ok(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
                                 Err(msg) => *error = Some(msg),
                             }
                         }
@@ -794,28 +723,28 @@ pub(crate) fn run(
                         let name = matches[idx].name.clone();
                         match switch_target(&name, active_context) {
                             Ok(true) => return Ok(Outcome::SwitchContext(name)),
-                            Ok(false) => mode = std::mem::replace(&mut **back, Mode::List),
+                            Ok(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
                             Err(msg) => *error = Some(msg),
                         }
                     }
                 }
                 (Event::Key(key), Mode::Search) => match key.code {
                     KeyCode::Esc => {
-                        search.clear();
-                        mode = Mode::List;
+                        st.search.clear();
+                        st.mode = Mode::List;
                     }
-                    KeyCode::Enter => mode = Mode::List,
+                    KeyCode::Enter => st.mode = Mode::List,
                     KeyCode::Backspace => {
-                        search.pop();
+                        st.search.pop();
                     }
-                    KeyCode::Char(c) => search.push(c),
+                    KeyCode::Char(c) => st.search.push(c),
                     _ => {}
                 },
                 (Event::Key(key), Mode::Menu { selected }) => {
                     let sections = menu_sections(&catalog.crds);
                     let cols = ui::menu_cols(frame_area);
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                        KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
                         KeyCode::Char('h') | KeyCode::Left => {
                             *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Left);
                         }
@@ -830,14 +759,8 @@ pub(crate) fn run(
                         }
                         KeyCode::Enter => {
                             if let Some(kind) = sections.get(selected.0).and_then(|s| s.tiles.get(selected.1)) {
-                                current_kind = *kind;
-                                scope = None;
-                                nav_stack.clear();
-                                sort = None;
-                                hscroll = 0;
-                                table_state.select(Some(0));
-                                search.clear();
-                                mode = Mode::List;
+                                st.switch_kind(*kind);
+                                st.mode = Mode::List;
                             }
                         }
                         _ => {}
@@ -848,7 +771,7 @@ pub(crate) fn run(
                     _ => {}
                 },
                 (Event::Key(key), Mode::Spec { items, state, expanded_all, leaf_values, viewing, back, .. }) => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('j') | KeyCode::Down => {
                         state.key_down();
                     }
@@ -898,7 +821,7 @@ pub(crate) fn run(
                 },
                 (Event::Key(key), Mode::Containers { title, namespace, pod, containers, state, sort, back }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        mode = std::mem::replace(&mut **back, Mode::List);
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
@@ -917,7 +840,7 @@ pub(crate) fn run(
                                 sort: *sort,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             };
-                            mode = Mode::Logs {
+                            st.mode = Mode::Logs {
                                 title: log_title,
                                 lines: Vec::new(),
                                 scroll: 0,
@@ -954,11 +877,11 @@ pub(crate) fn run(
                 },
                 (Event::Key(key), Mode::NodeDetail { name, state, sort, search, editing, back }) => match key.code {
                     KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
-                    KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('d') => {
                         if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
                             let title = name.clone();
-                            open_spec(&mut mode, title, node.as_ref());
+                            open_spec(&mut st.mode, title, node.as_ref());
                         }
                     }
                     KeyCode::Char('e') => {
@@ -972,8 +895,8 @@ pub(crate) fn run(
                                 editing: false,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             });
-                            let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
-                            mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+                            let outcome = edit::edit_resource(terminal, &client, st.mouse_capture_enabled, &manifest);
+                            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
                         }
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
@@ -992,7 +915,7 @@ pub(crate) fn run(
                                 editing: false,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             };
-                            mode = Mode::Containers {
+                            st.mode = Mode::Containers {
                                 title,
                                 namespace: pod_namespace,
                                 pod: pod_name,
@@ -1025,7 +948,7 @@ pub(crate) fn run(
                 (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, handle, filter_editing, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         handle.abort();
-                        mode = std::mem::replace(&mut **back, Mode::List);
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
                     }
                     KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
                     KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
