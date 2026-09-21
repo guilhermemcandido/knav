@@ -112,14 +112,13 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
 
     if let Some(row) = rows.first() {
         frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled("<0> ", fixed), Span::styled("all  (always)", fixed)])),
+            Paragraph::new(Line::from(vec![Span::styled("<0> ", fixed), Span::styled("all", fixed)])),
             *row,
         );
     }
     for (i, slot) in slots.iter().enumerate() {
         let Some(row) = rows.get(i + 1) else { break };
         let text = match slot.as_deref() {
-            Some(ns) if ns == namespace => format!("{ns}  (this one)"),
             Some(ns) => ns.to_string(),
             None => "—".to_string(),
         };

@@ -48,8 +48,6 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
 
     let fields = [
         ("Context:", info.context.as_str()),
-        ("Namespace:", info.namespace.as_str()),
-        ("Scope:", info.scope.as_str()),
         ("Cluster:", info.cluster.as_str()),
         ("User:", info.user.as_str()),
         ("Role:", info.role.as_str()),
@@ -99,7 +97,20 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
         }
     }
     let shortcut_area = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(1), height: 1 };
+    let shortcuts_width = Line::from(shortcuts.clone()).width() as u16;
     frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
+
+    // What the list is drilled into (`Deployment/web`), right-aligned on
+    // the same row — only if it fits, so it never pushes the shortcuts or
+    // the fixed first line around.
+    if !info.scope.is_empty() {
+        let text = format!("Scope: {}", info.scope);
+        let width = text.chars().count() as u16;
+        if shortcuts_width + 3 + width <= shortcut_area.width {
+            let scope_area = Rect { x: shortcut_area.x + shortcut_area.width - width, y: shortcut_area.y, width, height: 1 };
+            frame.render_widget(Paragraph::new(Line::from(vec![Span::styled("Scope: ", label), Span::styled(info.scope.clone(), value)])), scope_area);
+        }
+    }
 }
 
 #[cfg(test)]
