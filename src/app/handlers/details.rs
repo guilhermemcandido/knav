@@ -5,6 +5,7 @@ use super::Cx;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let mut to_yaml = false;
+    let mut toggle = false;
     let mut open: Option<(ResourceKind, Option<String>, String)> = None;
     if let Mode::Details { sections, scroll, hscroll, back, .. } = &mut st.mode {
         let (last, widest) = ui::details_max_scroll(sections, cx.frame_area);
@@ -13,7 +14,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             Event::Key(key) => {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        st.reveal = false;
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
+                    }
                     KeyCode::Char('j') | KeyCode::Down => *scroll = (*scroll + 1).min(last),
                     KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
                     KeyCode::Char('g') | KeyCode::Home => *scroll = 0,
@@ -25,6 +29,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(6),
                     KeyCode::Right | KeyCode::Char('l') => *hscroll = (*hscroll + 6).min(widest),
                     KeyCode::Char('y') => to_yaml = true,
+                    KeyCode::Char('x') => toggle = true,
                     // Enter goes to the object's own list.
                     KeyCode::Enter => {
                         if let Mode::Details { manifest, .. } = &st.mode {
@@ -43,6 +48,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 _ => {}
             },
             _ => {}
+        }
+    }
+    if toggle {
+        st.reveal = !st.reveal;
+        if let Mode::Details { manifest, sections, .. } = &mut st.mode {
+            *sections = k8s::details::details(manifest, &cx.d.overview.events, st.reveal);
         }
     }
     if let Some((kind, namespace, name)) = open {

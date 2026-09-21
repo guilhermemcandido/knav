@@ -30,6 +30,8 @@ pub(super) struct State {
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
     pub info_key: String,
+    /// Whether the info view shows a Secret's values; off whenever the object changes.
+    pub reveal: bool,
     /// A key to handle again on the next turn, after a job it waited for.
     pub replay: Option<crossterm::event::KeyEvent>,
     pub current_kind: ResourceKind,
@@ -101,6 +103,7 @@ impl State {
             info_hscroll: 0,
             info_focus: false,
             info_key: String::new(),
+            reveal: false,
             replay: None,
             current_kind: ResourceKind::Overview,
             namespace: None,

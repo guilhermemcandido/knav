@@ -281,7 +281,7 @@ fn spec_summary(manifest: &Value) -> Vec<Section> {
 }
 
 /// The sections that describe `manifest`, with the events that mention it.
-pub fn details(manifest: &Value, events: &[EventEntry]) -> Vec<Section> {
+pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool) -> Vec<Section> {
     let kind = text(manifest, &["kind"]).unwrap_or("");
     if kind == "APIResource" {
         return api_resource_sections(manifest);
@@ -293,7 +293,7 @@ pub fn details(manifest: &Value, events: &[EventEntry]) -> Vec<Section> {
         "Job" | "CronJob" => job_sections(manifest, kind),
         "Service" => service_sections(manifest),
         "Ingress" => ingress_sections(manifest),
-        "ConfigMap" | "Secret" => keys_section(manifest, kind),
+        "ConfigMap" | "Secret" => keys_section(manifest, kind, reveal),
         "PersistentVolumeClaim" | "PersistentVolume" => storage_sections(manifest, kind),
         "Node" => node_sections(manifest),
         "HorizontalPodAutoscaler" => hpa_sections(manifest),

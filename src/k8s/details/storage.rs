@@ -12,9 +12,9 @@ pub(super) fn size_text(bytes: usize) -> String {
     }
 }
 
-/// A ConfigMap's keys with their values, and a Secret's keys with their sizes:
-/// secret values stay hidden here (`x` decodes them on request).
-pub(super) fn keys_section(manifest: &Value, kind: &str) -> Vec<Section> {
+/// A ConfigMap's keys with their values, and a Secret's keys with their sizes;
+/// a Secret's text values appear only while `reveal` is on (`x` toggles it).
+pub(super) fn keys_section(manifest: &Value, kind: &str, reveal: bool) -> Vec<Section> {
     let mut lines = Vec::new();
     if kind == "Secret" {
         lines.push(field("Type", text(manifest, &["type"]).unwrap_or("Opaque")));
@@ -27,7 +27,15 @@ pub(super) fn keys_section(manifest: &Value, kind: &str) -> Vec<Section> {
             let (Some(key), Some(value)) = (key.as_str(), value.as_str()) else { continue };
             // Base64 in a Secret or in binaryData: about three bytes for every four characters.
             let size = if binary { value.len() * 3 / 4 } else { value.len() };
-            entries.push((key.to_string(), (kind == "ConfigMap" && !binary).then(|| value.to_string()), size));
+            // A Secret's text is decoded only when asked for; anything else stays a size.
+            let shown = if kind == "ConfigMap" && !binary {
+                Some(value.to_string())
+            } else if kind == "Secret" && reveal && field == "data" {
+                decode_text(value)
+            } else {
+                None
+            };
+            entries.push((key.to_string(), shown, size));
         }
     }
     entries.sort();
@@ -56,7 +64,11 @@ pub(super) fn keys_section(manifest: &Value, kind: &str) -> Vec<Section> {
             }
         }
     }
-    let title = if kind == "Secret" { "Secret (values hidden, x decodes them)" } else { "Data" };
+    let title = match (kind, reveal) {
+        ("Secret", true) => "Secret (values shown, x hides them)",
+        ("Secret", false) => "Secret (values hidden, x shows them)",
+        _ => "Data",
+    };
     vec![Section { title: title.into(), lines }]
 }
 
@@ -118,4 +130,10 @@ pub(super) fn storage_class_sections(manifest: &Value) -> Vec<Section> {
         lines.push(Line::Field("Parameters".into(), chips(&parameters)));
     }
     vec![Section { title: "Storage class".into(), lines }]
+}
+
+/// A Secret value's text, when it is valid UTF-8 base64.
+fn decode_text(encoded: &str) -> Option<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    String::from_utf8(STANDARD.decode(encoded.trim()).ok()?).ok()
 }
