@@ -13,7 +13,7 @@ use ratatui::{
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-use crate::config::TimestampFormat;
+use crate::config::{LogOrder, TimestampFormat};
 use crate::icons::IconCache;
 use crate::k8s::{
     ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, EventEntry, EventFilter, GenericRow, NodeRow, Overview, PodRow, ResourceKind,
@@ -73,7 +73,7 @@ pub struct MenuSection<'a> {
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
-    Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, filter: &'a str, filter_editing: bool },
+    Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
     /// A single node's own CPU/Memory/Pods gauges plus the pods actually
     /// scheduled on it — Freelens-style node drill-down. `cpu_usage`/
@@ -329,8 +329,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
         Overlay::Containers { title, containers, state, sort } => draw_containers_popup(frame, title, containers, state, sort, dimmed),
-        Overlay::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing } => {
-            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, filter, filter_editing)
+        Overlay::Logs { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing } => {
+            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, order, filter, filter_editing)
         }
         Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
         Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort } => {

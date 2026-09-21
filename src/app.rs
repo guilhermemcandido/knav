@@ -432,7 +432,7 @@ pub(crate) fn run(
                     }
                 })?;
             }
-            Mode::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing, back, .. } => {
+            Mode::Logs { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let shown_containers;
@@ -449,6 +449,7 @@ pub(crate) fn run(
                         scroll: *scroll,
                         follow: *follow,
                         timestamp_format: *timestamp_format,
+                        order: *order,
                         filter,
                         filter_editing: *filter_editing,
                     };
@@ -1241,6 +1242,7 @@ pub(crate) fn run(
                                 scroll: 0,
                                 follow: true,
                                 timestamp_format: config.logs.timestamp_format,
+                                order: config.logs.order,
                                 rx,
                                 handle,
                                 filter: String::new(),
@@ -1316,23 +1318,27 @@ pub(crate) fn run(
                     KeyCode::Char(c) => filter.push(c),
                     _ => {}
                 },
-                (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, handle, filter_editing, back, .. }) => match key.code {
+                (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, handle, filter_editing, back, .. }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         handle.abort();
                         mode = std::mem::replace(&mut **back, Mode::List);
                     }
-                    KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, follow, scroll),
-                    KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, follow, scroll),
+                    KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
+                    KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
                     KeyCode::Char('G') => *follow = true,
                     KeyCode::Char('/') => *filter_editing = true,
                     KeyCode::Char(c) if c == config.keybindings.logs.toggle_timestamp => {
                         *timestamp_format = timestamp_format.toggled();
                     }
+                    KeyCode::Char(c) if c == config.keybindings.logs.toggle_order => {
+                        *order = order.toggled();
+                        *follow = true;
+                    }
                     _ => {}
                 },
-                (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, .. }) => match mouse.kind {
-                    MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, follow, scroll),
-                    MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, follow, scroll),
+                (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, order, .. }) => match mouse.kind {
+                    MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
+                    MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
                     _ => {}
                 },
                 _ => {}

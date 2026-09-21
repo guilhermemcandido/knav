@@ -20,7 +20,7 @@ use std::io::stdout;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use config::{Config, StartupMode, TimestampFormat};
+use config::{Config, LogOrder, StartupMode, TimestampFormat};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind};
 use crossterm::execute;
 use k8s::ResourceKind;

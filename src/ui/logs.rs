@@ -10,6 +10,7 @@ pub(super) fn draw_logs_popup(
     scroll: u16,
     follow: bool,
     timestamp_format: TimestampFormat,
+    order: LogOrder,
     filter: &str,
     filter_editing: bool,
 ) {
@@ -19,7 +20,7 @@ pub(super) fn draw_logs_popup(
     // A plain substring match, not the fuzzy scorer the rest of the app
     // uses — log lines are prose to scan, not identifiers to narrow.
     let needle = filter.to_lowercase();
-    let filtered: Vec<&str> =
+    let mut filtered: Vec<&str> =
         if filter.is_empty() { lines.iter().map(String::as_str).collect() } else { lines.iter().map(String::as_str).filter(|l| l.to_lowercase().contains(&needle)).collect() };
 
     // Just the live state, not how to control it — the keybindings for
@@ -34,13 +35,22 @@ pub(super) fn draw_logs_popup(
     }
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title_line);
 
-    // When following, always show exactly the tail that fits the visible
-    // area — simpler and more robust than trusting Paragraph's own scroll
+    // Newest-first is the same log read from the other end.
+    if order == LogOrder::NewestFirst {
+        filtered.reverse();
+    }
+
+    // When following, always show exactly the newest lines that fit the
+    // visible area — the tail when oldest-first, the head when newest-first
+    // — simpler and more robust than trusting Paragraph's own scroll
     // clamping to not show blank space past the end of the content.
     let (text, effective_scroll): (Vec<Line>, u16) = if follow {
         let visible = area.height.saturating_sub(2) as usize; // minus borders
-        let start = filtered.len().saturating_sub(visible);
-        (filtered[start..].iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), 0)
+        let shown = match order {
+            LogOrder::OldestFirst => &filtered[filtered.len().saturating_sub(visible)..],
+            LogOrder::NewestFirst => &filtered[..filtered.len().min(visible)],
+        };
+        (shown.iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), 0)
     } else {
         (filtered.iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), scroll)
     };
@@ -60,27 +70,55 @@ fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str) -> u16 {
     shown.saturating_sub(visible).min(u16::MAX as usize) as u16
 }
 
-/// Scrolling up leaves following, starting from where the tail *was* —
-/// not from wherever `scroll` was last left, which would jump the view
-/// to the top of the log. New lines keep arriving either way.
-pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, follow: &mut bool, scroll: &mut u16) {
-    if *follow {
-        *scroll = logs_max_scroll(frame_area, lines, filter);
-        *follow = false;
+/// Moves the view one line up the screen. Where that leads depends on the
+/// order: oldest-first, up is toward older lines (so it leaves following,
+/// from where the tail *was* — not from wherever `scroll` was last left,
+/// which would jump to the top); newest-first, up is toward the newest
+/// line, which resumes following once you reach the top. New lines keep
+/// arriving either way.
+pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
+    match order {
+        LogOrder::OldestFirst => {
+            if *follow {
+                *scroll = logs_max_scroll(frame_area, lines, filter);
+                *follow = false;
+            }
+            *scroll = scroll.saturating_sub(1);
+        }
+        LogOrder::NewestFirst => {
+            if *follow {
+                return;
+            }
+            *scroll = scroll.saturating_sub(1);
+            if *scroll == 0 {
+                *follow = true;
+            }
+        }
     }
-    *scroll = scroll.saturating_sub(1);
 }
 
-/// Scrolling down while following does nothing (already at the end);
-/// otherwise it moves down and, on reaching the end, resumes following
-/// by itself, like `tail -f` in a pager.
-pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, follow: &mut bool, scroll: &mut u16) {
-    if *follow {
-        return;
-    }
-    *scroll = scroll.saturating_add(1);
-    if *scroll >= logs_max_scroll(frame_area, lines, filter) {
-        *follow = true;
+/// The opposite move. Oldest-first, down is toward the newest line: nothing
+/// while following (already there), and following resumes by itself on
+/// reaching the end, like `tail -f` in a pager. Newest-first, down is toward
+/// older lines, which leaves following.
+pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
+    match order {
+        LogOrder::OldestFirst => {
+            if *follow {
+                return;
+            }
+            *scroll = scroll.saturating_add(1);
+            if *scroll >= logs_max_scroll(frame_area, lines, filter) {
+                *follow = true;
+            }
+        }
+        LogOrder::NewestFirst => {
+            if *follow {
+                *scroll = 0;
+                *follow = false;
+            }
+            *scroll = scroll.saturating_add(1).min(logs_max_scroll(frame_area, lines, filter));
+        }
     }
 }
 
@@ -250,7 +288,7 @@ mod scroll_tests {
     #[test]
     fn scrolling_down_while_following_keeps_following() {
         let (mut follow, mut scroll) = (true, 0);
-        logs_scroll_down(AREA, &lines(500), "", &mut follow, &mut scroll);
+        logs_scroll_down(AREA, &lines(500), "", LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(follow);
     }
 
@@ -258,7 +296,7 @@ mod scroll_tests {
     fn scrolling_up_leaves_follow_from_the_tail_not_the_top() {
         let (mut follow, mut scroll) = (true, 0);
         let l = lines(500);
-        logs_scroll_up(AREA, &l, "", &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(!follow);
         assert_eq!(scroll, logs_max_scroll(AREA, &l, "") - 1);
     }
@@ -267,8 +305,31 @@ mod scroll_tests {
     fn scrolling_back_to_the_end_resumes_following() {
         let (mut follow, mut scroll) = (true, 0);
         let l = lines(500);
-        logs_scroll_up(AREA, &l, "", &mut follow, &mut scroll);
-        logs_scroll_down(AREA, &l, "", &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
+        logs_scroll_down(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(follow);
+    }
+
+    #[test]
+    fn newest_first_scrolling_down_leaves_follow_and_up_at_the_top_resumes_it() {
+        let (mut follow, mut scroll) = (true, 0);
+        let l = lines(500);
+        logs_scroll_up(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        assert!(follow, "up while at the newest line does nothing");
+        logs_scroll_down(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        assert!(!follow);
+        assert_eq!(scroll, 1);
+        logs_scroll_up(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        assert!(follow, "back at the top: following again");
+    }
+
+    #[test]
+    fn newest_first_scrolling_stops_at_the_oldest_line() {
+        let (mut follow, mut scroll) = (true, 0);
+        let l = lines(100);
+        for _ in 0..1000 {
+            logs_scroll_down(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        }
+        assert_eq!(scroll, logs_max_scroll(AREA, &l, ""));
     }
 }

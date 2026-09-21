@@ -19,21 +19,43 @@ impl TimestampFormat {
     }
 }
 
+/// Which way the log view reads: `oldest_first` is a normal top-down
+/// reading order with new lines arriving at the bottom (the default);
+/// `newest_first` puts the latest line at the top.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogOrder {
+    #[default]
+    OldestFirst,
+    NewestFirst,
+}
+
+impl LogOrder {
+    pub fn toggled(self) -> Self {
+        match self {
+            LogOrder::OldestFirst => LogOrder::NewestFirst,
+            LogOrder::NewestFirst => LogOrder::OldestFirst,
+        }
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct LogsConfig {
     pub timestamp_format: TimestampFormat,
+    pub order: LogOrder,
 }
 
 #[derive(Deserialize)]
 #[serde(default)]
 pub struct LogsKeybindings {
     pub toggle_timestamp: char,
+    pub toggle_order: char,
 }
 
 impl Default for LogsKeybindings {
     fn default() -> Self {
-        LogsKeybindings { toggle_timestamp: 't' }
+        LogsKeybindings { toggle_timestamp: 't', toggle_order: 'o' }
     }
 }
 

@@ -95,6 +95,7 @@ pub(crate) enum Mode {
         scroll: u16,
         follow: bool,
         timestamp_format: TimestampFormat,
+        order: LogOrder,
         rx: mpsc::UnboundedReceiver<String>,
         handle: tokio::task::JoinHandle<()>,
         // `/` live-filters the log lines the same way it does everywhere
@@ -287,7 +288,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::ColumnDetail { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
         Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("q/esc", "back")],
         Mode::Logs { .. } => {
-            vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("/", "filter"), ("q/esc", "back")]
+            vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("o", "order"), ("/", "filter"), ("q/esc", "back")]
         }
     }
 }
