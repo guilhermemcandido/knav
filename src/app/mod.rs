@@ -140,6 +140,7 @@ pub(crate) fn run(
         // With the sidebar or the info panel open, the border of whichever pane has the keys is lit.
         let sidebar_shown = st.sidebar && terminal.size().map(|s| s.width >= ui::SIDEBAR_MIN_WIDTH).unwrap_or(false);
         let beside_others = (st.info_panel && panel_wide) || sidebar_shown;
+        ui::set_content_unfocused(sidebar_shown && st.sidebar_focus && matches!(st.mode, Mode::List));
         ui::set_list_focused(beside_others && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview && !st.info_focus && !st.sidebar_focus);
         // Marks belong to the list they were made in.
         if st.marked_kind != st.current_kind {

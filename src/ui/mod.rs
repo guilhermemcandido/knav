@@ -47,7 +47,7 @@ pub fn relations_inner(frame_area: Rect) -> Rect {
     Block::default().borders(Borders::ALL).inner(body_area(frame_area, true))
 }
 use self::health::*;
-pub use self::style::{set_list_focused, set_title_reserve};
+pub use self::style::{set_content_unfocused, set_list_focused, set_title_reserve};
 pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
@@ -398,10 +398,11 @@ pub fn draw(
     };
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
-    // The header lines start where the boxes below do: the Home columns' left edge, or the list's.
-    let header_left = match &rows {
-        Rows::Overview(overview, ..) => columns_span(beside_sidebar(full, false), overview.catalog.len()).x,
-        _ => beside_sidebar(full, true).x,
+    // The header lines line up with the boxes' content (one in from their edge) as they are without
+    // the sidebar, so opening it does not push them aside.
+    let header_left = 1 + match &rows {
+        Rows::Overview(overview, ..) => columns_span(body_area(full, false), overview.catalog.len()).x,
+        _ => body_area(full, true).x,
     };
     draw_header(frame, full, header_left, header, shortcuts_line, sort.choosing, dimmed);
     // The keyboard-selected row, shown at the end of the path bar
@@ -456,6 +457,9 @@ pub fn draw(
             draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
+            // With the keys in the sidebar nothing on Home is selected: a column that does not exist
+            // matches no box.
+            let selection = if content_unfocused() { OverviewSelection::Header(usize::MAX) } else { selection };
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label, kind_headers) => {

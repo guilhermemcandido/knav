@@ -26,6 +26,10 @@ pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) ->
     if dimmed {
         return dim_style();
     }
+    // While the keys are in the sidebar the list only marks its row, quietly.
+    if content_unfocused() {
+        return Style::default().bg(theme().pill_bg).fg(theme().text_strong);
+    }
     // The bar wears the state of the row it is on, like k9s: red on a broken
     // pod, orange on a pending one, grey on a finished one.
     let bg = match tone {
@@ -78,6 +82,17 @@ static LIST_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Whether the list has the keys while a panel is open beside it (its border lights up).
 pub fn set_list_focused(focused: bool) {
     LIST_FOCUSED.store(focused, std::sync::atomic::Ordering::Relaxed);
+}
+
+static CONTENT_UNFOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set while the sidebar holds the keys, so what is beside it drops its selection colours.
+pub fn set_content_unfocused(unfocused: bool) {
+    CONTENT_UNFOCUSED.store(unfocused, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(super) fn content_unfocused() -> bool {
+    CONTENT_UNFOCUSED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The border of a list: bright while it has the keys next to an open panel.
