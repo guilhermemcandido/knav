@@ -94,8 +94,8 @@ pub(super) fn draw_logs_popup(
     // Just the live state; the keys for pausing and toggling live in the `?` panel.
     let follow_status = if follow { "following" } else { "scrolled" };
     let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", ordered.len(), lines.len()) };
-    let mut title_line = colored_slash_title(title);
-    title_line.push_span(Span::raw(format!("  {follow_status}  {count}")));
+    let mut title_line = pill_title(title, false, Style::default());
+    title_line.push_span(Span::raw(format!("  {follow_status}  {count} ")));
     let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title_line), filter, filter_editing, false);
     let inner = block.inner(area);
     frame.render_widget(block, area);

@@ -10,7 +10,7 @@ pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crat
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" Related to {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title(pill_title(&format!("Related to {title}"), false, theme_border(false)))
         .title_bottom(Line::styled(" ←↑↓→ move   enter info   o open list   space follow   backspace back   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -30,7 +30,7 @@ fn fill_bar(ratio: f64, width: usize, color: Color, dimmed: bool) -> Line<'stati
 
 /// One card of the Resources view: what is used, and what the pods ask for.
 fn resource_card(frame: &mut Frame, area: Rect, title: &str, used: Option<f64>, asked: Option<f64>, capacity: f64, show: &dyn Fn(f64) -> String, dimmed: bool) {
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(pill_title(title, dimmed, if dimmed { dim_style() } else { theme_border(false) }));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
@@ -57,7 +57,7 @@ fn resource_card(frame: &mut Frame, area: Rect, title: &str, used: Option<f64>, 
 pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[crate::k8s::NodeRow], dimmed: bool) {
     let area = body_area(frame.area(), false);
     frame.render_widget(Clear, area);
-    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(" Resources ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(pill_title("Resources", dimmed, if dimmed { dim_style() } else { theme_border(false) }));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
@@ -83,7 +83,8 @@ pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &O
     ordered.sort_by(|a, b| (a.ready, a.schedulable).cmp(&(b.ready, b.schedulable)).then(pressure(b).total_cmp(&pressure(a))).then_with(|| a.name.cmp(&b.name)));
     let (not_ready, cordoned) = (nodes.iter().filter(|n| !n.ready).count(), nodes.iter().filter(|n| n.ready && !n.schedulable).count());
     let summary = format!("{} ready", nodes.len() - not_ready - cordoned);
-    let mut title = vec![Span::styled(format!(" Nodes ({}) ", nodes.len()), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)), Span::styled(summary, Style::default().fg(theme().ok))];
+    let mut title = pill_title(&format!("Nodes ({})", nodes.len()), dimmed, if dimmed { dim_style() } else { theme_border(false) }).spans;
+    title.push(Span::styled(format!(" {summary}"), Style::default().fg(theme().ok)));
     if cordoned > 0 {
         title.push(Span::styled(format!(" · {cordoned} cordoned"), Style::default().fg(theme().warn)));
     }
@@ -125,7 +126,7 @@ pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &O
     frame.render_widget(table, nodes_inner);
 
     // How the pods are doing, and which namespaces hold the most.
-    let pods_block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(" Pods ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let pods_block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(pill_title("Pods", dimmed, if dimmed { dim_style() } else { theme_border(false) }));
     let pods_inner = pods_block.inner(halves[1]);
     frame.render_widget(pods_block, halves[1]);
     let pods_inner = Rect { x: pods_inner.x + 1, width: pods_inner.width.saturating_sub(2), ..pods_inner };
@@ -210,7 +211,7 @@ pub(in crate::ui) fn draw_containers_popup(frame: &mut Frame, title: &str, conta
                 .borders(Borders::ALL)
                 .border_set(border_set())
                 .border_style(border_style)
-                .title(pill_title(title, dimmed)),
+                .title(pill_title(title, dimmed, border_style)),
         )
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));

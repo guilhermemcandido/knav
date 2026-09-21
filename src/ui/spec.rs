@@ -10,7 +10,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     frame.render_widget(Clear, area);
 
     let border_style = if dimmed { dim_style() } else { Style::default() };
-    let title_line = pill_title(title, dimmed);
+    let title_line = pill_title(title, dimmed, border_style);
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title_line);
 
     let highlight_style = if dimmed { dim_style() } else { Style::default().bg(theme().muted).add_modifier(Modifier::BOLD) };
@@ -31,7 +31,7 @@ pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &st
     let area = centered_rect(70, 50, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(label.to_string());
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(pill_title(label, false, Style::default()));
     let paragraph = Paragraph::new(value.to_string()).wrap(Wrap { trim: false }).block(block);
     frame.render_widget(paragraph, area);
 }

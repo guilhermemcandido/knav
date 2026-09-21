@@ -93,7 +93,7 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title(pill_title(title, false, theme_border(false)))
         .title_bottom(Line::styled(" ↑↓←→ scroll   enter open list   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -160,7 +160,7 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) })
-        .title(Line::styled(format!(" {} ", panel.title), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
+        .title(pill_title(&panel.title, false, if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) }))
         .title_bottom(Line::styled(if panel.focused { " ↑↓←→ scroll   enter full screen   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);

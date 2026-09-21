@@ -186,7 +186,7 @@ fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(Style::default().fg(theme().accent))
-        .title(Line::styled(format!(" {} ", capture.label), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
+        .title(pill_title(&capture.label, false, Style::default().fg(theme().accent)));
     let inner = block.inner(area).inner(ratatui::layout::Margin { horizontal: 2, vertical: 1 });
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);

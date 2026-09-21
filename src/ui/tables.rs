@@ -65,7 +65,7 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     let area = popup_near(column, row, width, height, bounds);
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(format!("{}/{}", pod.namespace, pod.name));
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(pill_title(&format!("{}/{}", pod.namespace, pod.name), false, Style::default()));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 

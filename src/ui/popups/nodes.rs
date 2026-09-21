@@ -28,7 +28,7 @@ pub(in crate::ui) fn draw_node_detail_popup(
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(border_style)
-        .title(format!("Node: {name}"));
+        .title(pill_title(&format!("Node: {name}"), dimmed, border_style));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 

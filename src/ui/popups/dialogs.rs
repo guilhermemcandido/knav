@@ -22,7 +22,7 @@ pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, error: boo
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(Style::default().fg(color))
-        .title(if error { "Failed" } else { "Done" });
+        .title(pill_title(if error { "Failed" } else { "Done" }, false, Style::default().fg(color)));
     frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -33,7 +33,7 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
     let height = (body.len() as u16 + 2).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(color)).title(title.to_string());
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(color)).title(pill_title(title, false, Style::default().fg(color)));
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -83,7 +83,7 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(Style::default().fg(color))
-        .title(Line::styled(format!(" {icon}{} ", spec.title), Style::default().fg(color).add_modifier(Modifier::BOLD)).centered());
+        .title(pill_title(&format!("{icon}{}", spec.title), false, Style::default().fg(color)));
     let text_area = block.inner(area);
     frame.render_widget(block, area);
     let text_area = Rect { x: text_area.x + 2, width: text_area.width.saturating_sub(4), ..text_area };
@@ -103,7 +103,7 @@ pub(in crate::ui) fn draw_port_forward_popup(frame: &mut Frame, title: &str, for
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled("<PortForward>", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
+        .title(pill_title("Port forward", false, theme_border(false)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

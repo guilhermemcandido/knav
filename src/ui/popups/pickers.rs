@@ -35,7 +35,7 @@ pub(in crate::ui) fn draw_context_popup(
         ]))
     });
 
-    let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
+    let mut title = pill_title(&format!("Contexts ({}/{total})", items.len()), false, Style::default());
     if let Some(err) = error {
         title.push_span(Span::styled(format!("  -  {err}"), Style::default().fg(theme().bad)));
     }
@@ -96,7 +96,7 @@ pub(in crate::ui) fn draw_namespace_picker(
         ]))
     });
 
-    let title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
+    let title = pill_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()), false, Style::default());
 
     // The number chips: each key, lit when the highlighted namespace has it,
     // orange when another namespace does.
@@ -137,7 +137,7 @@ pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots:
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
-        .title(format!(" Choose the key for '{namespace}' "));
+        .title(pill_title(&format!("Choose the key for '{namespace}'"), false, Style::default()));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
@@ -182,7 +182,7 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app:
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" Themes ({}) ", entries.len()), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
+        .title(pill_title(&format!("Themes ({})", entries.len()), false, theme_border(false)))
         .title_bottom(Line::styled(" enter keeps  ·  esc cancels ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);

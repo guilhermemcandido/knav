@@ -59,13 +59,12 @@ pub(in crate::ui) fn draw_events_popup(
     let active = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
     let idle = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
     let key_style = |this: EventFilter| if filter == this { active } else { idle };
-    let count_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
-    let title_spans = vec![
-        Span::styled(format!("Events ({}/{})", filtered.len(), events.len()), count_style),
+    let mut title_spans = pill_title(&format!("Events ({}/{})", filtered.len(), events.len()), dimmed, theme_border(dimmed)).spans;
+    title_spans.extend([
         Span::styled("  (a) all", key_style(EventFilter::All)),
         Span::styled("  (w) warnings", key_style(EventFilter::Warnings)),
         Span::styled("  (n) normal", key_style(EventFilter::Normal)),
-    ];
+    ]);
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
@@ -126,6 +125,6 @@ pub(in crate::ui) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEnt
         Line::raw(entry.message.clone()),
     ];
 
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title("Event detail");
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(pill_title("Event detail", false, Style::default()));
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }

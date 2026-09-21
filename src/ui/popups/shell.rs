@@ -25,7 +25,7 @@ pub(in crate::ui) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &v
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" Shell {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title(pill_title(&format!("Shell {title}"), false, theme_border(false)))
         .title_bottom(Line::styled(bottom, Style::default().fg(if exited { theme().warn } else { theme().muted })).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -86,7 +86,7 @@ pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str,
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
+        .title(pill_title(title, false, theme_border(false)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(yaml_line).collect();

@@ -26,7 +26,7 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
-        .title("Resources");
+        .title(pill_title("Resources", false, Style::default()));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 

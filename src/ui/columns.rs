@@ -10,6 +10,8 @@ pub(super) const TILE_WIDTH: u16 = 22;
 /// One catalog column's fixed width in the Overview, borders included. A 1-cell
 /// gap separates columns (see `column_layout`).
 pub(super) const COLUMN_WIDTH: u16 = 28;
+/// The widest a column grows to when the screen has room to spare.
+const MAX_COLUMN_WIDTH: u16 = 46;
 /// An item card's height: a rounded-border top edge, one content row (icon
 /// on the left, name + live count filling the rest), and a rounded-border
 /// bottom edge.
@@ -120,10 +122,14 @@ pub fn visible_items_per_column(columns_area_height: u16, item_height: u16) -> u
 /// agree on exactly where each column's box sits, or clicks stop lining
 /// up with what's on screen.
 pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rect]> {
-    // The block of columns sits in the middle of the space, not against its left edge.
-    let used = (cols_visible as u16 * (COLUMN_WIDTH + 1)).saturating_sub(1).min(area.width);
+    // Columns share the width, growing past `COLUMN_WIDTH` up to a cap so the block reaches
+    // toward the edges; anything left over is kept as margin on both sides.
+    let n = cols_visible.max(1) as u16;
+    let gaps = n - 1;
+    let each = (area.width.saturating_sub(gaps) / n).clamp(COLUMN_WIDTH.min(area.width), MAX_COLUMN_WIDTH.max(COLUMN_WIDTH));
+    let used = (n * each + gaps).min(area.width);
     let area = Rect { x: area.x + (area.width - used) / 2, width: used, ..area };
-    let constraints: Vec<Constraint> = (0..cols_visible).map(|_| Constraint::Length(COLUMN_WIDTH)).collect();
+    let constraints: Vec<Constraint> = (0..n).map(|_| Constraint::Length(each)).collect();
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
@@ -432,7 +438,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
-        .title(title.to_string());
+        .title(pill_title(title, false, Style::default()));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -530,11 +536,17 @@ mod centring_tests {
     fn columns_sit_in_the_middle_of_the_space() {
         let area = Rect { x: 1, y: 0, width: 200, height: 20 };
         let columns = column_layout(area, 5);
-        let used = 5 * (COLUMN_WIDTH + 1) - 1;
         let left = columns[0].x - area.x;
         let right = area.x + area.width - (columns[4].x + columns[4].width);
-        assert_eq!(columns[4].x + columns[4].width - columns[0].x, used);
         assert!(left.abs_diff(right) <= 1, "left {left} right {right}");
+    }
+
+    #[test]
+    fn columns_grow_to_fill_the_room_up_to_a_cap() {
+        let width_of = |total: u16| column_layout(Rect { x: 0, y: 0, width: total, height: 10 }, 5)[0].width;
+        assert_eq!(width_of(5 * (COLUMN_WIDTH + 1) - 1), COLUMN_WIDTH, "no spare room, minimum width");
+        assert!(width_of(200) > COLUMN_WIDTH);
+        assert_eq!(width_of(600), MAX_COLUMN_WIDTH, "capped on very wide screens");
     }
 
     #[test]

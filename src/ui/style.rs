@@ -327,15 +327,16 @@ mod border_tests {
     }
 }
 
-/// A popup title as a pill set in from the corner, like the `sorting` and `wide` badges.
-pub(super) fn pill_title(title: &str, dimmed: bool) -> Line<'static> {
+/// A popup title as a pill set in from the corner, like the `sorting` and `wide` badges. The gap
+/// before it is drawn with the border line (`border`), so the box's top edge stays unbroken.
+pub(super) fn pill_title(title: &str, dimmed: bool, border: Style) -> Line<'static> {
+    let gap = Span::styled(border_set().horizontal_top.repeat(2), border);
     if dimmed {
-        return Line::styled(format!("  {title} "), dim_style());
+        return Line::from(vec![gap, Span::styled(format!(" {title} "), dim_style())]);
     }
-    let mut spans = vec![Span::raw("  ")];
-    let inner = colored_slash_title(title);
-    spans.push(Span::styled(" ", Style::default().bg(theme().pill_bg)));
-    spans.extend(inner.spans.into_iter().map(|s| Span::styled(s.content, s.style.bg(theme().pill_bg))));
-    spans.push(Span::styled(" ", Style::default().bg(theme().pill_bg)));
+    let pill = Style::default().bg(theme().pill_bg);
+    let mut spans = vec![gap, Span::styled(" ", pill)];
+    spans.extend(colored_slash_title(title).spans.into_iter().map(|s| Span::styled(s.content, s.style.bg(theme().pill_bg))));
+    spans.push(Span::styled(" ", pill));
     Line::from(spans)
 }
