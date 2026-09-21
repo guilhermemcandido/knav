@@ -176,6 +176,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.sort_choosing = true;
                 st.sort_cursor = st.sort.map_or(0, |s| s.column);
             }
+            // `A` sorts by age, like k9s; again flips the direction, then clears it.
+            KeyCode::Char('A') => {
+                if let Some(column) = age_column(st.current_kind, *generic_columns, st.wide) {
+                    st.sort = Some(SortSpec::pressed(st.sort, column));
+                    st.table_state.select(Some(0));
+                }
+            }
             // `n` gives a namespace one of the keys 1-9. On the Namespaces list it acts on
             // the highlighted row; elsewhere it shows the namespaces to choose from.
             KeyCode::Char('n') => {

@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn the_list_of_apis_names_each_by_group() {
-        let list = ApiList { apis: vec![ApiInfo { group: "apps", version: "v1".into(), kind: "Deployment", plural: "deployments", namespaced: true, verbs: vec!["list".into()] }] };
+        let list = ApiList { counts: InstanceCounts::default(), apis: vec![ApiInfo { group: "apps", version: "v1".into(), kind: "Deployment", plural: "deployments", namespaced: true, verbs: vec!["list".into()] }] };
         let rows = list.rows();
         assert_eq!(rows[0].uid, "deployments.apps");
         assert_eq!(rows[0].extras[0].text, "apps");

@@ -46,11 +46,12 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | --- | --- |
 | `:` | Command line (`> `): any resource the cluster serves (`pods`, `rs`, `svc`, `flowschemas`, `leases`, a custom resource, ...), `api`, `ctx`, `events`, `q` |
 | `:api` | Every resource type the API server lists; `Enter` opens one with the server's own columns (what `kubectl get` prints) |
-| `b` (or `m`) | Browse: show or hide the resource sidebar: Home and every category with its kinds (CRDs included) and live counts, like an IDE's explorer. `Shift-←` gives it the keys (`jk` move, `Enter` opens a kind or folds a category, `h`/`l` fold and unfold, `Esc` or `Shift-→` returns to the list); clicks work too. Needs a terminal of 90 columns or more |
+| `b` (or `m`) | Browse: show or hide the resource sidebar: Home and every category with its kinds (CRDs included) and live counts, like an IDE's explorer. `Shift-←` gives it the keys (`jk` move, `Enter` opens a kind or folds a category, `h`/`l` fold and unfold, `Esc` or `Shift-→` returns to the list; `g`/`G` go to the top and bottom and `a` folds or unfolds every category); clicks work too. Needs a terminal of 90 columns or more |
 | `n` | Namespace picker; `Enter` picks one and asks which number key (1-9) to keep it on |
 | `0`-`9` | Switch namespace: `0` is all, `1`-`9` the ones you reserved (kept per context) |
 | `Enter` | Drill into what a row owns (Deployment → ReplicaSets → Pods → containers → logs), or open its spec |
 | `/` | Search the list; matches are highlighted |
+| `A` | Sort by age (again flips the direction, then clears it) |
 | `s` then a digit | Sort by that column (columns are numbered from 0); the same digit flips the direction. `←`/`→` (or `h`/`l`) move a cursor along the headers, scrolling to it, and `Enter` sorts by that column, so any column can be sorted, not just the first ten. `s`/`Esc`/`q` leaves |
 | `←` `→` | Scroll columns sideways when they don't fit |
 | `g` `G` / `Ctrl-f` `Ctrl-b` | Top or bottom of the list / page down or up (also `Home` `End` `PageUp` `PageDown`) |

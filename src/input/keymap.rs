@@ -71,6 +71,7 @@ bindings! {
     ("select", "Select", &[Namespaces, Contexts], &["enter"]),
     ("search", "Search / filter", SEARCHABLE, &["/", "f"]),
     ("sort", "Sort by column", SORTABLE, &["s"]),
+    ("sort_age", "Sort by age", &[List], &["A"]),
     ("spec", "Show the spec", &[List, NodeDetail], &["d"]),
     ("edit", "Edit", &[List, NodeDetail], &["e"]),
     ("yaml", "YAML view", &[List], &["y"]),

@@ -56,6 +56,19 @@ fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {
         KeyCode::Home | KeyCode::Char('g') => st.sidebar_cursor = 0,
         KeyCode::End | KeyCode::Char('G') => st.sidebar_cursor = last,
         KeyCode::Enter | KeyCode::Char(' ') => activate(st, &all, st.sidebar_cursor),
+        // `a` folds every category, or unfolds them all when they are already folded.
+        KeyCode::Char('a') => {
+            let sections: Vec<&'static str> = all.iter().filter(|e| e.row.heading).map(|e| e.section).collect();
+            if sections.iter().all(|s| st.sidebar_folded.contains(s)) {
+                st.sidebar_folded.clear();
+            } else {
+                let section = all.get(st.sidebar_cursor).map(|e| e.section);
+                st.sidebar_folded.extend(sections);
+                // The cursor moves to its category's heading, which is still there.
+                let now = entries(st, cx);
+                st.sidebar_cursor = now.iter().position(|e| e.row.heading && Some(e.section) == section).unwrap_or(0);
+            }
+        }
         // Right opens a folded category; Left folds it, or steps out to the heading above a kind.
         KeyCode::Right | KeyCode::Char('l') => {
             if let Some(entry) = all.get(st.sidebar_cursor).filter(|e| e.row.heading && e.row.collapsed) {

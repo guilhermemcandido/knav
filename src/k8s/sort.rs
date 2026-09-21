@@ -100,6 +100,18 @@ pub(crate) fn column_count(kind: ResourceKind, generic_columns: usize, wide: boo
     }
 }
 
+/// The AGE column of the list for `kind`, if it has one (k9s' `Shift-A`).
+pub(crate) fn age_column(kind: ResourceKind, generic_columns: usize, wide: bool) -> Option<usize> {
+    match kind {
+        ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
+        ResourceKind::Pods => Some(8),
+        ResourceKind::Deployments => Some(5),
+        ResourceKind::Nodes => Some(7),
+        // Namespace (if any), name, the kind's columns, then AGE, then LABELS when wide.
+        _ => generic_columns.checked_sub(1 + usize::from(wide)),
+    }
+}
+
 /// Sorts `items` by `spec` (a no-op when `None`), computing each key once.
 pub(crate) fn apply<T>(items: &mut [T], spec: Option<SortSpec>, key: impl Fn(&T, usize) -> Key) {
     let Some(spec) = spec else { return };
@@ -367,5 +379,21 @@ mod tests {
         assert_eq!(column_count(ResourceKind::ConfigMaps, 5, false), 5);
         assert_eq!(column_count(ResourceKind::Nodes, 0, false), NODE_COLUMNS);
         assert_eq!(column_count(ResourceKind::Overview, 3, true), 0);
+    }
+}
+
+#[cfg(test)]
+mod age_tests {
+    use super::*;
+
+    #[test]
+    fn each_list_knows_where_its_age_column_is() {
+        assert_eq!(age_column(ResourceKind::Pods, 0, false), Some(8));
+        assert_eq!(age_column(ResourceKind::Deployments, 0, false), Some(5));
+        assert_eq!(age_column(ResourceKind::Nodes, 0, false), Some(7));
+        // Namespace, name, two kind columns, age: index 4; wide adds LABELS after it.
+        assert_eq!(age_column(ResourceKind::Services, 5, false), Some(4));
+        assert_eq!(age_column(ResourceKind::Services, 6, true), Some(4));
+        assert_eq!(age_column(ResourceKind::Overview, 0, false), None);
     }
 }

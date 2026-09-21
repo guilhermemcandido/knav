@@ -10,7 +10,7 @@ pub(super) struct Section {
 }
 
 const NAVIGATION_KEYS: [&str; 5] = ["↑↓", "g/G", "hjkl", "←↑↓→", "jk"];
-const GENERAL_KEYS: [&str; 10] = ["?", "n", "0-9", "s", "/", "m", "C", "q/esc", "esc", "space"];
+const GENERAL_KEYS: [&str; 11] = ["?", "n", "0-9", "s", "A", "/", "m", "C", "q/esc", "esc", "space"];
 
 /// Splits the screen's own `hints` (see `mode::hints_for`) into the help
 /// columns and adds the keys that work everywhere.
@@ -77,6 +77,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown(":cmd", "command", "Command mode"),
                 shown("/term", "search", "Filter mode"),
                 shown("s", "sort", "Sort by column"),
+                shown("A", "age", "Sort by age"),
                 shown("n", "namespaces", "Namespaces"),
                 shown("b", "browse", "Show or hide the resource sidebar"),
                 shown("C", "contexts", "Contexts"),
