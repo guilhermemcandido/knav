@@ -122,36 +122,77 @@ impl Target {
     }
 }
 
-impl Action {
-    /// What to ask before doing it, for the actions that ask.
-    pub fn confirmation(self, target: &Target) -> Option<String> {
-        match self {
-            Action::Delete if target.kind == "Namespace" => {
-                Some(format!("Delete {}? This removes everything in it.", target.label()))
-            }
-            Action::Delete => Some(format!("Delete {}?", target.label())),
-            Action::Restart => Some(format!("Restart {}?", target.label())),
-            Action::Trigger => Some(format!("Run {} now?", target.label())),
-            Action::Suspend(true) => Some(format!("Suspend {}?", target.label())),
-            Action::Suspend(false) => Some(format!("Resume {}?", target.label())),
-            _ => None,
-        }
-    }
+/// What the confirmation dialog shows: what is about to happen, to what, and what follows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConfirmSpec {
+    /// The question, e.g. `Delete pod?`.
+    pub title: String,
+    /// The word on the yes button.
+    pub verb: String,
+    /// Destructive: drawn in red, and Enter alone does not confirm.
+    pub danger: bool,
+    /// (kind, `namespace/name`) of what it applies to, at most a handful.
+    pub subjects: Vec<(String, String)>,
+    /// What to know first, and whether it is a warning.
+    pub notes: Vec<(String, bool)>,
 }
 
-/// What to ask before running `action` on `targets`, for the actions that ask.
-pub fn confirm_text(action: Action, targets: &[Target]) -> Option<String> {
-    if let [one] = targets {
-        return action.confirmation(one);
-    }
-    let verb = match action {
-        Action::Delete => "Delete",
-        Action::Restart => "Restart",
+fn plural(kind: &str) -> String {
+    let kind = kind.to_lowercase();
+    if kind.ends_with('s') { format!("{kind}es") } else if let Some(stem) = kind.strip_suffix('y') { format!("{stem}ies") } else { format!("{kind}s") }
+}
+
+/// The dialog for running `action` on `targets`, for the actions that ask first.
+pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
+    let first = targets.first()?;
+    let (verb, question, danger) = match action {
+        Action::Delete => ("Delete", "Delete", true),
+        Action::Restart => ("Restart", "Restart", false),
+        Action::Trigger => ("Run", "Run", false),
+        Action::Suspend(true) => ("Suspend", "Suspend", false),
+        Action::Suspend(false) => ("Resume", "Resume", false),
         _ => return None,
     };
-    let kind = targets.first().map(|t| t.kind.to_lowercase()).unwrap_or_default();
-    let plural = if kind.ends_with('s') { format!("{kind}es") } else if let Some(stem) = kind.strip_suffix('y') { format!("{stem}ies") } else { format!("{kind}s") };
-    Some(format!("{verb} {} {plural}?", targets.len()))
+    // Only some actions make sense on many at once.
+    if targets.len() > 1 && !matches!(action, Action::Delete | Action::Restart) {
+        return None;
+    }
+    let title = match (targets.len(), action) {
+        (1, Action::Trigger) => format!("Run {} now?", first.kind),
+        (1, _) => format!("{question} {}?", first.kind.to_lowercase()),
+        (n, _) => format!("{question} {n} {}?", plural(&first.kind)),
+    };
+    let place = |t: &Target| match &t.namespace {
+        Some(ns) => format!("{ns}/{}", t.name),
+        None => t.name.clone(),
+    };
+    let mut subjects: Vec<(String, String)> = targets.iter().take(6).map(|t| (t.kind.clone(), place(t))).collect();
+    if targets.len() > 6 {
+        subjects.push((String::new(), format!("+{} more", targets.len() - 6)));
+    }
+    let mut notes: Vec<(String, bool)> = Vec::new();
+    match action {
+        Action::Delete => {
+            if targets.iter().any(|t| t.kind == "Namespace") {
+                notes.push(("Everything in the namespace is removed with it.".into(), true));
+            }
+            if let [one] = targets
+                && one.kind == "Pod"
+            {
+                match one.manifest.get("metadata").and_then(|m| m.get("ownerReferences")).and_then(|o| o.as_sequence()).and_then(|o| o.first()) {
+                    Some(owner) => notes.push((format!("{} {} controls it and will normally start a replacement.", owner.get("kind").and_then(|k| k.as_str()).unwrap_or("Its owner"), owner.get("name").and_then(|n| n.as_str()).unwrap_or("")), false)),
+                    None => notes.push(("Nothing controls this pod, so nothing will bring it back.".into(), true)),
+                }
+            }
+            notes.push(("This can't be undone.".into(), true));
+        }
+        Action::Restart => notes.push(("Pods are replaced one at a time, a rolling restart.".into(), false)),
+        Action::Trigger => notes.push(("Creates a Job right now from the CronJob's template.".into(), false)),
+        Action::Suspend(true) => notes.push(("No new Jobs are created until you resume it.".into(), false)),
+        Action::Suspend(false) => notes.push(("Jobs are created on schedule again.".into(), false)),
+        _ => {}
+    }
+    Some(ConfirmSpec { title, verb: verb.to_string(), danger, subjects, notes })
 }
 
 /// Runs one action on each target, reporting the successes as a count and
@@ -375,16 +416,29 @@ mod tests {
     #[test]
     fn destructive_actions_ask_first_and_reversible_ones_do_not() {
         let t = target(DEPLOYMENT);
-        assert_eq!(Action::Delete.confirmation(&t).as_deref(), Some("Delete deployment shop/web?"));
-        assert!(Action::Restart.confirmation(&t).is_some());
+        let delete = confirm_spec(Action::Delete, std::slice::from_ref(&t)).unwrap();
+        assert_eq!(delete.title, "Delete deployment?");
+        assert!(delete.danger);
+        assert_eq!(delete.subjects, vec![("Deployment".to_string(), "shop/web".to_string())]);
+        let restart = confirm_spec(Action::Restart, std::slice::from_ref(&t)).unwrap();
+        assert!(!restart.danger && restart.notes[0].0.contains("rolling"));
         let cron = target("apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: tick, namespace: d}\n");
-        assert_eq!(Action::Trigger.confirmation(&cron).as_deref(), Some("Run cronjob d/tick now?"));
-        assert_eq!(Action::Suspend(true).confirmation(&cron).as_deref(), Some("Suspend cronjob d/tick?"));
-        assert_eq!(Action::Suspend(false).confirmation(&cron).as_deref(), Some("Resume cronjob d/tick?"));
-        assert!(Action::Scale(2).confirmation(&t).is_none());
-        assert!(Action::Cordon(true).confirmation(&t).is_none());
+        assert_eq!(confirm_spec(Action::Trigger, std::slice::from_ref(&cron)).unwrap().title, "Run CronJob now?");
+        assert_eq!(confirm_spec(Action::Suspend(true), std::slice::from_ref(&cron)).unwrap().verb, "Suspend");
+        assert_eq!(confirm_spec(Action::Suspend(false), std::slice::from_ref(&cron)).unwrap().verb, "Resume");
+        assert!(confirm_spec(Action::Scale(2), std::slice::from_ref(&t)).is_none());
+        assert!(confirm_spec(Action::Cordon(true), std::slice::from_ref(&t)).is_none());
         let ns = target("apiVersion: v1\nkind: Namespace\nmetadata: {name: shop}\n");
-        assert!(Action::Delete.confirmation(&ns).unwrap().contains("everything"));
+        assert!(confirm_spec(Action::Delete, &[ns]).unwrap().notes.iter().any(|(n, _)| n.contains("Everything")));
+    }
+
+    #[test]
+    fn deleting_a_pod_says_whether_anything_brings_it_back() {
+        let owned = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p, namespace: d, ownerReferences: [{kind: ReplicaSet, name: web-1}]}\n");
+        let lone = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p, namespace: d}\n");
+        let notes = |t: Target| confirm_spec(Action::Delete, &[t]).unwrap().notes;
+        assert!(notes(owned)[0].0.contains("ReplicaSet web-1"));
+        assert!(notes(lone)[0].1, "a warning");
     }
 
     #[test]
@@ -399,12 +453,15 @@ mod tests {
 
     #[test]
     fn asking_about_several_targets_counts_them() {
-        let pods: Vec<Target> = (0..3).map(|i| target(&format!("apiVersion: v1\nkind: Pod\nmetadata: {{name: p{i}, namespace: d}}\n"))).collect();
-        assert_eq!(confirm_text(Action::Delete, &pods).as_deref(), Some("Delete 3 pods?"));
-        assert_eq!(confirm_text(Action::Delete, &pods[..1]).as_deref(), Some("Delete pod d/p0?"));
+        let pods: Vec<Target> = (0..8).map(|i| target(&format!("apiVersion: v1\nkind: Pod\nmetadata: {{name: p{i}, namespace: d}}\n"))).collect();
+        let spec = confirm_spec(Action::Delete, &pods).unwrap();
+        assert_eq!(spec.title, "Delete 8 pods?");
+        assert_eq!(spec.subjects.len(), 7, "six named and a +2 more");
+        assert_eq!(spec.subjects[6].1, "+2 more");
         let policies: Vec<Target> = (0..2).map(|i| target(&format!("apiVersion: v1\nkind: NetworkPolicy\nmetadata: {{name: p{i}}}\n"))).collect();
-        assert_eq!(confirm_text(Action::Restart, &policies).as_deref(), Some("Restart 2 networkpolicies?"));
-        assert_eq!(confirm_text(Action::Scale(2), &pods), None);
+        assert_eq!(confirm_spec(Action::Restart, &policies).unwrap().title, "Restart 2 networkpolicies?");
+        assert_eq!(confirm_spec(Action::Scale(2), &pods), None);
+        assert_eq!(confirm_spec(Action::Trigger, &pods), None, "trigger is one at a time");
     }
 
     #[test]

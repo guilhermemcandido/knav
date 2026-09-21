@@ -7,8 +7,9 @@ use super::Cx;
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
-        Mode::Confirm { targets, action, back, .. } => match key.code {
-            KeyCode::Char('y') | KeyCode::Enter => {
+        Mode::Confirm { spec, targets, action, back } => match key.code {
+            // A destructive action needs an explicit `y`; Enter only confirms the mild ones.
+            KeyCode::Char('y') | KeyCode::Enter if key.code == KeyCode::Char('y') || !spec.danger => {
                 let outcome = actions::run_many(cx.client, targets, *action);
                 if !outcome.error {
                     st.marked.clear();

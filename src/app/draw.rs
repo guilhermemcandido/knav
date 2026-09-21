@@ -90,10 +90,10 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::Confirm { text, .. } => {
+            Mode::Confirm { spec, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Confirm { text };
+                    let overlay = ui::Overlay::Confirm { spec };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
@@ -181,10 +181,13 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::OpenUrl { text, .. } => {
+            Mode::OpenUrl { text, url, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Confirm { text };
+                    // The lines before the question say what just happened.
+                    let notes = text.lines().filter(|l| !l.starts_with("Open ")).map(|l| (l.to_string(), false)).collect();
+                    let spec = crate::ops::actions::ConfirmSpec { title: "Open it in the browser?".into(), verb: "Open".into(), danger: false, subjects: vec![("URL".into(), url.clone())], notes };
+                    let overlay = ui::Overlay::Confirm { spec: &spec };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

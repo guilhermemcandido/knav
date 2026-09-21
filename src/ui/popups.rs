@@ -276,13 +276,57 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
 }
 
-pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
-    let key = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
-    let body = vec![
-        Line::from(text.to_string()),
-        Line::from(vec![Span::styled("y", key), Span::raw(" yes   "), Span::styled("n", key), Span::raw(" no")]),
-    ];
-    small_popup(frame, "Confirm", theme().highlight, body);
+/// The confirmation dialog: what is about to happen, to what, what follows, and
+/// two buttons. Destructive actions are drawn in red and need an explicit `y`.
+pub(super) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::actions::ConfirmSpec) {
+    let full = frame.area();
+    let color = if spec.danger { theme().bad } else { theme().accent };
+    let width = (full.width * 3 / 5).clamp(44, 72).min(full.width);
+    let inner_w = usize::from(width).saturating_sub(6);
+    let muted = Style::default().fg(theme().muted);
+    let mut lines: Vec<Line> = vec![Line::raw("")];
+    let kind_w = spec.subjects.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0).min(20);
+    for (kind, place) in &spec.subjects {
+        let mut spans = Vec::new();
+        if !kind.is_empty() {
+            spans.push(Span::styled(format!("{kind:<w$}  ", w = kind_w), muted));
+        } else if kind_w > 0 {
+            spans.push(Span::raw(" ".repeat(kind_w + 2)));
+        }
+        spans.push(Span::styled(place.clone(), if kind.is_empty() { muted } else { Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD) }));
+        lines.push(Line::from(spans));
+    }
+    if !spec.notes.is_empty() {
+        lines.push(Line::raw(""));
+    }
+    for (note, warning) in &spec.notes {
+        lines.push(Line::styled(note.clone(), if *warning { Style::default().fg(theme().warn) } else { muted }));
+    }
+    lines.push(Line::raw(""));
+    let key = |k: &str| Span::styled(k.to_string(), Style::default().add_modifier(Modifier::BOLD));
+    let yes = Span::styled(format!("  y  {}  ", spec.verb), Style::default().bg(color).fg(crate::theme::on(color)).add_modifier(Modifier::BOLD));
+    let no = Span::styled("  n  Cancel  ", Style::default().bg(theme().pill_bg).fg(theme().text_strong));
+    lines.push(Line::from(vec![yes, Span::raw("   "), no]).centered());
+    lines.push(Line::raw(""));
+    lines.push(Line::from(vec![if spec.danger { key("y") } else { key("y / enter") }, Span::styled(" confirms   ", muted), key("n / esc"), Span::styled(" cancels", muted)]).centered());
+    // Wrapped notes can take more than one row each.
+    let wrapped: usize = lines.iter().map(|l| (l.width() / inner_w.max(1)) + 1).sum();
+    let height = (wrapped as u16 + 2).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
+    // The screen behind recedes, and the dialog gets its own clear panel.
+    let backdrop = full;
+    frame.buffer_mut().set_style(backdrop, Style::default().add_modifier(Modifier::DIM));
+    frame.render_widget(Clear, area);
+    let icon = if spec.danger { "⚠ " } else { "" };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(Style::default().fg(color))
+        .title(Line::styled(format!(" {icon}{} ", spec.title), Style::default().fg(color).add_modifier(Modifier::BOLD)).centered());
+    let text_area = block.inner(area);
+    frame.render_widget(block, area);
+    let text_area = Rect { x: text_area.x + 2, width: text_area.width.saturating_sub(4), ..text_area };
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text_area);
 }
 
 /// The port-forward dialog, laid out like k9s's: labelled fields, a warning

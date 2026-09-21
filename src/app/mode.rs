@@ -55,7 +55,7 @@ pub(crate) enum Mode {
     /// What the selected object is related to (owners, what it uses, what uses it, ...).
     Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
-    Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
+    Confirm { spec: actions::ConfirmSpec, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
     OpenUrl { text: String, url: String, back: Box<Mode> },
     /// The port-forward dialog.

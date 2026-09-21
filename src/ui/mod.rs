@@ -125,7 +125,7 @@ pub enum Overlay<'a> {
     /// A short result message (e.g. after an edit), any key closes it.
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
-    Confirm { text: &'a str },
+    Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
     /// A readable summary of one object.
     Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
     /// What an object relates to, one group at a time.
@@ -550,7 +550,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
-        Overlay::Confirm { text } => draw_confirm_popup(frame, text),
+        Overlay::Confirm { spec } => draw_confirm_popup(frame, spec),
         Overlay::Prompt { title, value, hint } => draw_prompt_popup(frame, title, value, hint),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

@@ -470,8 +470,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     } else if c == 'S' && target.kind == "Pod" && !bulk {
                         open_pod(st, cx, &target, PodView::Shell);
                     } else if let Some(action) = action {
-                        if let Some(text) = actions::confirm_text(action, &targets) {
-                            st.mode = Mode::Confirm { text, targets, action, back: Box::new(Mode::List) };
+                        if let Some(spec) = actions::confirm_spec(action, &targets) {
+                            st.mode = Mode::Confirm { spec, targets, action, back: Box::new(Mode::List) };
                         } else {
                             let outcome = actions::run(client, &target, action);
                             st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
