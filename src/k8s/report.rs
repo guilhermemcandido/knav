@@ -16,7 +16,7 @@ pub struct Report {
     pub node_requests: HashMap<String, (i64, i64)>,
     /// Pods per phase, in a fixed order.
     pub phases: Vec<(&'static str, usize)>,
-    /// The namespaces with the most pods, biggest first.
+    /// The ten namespaces with the most pods, biggest first.
     pub namespaces: Vec<(String, usize)>,
     /// How many namespaces have pods at all.
     pub namespace_count: usize,
@@ -60,7 +60,7 @@ pub fn report(pods: &[Arc<Pod>]) -> Report {
     report.namespace_count = namespaces.len();
     let mut namespaces: Vec<(String, usize)> = namespaces.into_iter().collect();
     namespaces.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    namespaces.truncate(5);
+    namespaces.truncate(10);
     report.namespaces = namespaces;
     report
 }

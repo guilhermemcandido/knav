@@ -1078,7 +1078,7 @@ pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview
         lines.push(Line::from(vec![Span::styled("● ", if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }), Span::raw(format!("{phase:<11}")), Span::styled(n.to_string(), Style::default().add_modifier(Modifier::BOLD))]));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::styled(format!("Busiest namespaces (top {} of {})", report.namespaces.len(), report.namespace_count), Style::default().fg(theme().heading).add_modifier(Modifier::BOLD)));
+    lines.push(Line::styled("Top namespace activity", Style::default().fg(theme().heading).add_modifier(Modifier::BOLD)));
     let biggest = report.namespaces.first().map_or(1, |(_, n)| *n).max(1);
     let name_room = 18.min(width / 2);
     let bar_room = width.saturating_sub(name_room + 6).max(2);
