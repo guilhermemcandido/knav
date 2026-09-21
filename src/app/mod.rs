@@ -100,7 +100,10 @@ pub(crate) fn run(
                         st.info_scroll = 0;
                     }
                     let sections = k8s::details::details(&manifest, &overview.events);
-                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll }));
+                    if let Ok(size) = terminal.size() {
+                        st.info_scroll = st.info_scroll.min(ui::side_panel_max_scroll(&sections, size));
+                    }
+                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll, focused: st.info_focus }));
                 }
                 None => ui::set_side_panel(None),
             }

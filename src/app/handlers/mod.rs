@@ -95,6 +95,73 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         }
         return Ok(None);
     }
+    // The info panel beside the list: Shift-Right hands it the keys, Shift-Left takes them back.
+    if st.info_panel
+        && matches!(st.mode, Mode::List)
+        && let Event::Key(key) = &event
+    {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
+        if key.code == KeyCode::Right && shift {
+            st.info_focus = true;
+            return Ok(None);
+        }
+        if st.info_focus {
+            let handled = match key.code {
+                KeyCode::Left if shift => {
+                    st.info_focus = false;
+                    true
+                }
+                KeyCode::Esc => {
+                    st.info_focus = false;
+                    true
+                }
+                KeyCode::Char('i') => {
+                    st.info_panel = false;
+                    st.info_focus = false;
+                    true
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    st.info_scroll += 1;
+                    true
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    st.info_scroll = st.info_scroll.saturating_sub(1);
+                    true
+                }
+                KeyCode::PageDown => {
+                    st.info_scroll += page;
+                    true
+                }
+                KeyCode::Char('f') if ctrl => {
+                    st.info_scroll += page;
+                    true
+                }
+                KeyCode::PageUp => {
+                    st.info_scroll = st.info_scroll.saturating_sub(page);
+                    true
+                }
+                KeyCode::Char('b') if ctrl => {
+                    st.info_scroll = st.info_scroll.saturating_sub(page);
+                    true
+                }
+                KeyCode::Char('g') | KeyCode::Home => {
+                    st.info_scroll = 0;
+                    true
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    st.info_scroll = usize::MAX / 2;
+                    true
+                }
+                // Anything else (`:`, `?`, ...) works as usual.
+                _ => false,
+            };
+            if handled {
+                return Ok(None);
+            }
+        }
+    }
     // `s` and the digits sort a popup's table when one has focus.
     if matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code)) {
         return Ok(None);

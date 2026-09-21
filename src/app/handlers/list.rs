@@ -388,6 +388,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // A readable summary of the selected object.
             KeyCode::Char('i') if frame_area.width >= ui::SIDE_PANEL_MIN_WIDTH => {
                 st.info_panel = !st.info_panel;
+                st.info_focus = false;
                 st.info_scroll = 0;
             }
             KeyCode::Char('i') => {

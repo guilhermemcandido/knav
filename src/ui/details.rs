@@ -98,6 +98,8 @@ pub struct SidePanel {
     pub title: String,
     pub sections: Vec<Section>,
     pub scroll: usize,
+    /// The keys are scrolling it.
+    pub focused: bool,
 }
 
 static PANEL: std::sync::RwLock<Option<SidePanel>> = std::sync::RwLock::new(None);
@@ -115,6 +117,15 @@ pub const SIDE_PANEL_MIN_WIDTH: u16 = 100;
 /// How wide the panel is at `full_width` columns; 0 when there is none.
 pub fn side_panel_width(full_width: u16) -> u16 {
     if full_width >= SIDE_PANEL_MIN_WIDTH && PANEL.read().is_ok_and(|p| p.is_some()) { (full_width * 2 / 5).max(44) } else { 0 }
+}
+
+/// How far the panel can scroll for `sections` on a terminal of `size`.
+pub fn side_panel_max_scroll(sections: &[Section], size: ratatui::layout::Size) -> usize {
+    let full = Rect { x: 0, y: 0, width: size.width, height: size.height };
+    let body = body_area(full, true);
+    let width = (size.width * 2 / 5).max(44).min(body.width);
+    let (inner_w, inner_h) = (usize::from(width).saturating_sub(4), usize::from(body.height).saturating_sub(2));
+    details_lines(sections, inner_w).len().saturating_sub(inner_h)
 }
 
 /// The part of the body a list uses: all of it, or what is left of the panel.
@@ -136,9 +147,9 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
-        .border_style(theme_border(false))
+        .border_style(if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) })
         .title(Line::styled(format!(" {} ", panel.title), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
-        .title_bottom(Line::styled(" ctrl-d/u scroll   i close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(if panel.focused { " ↑↓ scroll   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
