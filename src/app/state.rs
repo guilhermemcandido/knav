@@ -36,6 +36,11 @@ pub(super) struct State {
     pub icons: icons::IconCache,
     /// Running port-forwards; dropping one stops it.
     pub forwards: Vec<portforward::Forward>,
+    /// Rows marked with Space, by `ui::mark_key`; bulk actions apply to
+    /// them. They belong to `marked_kind`'s list and are dropped when the
+    /// list changes.
+    pub marked: std::collections::HashSet<String>,
+    pub marked_kind: ResourceKind,
     pub overview_selection: ui::OverviewSelection,
     /// Horizontal scroll into the Overview's category columns.
     pub overview_col_scroll: usize,
@@ -64,6 +69,8 @@ impl State {
             show_hints_panel: false,
             icons,
             forwards: Vec::new(),
+            marked: Default::default(),
+            marked_kind: ResourceKind::Overview,
             overview_selection: ui::OverviewSelection::Resources,
             overview_col_scroll: 0,
             overview_item_scroll: 0,

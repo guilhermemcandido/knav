@@ -31,13 +31,13 @@ pub(crate) enum Mode {
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
-    Confirm { text: String, target: Target, action: Action, back: Box<Mode> },
+    Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Asks for the ports to forward (`local:remote`).
     Ports { target: Target, input: String, back: Box<Mode> },
     /// The active port-forwards, to stop them.
     Forwards { state: TableState, back: Box<Mode> },
     /// Asks for a replica count (digits only) to scale to.
-    Scale { target: Target, input: String, back: Box<Mode> },
+    Scale { targets: Vec<Target>, input: String, back: Box<Mode> },
     Spec {
         title: String,
         items: Vec<TreeItem<'static, String>>,
@@ -335,6 +335,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
                 hints.push(("e", "edit"));
                 hints.extend(action_hints(current_kind));
             }
+            hints.push(("space", "mark"));
             hints.push(("g/G", "top/bottom"));
             hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));

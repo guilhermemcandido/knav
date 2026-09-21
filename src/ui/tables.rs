@@ -72,7 +72,7 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let muted = dim_style();
     let border_style = theme_border(dimmed);
 
@@ -106,9 +106,10 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         ]))
     });
 
+    let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
     let title = table_title("Pods", pods.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
@@ -203,7 +204,7 @@ pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
     if phase == "Succeeded" { Color::DarkGray } else { ready_color(ready) }
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
@@ -228,9 +229,10 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         ]))
     });
 
+    let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
     let title = table_title("Deployments", deployments.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
@@ -285,7 +287,7 @@ fn node_status_text(n: &NodeRow) -> String {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let muted = dim_style();
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
@@ -338,9 +340,10 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         ]))
     });
 
+    let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
     let title = table_title("Nodes", nodes.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
@@ -361,7 +364,7 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
@@ -405,9 +408,10 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         Row::new(window.slice(cells))
     });
 
+    let flags: Vec<bool> = rows.iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
     let title = table_title(label, rows.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(table_rows, table_state.selected(), dimmed), window.constraints.clone())
+    let table = Table::new(select_rows(table_rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
@@ -449,7 +453,7 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 
     let title = table_title(heading, crds.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+    let table = Table::new(select_rows(rows, table_state.selected(), &[], dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)

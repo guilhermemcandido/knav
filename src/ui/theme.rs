@@ -33,9 +33,25 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
 /// visible on the selected row instead of being painted over.
 const SELECTED_ROW_BG: Color = Color::Rgb(58, 74, 96);
 
-pub(super) fn select_rows<'a>(rows: impl Iterator<Item = Row<'a>>, selected: Option<usize>, dimmed: bool) -> Vec<Row<'a>> {
+/// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
+const MARKED_ROW_BG: Color = Color::Rgb(84, 72, 24);
+
+/// `marked` says, row by row, which are marked; it may be empty (no marks).
+pub(super) fn select_rows<'a>(rows: impl Iterator<Item = Row<'a>>, selected: Option<usize>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
     let bar = if dimmed { dim_style() } else { Style::default().bg(SELECTED_ROW_BG).add_modifier(Modifier::BOLD) };
-    rows.enumerate().map(|(i, row)| if Some(i) == selected { row.style(bar) } else { row }).collect()
+    let mark = if dimmed { dim_style() } else { Style::default().bg(MARKED_ROW_BG) };
+    rows.enumerate()
+        .map(|(i, row)| match () {
+            _ if Some(i) == selected => row.style(bar),
+            _ if marked.get(i).copied().unwrap_or(false) => row.style(mark),
+            _ => row,
+        })
+        .collect()
+}
+
+/// The key a marked row is remembered by: `namespace/name` (`-` when cluster-scoped).
+pub fn mark_key(namespace: &str, name: &str) -> String {
+    format!("{namespace}/{name}")
 }
 
 pub(super) fn theme_border(dimmed: bool) -> Style {
@@ -194,5 +210,40 @@ pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
         Tone::Warn => Style::default().fg(Color::Yellow),
         Tone::Bad => Style::default().fg(Color::Red),
         Tone::Muted => Style::default().fg(Color::DarkGray),
+    }
+}
+
+#[cfg(test)]
+mod row_style_tests {
+    use super::*;
+
+    fn bg(row: &Row) -> Option<Color> {
+        // `Row` keeps its style private; the debug form shows it.
+        let text = format!("{row:?}");
+        [SELECTED_ROW_BG, MARKED_ROW_BG].into_iter().find(|c| text.contains(&format!("{c:?}")))
+    }
+
+    fn rows() -> Vec<Row<'static>> {
+        select_rows((0..3).map(|_| Row::new(["x"])), Some(0), &[false, true, false], false)
+    }
+
+    #[test]
+    fn the_cursor_row_gets_the_selection_fill_and_marked_rows_their_own() {
+        let rows = rows();
+        assert_eq!(bg(&rows[0]), Some(SELECTED_ROW_BG));
+        assert_eq!(bg(&rows[1]), Some(MARKED_ROW_BG));
+        assert_eq!(bg(&rows[2]), None);
+    }
+
+    #[test]
+    fn the_cursor_wins_over_a_mark_on_the_same_row() {
+        let rows = select_rows(std::iter::once(Row::new(["x"])), Some(0), &[true], false);
+        assert_eq!(bg(&rows[0]), Some(SELECTED_ROW_BG));
+    }
+
+    #[test]
+    fn mark_keys_join_namespace_and_name() {
+        assert_eq!(mark_key("kube-system", "coredns"), "kube-system/coredns");
+        assert_eq!(mark_key("-", "node-1"), "-/node-1");
     }
 }

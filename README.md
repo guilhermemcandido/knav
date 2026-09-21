@@ -51,8 +51,13 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `Enter` | Drill into what a row owns (Deployment → ReplicaSets → Pods → containers → logs), or open its spec |
 | `/` | Search the list; matches are highlighted |
 | `s` then a digit | Sort by that column; the same digit flips the direction. `s`/`Esc`/`q` leaves |
-| `←` `→` / `h` `l` | Scroll columns sideways when they don't fit |
+| `←` `→` | Scroll columns sideways when they don't fit |
+| `g` `G` / `Ctrl-f` `Ctrl-b` | Top or bottom of the list / page down or up (also `Home` `End` `PageUp` `PageDown`) |
+| `Space` | Mark the row and move down; `D`, `r` and `S` then act on every marked row. `Esc` clears the marks |
 | `d` / `e` | Show the spec / edit the manifest in `$EDITOR` |
+| `l` / `p` | Logs of a pod's container / the previous run's (in the containers popup too) |
+| `F` | Port-forward a pod, service or deployment (`local:remote`); `:pf` lists and stops them. Needs `kubectl` |
+| `x` | Show a Secret's values decoded |
 | `D` | Delete the selected object (asks first) |
 | `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container |
 | `r` | Restart a Deployment, StatefulSet or DaemonSet (asks first) |

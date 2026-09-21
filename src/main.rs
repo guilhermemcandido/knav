@@ -18,7 +18,7 @@ mod scope;
 mod sort;
 mod ui;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::stdout;
 use std::time::Duration;
 

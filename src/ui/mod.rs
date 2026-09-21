@@ -2,7 +2,7 @@
 //! `columns`, `menu`, `popups`, `spec`, `logs`). This file owns the shared
 //! types (`Rows`, `Overlay`) and the top-level `draw`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ratatui::{
     Frame,
@@ -44,6 +44,7 @@ pub use self::popups::*;
 pub use self::spec::*;
 pub use self::tables::*;
 use self::theme::*;
+pub use self::theme::mark_key;
 
 pub enum Rows<'a> {
     /// The two `usize`s are the horizontal column scroll offset and the
@@ -226,6 +227,8 @@ pub fn draw(
     // How many columns the main list is scrolled right; clamped here to
     // what its columns actually allow.
     hscroll: &mut usize,
+    // Rows marked with Space, by `mark_key`.
+    marked: &HashSet<String>,
 ) {
     // Popups dim what's behind them. The `:` command line and `/` search
     // are bars in the page, not popups, so the list stays in full colour.
@@ -293,7 +296,7 @@ pub fn draw(
     };
     match rows {
         Rows::Pods(pods) => {
-            draw_table(frame, body, pods, table_state, search, sort, hscroll, dimmed);
+            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, dimmed);
 
             // The mouse-hover popup is separate from the status line and
             // only appears while actively hovering over a container dot
@@ -307,16 +310,16 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, dimmed);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label, kind_headers) => {
-            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, dimmed);
+            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, dimmed);
         }
         Rows::CrdList(crds, heading) => {
             draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, hscroll, dimmed);

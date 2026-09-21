@@ -154,6 +154,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // somehow can't find it) one specific CRD kind's
             // instances came from, mirroring how you got there.
             // Quitting from in here is still reachable via `:q`.
+            KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.nav_stack.is_empty() => {
                 // Back out of a drill-down to the list it came from.
                 if let Some((kind, previous_scope, selected)) = st.nav_stack.pop() {
@@ -314,7 +315,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
-                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
+                // Delete, restart and scale act on every marked row when
+                // there are marks; everything else on the cursor row.
+                let bulk = matches!(c, 'D' | 'S' | 'r') && !st.marked.is_empty();
+                let targets: Vec<Target> = if bulk {
+                    marked_targets(st, cx.d, catalog, client)
+                } else {
+                    selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest).into_iter().collect()
+                };
+                if let Some(target) = targets.first().cloned() {
                     let action = match c {
                         'D' => Some(Action::Delete),
                         'r' if target.restartable() => Some(Action::Restart),
@@ -325,17 +334,29 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     };
                     // `S` scales what scales and opens a shell in a pod.
                     if c == 'S' && target.scalable() {
-                        st.mode = Mode::Scale { input: target.replicas().to_string(), target, back: Box::new(Mode::List) };
-                    } else if c == 'S' && target.kind == "Pod" {
+                        st.mode = Mode::Scale { input: target.replicas().to_string(), targets, back: Box::new(Mode::List) };
+                    } else if c == 'S' && target.kind == "Pod" && !bulk {
                         open_pod(st, cx, &target, PodView::Shell);
                     } else if let Some(action) = action {
-                        if let Some(text) = action.confirmation(&target) {
-                            st.mode = Mode::Confirm { text, target, action, back: Box::new(Mode::List) };
+                        if let Some(text) = actions::confirm_text(action, &targets) {
+                            st.mode = Mode::Confirm { text, targets, action, back: Box::new(Mode::List) };
                         } else {
                             let outcome = actions::run(client, &target, action);
                             st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
                         }
                     }
+                }
+            }
+            // Space marks the row (and moves down) for bulk actions.
+            KeyCode::Char(' ') => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
+                    && let Some(target) = Target::from_manifest(&manifest)
+                {
+                    let key = ui::mark_key(target.namespace.as_deref().unwrap_or("-"), &target.name);
+                    if !st.marked.remove(&key) {
+                        st.marked.insert(key);
+                    }
+                    select_next(&mut st.table_state, row_count);
                 }
             }
             KeyCode::Enter if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
@@ -454,4 +475,27 @@ pub(super) fn run_shell(st: &mut State, cx: &mut Cx, namespace: &str, pod: &str,
     if let Some(outcome) = actions::shell(cx.terminal, cx.active_context, namespace, pod, container) {
         st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
     }
+}
+
+/// Every row of the current list, in order, with its manifest.
+fn visible_manifests(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Vec<serde_yaml::Value> {
+    match st.current_kind {
+        ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => Vec::new(),
+        ResourceKind::Pods => d.pods.iter().map(|p| k8s::manifest_value(p.as_ref())).collect(),
+        ResourceKind::Deployments => d.deployments.iter().map(|x| k8s::manifest_value(x.as_ref())).collect(),
+        ResourceKind::Nodes => d.sorted_nodes.iter().map(|n| k8s::manifest_value(n.as_ref())).collect(),
+        kind => match catalog.resolve(kind, client) {
+            Some(k) => d.generic_visible.iter().filter_map(|&real| k.spec_at(real)).collect(),
+            None => Vec::new(),
+        },
+    }
+}
+
+/// The marked rows of the current list as action targets.
+fn marked_targets(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Vec<Target> {
+    visible_manifests(st, d, catalog, client)
+        .iter()
+        .filter_map(Target::from_manifest)
+        .filter(|t| st.marked.contains(&ui::mark_key(t.namespace.as_deref().unwrap_or("-"), &t.name)))
+        .collect()
 }

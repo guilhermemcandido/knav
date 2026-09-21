@@ -133,6 +133,53 @@ impl Action {
     }
 }
 
+/// What to ask before running `action` on `targets`, for the actions that ask.
+pub fn confirm_text(action: Action, targets: &[Target]) -> Option<String> {
+    if let [one] = targets {
+        return action.confirmation(one);
+    }
+    let verb = match action {
+        Action::Delete => "Delete",
+        Action::Restart => "Restart",
+        _ => return None,
+    };
+    let kind = targets.first().map(|t| t.kind.to_lowercase()).unwrap_or_default();
+    let plural = if kind.ends_with('s') { format!("{kind}es") } else if let Some(stem) = kind.strip_suffix('y') { format!("{stem}ies") } else { format!("{kind}s") };
+    Some(format!("{verb} {} {plural}?", targets.len()))
+}
+
+/// Runs one action on each target, reporting the successes as a count and
+/// the failures by name.
+pub fn run_many(client: &Client, targets: &[Target], action: Action) -> Outcome {
+    if let [one] = targets {
+        return run(client, one, action);
+    }
+    let mut failures = Vec::new();
+    for target in targets {
+        let outcome = run(client, target, action);
+        if outcome.error {
+            failures.push(format!("{}: {}", target.label(), outcome.text));
+        }
+    }
+    let done = targets.len() - failures.len();
+    if failures.is_empty() {
+        Outcome { text: format!("{}: {done} of {}", action_name(action), targets.len()), error: false }
+    } else {
+        Outcome { text: format!("{}: {done} of {}\n{}", action_name(action), targets.len(), failures.join("\n")), error: true }
+    }
+}
+
+fn action_name(action: Action) -> &'static str {
+    match action {
+        Action::Delete => "Deleted",
+        Action::Scale(_) => "Scaled",
+        Action::Restart => "Restarted",
+        Action::Cordon(_) => "Cordoned",
+        Action::Trigger => "Triggered",
+        Action::Suspend(_) => "Suspended",
+    }
+}
+
 pub fn run(client: &Client, target: &Target, action: Action) -> Outcome {
     match block(perform(client, target, action)) {
         Ok(text) => Outcome { text, error: false },
@@ -362,6 +409,16 @@ mod tests {
         assert_eq!(decoded["data"]["blob"], "<binary, 1 bytes>");
         assert_eq!(decoded["data"]["bad"], "<not base64: !!>");
         assert_eq!(decoded["kind"], "Secret");
+    }
+
+    #[test]
+    fn asking_about_several_targets_counts_them() {
+        let pods: Vec<Target> = (0..3).map(|i| target(&format!("apiVersion: v1\nkind: Pod\nmetadata: {{name: p{i}, namespace: d}}\n"))).collect();
+        assert_eq!(confirm_text(Action::Delete, &pods).as_deref(), Some("Delete 3 pods?"));
+        assert_eq!(confirm_text(Action::Delete, &pods[..1]).as_deref(), Some("Delete pod d/p0?"));
+        let policies: Vec<Target> = (0..2).map(|i| target(&format!("apiVersion: v1\nkind: NetworkPolicy\nmetadata: {{name: p{i}}}\n"))).collect();
+        assert_eq!(confirm_text(Action::Restart, &policies).as_deref(), Some("Restart 2 networkpolicies?"));
+        assert_eq!(confirm_text(Action::Scale(2), &pods), None);
     }
 
     #[test]
