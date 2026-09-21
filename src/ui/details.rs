@@ -15,6 +15,8 @@ fn style_of(style: DStyle) -> Style {
         DStyle::Bad => Style::default().fg(theme().bad),
         DStyle::Chip => Style::default().fg(theme().text_strong).bg(theme().pill_bg),
         DStyle::WarnChip => Style::default().fg(theme().warn).bg(theme().pill_bg),
+        DStyle::PairChip => Style::default().fg(theme().text_strong).bg(theme().pill_bg),
+        DStyle::Key => Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD),
     }
 }
 
@@ -38,7 +40,17 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
             spans.push(Span::raw(" "));
             used += 1;
         }
-        spans.push(Span::styled(text, style_of(chunk.style)));
+        if chunk.style == DStyle::PairChip
+            && let Some((key, value)) = chunk.text.split_once('=')
+        {
+            // key=value: the key and the value in their own colours on the same pill.
+            let pill = Style::default().bg(theme().pill_bg);
+            spans.push(Span::styled(format!(" {key}"), pill.fg(theme().namespace)));
+            spans.push(Span::styled("=", pill.fg(theme().muted)));
+            spans.push(Span::styled(format!("{value} "), pill.fg(theme().text_strong)));
+        } else {
+            spans.push(Span::styled(text, style_of(chunk.style)));
+        }
         used += w;
         previous_chip = chip;
     }

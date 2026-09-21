@@ -15,7 +15,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        st.reveal = false;
+                        st.reveal = true;
                         st.mode = std::mem::replace(&mut **back, Mode::List);
                     }
                     KeyCode::Char('j') | KeyCode::Down => *scroll = (*scroll + 1).min(last),

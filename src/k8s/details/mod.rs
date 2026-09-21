@@ -28,6 +28,10 @@ pub enum Style {
     Chip,
     /// A pill worth a second look.
     WarnChip,
+    /// A `key=value` pill: the key, the `=` and the value each get their own colour.
+    PairChip,
+    /// A name that labels a value (a data key, a variable).
+    Key,
 }
 
 impl From<Tone> for Style {
@@ -44,7 +48,7 @@ impl From<Tone> for Style {
 
 impl Style {
     pub fn is_chip(self) -> bool {
-        matches!(self, Style::Chip | Style::WarnChip)
+        matches!(self, Style::Chip | Style::WarnChip | Style::PairChip)
     }
 }
 
@@ -120,7 +124,7 @@ fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
 }
 
 fn chips(pairs: &[(String, String)]) -> Vec<Chunk> {
-    pairs.iter().map(|(k, v)| chunk(if v.is_empty() { k.clone() } else { format!("{k}={v}") }, Style::Chip)).collect()
+    pairs.iter().map(|(k, v)| if v.is_empty() { chunk(k.clone(), Style::Chip) } else { chunk(format!("{k}={v}"), Style::PairChip) }).collect()
 }
 
 /// The string items of a list.

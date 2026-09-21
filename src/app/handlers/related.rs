@@ -87,8 +87,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
     }
     if let Some(manifest) = info {
-        st.reveal = false;
-        let sections = k8s::details::details(&manifest, &cx.d.overview.events, false);
+        st.reveal = true;
+        let sections = k8s::details::details(&manifest, &cx.d.overview.events, true);
         let back = std::mem::replace(&mut st.mode, Mode::List);
         st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
     }

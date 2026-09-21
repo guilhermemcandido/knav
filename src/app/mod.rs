@@ -120,7 +120,7 @@ pub(crate) fn run(
                     let key = format!("{:?}{}", st.current_kind, mode::object_title(&manifest));
                     if key != st.info_key {
                         st.info_key = key;
-                        st.reveal = false;
+                        st.reveal = true;
                         st.info_scroll = 0;
                         st.info_hscroll = 0;
                     }

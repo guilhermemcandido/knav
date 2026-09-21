@@ -70,7 +70,7 @@ pub(super) fn container_lines(spec: &Value, status: Option<&Value>) -> Vec<Line>
         } else {
             vec![chunk("(from elsewhere)", Style::Muted)]
         };
-        let mut chunks = vec![chunk(format!("{name} = "), Style::Strong)];
+        let mut chunks = vec![chunk(name.to_string(), Style::Key), chunk(" = ", Style::Muted)];
         chunks.extend(value);
         env.push(chunks);
     }

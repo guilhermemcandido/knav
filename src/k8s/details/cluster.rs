@@ -31,7 +31,7 @@ pub(super) fn node_sections(manifest: &Value) -> Vec<Section> {
     lines.push(field("Allocatable", format!("cpu {}, memory {}, pods {}", capacity("cpu"), capacity("memory"), capacity("pods"))));
     let taints: Vec<String> = items(manifest, &["spec", "taints"]).iter().map(|t| format!("{}={}:{}", text(t, &["key"]).unwrap_or("?"), text(t, &["value"]).unwrap_or(""), text(t, &["effect"]).unwrap_or("?"))).collect();
     if !taints.is_empty() {
-        lines.push(Line::Field("Taints".into(), taints.into_iter().map(|t| chunk(t, Style::Chip)).collect()));
+        lines.push(Line::Field("Taints".into(), taints.into_iter().map(|t| chunk(t, Style::PairChip)).collect()));
     }
     vec![Section { title: "Node".into(), lines }]
 }

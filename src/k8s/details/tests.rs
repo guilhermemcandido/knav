@@ -72,7 +72,7 @@ fn config_maps_show_their_values_and_pods_show_their_environment() {
         "env": [{"name": "A", "value": "1"}, {"name": "B", "valueFrom": {"secretKeyRef": {"name": "db", "key": "pw"}}}], "envFrom": [{"configMapRef": {"name": "cfg"}}],
         "volumeMounts": [{"name": "data", "mountPath": "/data", "readOnly": true}]}]}}));
     let text = format!("{:?}", details(&pod, &[], false));
-    assert!(text.contains("A = ") && text.contains("secret db / pw") && text.contains("every key of configMap cfg") && text.contains("/data") && text.contains("read only"), "{text}");
+    assert!(text.contains("\"A\"") && text.contains("secret db / pw") && text.contains("every key of configMap cfg") && text.contains("/data") && text.contains("read only"), "{text}");
 }
 
 #[test]

@@ -46,16 +46,16 @@ pub(super) fn keys_section(manifest: &Value, kind: &str, reveal: bool) -> Vec<Se
         if i > 0 {
             lines.push(Line::Blank);
         }
-        let mut head = vec![chunk(key.clone(), Style::Strong), chunk(format!("   {}", size_text(*size)), Style::Muted)];
+        let mut head = vec![chunk(key.clone(), Style::Key), chunk(format!("   {}", size_text(*size)), Style::Muted)];
         match value {
             Some(value) => {
                 lines.push(Line::Item(head));
                 let all: Vec<&str> = value.lines().collect();
                 for line in all.iter().take(VALUE_LINES) {
-                    lines.push(Line::Pad(4, vec![chunk(*line, Style::Plain)]));
+                    lines.push(Line::Pad(4, vec![chunk("│ ", Style::Muted), chunk(*line, Style::Plain)]));
                 }
                 if all.len() > VALUE_LINES {
-                    lines.push(Line::Pad(4, vec![chunk(format!("… {} more lines", all.len() - VALUE_LINES), Style::Muted)]));
+                    lines.push(Line::Pad(4, vec![chunk("│ ", Style::Muted), chunk(format!("… {} more lines", all.len() - VALUE_LINES), Style::Muted)]));
                 }
             }
             None => {

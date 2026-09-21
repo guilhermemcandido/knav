@@ -35,7 +35,7 @@ pub(super) struct State {
     pub sidebar_focus: bool,
     pub sidebar_cursor: usize,
     pub sidebar_folded: HashSet<&'static str>,
-    /// Whether the info view shows a Secret's values; off whenever the object changes.
+    /// Whether the info view shows a Secret's values; on again whenever the object changes.
     pub reveal: bool,
     /// A key to handle again on the next turn, after a job it waited for.
     pub replay: Option<crossterm::event::KeyEvent>,
@@ -114,7 +114,7 @@ impl State {
             sidebar_focus: false,
             sidebar_cursor: 0,
             sidebar_folded: crate::app::sidebar::folded_by_default(),
-            reveal: false,
+            reveal: true,
             replay: None,
             current_kind: ResourceKind::Overview,
             namespace: None,
