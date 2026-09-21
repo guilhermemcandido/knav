@@ -669,12 +669,12 @@ pub(crate) fn run(
                     KeyCode::Enter if current_kind == ResourceKind::Pods => {
                         if let Some(pod) = table_state.selected().and_then(|i| pods.get(i)) {
                             let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
-                            let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+                            let pod_namespace = pod.metadata.namespace.clone().unwrap_or_default();
                             let name = pod.metadata.name.clone().unwrap_or_default();
                             let containers = k8s::containers_for(pod);
                             mode = Mode::Containers {
                                 title,
-                                namespace,
+                                namespace: pod_namespace,
                                 pod: name,
                                 containers,
                                 state: TableState::default().with_selected(0),
@@ -981,7 +981,7 @@ pub(crate) fn run(
                     KeyCode::Enter => {
                         if let Some(pod) = state.selected().and_then(|i| node_detail_pods.get(i)) {
                             let title = title_for(pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref());
-                            let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+                            let pod_namespace = pod.metadata.namespace.clone().unwrap_or_default();
                             let pod_name = pod.metadata.name.clone().unwrap_or_default();
                             let containers = k8s::containers_for(pod);
                             let node_detail_snapshot = Mode::NodeDetail {
@@ -994,7 +994,7 @@ pub(crate) fn run(
                             };
                             mode = Mode::Containers {
                                 title,
-                                namespace,
+                                namespace: pod_namespace,
                                 pod: pod_name,
                                 containers,
                                 state: TableState::default().with_selected(0),
