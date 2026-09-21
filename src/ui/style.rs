@@ -2,11 +2,8 @@
 
 use super::*;
 
-/// The color everything in a dimmed "background" layer is muted down
-/// to — deliberately darker than plain ANSI `DarkGray` (which most
-/// terminals render as a fairly legible mid-gray) plus the `DIM`
-/// modifier on top, so a screen sitting behind a popup reads as
-/// unmistakably out of focus rather than just "a bit gray."
+/// The colour everything in a dimmed background layer is muted to: darker than
+/// `DarkGray`, plus `DIM`, so a screen behind a popup reads as out of focus.
 pub(super) fn dim_style() -> Style {
     Style::default().fg(theme().dim).add_modifier(Modifier::DIM)
 }
@@ -141,11 +138,8 @@ pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Spa
     Some(Span::styled(format!("  search: {text}{}", if editing { "▏" } else { "" }), style))
 }
 
-/// Shared namespace/name coloring — namespace in the app's cyan accent,
-/// name in plain bold, `/` muted — the same "kind vs value" split the
-/// path uses, reused everywhere a `namespace/name` pair shows up
-/// (this status line, the Containers/Logs popup titles) so it's one
-/// defined color pairing rather than a different pick per screen.
+/// Shared namespace/name colouring: namespace in the cyan accent, name bold, `/`
+/// muted. Used wherever a `namespace/name` pair shows up.
 pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
     vec![
         Span::styled(namespace.to_string(), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
@@ -154,13 +148,9 @@ pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'sta
     ]
 }
 
-/// Colors a `/`-joined title (`namespace/name`, or `namespace/pod/
-/// container` for Logs) the same way as the path: the outermost
-/// segment (namespace) in the app's cyan accent, the innermost (a
-/// container name, when there is one) in a distinct accent of its own,
-/// everything else plain bold — joined by muted `/`s instead of one
-/// flat-colored string. Falls back to plain bold for a title with no
-/// `/` at all (a bare node name, say).
+/// Colours a `/`-joined title like the path: namespace in the cyan accent, a
+/// container name in its own accent, the rest bold, joined by muted `/`. A title
+/// without `/` is plain bold.
 pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
     let parts: Vec<&str> = title.split('/').collect();
     if parts.len() < 2 {

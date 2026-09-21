@@ -2,10 +2,10 @@
 
 use crate::*;
 
-/// Command-line arguments — deliberately hand-rolled instead of pulling in
+/// Command-line arguments, deliberately hand-rolled instead of pulling in
 /// a full argument-parsing crate for what's currently a single flag.
 pub(crate) struct Cli {
-    /// `-c`/`--context <query>` — fuzzy-matched against the kubeconfig's
+    /// `-c`/`--context <query>`, fuzzy-matched against the kubeconfig's
     /// contexts and connected to directly, bypassing the cluster picker
     /// regardless of `startup.mode`.
     context_query: Option<String>,
@@ -33,13 +33,9 @@ impl Cli {
     }
 }
 
-/// Resolves which kubeconfig context to connect to, before anything else
-/// starts up — `--context` always wins (resolved once, non-interactively,
-/// via fuzzy match); otherwise the config's `startup.mode` decides between
-/// connecting directly (k9s-style, the default) or showing the
-/// freelens-style cluster picker first. `Ok(None)` from the picker means
-/// the user cancelled, which should exit knav entirely rather than
-/// silently falling back to some default cluster.
+/// Resolves the context to connect to. `--context` always wins (fuzzy, once);
+/// otherwise `startup.mode` picks direct or the cluster picker. `Ok(None)` from
+/// the picker means the user cancelled, so knav exits.
 pub(crate) fn resolve_context(cli: &Cli, config: &Config) -> Result<Option<String>> {
     if let Some(query) = &cli.context_query {
         let contexts = k8s::list_contexts()?;

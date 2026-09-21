@@ -17,11 +17,11 @@ pub struct PodRow {
     pub phase: String,
     pub restarts: i32,
     pub containers: Vec<ContainerInfo>,
-    /// "ready/total" containers, e.g. "2/3" — standard in both k9s and
+    /// "ready/total" containers, e.g. "2/3", standard in both k9s and
     /// Freelens' pod lists.
     pub ready: String,
     pub node: String,
-    /// What controls it — the kind of its owner (`ReplicaSet`, `Job`), or `-`.
+    /// What controls it, the kind of its owner (`ReplicaSet`, `Job`), or `-`.
     pub controlled_by: String,
     pub qos: String,
     /// Pod IP and the images it runs, for the wide view.
@@ -47,10 +47,8 @@ pub struct ContainerInfo {
     pub restarts: i32,
 }
 
-/// Per-container state, straight from `status.containerStatuses` — this is
-/// what actually knows about crash-looping, unlike the pod-level `phase`
-/// (Kubernetes has no CrashLoopBackOff *phase*, only a waiting *reason* on
-/// the container; a crash-looping pod's phase is still just "Running").
+/// Per-container state from `status.containerStatuses`. The pod `phase` stays
+/// `Running` for a crash loop; only the container's waiting reason shows it.
 pub fn containers_for(pod: &Pod) -> Vec<ContainerInfo> {
     let statuses = pod
         .status
@@ -76,10 +74,8 @@ pub fn containers_for(pod: &Pod) -> Vec<ContainerInfo> {
         .collect()
 }
 
-/// The STATUS kubectl and k9s show: the phase, refined by what the
-/// containers are actually doing — `CrashLoopBackOff`, `ImagePullBackOff`,
-/// `Init:0/1`, `Completed`, `Terminating`, ... — because the phase alone
-/// says `Running` for a crash-looping pod.
+/// The STATUS kubectl and k9s show: the phase refined by container state
+/// (`CrashLoopBackOff`, `Init:0/1`, `Completed`, `Terminating`, ...).
 pub fn pod_status(pod: &Pod) -> String {
     let Some(status) = pod.status.as_ref() else { return "Unknown".into() };
     let mut reason = status.reason.clone().or_else(|| status.phase.clone()).unwrap_or_else(|| "Unknown".into());
@@ -184,12 +180,8 @@ pub fn row_for(pod: &Pod) -> PodRow {
     PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs }
 }
 
-/// Starts a background watch on every Pod in the cluster and keeps an
-/// in-memory store up to date as events arrive — no polling, no manual
-/// refresh. Returns the live-updating reader immediately; call
-/// `.snapshot()` on it whenever you need the current list for rendering.
-/// Reconnects with backoff automatically if the watch connection drops
-/// (`WatchStreamExt::default_backoff`).
+/// Watches every Pod in the cluster into an in-memory store, reconnecting with
+/// backoff. Call `.snapshot()` for the current list.
 pub fn watch_pods(client: Client) -> (reflector::Store<Pod>, JoinHandle<()>) {
     let api: Api<Pod> = Api::all(client);
     let (reader, writer) = reflector::store();
@@ -202,7 +194,7 @@ pub fn watch_pods(client: Client) -> (reflector::Store<Pod>, JoinHandle<()>) {
     let handle = tokio::spawn(async move {
         let mut stream = stream.boxed();
         while stream.next().await.is_some() {
-            // Nothing to do per-event — `reader.snapshot()` already
+            // Nothing to do per-event, `reader.snapshot()` already
             // reflects it, since `reflect(writer)` updates the store.
         }
     });
@@ -227,12 +219,8 @@ pub fn snapshot(store: &reflector::Store<Pod>) -> Vec<Arc<Pod>> {
     pods
 }
 
-/// Starts a live-following log stream for one container, sending lines
-/// back over an unbounded channel as they arrive. Caller is responsible
-/// for aborting the returned handle when done (e.g. when the log view is
-/// closed) — otherwise the stream just keeps running against the API
-/// server in the background. `previous` reads the last terminated
-/// container's log instead (nothing to follow there).
+/// Streams one container's log over an unbounded channel. The caller must abort
+/// the returned handle when done. `previous` reads the last terminated run.
 pub fn stream_logs(
     client: Client,
     namespace: String,
@@ -248,10 +236,7 @@ pub fn stream_logs(
             container: Some(container),
             follow: !previous,
             previous,
-            // Timestamps come from the API server itself, not the app —
-            // more trustworthy than "when did knav happen to read this
-            // line," and it's the actual diagnostic detail ("when did
-            // this break") the project's whole thesis cares about.
+            // Timestamps come from the API server, not from when knav read the line.
             timestamps: true,
             ..Default::default()
         };
@@ -268,7 +253,7 @@ pub fn stream_logs(
             match lines.next().await {
                 Some(Ok(line)) => {
                     if tx.send(line).is_err() {
-                        break; // receiver dropped — view was closed
+                        break; // receiver dropped, view was closed
                     }
                 }
                 Some(Err(e)) => {

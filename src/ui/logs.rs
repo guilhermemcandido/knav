@@ -18,12 +18,12 @@ pub(super) fn draw_logs_popup(
     frame.render_widget(Clear, area);
 
     // A plain substring match, not the fuzzy scorer the rest of the app
-    // uses — log lines are prose to scan, not identifiers to narrow.
+    // uses, log lines are prose to scan, not identifiers to narrow.
     let needle = filter.to_lowercase();
     let mut filtered: Vec<&str> =
         if filter.is_empty() { lines.iter().map(String::as_str).collect() } else { lines.iter().map(String::as_str).filter(|l| l.to_lowercase().contains(&needle)).collect() };
 
-    // Just the live state, not how to control it — the keybindings for
+    // Just the live state, not how to control it, the keybindings for
     // pausing/resuming/toggling timestamps live in the `?` commands
     // panel now instead of being spelled out here every time.
     let follow_status = if follow { "following" } else { "scrolled" };
@@ -40,10 +40,8 @@ pub(super) fn draw_logs_popup(
         filtered.reverse();
     }
 
-    // When following, always show exactly the newest lines that fit the
-    // visible area — the tail when oldest-first, the head when newest-first
-    // — simpler and more robust than trusting Paragraph's own scroll
-    // clamping to not show blank space past the end of the content.
+    // When following, show exactly the newest lines that fit: the tail when
+    // oldest-first, the head when newest-first.
     let (text, effective_scroll): (Vec<Line>, u16) = if follow {
         let visible = area.height.saturating_sub(2) as usize; // minus borders
         let shown = match order {
@@ -70,12 +68,9 @@ fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str) -> u16 {
     shown.saturating_sub(visible).min(u16::MAX as usize) as u16
 }
 
-/// Moves the view one line up the screen. Where that leads depends on the
-/// order: oldest-first, up is toward older lines (so it leaves following,
-/// from where the tail *was* — not from wherever `scroll` was last left,
-/// which would jump to the top); newest-first, up is toward the newest
-/// line, which resumes following once you reach the top. New lines keep
-/// arriving either way.
+/// Moves the view one line up. Oldest-first, up goes to older lines and leaves
+/// following from where the tail was. Newest-first, up goes toward the newest line
+/// and resumes following at the top.
 pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
     match order {
         LogOrder::OldestFirst => {
@@ -97,10 +92,8 @@ pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, order: L
     }
 }
 
-/// The opposite move. Oldest-first, down is toward the newest line: nothing
-/// while following (already there), and following resumes by itself on
-/// reaching the end, like `tail -f` in a pager. Newest-first, down is toward
-/// older lines, which leaves following.
+/// The opposite move. Oldest-first, down goes toward the newest line and resumes
+/// following at the end, like `tail -f`. Newest-first, down leaves following.
 pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
     match order {
         LogOrder::OldestFirst => {
@@ -122,20 +115,9 @@ pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, order:
     }
 }
 
-/// Kubernetes' log API merges stdout/stderr into one stream and doesn't
-/// preserve which one a line came from — there's no real "is this
-/// stderr" signal to key off. This is the practical substitute: split
-/// off the leading server-side timestamp (see `k8s::stream_logs`,
-/// `timestamps: true`), bracket it and give it its own color (cyan,
-/// matching the metadata/key color used in the spec tree view) so it
-/// doesn't compete with gray — gray is reserved for normal-severity
-/// message text. The message itself is heuristically colored by
-/// scanning for error/warning keywords: substring match on
-/// error/fatal/panic/fail → red, warn → yellow, else gray. It's a naive
-/// heuristic, not a real log-level parser — "no errors occurred" would
-/// still show red, since it's just checking for the substring "error."
-/// Same approach most terminal log viewers fall back to in the absence
-/// of real stream/level metadata.
+/// Colours one log line: the server timestamp in cyan brackets, the message red for
+/// error/fatal/panic/fail, yellow for warn, else gray. A substring guess, since the
+/// API merges stdout and stderr.
 pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, filter: &str) -> Line<'static> {
     let (timestamp, message) = match raw.split_once(' ') {
         Some((ts, rest)) if looks_like_timestamp(ts) => (Some(ts), rest),
@@ -163,11 +145,8 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
     Line::from(spans)
 }
 
-/// Splits `text` around every case-insensitive occurrence of `needle`,
-/// highlighting the matched part — otherwise a live filter narrows
-/// *which* lines show up but gives no indication of *where* in each one
-/// it actually matched. `needle` empty means no filter is active, so
-/// the whole text just gets `base_style` unchanged.
+/// Splits `text` around each case-insensitive match of `needle` and highlights it.
+/// An empty `needle` means no filter, so the text keeps `base_style`.
 pub(super) fn highlight_matches(text: &str, needle: &str, base_style: Style) -> Vec<Span<'static>> {
     if needle.is_empty() {
         return vec![Span::styled(text.to_string(), base_style)];
@@ -202,11 +181,7 @@ pub(super) fn highlight_matches(text: &str, needle: &str, base_style: Style) -> 
     spans
 }
 
-/// `2026-09-16T18:36:38.477289255Z` -> `18:36:38.477` — drops the date
-/// (a live pod-log view is almost always "recent" logs, and if you're
-/// scrolled back far enough for that to matter that's a rare edge case)
-/// and truncates nanoseconds down to milliseconds, which is as much
-/// precision as a human can actually use when reading logs by eye.
+/// `2026-09-16T18:36:38.477289255Z` becomes `18:36:38.477`: no date, milliseconds only.
 pub(super) fn short_timestamp(ts: &str) -> String {
     let time_part = ts.split('T').nth(1).unwrap_or(ts).trim_end_matches('Z');
     match time_part.split_once('.') {
@@ -215,11 +190,8 @@ pub(super) fn short_timestamp(ts: &str) -> String {
     }
 }
 
-/// Cheap shape check for the RFC3339 timestamp `timestamps: true` adds
-/// (e.g. `2026-09-16T18:36:38.477289255Z`) — not a full parse, just
-/// enough to avoid misidentifying an ordinary line that happens to have
-/// an early space (like our own `[failed to start log stream: ...]`
-/// messages, which have no timestamp prefix at all).
+/// Cheap shape check for the RFC3339 timestamp `timestamps: true` adds, so lines
+/// without one (like our own `[failed to start log stream: ...]`) aren't misread.
 pub(super) fn looks_like_timestamp(s: &str) -> bool {
     s.len() >= 20 && s.as_bytes().get(4) == Some(&b'-') && s.contains('T') && s.ends_with('Z')
 }

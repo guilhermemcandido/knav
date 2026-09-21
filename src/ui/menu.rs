@@ -9,7 +9,7 @@ pub fn move_menu_selection(sections: &[MenuSection], cols: usize, current: (usiz
     move_selection(&lens, cols, current, dir)
 }
 
-/// The menu popup's tile-grid column count — computed from the popup's
+/// The menu popup's tile-grid column count, computed from the popup's
 /// actual inner area so keyboard navigation and mouse hit-testing can't
 /// drift from what's rendered.
 pub fn menu_cols(frame_area: Rect) -> usize {
@@ -18,10 +18,7 @@ pub fn menu_cols(frame_area: Rect) -> usize {
     (inner.width / TILE_WIDTH).max(1) as usize
 }
 
-/// The central "switch resource" menu — rounded-corner tiles grouped by
-/// section, Freelens-style. Only one section exists today (`Workloads`);
-/// adding another resource kind later is just adding another
-/// `MenuSection`/tile, not restructuring this.
+/// The "switch resource" menu: rounded tiles grouped by section, Freelens-style.
 pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selected: (usize, usize)) {
     let area = centered_rect(70, 85, frame.area());
     frame.render_widget(Clear, area);
@@ -33,19 +30,15 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    // Sections wrap their tiles into rows of `cols` (a section can hold
-    // dozens of tiles — Custom Resources has one per API group), so the
-    // whole menu is often taller than the popup. Lay everything out on a
-    // virtual canvas at full size (a title line plus 3 lines per bordered
-    // tile row) and scroll it just far enough to keep the selected tile
-    // in view; anything not fully inside the popup is skipped rather
-    // than squeezed, so tiles never lose their borders or labels.
+    // Sections wrap tiles into rows of `cols`, so the menu can exceed the popup. Lay
+    // it out on a virtual canvas and scroll just enough to keep the selected tile in
+    // view; tiles not fully inside are skipped, never squeezed.
     let cols = menu_cols(frame.area());
     let view_h = inner.height;
     let mut y: u16 = 0;
     let mut selected_bottom: u16 = 0;
     // (virtual y, section index, row index) for each tile row, plus each
-    // section's title y — collected first so the scroll is known before
+    // section's title y, collected first so the scroll is known before
     // anything is drawn.
     let mut layout: Vec<(u16, usize, usize)> = Vec::new();
     let mut titles: Vec<u16> = Vec::new();
@@ -83,10 +76,8 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
 
         for (col, (tile_area, kind)) in tile_areas.iter().zip(row_tiles.iter()).enumerate() {
             let is_selected = selected == (section_idx, start + col);
-            // A colored border alone read as too subtle to notice at
-            // a glance — the selected tile gets a solid filled
-            // background instead, unmistakable regardless of terminal
-            // theme.
+            // The selected tile gets a solid background, since a coloured border alone was
+            // too subtle.
             let (border_style, text_style) = if is_selected {
                 (Style::default().fg(theme().namespace), Style::default().bg(theme().namespace).fg(crate::theme::on(theme().namespace)).add_modifier(Modifier::BOLD))
             } else {

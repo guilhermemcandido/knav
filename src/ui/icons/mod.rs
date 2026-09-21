@@ -10,18 +10,12 @@ use resvg::{
 
 use crate::k8s::ResourceKind;
 
-/// Every rasterized icon is a square this many pixels on a side —
-/// comfortably higher resolution than any tile will actually render at
-/// (a handful of terminal cells), so `StatefulImage`'s own downscale
-/// always has real detail to work from rather than upscaling a blurry
-/// source.
+/// Every rasterized icon is this many pixels square, well above the size a tile
+/// renders at, so downscaling keeps detail.
 const RENDER_SIZE: u32 = 128;
 
-/// Each resource kind's official Kubernetes icon — vendored from
-/// `kubernetes/community`'s icon set (see `svg/ATTRIBUTION.md`),
-/// keyed by that project's own short filename so the cache key and the
-/// embedded bytes can't drift apart. Every CRD kind shares the one
-/// generic "crd" icon — there's no per-CRD official icon to use instead.
+/// Each kind's Kubernetes icon, vendored from `kubernetes/community` (see
+/// `svg/ATTRIBUTION.md`) and keyed by its filename. All CRDs share the "crd" icon.
 fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
     match kind {
         ResourceKind::Nodes => ("node", include_bytes!("svg/node.svg")),
@@ -51,18 +45,15 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::CustomResource(_, _) | ResourceKind::ApiResources | ResourceKind::Api(_, _) => {
             ("crd", include_bytes!("svg/crd.svg"))
         }
-        // Overview's tile isn't drawn with an icon at all (see `IconCache::draw`'s
-        // caller), so this arm is never actually reached — a fallback is still
-        // required since `icon_asset` is total over `ResourceKind`.
+        // The Overview tile has no icon, so this arm is never reached, but `icon_asset`
+        // must be total over `ResourceKind`.
         // The command line shows Overview as a house.
         ResourceKind::Overview => ("home", include_bytes!("svg/home.svg")),
     }
 }
 
-/// Parses and rasterizes one SVG onto a square, transparent `RENDER_SIZE`
-/// canvas, scaled uniformly (not stretched) to fit and centered — every
-/// vendored icon is close to square already, but this keeps a
-/// non-square one from distorting instead of just being letterboxed.
+/// Rasterizes one SVG onto a square transparent `RENDER_SIZE` canvas, scaled
+/// uniformly and centred so non-square icons don't distort.
 /// Icons that are not a resource kind, by name.
 fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
     Some(match name {
@@ -98,13 +89,7 @@ fn rasterize(svg: &[u8], fill: f32) -> Option<DynamicImage> {
     Some(DynamicImage::ImageRgba8(image))
 }
 
-/// Rasterizes and caches one `StatefulProtocol` per distinct icon asset,
-/// lazily — the first time that resource kind's tile is actually drawn,
-/// not all ~25 up front. The underlying image never changes once cached,
-/// so this is a one-time cost per icon actually seen, not a per-frame one
-/// (`StatefulImage` just re-fits the cached protocol into whatever `Rect`
-/// it's rendered into that frame, which is the same fixed tile size every
-/// time anyway).
+/// Rasterizes and caches one `StatefulProtocol` per icon, lazily on first draw.
 pub struct IconCache {
     picker: Picker,
     /// Keyed by asset and fill (in percent), so a smaller version of an icon is its own image.
@@ -112,14 +97,9 @@ pub struct IconCache {
 }
 
 impl IconCache {
-    /// `Picker::from_query_stdio` detects the terminal's actual graphics
-    /// capability (Kitty/Sixel/iTerm2) by writing an escape sequence and
-    /// reading the response — must run after raw mode is enabled (so it's
-    /// called from `run`, not `main`, before the event-read loop starts,
-    /// so it can't race with crossterm's own stdin reads). Falls back to
-    /// the pure-Rust halfblocks renderer (always available, no querying)
-    /// rather than failing startup if detection itself errors out, e.g.
-    /// stdio isn't a real TTY.
+    /// `Picker::from_query_stdio` detects Kitty/Sixel/iTerm2 support by writing an
+    /// escape sequence and reading the reply, so it must run after raw mode is on.
+    /// It falls back to halfblocks if detection fails, e.g. without a TTY.
     pub fn detect() -> Self {
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
         IconCache { picker, protocols: HashMap::new() }
@@ -131,11 +111,8 @@ impl IconCache {
         IconCache { picker: Picker::halfblocks(), protocols: HashMap::new() }
     }
 
-    /// Centers a roughly-square sub-area within `area` using the
-    /// terminal's real font aspect ratio — tiles are sized for text
-    /// (wide), so rendering an icon into the whole area would letterbox
-    /// it down to a thin, hard-to-recognize sliver instead of a
-    /// reasonably-sized square.
+    /// Centres a roughly square sub-area of `area` using the terminal's font aspect
+    /// ratio, so icons don't letterbox into slivers.
     pub fn centered_square(&self, area: Rect) -> Rect {
         let font = self.picker.font_size();
         if font.width == 0 || area.height == 0 {
@@ -156,15 +133,13 @@ impl IconCache {
         self.protocols.get_mut(&slot)
     }
 
-    /// Draws `kind`'s icon into `area`. A silent no-op if rasterizing
-    /// that SVG ever failed (it won't, for the vendored set, but a
-    /// hard-coded asset table has no user-facing way to fail otherwise) —
-    /// callers just get an icon-less tile rather than a crash.
+    /// Draws `kind`'s icon into `area`. A no-op if rasterizing failed, leaving an
+    /// icon-less tile.
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind) {
         self.draw_kind(frame, area, kind, 1.0);
     }
 
-    /// `draw`, with the icon filling only `fill` (0.0-1.0) of its square — a
+    /// `draw`, with the icon filling only `fill` (0.0-1.0) of its square, a
     /// little smaller, with an even margin.
     pub fn draw_kind(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind, fill: f32) {
         let (key, svg) = icon_asset(kind);

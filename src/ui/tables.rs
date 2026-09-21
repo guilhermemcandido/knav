@@ -2,11 +2,8 @@
 
 use super::*;
 
-/// A `Terminated` container isn't necessarily a problem — a Job/init
-/// container that ran to completion and exited 0 gets this same status
-/// kind, distinguished only by `reason` being "Completed" rather than
-/// something like "Error"/"OOMKilled". Red is for the latter; a clean
-/// completion gets the same blue k9s/kubectl use for it.
+/// A `Terminated` container isn't always a problem: a Job that ran to completion
+/// has reason "Completed" and gets the blue k9s/kubectl use. Red is for errors.
 pub(super) fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
     match c.status {
         ContainerStatusKind::Running => ("●", theme().ok),
@@ -17,7 +14,7 @@ pub(super) fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
     }
 }
 
-/// Compact form: just the colored dots — used for every row except the
+/// Compact form: just the colored dots, used for every row except the
 /// one that's hovered/selected.
 pub(super) fn containers_cell(containers: &[ContainerInfo], muted: bool) -> Line<'static> {
     let mut spans = Vec::with_capacity(containers.len() * 2);
@@ -39,7 +36,7 @@ pub(super) fn container_state_text(c: &ContainerInfo) -> String {
     }
 }
 
-/// A real floating popup, positioned right next to the cursor — "in
+/// A real floating popup, positioned right next to the cursor, "in
 /// front," on top of everything, only while actively hovering.
 pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row: u16, bounds: Rect) {
     let lines: Vec<Line> = pod
@@ -130,7 +127,7 @@ fn pod_headers(wide: bool) -> Vec<&'static str> {
     headers
 }
 
-/// The pods table's visible columns — shared by drawing and by hover
+/// The pods table's visible columns, shared by drawing and by hover
 /// hit-testing so they can't disagree about where CONTAINERS is.
 fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool) -> Window {
     let rows = pods.iter().map(|p| {
@@ -155,15 +152,9 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool
     layout_table(&pod_headers(wide), rows, table_width.saturating_sub(2), None, hscroll)
 }
 
-/// Which pod row sits under an absolute terminal position, restricted to
-/// the CONTAINERS column specifically — hovering anywhere else in the row
-/// shouldn't trigger the popup, only the dots themselves. Reuses
-/// `Table`'s own column constraints through a real `Layout` solve (same
-/// widths, same default 1-cell `column_spacing`) rather than
-/// hand-guessing pixel math that could silently drift out of sync with
-/// what's actually rendered.
-/// Which data row of a bordered table (border, header, rows, border) a
-/// screen row falls on, given the table's own scroll `offset`.
+/// Which pod row is under a terminal position, only over the CONTAINERS column so
+/// the popup fires on the dots. It solves the table's `Layout` to match its widths.
+/// Which data row of a bordered table a screen row falls on, given its scroll `offset`.
 pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) -> Option<usize> {
     let first = table_area.y.saturating_add(2);
     let last = (table_area.y + table_area.height).saturating_sub(1); // the bottom border
@@ -283,10 +274,8 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     frame.render_stateful_widget(table, area, table_state);
 }
 
-/// A compact inline usage bar for a table cell: `▓▓▓░░░░░ 34%`, or
-/// `n/a` in gray when metrics-server isn't installed. Same block-style
-/// bar `draw_meter` uses for the full-width Cluster Resources meters,
-/// just narrow enough to fit a column.
+/// A compact usage bar for a table cell: `▓▓▓░░░░░ 34%`, or gray `n/a` when
+/// metrics-server isn't installed.
 pub(super) fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
     const WIDTH: usize = 10;
     let Some(used) = used else {
@@ -354,7 +343,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     if wide {
         headers.extend(["INTERNAL-IP", "OS-IMAGE", "KERNEL", "RUNTIME"]);
     }
-    // `[▓▓▓▓▓▓▓▓▓▓] 100%` — the usage bars are a fixed width.
+    // `[▓▓▓▓▓▓▓▓▓▓] 100%`, the usage bars are a fixed width.
     const BAR_WIDTH: usize = 17;
     let window = layout_table(
         &headers,
@@ -420,13 +409,8 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     frame.render_stateful_widget(table, area, table_state);
 }
 
-/// The shared table for every resource kind that doesn't get specialized
-/// columns — Namespace/Name/Age is all that's generically knowable about
-/// an arbitrary Kubernetes object.
-/// Cluster-scoped kinds (Nodes, ClusterRoles, PVs, StorageClasses, ...)
-/// show "-" for every row's namespace — a column that's all dashes isn't
-/// telling anyone anything, so `draw_generic_table` drops it entirely
-/// when this is false.
+/// Whether any row has a namespace. Cluster-scoped kinds show `-` everywhere, so
+/// `draw_generic_table` drops that column when this is false.
 pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
@@ -501,14 +485,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     frame.render_stateful_widget(table, area, table_state);
 }
 
-/// The Custom Resources picker: every discovered CRD kind, grouped
-/// visually just by sorting on GROUP (already the order `discover_crds`
-/// returns them in) rather than a nested per-group tile browser — simpler,
-/// and still scannable since same-group kinds land next to each other.
-/// Selecting a row and pressing Enter is what actually starts watching
-/// that kind (see the CustomResourceList Enter handler in main.rs) —
-/// nothing here is live-watched itself, consistent with the "list only
-/// until opened" design.
+/// The Custom Resources picker: every discovered CRD kind, sorted by GROUP so
+/// same-group kinds sit together. Enter starts watching the kind; nothing is
+/// live-watched until then.
 pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);

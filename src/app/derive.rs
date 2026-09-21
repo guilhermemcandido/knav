@@ -55,12 +55,8 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
     let Query { current_kind, namespace, scope, search, sort, faults, wide } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
-        // `search` only ever has an effect on whichever kind it was typed
-        // against — it's cleared on every kind switch (see the `search.
-        // clear()` calls alongside `current_kind = ...` below) — so
-        // filtering every kind's source list by it unconditionally is
-        // safe: for every kind other than the one actively being
-        // searched, `search` is "" and `row_matches` always returns true.
+        // `search` only applies to the kind it was typed against (it is cleared on every
+        // kind switch), so filtering every source list by it is safe.
         // The Overview stays cluster-wide even with a namespace set.
         let ns_filter: Option<&str> = if current_kind == ResourceKind::Overview { None } else { namespace.as_deref() };
         let in_namespace = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| {
@@ -90,12 +86,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let nodes = node_store.state();
         let events = event_store.state();
         let usage = node_metrics_rx.borrow().clone();
-        // Only populated while actually viewing a node's detail — which
-        // pod, out of everything on the cluster, is scheduled on this
-        // one node. Searches the whole back-chain, not just the top
-        // mode, so it's still available when NodeDetail is a dimmed
-        // background layer behind Containers/Spec/Logs rather than the
-        // focused view itself.
+        // Only filled while a node's detail is open: the pods scheduled on that node.
+        // Searches the whole back-chain so it also works when NodeDetail is a dimmed
+        // background layer.
         let mut node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Some(name) = node_detail_name(mode) {
             pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name)).cloned().collect()
         } else {
@@ -105,14 +98,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         node_detail_pods.retain(|p| row_matches(&node_search, &meta_search_text(&p.metadata)));
         apply(&mut node_detail_pods, node_detail_sort(mode), |p, column| pod_key(&k8s::row_for(p), column, false));
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
-        // Nodes get their own specialized rows (CPU/Memory visible right
-        // in the list) instead of the generic Namespace/Name/Age table.
-        // Filtered directly here (not via the generic `catalog`/
-        // `generic_rows` path other kinds use) so the 'd'/Enter handlers
-        // below, which index straight into `sorted_nodes`, can't drift
-        // out of alignment with what's actually displayed.
-        // Every pod counts toward its node's PODS, whatever the list's search,
-        // namespace or drill-down is currently narrowed to.
+        // Nodes have their own rows (CPU/Memory in the list). They are filtered here so
+        // the handlers indexing into `sorted_nodes` match what is displayed.
+        // Every pod counts toward its node's PODS, whatever the list is narrowed to.
         let mut pods_per_node: HashMap<String, usize> = HashMap::new();
         for pod in k8s::snapshot(pod_store) {
             if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
@@ -141,16 +129,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
         let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
         let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
-        // Only ever populated for whatever kind is currently on screen —
-        // computed unconditionally so every match arm below can just read
-        // it, same as `pod_rows`/`dep_rows` are always computed too.
-        // `resolve` also lazily starts a CRD's watch the first time it's
-        // the current kind — "watch on open", not for every installed CRD.
-        // `generic_visible` maps a filtered display position back to its
-        // real index in `generic_rows_full`/the catalog's own live
-        // snapshot — needed because `CatalogKind::spec_at` (the 'd' key)
-        // takes that real index, not the display one.
-        // Table-backed kinds (API resources, custom resources) show wide-only columns when asked.
+        // Only filled for the kind on screen. `resolve` starts a CRD's watch the first
+        // time it is opened. `generic_visible` maps a display position back to the real
+        // index that `CatalogKind::spec_at` needs. Table-backed kinds add wide columns on request.
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
     }
@@ -174,19 +155,17 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
             .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::k8s::describe::Tone::Warn | crate::k8s::describe::Tone::Bad, _))))
             .collect();
-        // Whether the table will show a namespace column — decides which
+        // Whether the table will show a namespace column, decides which
         // sort column is which.
         let generic_has_namespace = generic_visible.iter().any(|&i| generic_rows_full[i].namespace != "-");
         // The generic table's width: namespace (if shown), name, the kind's own
-        // columns, age — what sort digits can reach.
+        // columns, age, what sort digits can reach.
         let generic_columns =
             usize::from(generic_has_namespace) + 1 + generic_headers.len() + 1 + usize::from(wide);
         apply(&mut generic_visible, sort, |&i, column| generic_key(&generic_rows_full[i], column, generic_has_namespace));
         let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
-        // The CRD picker, unfiltered or scoped to one API group — each
-        // entry keeps its real index into `catalog.crds` (needed to open
-        // the right one on Enter even though this may be a filtered
-        // subset of the full list).
+        // The CRD picker, unfiltered or scoped to one API group. Each entry keeps its
+        // real index into `catalog.crds`.
         let mut crd_rows: Vec<(usize, k8s::CrdInfo)> = match current_kind {
             ResourceKind::CustomResourceList => catalog
                 .crds

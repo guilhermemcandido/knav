@@ -1,7 +1,5 @@
-//! Namespaces reserved to the number keys 1-9 (0 is always "all"), saved
-//! per kubeconfig context so they survive restarts and context switches.
-//! Stored one per line as `context<TAB>slot<TAB>namespace` in
-//! `<config dir>/namespaces`.
+//! Namespaces reserved to the number keys 1-9 (0 is always all), saved per
+//! kubeconfig context in `<config dir>/namespaces` as `context<TAB>slot<TAB>namespace` lines.
 
 use std::path::PathBuf;
 

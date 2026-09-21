@@ -1,16 +1,8 @@
-//! A small, dependency-free fuzzy matcher for picking a kubeconfig
-//! context by a partial/typo-tolerant name — used both by `--context`'s
-//! one-shot resolution and by the interactive cluster picker's
-//! type-to-filter search.
+//! A small fuzzy matcher for picking a context by a partial name, used by
+//! `--context` and the cluster picker.
 
-/// Case-insensitive subsequence match: every character of `pattern` must
-/// appear in `text` in order, though not necessarily contiguously.
-/// Returns `None` when it doesn't match at all; otherwise a score where
-/// higher means "reads more like what the user meant" — rewarding matches
-/// that start at a word boundary and runs of consecutive characters over
-/// characters scattered arbitrarily far apart. An empty pattern always
-/// matches everything, with a score of 0 (so an empty filter shows every
-/// candidate, unranked).
+/// Case-insensitive subsequence match. `None` if it doesn't match, else a score
+/// that rewards word starts and consecutive runs. An empty pattern scores 0.
 pub fn score(pattern: &str, text: &str) -> Option<i64> {
     if pattern.is_empty() {
         return Some(0);

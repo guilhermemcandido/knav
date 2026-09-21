@@ -21,7 +21,7 @@ pub fn watch_nodes(client: Client) -> (reflector::Store<Node>, JoinHandle<()>) {
     (reader, handle)
 }
 
-/// One node's own capacity — the Node detail view's gauges need a single
+/// One node's own capacity, the Node detail view's gauges need a single
 /// node's numbers, not the cluster-wide sum `node_allocatable_sum` gives
 /// the Overview.
 pub struct NodeCapacity {
@@ -42,15 +42,12 @@ pub fn node_capacity(node: &Node) -> NodeCapacity {
     }
 }
 
-/// A row for the Nodes list — unlike the ~20 generic Namespace/Name/Age
-/// kinds, Nodes gets its own specialized columns so usage is visible
-/// right there in the list, not just after drilling into one
-/// (`cpu_millicores`/`memory_bytes` are `None` when metrics-server isn't
-/// installed, same "unavailable" fallback as everywhere else).
+/// A row for the Nodes list, with its own columns so usage shows in the list.
+/// `cpu_millicores`/`memory_bytes` are `None` without metrics-server.
 pub struct NodeRow {
     pub name: String,
     pub ready: bool,
-    /// `false` when the node is cordoned (`spec.unschedulable`) — kubectl
+    /// `false` when the node is cordoned (`spec.unschedulable`), kubectl
     /// shows this by appending ",SchedulingDisabled" to STATUS rather than
     /// a separate column, the same convention `draw_nodes_table` follows.
     pub schedulable: bool,
@@ -72,10 +69,7 @@ pub struct NodeRow {
     pub age_secs: i64,
 }
 
-/// The `node-role.kubernetes.io/<role>` label convention kubectl itself
-/// reads for the ROLES column — there's no dedicated API field for this,
-/// just labels a role-assigning controller (or `kubeadm`/`k3s` at join
-/// time) sets.
+/// The `node-role.kubernetes.io/<role>` labels kubectl reads for ROLES.
 fn node_roles(node: &Node) -> String {
     let mut roles: Vec<&str> = node
         .metadata
@@ -139,20 +133,16 @@ pub fn node_row(node: &Node, usage: Option<&crate::k8s::metrics::NodeUsage>, pod
     }
 }
 
-/// One node condition, unfiltered — unlike `node_warnings` (which only
-/// surfaces *problem* conditions for the Cluster Issues panel), the node
-/// detail view is a diagnostic screen that should show the full picture,
-/// healthy conditions included.
+/// One node condition, unfiltered. The detail view shows healthy ones too,
+/// unlike `node_warnings`.
 pub struct NodeConditionRow {
     pub type_: String,
     pub status: String,
     pub reason: String,
 }
 
-/// Everything about a node Freelens shows on its own node detail page
-/// beyond what's already in `NodeRow`/the CPU-Memory-Pods gauges: full
-/// condition list, taints, schedulability, addresses, and the
-/// OS/kernel/runtime/kubelet versions from `status.nodeInfo`.
+/// Everything the node detail page shows beyond `NodeRow`: conditions, taints,
+/// schedulability, addresses and the versions from `status.nodeInfo`.
 pub struct NodeDetailInfo {
     pub roles: String,
     pub schedulable: bool,
@@ -163,7 +153,7 @@ pub struct NodeDetailInfo {
     pub internal_ip: String,
     pub external_ip: String,
     /// Pre-formatted as `key=value:Effect` (or `key:Effect` with no
-    /// value) — kubectl's own taint display convention.
+    /// value), kubectl's own taint display convention.
     pub taints: Vec<String>,
     pub conditions: Vec<NodeConditionRow>,
 }

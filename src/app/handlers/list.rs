@@ -27,10 +27,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
-        // Sort mode (`s`): the headers show their column numbers and a
-        // digit sorts by that column — the same one again flips
-        // ascending, descending, off. It stays on until `s`, Esc or
-        // `q`; every other key still works as usual meanwhile.
+        // Sort mode (`s`): headers show column numbers and a digit sorts by that column.
+        // The same digit again flips ascending, descending, off. It stays on until
+        // `s`, Esc or `q`; other keys work as usual.
         (Event::Key(key), Mode::List)
             if st.sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
         {
@@ -133,7 +132,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name).collect();
                     open_namespace_picker(&mut st.mode, names);
                 }
-                // Esc and `q` are no-ops here — there's nowhere
+                // Esc and `q` are no-ops here, there's nowhere
                 // further "back" than the main screen, and quitting
                 // takes a deliberate `:q` so a stray key can't do it.
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -187,13 +186,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             key.code
         } {
-            // `q` and Esc do the same thing everywhere except the
-            // main Overview screen: back out one level — to
-            // Overview from any top-level kind, or to the specific
-            // CRD-group picker (or the flat list, if discovery
-            // somehow can't find it) one specific CRD kind's
-            // instances came from, mirroring how you got there.
-            // Quitting from in here is still reachable via `:q`.
+            // `q` and Esc go back one level everywhere except the Overview: to the Overview,
+            // or to the CRD group a custom resource came from. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.nav_stack.is_empty() => {
                 // Back out of a drill-down to the list it came from.
@@ -265,10 +259,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // `s` sorts: the column numbers in the header light up and the
             // next digit picks one.
             KeyCode::Char('s') if column_count(st.current_kind, *generic_columns, st.wide) > 0 => st.sort_choosing = true,
-            // `n` gives a namespace one of the number keys 1-9. On the
-            // Namespaces list it acts on the highlighted row right
-            // away; from every other view it first shows the
-            // namespaces to choose from.
+            // `n` gives a namespace one of the keys 1-9. On the Namespaces list it acts on
+            // the highlighted row; elsewhere it shows the namespaces to choose from.
             KeyCode::Char('n') => {
                 if st.current_kind == ResourceKind::Namespaces {
                     if let Some(name) = st.table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
@@ -297,11 +289,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         open_spec(&mut st.mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
                     }
                 }
-                // Indexes straight into the (already filtered)
-                // `sorted_nodes`, not through `generic_rows`/
-                // `catalog.resolve` — those re-snapshot unfiltered,
-                // which would misalign with what's actually
-                // displayed whenever a search is active.
+                // Indexes into the filtered `sorted_nodes`, not `generic_rows`, which
+                // re-snapshot unfiltered and would misalign while a search is active.
                 ResourceKind::Nodes => {
                     if let Some(node) = st.table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                         open_spec(&mut st.mode, node.metadata.name.clone().unwrap_or_default(), node.as_ref());
@@ -321,7 +310,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
             },
-            // Edit the selected resource in `$EDITOR` (see `edit`) —
+            // Edit the selected resource in `$EDITOR` (see `edit`),
             // the same manifest `d` shows, for every kind that has
             // a selectable row.
             KeyCode::Char('e') => {

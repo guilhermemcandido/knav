@@ -1,10 +1,10 @@
 //! The persistent top bar, after k9s: a line of context/cluster/user/version
-//! info, and — on the resource lists, not the main Overview — a line of
+//! info, and, on the resource lists, not the main Overview, a line of
 //! namespace shortcuts (`Namespace: (0)all (1)default ...`).
 
 use super::*;
 
-/// What the header shows — built once per connected session.
+/// What the header shows, built once per connected session.
 #[derive(Clone)]
 pub struct HeaderInfo {
     pub context: String,
@@ -31,7 +31,7 @@ pub struct HeaderInfo {
 /// plus the namespace-shortcut line. The Overview only has the first.
 pub const HEADER_HEIGHT: u16 = 2;
 
-/// Below this height the header is dropped — the resource list matters
+/// Below this height the header is dropped, the resource list matters
 /// more than the context on a tiny terminal.
 const MIN_HEIGHT_FOR_HEADER: u16 = 10;
 
@@ -91,7 +91,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     let key = if dimmed { dim_style() } else { Style::default().fg(theme().warm) };
     let name = if dimmed { dim_style() } else { Style::default().fg(theme().row) };
     let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) };
-    // In sort mode the digits pick columns, not namespaces — grey the line
+    // In sort mode the digits pick columns, not namespaces, grey the line
     // out so it reads as unavailable.
     let (key, name, active) = if sort_mode && !dimmed {
         let muted = Style::default().fg(theme().panel_bg);
@@ -120,7 +120,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
 
     // What the list is drilled into (`Deployment/web`), right-aligned on
-    // the same row — only if it fits, so it never pushes the shortcuts or
+    // the same row, only if it fits, so it never pushes the shortcuts or
     // the fixed first line around.
     if !info.scope.is_empty() {
         let text = format!("Scope: {}", info.scope);

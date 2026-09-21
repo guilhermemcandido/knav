@@ -2,16 +2,11 @@
 
 use super::*;
 
-/// The Events panel is a fixed-size dashboard strip, not a scrollable
-/// section — cap how many entries it shows directly, with a "+N more"
-/// line instead of growing to fit all of them. The full, uncapped,
-/// filterable feed is one Enter away (see `Overlay::Events`).
+/// The Events panel is a fixed-size strip: it shows a capped number of entries and a
+/// "+N more" line. The full feed is one Enter away (`Overlay::Events`).
 pub(super) const MAX_VISIBLE_EVENTS: usize = 5;
-/// The home screen: a fixed-size dashboard strip up top (Resources, then
-/// Events — each its own rounded-border box, mirroring the column boxes
-/// below), and below it a horizontally-scrollable set of columns, one per
-/// resource category (Cluster, Workloads, Config, ...), each listing that
-/// category's kinds vertically — Miller-columns style.
+/// The home screen: a fixed dashboard strip (Resources, then Events, each a rounded
+/// box) above horizontally scrollable columns, one per category, listing its kinds.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_overview(
     frame: &mut Frame,
@@ -41,19 +36,14 @@ pub(super) fn events_box_height(overview: &Overview) -> u16 {
     2 + events_content_height(overview)
 }
 
-/// How tall the fixed top dashboard strip is: the Resources box, a 1-row
-/// gap, then the Events box. Callers (mouse hit-testing, the columns area
-/// below it) can't drift out of sync with what's actually rendered since
-/// they all go through this and the two box-height functions above.
+/// How tall the top dashboard strip is: Resources box, a 1-row gap, Events box.
+/// Hit-testing and the columns area use this so they match what is drawn.
 pub(super) fn top_area_height(overview: &Overview) -> u16 {
     resources_box_height(overview) + 1 + events_box_height(overview)
 }
 
-/// Height of the Events box's content only (below its border) — either
-/// the 2-line "no events" message, or the column-header row plus up to
-/// `MAX_VISIBLE_EVENTS` entries plus a "+N more" line if there are more
-/// than that. `events_box_height` and `draw_top_panel` both use this so
-/// they can't drift apart.
+/// Height of the Events box content: the 2-line empty message, or the header row
+/// plus up to `MAX_VISIBLE_EVENTS` entries and a "+N more" line.
 pub(super) fn events_content_height(overview: &Overview) -> u16 {
     if overview.events.is_empty() {
         return 2;
@@ -63,13 +53,8 @@ pub(super) fn events_content_height(overview: &Overview) -> u16 {
     1 + (shown + more) as u16
 }
 
-/// Resources and Events, each its own rounded-border box — same visual
-/// language as the column boxes below, per the explicit request to make
-/// the dashboard read as boxes/cards throughout rather than plain labeled
-/// regions. Selecting one (see `OverviewSelection`) highlights its whole
-/// border, herdr-style, same as a column header/item; otherwise the
-/// Events box's border reflects cluster health at a glance (green/
-/// yellow/red) the same way an individual event line already did.
+/// Resources and Events, each a rounded box like the columns. Selecting one
+/// highlights its border; otherwise the Events border shows cluster health.
 pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, dimmed: bool) {
     let resources_h = resources_box_height(overview);
     let chunks = Layout::vertical([Constraint::Length(resources_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
@@ -91,10 +76,8 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     frame.render_widget(resources_block, chunks[0]);
     draw_metrics_lines(frame, resources_inner, overview, dimmed);
 
-    // Same plain default styling as the Resources box — no status color
-    // on the box chrome itself, only the highlight when selected. Each
-    // event's own line (in this preview and the full browser) still
-    // carries its own severity color.
+    // Plain styling like the Resources box: only the selection highlight colours the
+    // border. Each event line keeps its own severity colour.
     let events_border = if dimmed {
         dim_style()
     } else if selection == OverviewSelection::Events {
@@ -128,10 +111,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     }
 }
 
-/// The CPU/Memory/Pods meters, one per line.
-/// Live pod count, read from the catalog rather than duplicated as its
-/// own field on `Overview` — Pods already has one live reflector feeding
-/// the catalog tile, so this just reads the same number back out.
+/// Live pod count, read from the catalog tile that Pods' reflector already feeds.
 pub(super) fn workloads_pod_count(overview: &Overview) -> usize {
     overview
         .catalog
@@ -177,11 +157,8 @@ pub(super) fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overv
 }
 
 /// A single-line usage meter: `CPU     ▓▓▓▓▓▓░░░░░░░░░░░░░░░░  71m / 2000m (3%)`.
-/// Hand-built instead of ratatui's `Gauge` widget, which bakes in its own
-/// centered percentage label — impossible to turn off without also
-/// losing the ability to show the actual used/capacity numbers, so the
-/// two labels ended up overlapping/duplicating. The bar width adapts to
-/// whatever space is actually available instead of being fixed.
+/// Hand-built because `Gauge` centres a percentage label that clashes with the
+/// numbers. The bar width adapts to the space available.
 pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
     let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
     let color = usage_color(ratio, dimmed);
@@ -218,12 +195,9 @@ pub(super) fn format_bytes(bytes: f64) -> String {
     format!("{value:.1}{}", UNITS[unit])
 }
 
-/// Selection across the whole Overview page: the Resources box, the
-/// Events box, a column's own header (selectable so its name reads
-/// clearly even without a mouse), or a specific item within a column.
-/// `Resources`/`Events` sit "above" every column — Up from any column
-/// header lands on `Events`, and Down from `Events` returns to the first
-/// column's header.
+/// Selection on the Overview: the Resources box, the Events box, a column header,
+/// or an item in a column. Resources and Events sit above the columns: Up from a
+/// header lands on Events, Down from Events returns to the first header.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OverviewSelection {
     Resources,
@@ -239,15 +213,9 @@ pub enum Direction {
     Right,
 }
 
-/// Moves the Overview selection one step in a direction. Up/Down move
-/// into and out of a column's own header (pressing Up at a column's
-/// first item lands on its header, pressing Up again from the header
-/// lands on `Events`; pressing Down on a header enters its first item,
-/// or does nothing if the column is empty) — Left/Right move directly
-/// between columns at the same item index, landing on the target
-/// column's header instead if it has nothing at that index.
-/// `Resources`/`Events` only respond to Up/Down (there's nothing beside
-/// them to move to horizontally).
+/// Moves the Overview selection one step. Up/Down move between a column's items,
+/// its header and `Events`; Left/Right move between columns at the same item index
+/// (or land on the header if that column is shorter). Resources and Events only go up/down.
 pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection, dir: Direction) -> OverviewSelection {
     let total = overview.catalog.len();
     match selection {
@@ -312,7 +280,7 @@ pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection
 }
 
 /// Same movement rules as before, for the resource-switcher menu's own
-/// section/tile grid — unrelated to the Overview's column browser, which
+/// section/tile grid, unrelated to the Overview's column browser, which
 /// doesn't wrap tiles into rows at all anymore.
 pub(super) fn next_nonempty_section(lens: &[usize], from: usize) -> Option<usize> {
     (from + 1..lens.len()).find(|&i| lens[i] > 0)
@@ -396,10 +364,8 @@ pub(super) fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
 
-/// One dashboard-preview line: color reflects severity — a not-ready/
-/// pressured node (Red) affects everything scheduled on it, an ordinary
-/// Warning event (Yellow) is worth a look, and a Normal event (a muted
-/// green) is just routine activity, not a problem.
+/// One dashboard line coloured by severity: a not-ready node is red, a Warning
+/// yellow, a Normal event muted green.
 pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
         theme().dim
@@ -566,10 +532,8 @@ mod overview_selection_tests {
         // Column 0 is active with item_scroll 1: its first visible card is
         // actually item index 1, not 0.
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, x0, top_h + 1), Some(OverviewSelection::Item(0, 1)));
-        // Column 1 isn't active, so it always renders from item 0
-        // regardless of the (irrelevant, for it) item_scroll value. The
-        // columns area has a 1-cell left scroll-arrow gutter before the
-        // first column box starts.
+        // Column 1 isn't active, so it renders from item 0. The columns area has a 1-cell
+        // left scroll-arrow gutter.
         let col1_x = layout[1].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 1), Some(OverviewSelection::Item(1, 0)));
     }

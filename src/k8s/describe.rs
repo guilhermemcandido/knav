@@ -1,8 +1,5 @@
-//! What each resource kind shows beyond namespace/name/age, after
-//! Freelens: ReplicaSets get desired/current/ready, Services their type,
-//! IPs and ports, PVCs their status and size, and so on. Each kind
-//! describes itself as a few named columns with a colour tone, plus one
-//! status note (a coloured dot and text) for the bottom bar.
+//! What each kind shows beyond namespace/name/age: a few named, toned columns and
+//! one status note (dot and text) for the bottom bar.
 
 use std::collections::BTreeMap;
 

@@ -1,7 +1,6 @@
-//! Every resource the API server offers, browsable like k9s does: discovery
-//! lists them, and each is shown through the server's own Table view
-//! (`Accept: ...;as=Table`) — the same columns `kubectl get` prints, custom
-//! resources' printer columns included.
+//! Every resource the API server offers, browsable like k9s: discovery lists them
+//! and each is shown through the server's Table view, the columns `kubectl get`
+//! prints, printer columns of custom resources included.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

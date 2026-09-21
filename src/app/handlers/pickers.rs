@@ -9,7 +9,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let active_context = cx.active_context;
     let frame_area = cx.frame_area;
     match (event, &mut st.mode) {
-        // Any key (or click) closes a notice — checked before the
+        // Any key (or click) closes a notice, checked before the
         // global keys below so they don't also fire on that press.
         (Event::Key(key), Mode::NamespacePick { filter, editing: editing @ true, state, .. }) => match key.code {
             KeyCode::Esc => {

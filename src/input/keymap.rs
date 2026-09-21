@@ -1,9 +1,6 @@
-//! Key bindings. Every action has a name, the screens it works on and its
-//! default keys; the config's `[keys]` table replaces an action's keys. The
-//! handlers keep matching on the built-in keys, so the keymap sits in front
-//! of them: it turns the key you pressed into the built-in key of the action
-//! you bound it to (or drops it if you moved that action's key elsewhere).
-//! Two actions on the same screen can't share a key.
+//! Key bindings: every action has a name, its screens and default keys, and the
+//! config's `[keys]` table replaces them. Handlers match built-in keys, so the keymap
+//! translates your key into the built-in one. Two actions on a screen can't share a key.
 
 use std::collections::{BTreeMap, HashMap};
 

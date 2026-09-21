@@ -2,11 +2,8 @@
 use anyhow::Result;
 use kube::Client;
 
-/// One kubeconfig context, for the cluster picker — just enough to list
-/// and identify it. `cluster`/`namespace` are shown alongside the name
-/// since two contexts can share a name pattern (e.g. "prod-us"/"prod-eu")
-/// but point at very different clusters, which the name alone wouldn't
-/// make obvious.
+/// One kubeconfig context for the cluster picker. `cluster` and `namespace` are
+/// shown too, since similar names can point at very different clusters.
 pub struct ContextInfo {
     pub name: String,
     pub cluster: String,
@@ -15,7 +12,7 @@ pub struct ContextInfo {
 }
 
 /// Every context in the kubeconfig (`$KUBECONFIG` or `~/.kube/config`,
-/// same resolution `kube` itself uses) — the picker's whole candidate
+/// same resolution `kube` itself uses), the picker's whole candidate
 /// list. Ordering matches the file, same as `kubectl config get-contexts`.
 pub fn list_contexts() -> Result<Vec<ContextInfo>> {
     let kubeconfig = kube::config::Kubeconfig::read()?;
@@ -32,10 +29,8 @@ pub fn list_contexts() -> Result<Vec<ContextInfo>> {
         .collect())
 }
 
-/// Connects to a specific kubeconfig context by name, or (`None`) whatever
-/// `kube` itself would infer — in-cluster config if running inside a pod,
-/// else the kubeconfig's own `current-context`. The same "infer" path
-/// `connect` already used, just exposed so a chosen context can override it.
+/// Connects to a kubeconfig context by name, or (`None`) whatever `kube` infers:
+/// in-cluster config, else the kubeconfig's `current-context`.
 pub async fn connect_to_context(context: Option<&str>) -> Result<Client> {
     let config = match context {
         Some(name) => {
@@ -47,11 +42,8 @@ pub async fn connect_to_context(context: Option<&str>) -> Result<Client> {
     Ok(Client::try_from(config)?)
 }
 
-/// Fails fast, with a readable message, if the API server can't be
-/// reached — without this, an unreachable cluster just hangs forever in
-/// the reflectors' initial list (which retry silently), and knav never
-/// draws anything. `context` is only for the message. Returns the
-/// server's version (`v1.35.5+k3s1`).
+/// Fails fast with a readable message if the API server is unreachable; otherwise
+/// the reflectors retry silently and nothing is drawn. Returns the server version.
 pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<String> {
     let label = match context {
         Some(name) => name.to_string(),

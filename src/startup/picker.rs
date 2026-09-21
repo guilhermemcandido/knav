@@ -1,8 +1,5 @@
-//! The freelens/Lens-style cluster picker: a full-screen list of every
-//! kubeconfig context, live-filtered by fuzzy match as you type, shown
-//! before knav connects to anything. Only reached when the config opts
-//! into it (`startup.mode = "menu"`) — the default is to connect directly
-//! to the current context, k9s-style (see `Config::startup`).
+//! The cluster picker: a full-screen, fuzzy-filtered list of kubeconfig contexts
+//! shown before connecting. Only used with `startup.mode = "menu"`.
 
 use std::time::Duration;
 
@@ -19,12 +16,8 @@ use crate::theme::theme;
 use crate::startup::fuzzy;
 use crate::k8s::ContextInfo;
 
-/// Runs the picker to completion and restores the terminal before
-/// returning — self-contained, since it happens before the rest of knav's
-/// state (watches, the main `run` loop) exists at all. `Ok(None)` means
-/// the user cancelled (Esc/Ctrl-C/q on an empty filter); the caller should
-/// exit cleanly rather than falling back to some default context, since
-/// showing this screen was already an explicit choice to let them decide.
+/// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled
+/// (Esc, Ctrl-C, or `q` on an empty filter), so the caller exits.
 pub fn run(contexts: &[ContextInfo]) -> Result<Option<String>> {
     let mut terminal = ratatui::init();
     let result = run_loop(&mut terminal, contexts);
@@ -71,10 +64,8 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo]) -
     }
 }
 
-/// Every context whose name fuzzy-matches `filter`, best match first —
-/// same ranking `--context` uses to resolve non-interactively, so typing
-/// the exact string you'd pass on the command line picks the same context
-/// here too.
+/// Contexts whose name fuzzy-matches `filter`, best first. Same ranking as
+/// `--context`.
 fn filtered<'a>(contexts: &'a [ContextInfo], filter: &str) -> Vec<&'a ContextInfo> {
     let mut scored: Vec<(i64, &ContextInfo)> =
         contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();

@@ -68,11 +68,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
             let items_len = overview.catalog.get(*col).map(|(_, items)| items.len()).unwrap_or(0);
             let cols = ui::column_detail_cols(frame_area);
-            // The scroll recompute has to happen inside each
-            // navigation branch, not after the whole match — the
-            // Enter/Esc branches below reassign `mode` itself, which
-            // would leave `selected`/`row_scroll` dangling if used
-            // afterward.
+            // The scroll recompute happens inside each navigation branch: the Enter/Esc
+            // branches reassign `mode`, which would leave `selected`/`row_scroll` dangling.
             macro_rules! move_and_rescroll {
                 ($dir:expr) => {{
                     *selected = ui::move_column_detail_selection(items_len, cols, *selected, $dir);

@@ -192,7 +192,7 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     // Hoisted out of the `if let` below so these live for
-                    // the rest of the closure, not just that block — the
+                    // the rest of the closure, not just that block, the
                     // background `Overlay` borrows from them.
                     let back_node_name: Option<String> = match &**back {
                         Mode::NodeDetail { name, .. } => Some(name.clone()),
@@ -219,10 +219,8 @@ pub(super) fn draw_mode(
                     } else {
                         None
                     };
-                    // While viewing a leaf's full value, the Spec tree
-                    // itself becomes the (dimmed) background instead of
-                    // the focused overlay — the NodeDetail-behind-Spec
-                    // case above doesn't apply two layers deep at once.
+                    // While a leaf's full value is shown, the Spec tree becomes the dimmed
+                    // background instead of the overlay.
                     let (background, overlay) = match viewing {
                         Some((label, value)) => {
                             (Some(ui::Overlay::Spec { title, items, state }), ui::Overlay::ValueDetail { label, value })

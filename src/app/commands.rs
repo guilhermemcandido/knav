@@ -2,13 +2,13 @@
 
 use crate::*;
 
-/// The `m` menu's layout — same six categories as the Overview catalog.
+/// The `m` menu's layout, same six categories as the Overview catalog.
 /// One shared function so the popup's render pass and its keyboard/Enter
 /// handling can't drift apart.
 pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'static>> {
     // The whole unfiltered CRD picker, then one tile per discovered API
     // group (`crds` is already sorted by group, so adjacent-dedup keeps
-    // order) — same shape as the Overview's Custom Resources column.
+    // order), same shape as the Overview's Custom Resources column.
     let mut custom = vec![ResourceKind::CustomResourceList];
     for crd in crds {
         if custom.last() != Some(&ResourceKind::CustomResourceGroup(crd.group)) {
@@ -49,13 +49,9 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
     ]
 }
 
-/// Live autocomplete for the `:` command line — every switchable
-/// resource kind plus `context`, `events` and `quit`, matched against all
-/// of their names (`ns` finds namespaces, `dp` deployments, `q` quit) and
-/// sorted best-first. An exact alias always ranks first; otherwise the
-/// same fuzzy scorer the search/filter uses. Empty input suggests nothing
-/// (an empty command bar with a giant list under it isn't "autocomplete,"
-/// it's just the menu).
+/// Autocomplete for the `:` command line: every switchable kind plus `context`,
+/// `events` and `quit`, matched against all their names and sorted best-first.
+/// An exact alias ranks first; empty input suggests nothing.
 pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo]) -> Vec<Suggestion> {
     let input = input.trim().to_lowercase();
     if input.is_empty() {
@@ -122,7 +118,7 @@ impl Suggestion {
     }
 }
 
-/// One entry in the `:` autocomplete — a resource view to switch to, the
+/// One entry in the `:` autocomplete, a resource view to switch to, the
 /// context switcher, the events browser, or quitting.
 #[derive(Clone, Copy)]
 pub(crate) enum Cmd {
@@ -179,10 +175,9 @@ pub(crate) fn open_context_switcher(mode: &mut Mode, active_context: &str) {
     *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
 }
 
-/// Whether choosing `name` should reconnect: `Ok(false)` if it's already
-/// the connected context, `Err` (a one-line reason) if it can't be
-/// reached. Checked *before* tearing the session down, so a dead
-/// cluster leaves you where you are instead of nowhere.
+/// Whether choosing `name` should reconnect: `Ok(false)` if it is already connected,
+/// `Err` (a one-line reason) if it can't be reached. Checked before the session
+/// is torn down, so a dead cluster leaves you where you were.
 pub(crate) fn switch_target(name: &str, active_context: &str) -> std::result::Result<bool, String> {
     if name == active_context {
         return Ok(false);

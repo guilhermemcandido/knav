@@ -14,7 +14,7 @@ use super::*;
 pub struct DeploymentRow {
     pub namespace: String,
     pub name: String,
-    /// "ready/desired" replicas, e.g. "2/3" — kubectl/k9s convention.
+    /// "ready/desired" replicas, e.g. "2/3", kubectl/k9s convention.
     pub ready: String,
     pub up_to_date: i32,
     pub available: i32,
@@ -56,7 +56,7 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
     DeploymentRow { namespace, name, ready, up_to_date, available, images, age, age_secs }
 }
 
-/// Same live-watch pattern as `watch_pods`, for Deployments — see there
+/// Same live-watch pattern as `watch_pods`, for Deployments, see there
 /// for why a reflector instead of polling.
 pub fn watch_deployments(client: Client) -> (reflector::Store<Deployment>, JoinHandle<()>) {
     let api: Api<Deployment> = Api::all(client);
@@ -75,10 +75,7 @@ pub fn watch_deployments(client: Client) -> (reflector::Store<Deployment>, JoinH
     (reader, handle)
 }
 
-/// Sorted snapshot, same reasoning as `snapshot` for Pods — kept as a
-/// separate small function rather than a generic one across resource
-/// kinds; with just two kinds so far, a shared-trait abstraction would be
-/// more machinery than the ~10 lines it'd save.
+/// Sorted snapshot, as for Pods. Two kinds don't justify a shared trait.
 pub fn snapshot_deployments(store: &reflector::Store<Deployment>) -> Vec<Arc<Deployment>> {
     let mut deployments = store.state();
     deployments.sort_by(|a, b| {

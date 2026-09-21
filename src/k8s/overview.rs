@@ -4,10 +4,8 @@ use k8s_openapi::api::core::v1::{Event, Node};
 
 use super::*;
 
-/// Resource usage, the resource-kind catalog, and the merged
-/// newest-first Events feed — everything the Overview dashboard needs.
-/// Deliberately has no pod/deployment/node counts of its own — those
-/// live as regular entries in `catalog` instead of being duplicated here.
+/// Usage, the kind catalog and the newest-first Events feed for the dashboard.
+/// Counts live in `catalog`, not here.
 pub struct Overview {
     pub events: Vec<EventEntry>,
     pub cpu_usage_millicores: i64,
@@ -16,7 +14,7 @@ pub struct Overview {
     pub memory_capacity_bytes: i64,
     pub pod_capacity: i64,
     pub metrics_available: bool,
-    /// (section title, [(kind label, live count)]) — assembled by the
+    /// (section title, [(kind label, live count)]), assembled by the
     /// caller from whichever watches/pollers it's holding; this function
     /// just bundles it in alongside everything else.
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,

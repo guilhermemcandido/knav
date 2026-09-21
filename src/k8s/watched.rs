@@ -9,11 +9,8 @@ use tokio::task::JoinHandle;
 
 use super::*;
 
-/// Type-erased handle to a live-watched resource kind's store — lets
-/// `Catalog` hold ~20 different `K`s in one `Vec` and treat them
-/// uniformly (count for the Overview tile, rows for the list view, a
-/// single object's manifest for the spec view) without a match arm per
-/// kind at every call site.
+/// Type-erased handle to a watched kind's store, so `Catalog` can hold many kinds
+/// in one `Vec` and read counts, rows and manifests without a match per kind.
 pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
     fn rows(&self) -> Vec<GenericRow>;
@@ -57,7 +54,7 @@ where
     }
 }
 
-/// Spawns a live watch for kind `K` and boxes it as a `CatalogKind` —
+/// Spawns a live watch for kind `K` and boxes it as a `CatalogKind`,
 /// the one-liner most Catalog entries use.
 pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
@@ -67,12 +64,8 @@ where
     (Box::new(WatchedKind::from_store(store)), handle)
 }
 
-/// A discovered CRD kind — enough to build an `ApiResource` for it later
-/// and to display it in the Custom Resources picker. Discovered once at
-/// startup (see `discover_crds`); a CRD installed while knav is already
-/// running won't appear until restart — deliberately not worth polling
-/// for, since installing a CRD is rare compared to the objects of it
-/// coming and going.
+/// A discovered CRD kind: enough to build an `ApiResource` and list it. Found once
+/// at startup, so a CRD installed later appears after a restart.
 #[derive(Clone)]
 pub struct CrdInfo {
     pub group: &'static str,
@@ -82,15 +75,9 @@ pub struct CrdInfo {
     pub namespaced: bool,
 }
 
-/// Lists every installed CustomResourceDefinition and extracts just
-/// enough to watch it later on demand. Prefers each CRD's storage version
-/// (the one actually persisted) over just the first served one, since
-/// that's the version guaranteed to round-trip correctly; a CRD with no
-/// served version at all (disabled) is skipped. `group`/`kind` are leaked
-/// to `&'static str` — a one-time, bounded-size leak (one CRD list, once,
-/// at startup) that lets `ResourceKind::CustomResource` carry a plain
-/// `&'static str` label like every other kind instead of needing a
-/// registry lookup just to render a title.
+/// Lists the installed CRDs. Prefers the storage version, and skips CRDs with no
+/// served version. `group` and `kind` are leaked to `&'static str` once at startup
+/// so `ResourceKind::CustomResource` can carry plain labels.
 pub async fn discover_crds(client: &Client) -> Vec<CrdInfo> {
     use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 

@@ -31,10 +31,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
-                // The highlighted autocomplete suggestion wins
-                // when there is one; `from_command` is only the
-                // fallback for an exact alias that didn't happen
-                // to fuzzy-score into the visible list.
+                // The highlighted suggestion wins; `from_command` is only the fallback for an
+                // exact alias that did not score into the visible list.
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
                 let highlighted = suggestions.get(*selected).map(|s| s.cmd);
                 if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {

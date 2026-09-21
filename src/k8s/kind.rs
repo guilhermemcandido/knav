@@ -27,24 +27,19 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
-    /// The running port-forwards — knav's own, not a cluster resource.
+    /// The running port-forwards, knav's own, not a cluster resource.
     PortForwards,
-    /// The Custom Resources picker — every discovered CRD kind
+    /// The Custom Resources picker, every discovered CRD kind
     /// (group/kind/scope), not object instances, not filtered by group.
     CustomResourceList,
-    /// Same picker, filtered to one API group — the group string is
-    /// already `&'static str` (leaked once at discovery, see
-    /// `discover_crds`), so no extra registry lookup is needed here
-    /// either, same reasoning as `CustomResource`'s label.
+    /// The same picker, filtered to one API group (a leaked `&'static str`).
     CustomResourceGroup(&'static str),
-    /// One specific CRD kind's instances — `usize` indexes into
-    /// `Catalog`'s discovered CRD list, the label is carried alongside
-    /// since it's a runtime string, not one of this enum's compile-time
-    /// variants like every other kind's `label()`.
+    /// One CRD kind's instances: `usize` indexes `Catalog`'s CRD list, and the label
+    /// is carried along because it is a runtime string.
     CustomResource(usize, &'static str),
     /// Every resource type the API server lists (`:api`); Enter opens one.
     ApiResources,
-    /// One discovered resource type shown through the server's Table view —
+    /// One discovered resource type shown through the server's Table view,
     /// `usize` indexes the catalog's discovered list, the label is its plural.
     Api(usize, &'static str),
 }
@@ -85,11 +80,8 @@ impl ResourceKind {
         }
     }
 
-    /// What Enter on a row of this kind drills into, if anything: a
-    /// Deployment's ReplicaSets, a ReplicaSet's/StatefulSet's/
-    /// DaemonSet's/Job's/Service's Pods, a CronJob's Jobs, a Namespace's
-    /// Pods (and every later query narrowed to that namespace). Pods and
-    /// Nodes drill too, but into their own popups rather than a list.
+    /// What Enter drills into: a Deployment's ReplicaSets, a workload's or Service's
+    /// Pods, a CronJob's Jobs, a Namespace's Pods. Pods and Nodes open popups instead.
     pub fn drill_target(self) -> Option<ResourceKind> {
         match self {
             ResourceKind::Deployments => Some(ResourceKind::ReplicaSets),
@@ -119,11 +111,8 @@ impl ResourceKind {
             )
     }
 
-    /// The reverse of `label()` — for the fixed, compile-time-known kinds
-    /// only (never `CustomResource`, which needs a live index and can't
-    /// be reconstructed from its label alone). The join key between the
-    /// (label, count) tuples the Overview catalog/menu render and the
-    /// enum `current_kind` actually switches on.
+    /// The reverse of `label()` for fixed kinds only (a `CustomResource` can't be
+    /// rebuilt from its label). Joins the Overview tiles to `current_kind`.
     pub fn from_label(label: &str) -> Option<Self> {
         match label {
             "Pods" => Some(ResourceKind::Pods),
@@ -173,10 +162,8 @@ impl ResourceKind {
         })
     }
 
-    /// Resolves a `:command` (already lowercased/trimmed by the caller)
-    /// to the kind it switches to, through `COMMAND_ALIASES` — the full
-    /// name, the singular and the short k9s-style alias all work.
-    /// Returns `None` for anything unrecognized; the caller just no-ops.
+    /// Resolves a lowercased `:command` to a kind through `COMMAND_ALIASES`; `None`
+    /// if unrecognized.
     pub fn from_command(cmd: &str) -> Option<Self> {
         COMMAND_ALIASES.iter().find(|(_, names)| names.contains(&cmd)).map(|(kind, _)| *kind)
     }
@@ -188,7 +175,7 @@ impl ResourceKind {
     }
 }
 
-/// The names `:` accepts for each kind — the full plural first (it's what
+/// The names `:` accepts for each kind, the full plural first (it's what
 /// the autocomplete shows), then the singular and the k9s short aliases
 /// (`po`, `dp`, `ns`, `svc`, `cm`, `sa`, ...).
 pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[

@@ -7,9 +7,9 @@ use kube::{
 };
 use tokio::{sync::watch, task::JoinHandle};
 
-/// Parses a Kubernetes CPU quantity — plain cores ("2"), millicores
+/// Parses a Kubernetes CPU quantity, plain cores ("2"), millicores
 /// ("250m"), or the nanocore form metrics-server actually reports for
-/// live usage ("123456789n") — into millicores.
+/// live usage ("123456789n"), into millicores.
 pub fn parse_cpu_millicores(s: &str) -> i64 {
     if let Some(n) = s.strip_suffix('n') {
         (n.parse::<f64>().unwrap_or(0.0) / 1_000_000.0) as i64
@@ -22,8 +22,8 @@ pub fn parse_cpu_millicores(s: &str) -> i64 {
     }
 }
 
-/// Parses a Kubernetes memory quantity — binary suffixes (Ki/Mi/Gi/Ti),
-/// decimal suffixes (k/M/G/T), or a plain byte count — into bytes.
+/// Parses a Kubernetes memory quantity, binary suffixes (Ki/Mi/Gi/Ti),
+/// decimal suffixes (k/M/G/T), or a plain byte count, into bytes.
 pub fn parse_memory_bytes(s: &str) -> i64 {
     const UNITS: &[(&str, f64)] = &[
         ("Ki", 1024.0),
@@ -58,7 +58,7 @@ pub struct NodeUsage {
 pub struct ClusterUsage {
     pub cpu_millicores: i64,
     pub memory_bytes: i64,
-    /// Per-node breakdown, same poll — the Node detail view needs just
+    /// Per-node breakdown, same poll, the Node detail view needs just
     /// one node's numbers, not the cluster total.
     pub nodes: Vec<NodeUsage>,
 }
@@ -69,14 +69,9 @@ impl ClusterUsage {
     }
 }
 
-/// Polls `metrics.k8s.io/v1beta1/nodes` on an interval and publishes both
-/// the cluster-wide total and each node's own usage. Metrics-server has
-/// no watch support (it's a polling-only API, computed periodically from
-/// kubelet cAdvisor stats), hence a `tokio::sync::watch` channel updated
-/// on a timer instead of the reflector pattern used everywhere else.
-/// `None` means metrics-server isn't installed/reachable — the caller
-/// shows "metrics unavailable" rather than a zero, same fallback k9s/
-/// Freelens use.
+/// Polls `metrics.k8s.io/v1beta1/nodes` and publishes cluster and per-node usage
+/// through a `watch` channel (metrics-server has no watch). `None` means
+/// metrics-server is unavailable, shown as such rather than as zero.
 pub fn watch_node_metrics(client: Client) -> (watch::Receiver<Option<ClusterUsage>>, JoinHandle<()>) {
     let (tx, rx) = watch::channel(None);
 

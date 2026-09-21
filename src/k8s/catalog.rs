@@ -2,13 +2,11 @@
 
 use crate::*;
 
-/// Every resource kind that gets a live watch + generic list/spec view but
-/// no specialized row type (unlike Pods/Deployments). Nodes reuses the
-/// existing `node_store` reflector instead of opening a second watch on
-/// the same kind; everything else spawns its own.
+/// Every kind with a live watch and a generic list/spec view but no specialized
+/// row type. Nodes reuses the existing `node_store`; the rest spawn their own.
 pub(crate) struct Catalog {
     entries: Vec<(ResourceKind, &'static str, Box<dyn k8s::CatalogKind>)>,
-    /// Every discovered CRD kind — listed once at startup, watched lazily
+    /// Every discovered CRD kind, listed once at startup, watched lazily
     /// (see `resolve`) only once the user actually opens one.
     pub(crate) crds: Vec<k8s::CrdInfo>,
     crd_watches: HashMap<usize, Box<dyn k8s::CatalogKind>>,
@@ -64,19 +62,13 @@ impl Catalog {
         self.get(kind).map(|k| k.count()).unwrap_or(0)
     }
 
-    /// Looks up the live watch for a built-in kind — `None` for Overview/
-    /// Pods/Deployments/the CRD kinds, which aren't in `entries` (Pods/
-    /// Deployments have their own specialized reflectors and row types;
-    /// CRDs go through `resolve` instead since opening one may need to
-    /// lazily start its watch).
+    /// The live watch for a built-in kind. `None` for Overview, Pods, Deployments and
+    /// CRDs, which are not in `entries` (CRDs go through `resolve`).
     pub(crate) fn get(&self, kind: ResourceKind) -> Option<&dyn k8s::CatalogKind> {
         self.entries.iter().find(|(k, _, _)| *k == kind).map(|(_, _, b)| b.as_ref())
     }
 
-    /// Like `get`, but also covers CRD kinds — starting their watch on
-    /// first use ("watch on open", not eagerly for all installed CRDs).
-    /// The one place `main::run` should go through to read rows/spec for
-    /// whatever `current_kind` actually is.
+    /// Like `get`, but also covers CRD kinds, starting their watch on first use.
     pub(crate) fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn k8s::CatalogKind> {
         match kind {
             // A custom resource's instances, with the printer columns its CRD defines.
@@ -156,14 +148,8 @@ impl Catalog {
             ),
             (
                 "Custom Resources",
-                // "Custom Resources" itself is the whole unfiltered
-                // picker; one further tile per discovered API group so
-                // the (often long) flat list is organized the way
-                // Freelens groups its own custom-resource menu. Every
-                // count here is "how many CRD *kinds*", not a live
-                // object count — known for free from discovery, no
-                // watch needed, consistent with "list only, watch on
-                // open".
+                // "Custom Resources" is the whole picker; one more tile per API group. Counts
+                // are CRD kinds known from discovery, not live objects.
                 std::iter::once(("Custom Resources", self.crds.len()))
                     .chain(self.crd_groups().into_iter().map(|group| (group, self.crds.iter().filter(|c| c.group == group).count())))
                     .collect(),
@@ -171,10 +157,8 @@ impl Catalog {
         ]
     }
 
-    /// Every distinct API group among the discovered CRDs, in the same
-    /// order `discover_crds` already sorted them (group, then kind) —
-    /// a simple adjacent-dedup instead of a `HashSet` keeps that order
-    /// intact instead of scrambling it.
+    /// Every distinct API group among the CRDs, in the order `discover_crds` sorted
+    /// them (adjacent dedup keeps that order).
     pub(crate) fn crd_groups(&self) -> Vec<&'static str> {
         let mut groups: Vec<&'static str> = Vec::new();
         for crd in &self.crds {
@@ -185,11 +169,8 @@ impl Catalog {
         groups
     }
 
-    /// Resolves an Overview tile's/menu's label back to the `ResourceKind`
-    /// it switches to. Tries the fixed kinds first (`ResourceKind::
-    /// from_label`); a label that isn't one of those but does match a
-    /// discovered CRD group must be that group's tile (the "Custom
-    /// Resources" section is the only place such labels appear).
+    /// Resolves an Overview tile or menu label to its `ResourceKind`: a fixed kind
+    /// first, else a discovered CRD group's tile.
     pub(crate) fn kind_for_tile_label(&self, label: &str) -> Option<ResourceKind> {
         ResourceKind::from_label(label).or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))
     }

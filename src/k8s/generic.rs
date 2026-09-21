@@ -11,11 +11,8 @@ use tokio::task::JoinHandle;
 
 use super::*;
 
-/// Any k8s object as a generic value tree, for the collapsible detail
-/// view — works for any resource kind, not just Pods. Strips
-/// `managedFields` — it's the huge, unreadable `f:` block kubectl-apply
-/// machinery uses internally and isn't useful to a human looking at "what
-/// is this."
+/// Any object as a generic value tree for the detail view, without `managedFields`
+/// (kubectl-apply bookkeeping, unreadable).
 pub fn manifest_value<T: Serialize>(item: &T) -> serde_yaml::Value {
     let mut value = serde_yaml::to_value(item).unwrap_or(serde_yaml::Value::Null);
     if let Some(metadata) = value.get_mut("metadata").and_then(|m| m.as_mapping_mut()) {
@@ -24,12 +21,8 @@ pub fn manifest_value<T: Serialize>(item: &T) -> serde_yaml::Value {
     value
 }
 
-/// A row for any resource kind that doesn't get a specialized table (i.e.
-/// everything except Pods/Deployments) — just enough to list and identify
-/// an object. Cluster-scoped kinds (Nodes, ClusterRoles, PVs, ...) show
-/// "-" for namespace rather than getting a different column set; one
-/// generic table for ~20 kinds is worth the small loss of kubectl's
-/// per-kind columns.
+/// A row for kinds without a specialized table: enough to list and identify an
+/// object. Cluster-scoped kinds show `-` as namespace.
 #[derive(Clone)]
 pub struct GenericRow {
     pub namespace: String,
@@ -41,18 +34,15 @@ pub struct GenericRow {
     /// A short coloured status for the bottom bar.
     pub status: crate::k8s::describe::Note,
     pub uid: String,
-    /// UIDs of this object's owners (`ownerReferences`) — what lets a
+    /// UIDs of this object's owners (`ownerReferences`), what lets a
     /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
     pub owners: Vec<String>,
     /// `k=v,k=v`, for the wide view.
     pub labels: String,
 }
 
-/// Not pinned to `DynamicType = ()` — `Resource::meta()` only reads
-/// `self`, so this works identically for a typed k8s-openapi struct and
-/// for a `DynamicObject` (used for CRDs, whose `DynamicType` is
-/// `ApiResource` since the schema isn't known at compile time).
-/// `k=v,k=v` in key order, `-` when there are none.
+/// Works for typed structs and `DynamicObject` alike, since `Resource::meta()` only
+/// reads `self`. `k=v,k=v` in key order, `-` when there are none.
 pub fn label_text(labels: Option<&std::collections::BTreeMap<String, String>>) -> String {
     match labels.filter(|l| !l.is_empty()) {
         Some(l) => l.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","),
@@ -74,7 +64,7 @@ pub fn generic_row<K: kube::Resource + crate::k8s::describe::Extras>(item: &K) -
 }
 
 /// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic
-/// over any typed k8s-openapi resource — used for every catalog kind that
+/// over any typed k8s-openapi resource, used for every catalog kind that
 /// doesn't need specialized fields.
 pub fn watch_generic<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
 where
@@ -90,7 +80,7 @@ where
     (reader, handle)
 }
 
-/// Sorted snapshot — same reasoning as `snapshot`/`snapshot_deployments`,
+/// Sorted snapshot, same reasoning as `snapshot`/`snapshot_deployments`,
 /// generic over anything `reflector::store` can hold (typed resources and
 /// `DynamicObject` alike).
 pub fn snapshot_generic<K>(store: &reflector::Store<K>) -> Vec<Arc<K>>

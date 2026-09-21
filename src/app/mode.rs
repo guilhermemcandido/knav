@@ -4,21 +4,14 @@ use crate::*;
 
 pub(crate) enum Mode {
     List,
-    /// A vim/k9s-style `:` command line, reachable from any screen —
-    /// `:q`/`:quit` exits from anywhere, `:pods`/`:namespaces`/etc. (see
-    /// `ResourceKind::from_command`) switches the current view. Esc
-    /// cancels back to `back` without acting, same as every other
-    /// overlay's "where Esc returns to."
+    /// The `:` command line, reachable from any screen. `:q` exits, `:pods` and the
+    /// like switch the view. Esc returns to `back` without acting.
     Command { input: String, selected: usize, back: Box<Mode> },
-    /// The `/`/`f` live-filter input — editing the persistent `search`
-    /// string directly (not its own copy), so the filter it produces
-    /// stays applied once you're back in `List`, same as vim/fzf's own
-    /// "type to narrow, Enter to keep browsing the narrowed list."
+    /// The `/` live filter. It edits the persistent `search` string, so the filter
+    /// stays applied once you are back in `List`.
     Search,
-    /// The `:ctx` / `C` context browser, laid out like `Events` — Enter
-    /// on a context checks it is reachable, then hands control back to
-    /// `main` to reconnect; `/` filters by name. `error` is why the last
-    /// attempt failed. Esc returns to `back`.
+    /// The `:ctx` / `C` context browser. Enter checks the context is reachable, then
+    /// hands control back to `main` to reconnect. `error` is why the last attempt failed.
     Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, sort: ListSort, back: Box<Mode> },
     Menu { selected: (usize, usize) },
     /// The `n` namespace picker, from any view but the Namespaces list:
@@ -27,7 +20,7 @@ pub(crate) enum Mode {
     /// The key picker on a namespace: pick which number key (1-9) it goes
     /// on. `selected` is the highlighted key minus one. Esc cancels.
     Slots { namespace: String, selected: usize, back: Box<Mode> },
-    /// A result message (see `edit`) — any key or click dismisses it,
+    /// A result message (see `edit`), any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
@@ -50,25 +43,20 @@ pub(crate) enum Mode {
         title: String,
         items: Vec<TreeItem<'static, String>>,
         state: TreeState<String>,
-        // Tracks which way `a` (expand/collapse everything) last left
-        // the tree, so pressing it again does the opposite — toggling
-        // between "everything open" and "everything closed" rather than
-        // needing two separate keys for it.
+        // Which way `a` last left the tree, so pressing it again does the opposite.
         expanded_all: bool,
-        // A leaf's full `(label, value)`, keyed by its own tree
-        // identifier — `v` looks up whatever's selected here to show it
-        // untruncated, since the tree itself clips long values to the
-        // box's width with no indication or way to see the rest.
+        // A leaf's full `(label, value)` by tree identifier, for `v`: the tree clips
+        // long values to the box width.
         leaf_values: ui::LeafValues,
-        // Set by `v`, cleared by q/Esc — which leaf's full value (if
+        // Set by `v`, cleared by q/Esc, which leaf's full value (if
         // any) is currently shown in its own popup on top of the tree.
         viewing: Option<(String, String)>,
-        // Where Esc returns to — normally the List we opened it from,
+        // Where Esc returns to, normally the List we opened it from,
         // or NodeDetail if 'd' was pressed from there instead.
         back: Box<Mode>,
     },
     /// Freelens-style node drill-down: that node's own metrics + the
-    /// pods scheduled on it. `current_kind` stays `Nodes` throughout —
+    /// pods scheduled on it. `current_kind` stays `Nodes` throughout,
     /// this just overlays on top, same as `Containers` overlays on Pods.
     NodeDetail {
         name: String,
@@ -77,24 +65,21 @@ pub(crate) enum Mode {
         /// `/` filters the pods table; `editing` while typing it.
         search: String,
         editing: bool,
-        // Where Esc returns to — the Nodes list normally, or the
-        // Overview's Resources detail if this node was opened from
-        // there, same "remember where you came from" pattern as
-        // `Containers`/`Logs`.
+        // Where Esc returns to: the Nodes list, or the Overview's Resources detail.
         back: Box<Mode>,
     },
     /// The full Events browser, opened by pressing Enter on the
-    /// Overview's Events panel — every event, filterable by severity.
+    /// Overview's Events panel, every event, filterable by severity.
     Events { filter: k8s::EventFilter, search: String, editing: bool, state: TableState, sort: ListSort },
-    /// One event's full, untruncated detail — opened from within the
+    /// One event's full, untruncated detail, opened from within the
     /// Events browser. `back` restores that browser's filter/scroll
     /// position exactly, same pattern as `Containers`/`Logs`.
     EventDetail { entry: k8s::EventEntry, back: Box<Mode> },
     /// The Overview's Resources panel, opened up: full-size cluster
-    /// gauges. No per-node breakdown here anymore — that's what the
+    /// gauges. No per-node breakdown here anymore, that's what the
     /// Nodes list is for; this is cluster-wide totals only.
     ResourcesDetail,
-    /// One Overview category column, opened up into a bigger grid —
+    /// One Overview category column, opened up into a bigger grid,
     /// see `ui::Overlay::ColumnDetail`.
     ColumnDetail { col: usize, selected: usize, row_scroll: usize },
     Containers {
@@ -104,7 +89,7 @@ pub(crate) enum Mode {
         containers: Vec<k8s::ContainerInfo>,
         state: TableState,
         sort: ListSort,
-        // Where Esc returns to — the Pods list normally, or the
+        // Where Esc returns to, the Pods list normally, or the
         // NodeDetail view if this pod was opened from there.
         back: Box<Mode>,
     },
@@ -117,25 +102,19 @@ pub(crate) enum Mode {
         order: LogOrder,
         rx: mpsc::UnboundedReceiver<String>,
         handle: tokio::task::JoinHandle<()>,
-        // `/` live-filters the log lines the same way it does everywhere
-        // else — a substring match here rather than fuzzy, since log
-        // lines are prose, not identifiers a fuzzy scorer makes sense
-        // against. `filter_editing` is only true while actually typing
-        // it; Enter confirms and goes back to normal scrolling with the
-        // filter applied, Esc while typing clears it instead.
+        // `/` filters the log lines by substring (log lines are prose, not identifiers).
+        // `filter_editing` is true only while typing; Enter keeps the filter, Esc clears it.
         filter: String,
         filter_editing: bool,
-        // What to go back to on Esc — the Containers view we came from,
+        // What to go back to on Esc, the Containers view we came from,
         // so backing out of logs doesn't dump you all the way to the
         // pod list.
         back: Box<Mode>,
     },
 }
 
-/// Whether `c`/`?`/`:` (each bound globally, see the top of the event
-/// loop) should instead just be typed as a character — `Command`/
-/// `Search` always, `Logs` only while its own `/` filter is actively
-/// being edited.
+/// Whether `c`, `?` and `:` should be typed as characters instead of acting as
+/// global keys: `Command` and `Search` always, `Logs` while its filter is edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
     matches!(mode, Mode::Settings { editing: Some(_), .. } | Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
@@ -144,10 +123,8 @@ pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
     format!("{}/{}", namespace.unwrap_or("?"), name.unwrap_or("?"))
 }
 
-/// The `/`/`f` filter: an empty query matches everything (no filter
-/// active); otherwise a fuzzy subsequence match against `haystack`,
-/// reusing the exact same scorer the cluster picker's own type-to-filter
-/// search already uses.
+/// The `/` filter: an empty query matches everything, otherwise a fuzzy
+/// subsequence match against `haystack`.
 pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
     search.is_empty() || fuzzy::score(search, haystack).is_some()
 }
@@ -160,7 +137,7 @@ pub(crate) fn meta_search_text_generic(row: &k8s::GenericRow) -> String {
     format!("{} {}", row.namespace, row.name)
 }
 
-/// The sort of whichever `NodeDetail` sits in `mode`'s back-chain — the
+/// The sort of whichever `NodeDetail` sits in `mode`'s back-chain, the
 /// pods table behind Containers/Logs keeps its order.
 pub(crate) fn node_detail_search(mode: &Mode) -> &str {
     match mode {
@@ -178,11 +155,8 @@ pub(crate) fn node_detail_sort(mode: &Mode) -> Option<SortSpec> {
     }
 }
 
-/// The name of whichever `NodeDetail` sits anywhere in `mode`'s own
-/// back-chain (including `mode` itself) — not just when it's the
-/// topmost/focused mode. Needed so `node_detail_pods` stays correct even
-/// while NodeDetail is being drawn as a dimmed background layer behind
-/// something opened from it (Containers, Spec, and transitively Logs).
+/// The name of the `NodeDetail` anywhere in `mode`'s back-chain, itself included,
+/// so `node_detail_pods` stays right while it is a dimmed background layer.
 pub(crate) fn node_detail_name(mode: &Mode) -> Option<&str> {
     match mode {
         Mode::NodeDetail { name, .. } => Some(name),
@@ -191,12 +165,8 @@ pub(crate) fn node_detail_name(mode: &Mode) -> Option<&str> {
     }
 }
 
-/// The full "how did I get here" path for the path bar, oldest
-/// first — e.g. `["Node: worker-1", "Pod: default/web-1", "Logs:
-/// nginx"]`. `None` for `Mode::List` itself (nothing to show — you're
-/// already home) and for modes that don't chain back further than the
-/// base list (Menu, Command, Events, ResourcesDetail, ColumnDetail),
-/// since their own overlay title already says what they are.
+/// The path for the path bar, oldest first, e.g. `Node[worker-1]`, `Pod[default/web-1]`,
+/// `Logs[nginx]`. Empty for the plain list and for modes that don't chain back.
 pub(crate) fn segment(kind: &str, value: impl Into<String>) -> ui::PathSegment {
     ui::PathSegment { kind: kind.to_string(), value: Some(value.into()) }
 }
@@ -205,9 +175,7 @@ pub(crate) fn plain_segment(kind: &str) -> ui::PathSegment {
     ui::PathSegment { kind: kind.to_string(), value: None }
 }
 
-/// Each segment carries `Kind[identifier]` — e.g. `Node[worker-1]`,
-/// `Pod[default/web-1]`, `Logs[nginx]` — so the path reads as a
-/// literal address into the cluster, not just a label trail.
+/// Each segment is `Kind[identifier]`, so the path reads as an address in the cluster.
 /// One theme in the picker, with the colours to show as its swatch.
 pub(crate) struct ThemeEntry {
     pub name: String,
@@ -255,7 +223,7 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
                 path.pop();
             }
             // `title` is "namespace/pod/container" (see `title_for` and
-            // the Containers Enter handler) — just the container name is
+            // the Containers Enter handler), just the container name is
             // enough here, the pod/node segments already came from `back`.
             let container = title.rsplit('/').next().unwrap_or(title);
             path.push(segment("Logs", container));
@@ -288,10 +256,8 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
     }
 }
 
-/// Where you are, for the bar at the bottom of every screen: what you
-/// drilled through to get here, then the list itself —
-/// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`. Each level says what it is
-/// once (kind and name) rather than repeating the list it came from.
+/// Where you are, for the bottom bar: what you drilled through, then the list, e.g.
+/// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`.
 pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::PathSegment> {
     // Every level's scope names the thing it's inside; together they are the path.
     let mut segments: Vec<ui::PathSegment> = trail
@@ -325,11 +291,8 @@ pub(crate) fn full_path(mode: &Mode, location: Vec<ui::PathSegment>) -> Vec<ui::
     segments
 }
 
-/// The keybindings actually available on whatever's currently focused —
-/// (key, description) pairs, handed to `ui::draw` to render in their own
-/// bar instead of crammed into each screen's title. `Command`/`Search`
-/// return nothing: both already occupy that bar themselves with the
-/// input being typed, which matters more than a hint list right then.
+/// The keys available on the focused screen as (key, description) pairs, shown
+/// in their own bar. `Command` and `Search` return nothing: they use that bar.
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
@@ -350,7 +313,7 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
 
 pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     match mode {
-        // Nothing on the main screen — deliberately kept clean. The
+        // Nothing on the main screen, deliberately kept clean. The
         // commands panel only exists once you've actually entered some
         // resource view.
         Mode::List if current_kind == ResourceKind::Overview => Vec::new(),
@@ -432,15 +395,12 @@ pub(crate) fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml:
     for item in &items {
         state.open(vec![item.identifier().clone()]);
     }
-    // Captures whatever `mode` actually was (List, or NodeDetail if 'd'
-    // was pressed from there) as `back`, so Esc returns to the right
-    // place regardless of which of `open_spec`'s several call sites
-    // opened this.
+    // Captures the current mode as `back` so Esc returns to whichever place opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
     *mode = Mode::Spec { title, items, state, expanded_all: false, leaf_values, viewing: None, back };
 }
 
-/// Every identifier path in the tree, depth-first — used by `a` (see the
+/// Every identifier path in the tree, depth-first, used by `a` (see the
 /// `Mode::Spec` keyboard handler) to expand every node at once, since
 /// `TreeState` only exposes a bulk `close_all`, not its `open` opposite.
 pub(crate) fn all_tree_identifiers(items: &[TreeItem<'static, String>], prefix: &mut Vec<String>, out: &mut Vec<Vec<String>>) {

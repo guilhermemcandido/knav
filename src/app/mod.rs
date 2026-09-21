@@ -46,17 +46,15 @@ pub(crate) fn run(
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
             _ => generic_rows.len(),
         };
-        // Selection can't outrun the list as pods/deployments come and go
-        // underneath it. Overview has no selectable row — it scrolls
-        // instead (see `overview_scroll`) — so this only matters for
-        // Pods/Deployments.
+        // Selection can't outrun the list as rows come and go. The Overview has no
+        // selectable row, so this only matters for lists.
         if st.current_kind != ResourceKind::Overview && row_count > 0 {
             let clamped = st.table_state.selected().unwrap_or(0).min(row_count - 1);
             st.table_state.select(Some(clamped));
         }
 
         // Logs keep arriving in the background regardless of what key was
-        // last pressed — drain whatever's ready before every redraw.
+        // last pressed, drain whatever's ready before every redraw.
         if let Mode::Logs { lines, rx, .. } = &mut st.mode {
             while let Ok(line) = rx.try_recv() {
                 lines.push(line);
@@ -119,12 +117,8 @@ pub(crate) fn run(
             continue;
         }
 
-        // Handle every event already queued before looping back to
-        // redraw — not just the one that just arrived. A trackpad
-        // "flick" scroll can queue up dozens of mouse-wheel events at
-        // once; without this, each one triggered its own full redraw,
-        // and a keypress typed right after (like `q`) sat behind that
-        // whole backlog instead of being handled almost immediately.
+        // Handle every queued event before redrawing. A trackpad flick queues dozens
+        // of wheel events, and a key typed after it would otherwise wait behind them.
         loop {
             let event = event::read()?;
             let config_now = st.config.clone();

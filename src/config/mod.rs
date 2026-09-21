@@ -73,12 +73,8 @@ pub struct Keybindings {
     pub logs: LogsKeybindings,
 }
 
-/// How knav starts up, k9s/Lens-style: `direct` connects straight to
-/// whatever context `kube` would infer (in-cluster, or the kubeconfig's
-/// `current-context`) — no extra screen, matching k9s's default. `menu`
-/// always shows the freelens-style cluster picker first, even if there's
-/// only one context. `--context` on the command line bypasses this
-/// entirely regardless of which mode is configured.
+/// How knav starts: `direct` connects to the context `kube` infers, `menu` shows the
+/// cluster picker first. `--context` on the command line skips both.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StartupMode {
@@ -220,15 +216,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Reads `$XDG_CONFIG_HOME/knav/config.toml` (falling back to
-    /// `~/.config/knav/config.toml`) — the same convention as this
-    /// machine's nvim/tmux/herdr configs, not the platform-specific
-    /// location a crate like `dirs` would pick on macOS
-    /// (`~/Library/Application Support`). No file, or a field left out,
-    /// just means "use the default" — a config file is never required.
-    /// A malformed file is reported and defaults are used rather than
-    /// refusing to start, since printing a real error after the TUI
-    /// takes over the screen isn't possible.
+    /// Reads `$XDG_CONFIG_HOME/knav/config.toml`, falling back to `~/.config/knav/config.toml`.
+    /// A missing file or field means the default. A malformed file is reported and
+    /// defaults are used, since an error can't be printed once the TUI is up.
     pub fn load() -> Self {
         let path = Self::path();
         let Ok(contents) = std::fs::read_to_string(&path) else {
@@ -247,7 +237,7 @@ impl Config {
         Self::dir().join("config.toml")
     }
 
-    /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`) — the config file
+    /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`), the config file
     /// and knav's small saved state live here.
     pub fn dir() -> PathBuf {
         let base = std::env::var("XDG_CONFIG_HOME")

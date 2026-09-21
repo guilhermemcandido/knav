@@ -1,8 +1,6 @@
-//! Things you can do to the selected object besides looking at it: delete,
-//! scale, restart, cordon, trigger or suspend a CronJob, and open a shell in
-//! a container. Every action works on a `Target` read from the object's
-//! manifest, so it applies to any kind (custom resources included) the same
-//! way.
+//! Things to do to the selected object: delete, scale, restart, cordon, trigger or
+//! suspend a CronJob, open a shell. Each works on a `Target` read from the manifest,
+//! so it applies to any kind.
 
 use anyhow::{Context as _, Result, bail};
 use kube::{

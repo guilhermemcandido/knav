@@ -1,7 +1,6 @@
-//! The bottom bar saying where you are: the trail of what you drilled
-//! through, then the selected row. It always fits the terminal width: the
-//! container detail goes first, then the longest names are shortened in
-//! the middle (`local-pa…d9885bc`).
+//! The bottom bar showing where you are: the trail of what you drilled through, then
+//! the selected row. It always fits the width: container detail goes first, then
+//! the longest names are shortened in the middle (`local-pa…d9885bc`).
 
 use super::*;
 
@@ -14,7 +13,7 @@ pub struct SelectedItem {
     /// A short coloured status after the name (`● 1/1`, `● Ready`), dropped
     /// when space is short.
     note: Option<(Color, String)>,
-    /// `(dot colour, container name, state)` per container — pods only.
+    /// `(dot colour, container name, state)` per container, pods only.
     containers: Vec<(Color, String, String)>,
 }
 
@@ -71,7 +70,7 @@ const MIN_SHORTENED: usize = 8;
 const HARD_MIN: usize = 3;
 
 /// Shortens `text` to at most `max` characters with an ellipsis in the
-/// middle, keeping both ends — the start says what it is, the end is where
+/// middle, keeping both ends, the start says what it is, the end is where
 /// generated names differ.
 fn middle_ellipsis(text: &str, max: usize) -> String {
     let chars: Vec<char> = text.chars().collect();

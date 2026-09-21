@@ -2,12 +2,9 @@
 
 use super::*;
 
-/// `dimmed` only ever applies when this is the background behind its
-/// own `ValueDetail` popup (`v` on a leaf) — the tree's own per-node
-/// colors (baked into each `TreeItem`'s `Line` at build time in
-/// `build_manifest_tree`) aren't re-muted, just the border/title and
-/// selection highlight, same lighter-touch dimming `EventDetail`'s
-/// background gets.
+/// `dimmed` applies only when this is the background of its `ValueDetail` popup.
+/// Node colours are baked into each `TreeItem`, so only the border, title and
+/// selection are muted.
 pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, dimmed: bool) {
     let area = centered_rect(85, 85, frame.area());
     frame.render_widget(Clear, area);
@@ -28,10 +25,8 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     frame.render_stateful_widget(tree, area, state);
 }
 
-/// A tree leaf's full value, untruncated — opened by `v`. Plain wrapped
-/// text, same treatment as `draw_event_detail_popup` for the same
-/// reason: a narrow column/box clips long content with no indication or
-/// way to see the rest.
+/// A leaf's full value, opened by `v`. Wrapped plain text, since the tree clips
+/// long values.
 pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &str) {
     let area = centered_rect(70, 50, frame.area());
     frame.render_widget(Clear, area);
@@ -41,7 +36,7 @@ pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &st
     frame.render_widget(paragraph, area);
 }
 
-/// Click-to-toggle at an absolute terminal position — `TreeState` already
+/// Click-to-toggle at an absolute terminal position, `TreeState` already
 /// knows where everything was last rendered, so no manual hit-testing.
 pub fn click_tree(state: &mut TreeState<String>, column: u16, row: u16) {
     if let Some(path) = state.rendered_at(Position::new(column, row)) {
@@ -51,18 +46,9 @@ pub fn click_tree(state: &mut TreeState<String>, column: u16, row: u16) {
     }
 }
 
-/// Builds the collapsible tree for any k8s object's manifest, from its
-/// generic YAML value tree (see `k8s::manifest_value`) — works for any
-/// resource kind. Every level's identifier is its full path from the
-/// root (e.g. `root/spec/containers/[0]/image`), which is what
-/// `TreeState` uses to track open/closed and selection — so it stays
-/// unique even though sibling branches reuse field names like `name`.
-/// Alongside the tree itself, a lookup from a leaf's identifier (opaque,
-/// but guaranteed unique — see below) to its `(label, full value)` —
-/// tree items only ever show a value clipped to the box's width with no
-/// indication it's cut off or way to see the rest, so `v` (see the
-/// `Mode::Spec` keyboard handler) looks it up here to show untruncated.
-/// A leaf's `(label, full value)`, by its tree identifier.
+/// Builds the collapsible tree for a manifest from its value tree. Each identifier
+/// is its full path (`root/spec/containers/[0]/image`), unique even when siblings
+/// reuse names. Also returns leaf identifier to `(label, full value)`, for `v`.
 pub type LeafValues = HashMap<String, (String, String)>;
 
 pub fn build_manifest_tree(value: &serde_yaml::Value) -> (Vec<TreeItem<'static, String>>, LeafValues) {

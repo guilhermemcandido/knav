@@ -24,7 +24,7 @@ pub(super) struct State {
     pub last_click: Option<(std::time::Instant, usize)>,
     pub current_kind: ResourceKind,
     /// The namespace every namespaced list is narrowed to (`Enter` on a
-    /// namespace sets it, `0` clears it) — sticks across kind switches.
+    /// namespace sets it, `0` clears it), sticks across kind switches.
     pub namespace: Option<String>,
     /// What the current list is drilled into (a Deployment's ReplicaSets,
     /// a Service's Pods, ...).
@@ -41,7 +41,7 @@ pub(super) struct State {
     pub hscroll: usize,
     /// Namespaces reserved to number keys 1-9.
     pub favorites: Favorites,
-    /// The active `/` filter — empty means "show everything". Cleared
+    /// The active `/` filter, empty means "show everything". Cleared
     /// whenever the resource kind changes.
     pub search: String,
     /// Whether the commands panel (`?`) is open.

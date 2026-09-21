@@ -70,10 +70,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter | KeyCode::Char(' ') => {
                 state.toggle_selected();
             }
-            // Toggles between "everything open" and "everything
-            // closed" — `TreeState` only gives us the latter as a
-            // single call, so expanding needs walking every
-            // identifier ourselves.
+            // Toggles between all open and all closed. `TreeState` can only close all
+            // in one call, so opening walks every identifier.
             KeyCode::Char('a') => {
                 if *expanded_all {
                     state.close_all();
@@ -86,7 +84,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 *expanded_all = !*expanded_all;
             }
-            // Shows the selected leaf's full value, untruncated —
+            // Shows the selected leaf's full value, untruncated,
             // a no-op on a branch node (nothing in `leaf_values`
             // for it).
             KeyCode::Char('v') => {
@@ -211,11 +209,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             _ => {}
         },
         (Event::Key(key), Mode::Logs { filter, filter_editing: filter_editing @ true, .. }) => match key.code {
-            // Esc while typing clears the filter rather than
-            // leaving; Enter confirms and goes back to normal
-            // scrolling with it applied — the filtered set is
-            // what you land back on, having "scrolled past"
-            // everything that didn't match.
+            // Esc while typing clears the filter; Enter keeps it and goes back to
+            // scrolling the filtered lines.
             KeyCode::Esc => {
                 filter.clear();
                 *filter_editing = false;

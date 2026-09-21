@@ -1,6 +1,6 @@
 
 
-/// Seconds since creation, for sorting by AGE — unknown ages sort last
+/// Seconds since creation, for sorting by AGE, unknown ages sort last
 /// when ascending.
 pub(super) fn age_seconds(created: Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::Time>) -> i64 {
     created.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.0.as_second()).max(0)).unwrap_or(i64::MAX)

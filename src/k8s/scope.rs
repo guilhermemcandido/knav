@@ -13,13 +13,13 @@ pub(crate) enum Scope {
     Owner { uid: String, kind: String, name: String },
     /// Pods whose labels contain every pair of a Service's selector.
     Selector { labels: BTreeMap<String, String>, kind: String, name: String },
-    /// Pods in this namespace — Enter on a Namespace, without making it
+    /// Pods in this namespace, Enter on a Namespace, without making it
     /// the active namespace.
     Namespace { name: String },
 }
 
 impl Scope {
-    /// `("Deployment", "web")` — the kind and name this list is inside.
+    /// `("Deployment", "web")`, the kind and name this list is inside.
     pub(crate) fn parts(&self) -> (&str, &str) {
         match self {
             Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => (kind, name),
@@ -27,7 +27,7 @@ impl Scope {
         }
     }
 
-    /// `Deployment/web` — shown in the header.
+    /// `Deployment/web`, shown in the header.
     pub(crate) fn label(&self) -> String {
         match self {
             Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => format!("{kind}/{name}"),

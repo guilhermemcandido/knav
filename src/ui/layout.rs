@@ -1,13 +1,6 @@
-//! One place that decides how wide every table column is, so every view
-//! spaces its columns the same way: each column is as wide as its
-//! content (or its header, with room reserved for the sort number and
-//! arrow so entering sort mode never shifts anything), separated by one
-//! fixed gap, packed to the left — nothing stretches across the screen.
-//!
-//! Every column also has a minimum width (configurable, see
-//! `config::TablesConfig`). Wide columns give up width down to their
-//! minimum when space is short; if the minimums still don't all fit, the
-//! table scrolls sideways one column at a time (`Window`).
+//! Table column widths: content or header wide (room for the sort number), one gap,
+//! packed left. Columns shrink to a configurable minimum (`config::TablesConfig`)
+//! when short of space, then the table scrolls sideways by column (`Window`).
 
 use std::collections::HashMap;
 use std::ops::Range;

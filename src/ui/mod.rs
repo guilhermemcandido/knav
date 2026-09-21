@@ -61,16 +61,12 @@ pub enum Rows<'a> {
     /// in the list, not just after drilling into one) instead of the
     /// generic Namespace/Name/Age table every other kind uses.
     Nodes(&'a [NodeRow]),
-    /// Every other resource kind — a plain namespace/name/age table,
+    /// Every other resource kind, a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
     /// Rows, the kind's label, and its extra column headers (for when there are no rows yet).
     Generic(&'a [GenericRow], &'static str, &'a [&'static str]),
-    /// The Custom Resources picker — every discovered CRD kind (or just
-    /// one API group's), not yet any specific kind's instances. Each
-    /// entry keeps its real index into `Catalog`'s full discovered list
-    /// (needed to open the right one on Enter, since this may be a
-    /// filtered subset) alongside a heading describing what's shown
-    /// ("Custom Resources" for everything, or the group name).
+    /// The Custom Resources picker: every discovered CRD kind, or one API group's. Each
+    /// entry keeps its real index into `Catalog`'s list, next to a heading.
     CrdList(&'a [(usize, CrdInfo)], &'a str),
 }
 
@@ -84,10 +80,8 @@ pub enum Overlay<'a> {
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
-    /// A single node's own CPU/Memory/Pods gauges plus the pods actually
-    /// scheduled on it — Freelens-style node drill-down. `cpu_usage`/
-    /// `memory_usage` are `None` when metrics-server isn't installed,
-    /// same "unavailable" fallback as the Overview's own panel.
+    /// A node's CPU/Memory/Pods gauges plus the pods scheduled on it. The usage values
+    /// are `None` without metrics-server.
     NodeDetail {
         name: &'a str,
         cpu_usage: Option<i64>,
@@ -103,37 +97,27 @@ pub enum Overlay<'a> {
         sort: SortState,
         search: Search<'a>,
     },
-    /// A vim/k9s-style `:` command line with live autocomplete —
-    /// `suggestions` are already fuzzy-matched and sorted (see
-    /// `command_suggestions` in `main.rs`), `selected` is which one
-    /// Up/Down has highlighted. Unlike `Search`, this one *does* dim the
-    /// background — it's a real modal jump, not a live-narrowing filter
-    /// you're meant to keep watching.
+    /// The `:` command line with live autocomplete: `suggestions` are sorted and
+    /// `selected` is the highlighted one. Unlike `Search` it dims the background.
     Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
-    /// The kubeconfig context browser (`:ctx` / `C`) — a full-size
-    /// table like the Events browser, one row per `(name, cluster,
-    /// is_current)`, already filtered. `error` is why the last attempt
-    /// to connect to a chosen context failed, if it did.
+    /// The context browser (`:ctx` / `C`): a table of `(name, cluster, is_current)`,
+    /// already filtered. `error` is why the last connect failed.
     Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str>, sort: SortState },
     /// The dedicated Events browser, opened by pressing Enter on the
-    /// Overview's Events panel — every event (not capped, unlike the
+    /// Overview's Events panel, every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
     Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
-    /// One event's full detail — opened by pressing Enter or clicking a
+    /// One event's full detail, opened by pressing Enter or clicking a
     /// row in the Events browser, since the browser's own MESSAGE column
     /// clips long messages to fit the table.
     EventDetail { entry: &'a EventEntry },
-    /// The Overview's Resources panel, opened up: the same cluster-wide
-    /// CPU/Memory/Pods gauges, full-size, plus a per-node usage
-    /// breakdown — reuses the exact same gauge/table drawing the compact
-    /// panel and the Nodes list already use, just with more room.
+    /// The Resources panel opened up: cluster-wide gauges plus per-node usage, drawn
+    /// by the same code as the compact panel.
     ResourcesDetail { overview: &'a Overview },
-    /// One category column (Workloads, Config, ...), opened up — its
-    /// items laid out as a bigger grid of the exact same cards, for when
-    /// a category has more kinds than the compact column can show at
-    /// once (e.g. Custom Resources with many discovered groups).
+    /// One category column opened into a bigger grid of the same cards, for categories
+    /// with many kinds.
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
-    /// A short result message (e.g. after an edit) — any key closes it.
+    /// A short result message (e.g. after an edit), any key closes it.
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
@@ -187,7 +171,7 @@ impl SortState {
 
 /// Mouse hover state: which row it's over, and the raw cursor position
 /// (needed to place the floating popup right next to the cursor). Only
-/// meaningful for the Pods view — Deployments have no per-row containers.
+/// meaningful for the Pods view, Deployments have no per-row containers.
 #[derive(Clone, Copy)]
 pub struct Hover {
     pub row: usize,
@@ -238,11 +222,8 @@ pub struct SuggestionView {
     pub icon: SuggestionIcon,
 }
 
-/// One path segment — `kind` (e.g. "Node", "Pod") in one color,
-/// its bracketed `value` (e.g. "worker-1") in another, so the two read
-/// as visually distinct without either one shouting. `value` is `None`
-/// for segments that are just a label with no specific identifier
-/// (`Resources`, `Events`, `Category`).
+/// One path segment: `kind` ("Node") in one colour and its bracketed `value`
+/// ("worker-1") in another. `value` is `None` for plain labels (`Resources`).
 #[derive(Debug, PartialEq, Eq)]
 pub struct PathSegment {
     pub kind: String,
@@ -255,22 +236,16 @@ pub fn draw(
     rows: Rows,
     table_state: &mut TableState,
     hover: Option<Hover>,
-    // The immediate parent screen, drawn dimmed just underneath `overlay`
-    // — e.g. Containers behind Logs, or NodeDetail behind Containers —
-    // so what's showing through is what you actually came from, not
-    // always the base list. `None` when the current overlay's parent
-    // *is* the base list (nothing more to show).
+    // The parent screen, drawn dimmed under `overlay` (Containers behind Logs).
+    // `None` when the parent is the base list.
     background: Option<Overlay>,
     overlay: Option<Overlay>,
-    // The current screen's keybinding hints and whether the panel
-    // showing them is currently toggled open — see `draw_hints`.
-    // Suppressed whenever `Command`/`Search` is the active overlay —
-    // `hints_for` already returns nothing for either, since neither is
-    // really "a screen" with its own commands to look up mid-typing.
+    // The screen's key hints and whether the help panel is open. Hidden while
+    // `Command` or `Search` is active, since `hints_for` returns nothing for them.
     hints: &[(&str, &str)],
     show_hints_panel: bool,
     // The full "how did I get here" path, rendered as a bottom bar on
-    // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
+    // top of everything, e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
     // Container: nginx › Logs".
     path: Option<&[PathSegment]>,
     icons: &mut IconCache,
@@ -315,10 +290,8 @@ pub fn draw(
         );
     let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }));
 
-    // Terminals can't literally blur, so a modal "recedes" the usual way
-    // these things fake depth in a TUI: mute every color in the
-    // background down to gray while something's on top of it, so
-    // whatever's in full color is the only thing that reads as "in focus."
+    // Terminals can't blur, so a modal fakes depth by muting the background to gray;
+    // only what is in full colour reads as in focus.
     let full = frame.area();
     // The namespace-shortcut line is for the resource lists; the main
     // Overview keeps just the info line.
@@ -369,10 +342,8 @@ pub fn draw(
         Rows::Pods(pods) => {
             draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, dimmed);
 
-            // The mouse-hover popup is separate from the status line and
-            // only appears while actively hovering over a container dot
-            // specifically — a real floating box "in front," near the
-            // cursor, on top of everything else.
+            // The hover popup is separate from the status line and only shows while the
+            // cursor is over a container dot, floating near the cursor.
             if !dimmed
                 && let Some(hover) = &hover
                 && let Some(pod) = pods.get(hover.row)
@@ -471,13 +442,9 @@ fn paint_theme_base(frame: &mut Frame) {
     }
 }
 
-/// Dispatches one `Overlay` value to its actual draw function — shared
-/// between the focused (topmost, `dimmed: false`) and background
-/// (immediate-parent-preview, `dimmed: true`) render passes in `draw`.
-/// `dimmed` only actually changes anything for the handful of overlay
-/// kinds that can ever be used as a background layer (Containers,
-/// NodeDetail, Events, ResourcesDetail) — the rest just ignore it, since
-/// they're never drawn as anyone's background.
+/// Dispatches one `Overlay` to its draw function, for both the focused pass and
+/// the dimmed background pass. `dimmed` only matters for overlays that can be
+/// backgrounds (Containers, NodeDetail, Events, ResourcesDetail).
 pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
@@ -512,15 +479,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     }
 }
 
-/// The current screen's keybinding hints — kept out of the way until
-/// asked for. A small "commands: ?" indicator sits in the top-right
-/// corner always (whenever there's anything to show); pressing `?`
-/// toggles a bordered panel open just underneath it, off to the side,
-/// rather than cluttering the screen with a permanent hint list. Each
-/// hint's key and its description get their own color, same reasoning
-/// as the path's kind/value split — a flat run of same-colored
-/// text reads as one undifferentiated blob, not a list of distinct
-/// commands.
+/// The screen's key hints: a small "commands: ?" indicator sits top-right and
+/// `?` toggles a bordered panel under it. Key and description get their own colours.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
     let key_style = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme().text_soft);
@@ -544,10 +504,8 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
     draw_help(frame, hints, slots, shortcuts_line);
 }
 
-/// A floating box, horizontally centered with its top edge a quarter of the
-/// way down the screen — the `:` command line and its autocomplete list. The top edge stays pinned
-/// at the quarter-mark (so the input line doesn't jump as suggestions
-/// come and go) and the box grows downward.
+/// A floating box, centred horizontally with its top edge a quarter down the screen.
+/// The top stays put so the input doesn't jump as suggestions change.
 pub(super) fn centered_box(area: Rect, height: u16) -> Rect {
     let width = (area.width * 3 / 5).max(20).min(area.width);
     let height = height.min(area.height).max(1);

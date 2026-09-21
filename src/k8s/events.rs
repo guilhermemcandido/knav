@@ -10,8 +10,8 @@ use tokio::task::JoinHandle;
 
 use super::*;
 
-/// Kubernetes only defines two event severities — there's no distinct
-/// "Error" type, just `Normal`/`Warning` — so filtering/coloring can only
+/// Kubernetes only defines two event severities, there's no distinct
+/// "Error" type, just `Normal`/`Warning`, so filtering/coloring can only
 /// ever be grounded in these two, not a fabricated third bucket.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum EventSeverity {
@@ -19,10 +19,8 @@ pub enum EventSeverity {
     Warning,
 }
 
-/// Which events the dedicated Events browser shows — cycled with a/w/n.
-/// Only `Normal`/`Warning` exist because that's all Kubernetes itself
-/// defines for an Event's `type`; there's no separate "Error" to filter
-/// on.
+/// Which events the Events browser shows, cycled with a/w/n. Kubernetes only
+/// defines `Normal` and `Warning`.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum EventFilter {
     #[default]
@@ -42,7 +40,7 @@ impl EventFilter {
 }
 
 /// The events the browser shows: the severity filter, then the `/` text
-/// search — a case-insensitive substring of the reason, object, kind or
+/// search, a case-insensitive substring of the reason, object, kind or
 /// message (prose, so substring rather than fuzzy).
 pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str, sort: Option<crate::k8s::sort::SortSpec>) -> Vec<&'a EventEntry> {
     let needle = search.to_lowercase();
@@ -58,12 +56,8 @@ pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: 
     shown
 }
 
-/// One row in the Events feed: every cluster Event in chronological
-/// order (not filtered to Warnings — see `EventFilter` for how the
-/// dedicated Events browser narrows that down), plus each node's own
-/// problem conditions folded in as synthetic Warning-severity entries
-/// (there's no Event object for "this node has been NotReady for an
-/// hour," but it's exactly the kind of thing this feed should surface).
+/// One row in the Events feed: every cluster Event in time order, plus each node's
+/// problem conditions as synthetic Warnings (no Event exists for a NotReady node).
 #[derive(Clone)]
 pub struct EventEntry {
     pub message: String,
@@ -75,10 +69,8 @@ pub struct EventEntry {
     pub severity: EventSeverity,
 }
 
-/// Node conditions worth surfacing: `Ready != True`, or any pressure/
-/// unavailable condition that's `True`. A healthy node's only condition
-/// is `Ready: True` — everything else here is inherently a problem
-/// signal, unlike Pod phases which are fine in most states.
+/// Node conditions worth surfacing: `Ready != True`, or any pressure/unavailable
+/// condition that is `True`.
 pub fn node_warnings(node: &Node) -> Vec<EventEntry> {
     let name = node.metadata.name.clone().unwrap_or_default();
     let conditions = node.status.as_ref().and_then(|s| s.conditions.clone()).unwrap_or_default();
@@ -116,19 +108,12 @@ pub fn node_warnings(node: &Node) -> Vec<EventEntry> {
         .collect()
 }
 
-/// Every cluster Event, Normal and Warning alike — unlike the old
-/// warnings-only feed, this doesn't filter by type at all, so the Events
-/// panel reflects what's actually happening on the cluster, not just what
-/// went wrong.
+/// Every cluster Event, Normal and Warning, so the panel shows what is happening
+/// and not only what went wrong.
 pub fn event_entry(event: &Event) -> EventEntry {
     let severity = if event.type_.as_deref() == Some("Warning") { EventSeverity::Warning } else { EventSeverity::Normal };
-    // For a repeated/aggregated event (the common case — the same
-    // message firing over and over, e.g. a crash loop), `series.
-    // lastObservedTime` is the real "last seen" moment. `eventTime`/
-    // `lastTimestamp` only capture the *first* occurrence — using those
-    // alone made an event from hours ago look current if it kept
-    // recurring, which is exactly backwards for a "what's happening
-    // right now" feed.
+    // For repeated events `series.lastObservedTime` is the real last-seen time;
+    // `eventTime`/`lastTimestamp` only hold the first occurrence.
     let timestamp = event
         .series
         .as_ref()

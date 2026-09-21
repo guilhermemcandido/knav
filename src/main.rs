@@ -57,7 +57,7 @@ pub(crate) enum Outcome {
 }
 
 fn main() -> Result<()> {
-    // Read before the TUI takes over the screen — a parse error needs to
+    // Read before the TUI takes over the screen, a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
     for problem in settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1) {

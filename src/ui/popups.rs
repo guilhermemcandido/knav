@@ -8,11 +8,9 @@ use super::*;
 const SUGGESTION_HEIGHT: u16 = 3;
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
-/// The `:` command line, k9s-style: a bar right under the header, above
-/// the list (which `draw` pushes down to make room), with the live
-/// autocomplete hanging off it — each match with its icon, on rows tall
-/// enough to read. The best match's remaining letters show dimmed after
-/// the cursor.
+/// The `:` command line, k9s-style: a bar under the header with live autocomplete
+/// hanging off it, each match with its icon. The best match's remaining letters
+/// show dimmed after the cursor.
 pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     frame.render_widget(Clear, bar);
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(theme().command));
@@ -67,7 +65,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     }
 }
 
-/// The `:ctx` / `C` context browser — same full-size table as the
+/// The `:ctx` / `C` context browser, same full-size table as the
 /// Events browser (and the same geometry, so `event_row_at` hit-tests
 /// its rows too). `/` live-filters by name.
 pub(super) fn draw_context_popup(
@@ -122,9 +120,6 @@ pub(super) fn draw_context_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// The `n` namespace picker — the same full-size table as the context
-/// browser (same geometry, so `event_row_at` hit-tests its rows too).
-/// Enter on a row moves on to choosing that namespace's number key.
 /// The chip strip along the namespace picker's bottom border: a label, then
 /// `1`..`9`, each three cells wide, one cell apart.
 const CHIP_LABEL: &str = " assign to key: ";
@@ -247,7 +242,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     }
 }
 
-/// A small centered message box — green-bordered for success, red for
+/// A small centered message box, green-bordered for success, red for
 /// an error. Sized to the text so a one-liner doesn't get a huge box.
 pub(super) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
     let full = frame.area();
@@ -555,10 +550,8 @@ pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hin
     small_popup(frame, title, theme().namespace, body);
 }
 
-/// Freelens-style node drill-down: that node's own CPU/Memory/Pods
-/// gauges (reusing the exact same `draw_gauge` the Overview panel uses)
-/// above the pods actually scheduled on it (reusing the exact same pod
-/// table Pods' own list view uses, including its container dots).
+/// Node drill-down: the node's gauges (`draw_gauge`) above its pods, using the
+/// same pod table and container dots as the Pods list.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_node_detail_popup(
     frame: &mut Frame,
@@ -611,20 +604,15 @@ pub(super) fn draw_node_detail_popup(
     draw_table(frame, chunks[2], pods, state, if dimmed { Search::default() } else { search }, if dimmed { SortState::default() } else { sort }, &mut 0, &HashSet::new(), false, dimmed);
 }
 
-/// How tall the node-info panel is: three summary lines, a blank
-/// separator, the conditions header + one row per condition, then (if
-/// there are any) a blank separator and a taints line — computed once so
-/// sizing and drawing can't drift apart, same pattern as the Overview's
-/// `top_area_height`/`issues_content_height`.
+/// How tall the node-info panel is: three summary lines, a blank, the conditions
+/// header and rows, then a blank and a taints line if any. Sizing and drawing share it.
 pub(super) fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
     let base = 3 + 1 + 1 + info.conditions.len() as u16;
     if info.taints.is_empty() { base } else { base + 1 + info.taints.len() as u16 }
 }
 
-/// Freelens-style node summary: schedulability/roles/version, network
-/// addresses and host OS/runtime details, the full condition list
-/// (healthy conditions included — unlike the Cluster Issues panel, this
-/// is a diagnostic view), and any taints.
+/// Node summary: schedulability, roles, version, addresses, host details, the full
+/// condition list (healthy ones too) and any taints.
 pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo, dimmed: bool) {
     let label = Style::default().fg(theme().muted);
     let value = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
@@ -682,11 +670,8 @@ pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// The full Events browser — every event (not capped, unlike the
-/// dashboard preview), filterable by severity. Kubernetes only defines
-/// `Normal`/`Warning` as event types, so that's the full set of filters;
-/// there's no separate "Errors" bucket to add since the API doesn't have
-/// one.
+/// The full Events browser: every event, uncapped, filterable by severity
+/// (`Normal` and `Warning` are all Kubernetes defines).
 pub(super) fn draw_events_popup(
     frame: &mut Frame,
     events: &[EventEntry],
@@ -767,12 +752,9 @@ pub(super) fn draw_events_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// Which row of the Events browser's table (if any) sits under an
-/// absolute terminal position — same `centered_rect(94, 88, ...)` and
-/// border/header layout `draw_events_popup` actually renders with.
-/// `offset` must be the table's own current scroll offset (`TableState::
-/// offset()`, valid only after that state has actually been rendered
-/// with once — same reasoning `row_at` already relies on for Pods).
+/// Which row of the Events table is under a terminal position, using the layout
+/// of `draw_events_popup`. `offset` is the table's scroll offset, valid only after
+/// that state has been rendered once.
 pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u16) -> Option<usize> {
     let area = centered_rect(94, 88, frame_area);
     let top = area.y + 2; // top border + header row
@@ -784,7 +766,7 @@ pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u
     (index < filtered_len).then_some(index)
 }
 
-/// One event's full detail — a plain wrapped-text popup rather than a
+/// One event's full detail, a plain wrapped-text popup rather than a
 /// table row, since the point is showing the *un*truncated message a
 /// narrow MESSAGE column would otherwise clip.
 pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
@@ -817,17 +799,8 @@ pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// The Overview's Resources panel, opened up — the exact same
-/// cluster-wide gauges (`draw_metrics_lines`) and per-node usage table
-/// (`draw_nodes_table`) the compact panel and the Nodes list already
-/// draw, just given a full-screen popup's worth of room instead of three
-/// cramped lines.
-/// One cluster-wide meter as a real gauge, not a hand-drawn bar — the
-/// popup has room to spare, unlike the compact Overview panel's
-/// three cramped lines (`draw_meter`), so there's no need for the
-/// label-clipping tradeoffs that ruled `Gauge` out there. The used/
-/// capacity/percentage text lives inside the gauge's own centered
-/// label instead of needing a separate line for it.
+/// One cluster-wide meter as a real `Gauge`. The popup has room for the used,
+/// capacity and percentage text in the gauge's own label.
 pub(super) fn draw_gauge_box(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
     let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
     let border_style = if dimmed { dim_style() } else { Style::default() };
@@ -843,11 +816,8 @@ pub(super) fn draw_gauge_box(frame: &mut Frame, area: Rect, label: &str, used: f
     frame.render_widget(gauge, area);
 }
 
-/// The Overview's Resources panel, opened up — cluster-wide CPU/Memory/
-/// Pods only, as real gauges now there's room for them. Deliberately
-/// doesn't repeat the per-node breakdown the Nodes list already owns —
-/// that duplication was the actual complaint, not "the bars aren't
-/// gauge-shaped enough."
+/// The Resources panel opened up: cluster-wide CPU/Memory/Pods as gauges. It
+/// doesn't repeat the per-node breakdown the Nodes list owns.
 pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, dimmed: bool) {
     let area = centered_rect(60, 30, frame.area());
     frame.render_widget(Clear, area);

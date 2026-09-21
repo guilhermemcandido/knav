@@ -1,9 +1,5 @@
-//! `e` — edit a resource in `$EDITOR`, the way `kubectl edit` does:
-//! dump its manifest to a temp file, hand the terminal over to the
-//! editor, and on save replace the object on the cluster. A rejected
-//! edit (bad YAML, admission error, a conflicting concurrent update)
-//! reopens the editor with the reason as a comment header instead of
-//! throwing the changes away; saving without touching it cancels.
+//! `e`: edit a resource in `$EDITOR` like `kubectl edit`. A rejected edit reopens
+//! the editor with the reason as a comment header; saving unchanged cancels.
 
 use std::io::stdout;
 use std::process::Command;
@@ -24,10 +20,8 @@ pub struct Outcome {
     pub error: bool,
 }
 
-/// Runs the whole edit flow for one manifest. Never returns an error —
-/// every failure ends up as an `Outcome` for the UI to show, since by the
-/// time something goes wrong the terminal has already been handed
-/// around and must be restored regardless.
+/// Runs the edit flow for one manifest. Failures become an `Outcome` for the UI,
+/// since the terminal must be restored either way.
 pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, manifest: &serde_yaml::Value) -> Outcome {
     let original = match serde_yaml::to_string(manifest) {
         Ok(y) => y,
@@ -49,13 +43,13 @@ fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original:
     let outcome = loop {
         std::fs::write(&path, format!("{header}{current}")).context("writing the temp file")?;
         if !run_editor(terminal, &path)? {
-            // The editor quit with a non-zero status (`:q!`/`:cq` in vi) —
+            // The editor quit with a non-zero status (`:q!`/`:cq` in vi),
             // that's how you say "abort", so drop the edit quietly.
             break None;
         }
         let edited = strip_comment_header(&std::fs::read_to_string(&path).context("reading the temp file back")?);
         if edited.trim() == current.trim() {
-            // Untouched — either nothing was changed, or a rejected edit
+            // Untouched, either nothing was changed, or a rejected edit
             // was saved as-is again. Both mean "give up".
             break if current.trim() == original.trim() { None } else { bail!("{last_error}\n(cancelled)") };
         }
@@ -78,10 +72,8 @@ fn strip_comment_header(text: &str) -> String {
     text.lines().skip_while(|l| l.starts_with('#')).collect::<Vec<_>>().join("\n") + "\n"
 }
 
-/// Hands the terminal to `$VISUAL`/`$EDITOR` (falling back to `vi`) and
-/// takes it back afterwards. `Ok(false)` means it exited non-zero (an
-/// abort). Run through `sh -c` so editors configured
-/// with arguments (`code --wait`) work.
+/// Hands the terminal to `$VISUAL`/`$EDITOR` (else `vi`) through `sh -c`, so
+/// editors with arguments work. `Ok(false)` means a non-zero exit.
 fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -> Result<bool> {
     let editor = ["VISUAL", "EDITOR"]
         .iter()
@@ -94,7 +86,7 @@ fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -
     *terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let status = status.with_context(|| format!("couldn't launch the editor '{editor}'"))?;
-    // 126/127 are the shell's "can't run it" / "not found" — a real
+    // 126/127 are the shell's "can't run it" / "not found", a real
     // failure to launch, unlike an editor deliberately exiting non-zero.
     if matches!(status.code(), Some(126 | 127)) {
         bail!("couldn't launch the editor '{editor}'");
@@ -102,10 +94,8 @@ fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -
     Ok(status.success())
 }
 
-/// Replaces the object on the cluster with the edited manifest. The
-/// identity (kind, name, namespace) has to match the original — the
-/// API can't rename an object, and a changed name would silently edit
-/// some other one.
+/// Replaces the object with the edited manifest. The kind, name and namespace must
+/// match, since the API can't rename.
 fn apply(client: &Client, original: &str, edited: &str) -> Result<String> {
     let old: DynamicObject = serde_yaml::from_str(original).context("original manifest")?;
     let new: DynamicObject = serde_yaml::from_str(edited).context("the edited YAML is not a valid manifest")?;

@@ -150,7 +150,7 @@ pub(crate) fn deployment_key(row: &k8s::DeploymentRow, column: usize, wide: bool
 pub(crate) fn node_key(row: &k8s::NodeRow, column: usize, wide: bool) -> Key {
     match column {
         0 => text(&row.name),
-        // NotReady, then cordoned, then ready — the order you want to see problems in.
+        // NotReady, then cordoned, then ready, the order you want to see problems in.
         1 => Key::Num(match (row.ready, row.schedulable) {
             (false, _) => 0,
             (true, false) => 1,
