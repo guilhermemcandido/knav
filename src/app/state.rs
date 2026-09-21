@@ -34,6 +34,8 @@ pub(super) struct State {
     /// Whether the commands panel (`?`) is open.
     pub show_hints_panel: bool,
     pub icons: icons::IconCache,
+    /// Running port-forwards; dropping one stops it.
+    pub forwards: Vec<portforward::Forward>,
     pub overview_selection: ui::OverviewSelection,
     /// Horizontal scroll into the Overview's category columns.
     pub overview_col_scroll: usize,
@@ -61,6 +63,7 @@ impl State {
             search: String::new(),
             show_hints_panel: false,
             icons,
+            forwards: Vec::new(),
             overview_selection: ui::OverviewSelection::Resources,
             overview_col_scroll: 0,
             overview_item_scroll: 0,

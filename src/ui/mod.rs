@@ -132,6 +132,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
+    /// The active port-forwards.
+    Forwards { items: &'a [String], state: &'a TableState },
     /// A number being typed.
     Prompt { title: &'a str, value: &'a str },
     /// The `n` namespace picker: every namespace in the cluster with the
@@ -239,6 +241,7 @@ pub fn draw(
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Confirm { .. })
                 | Some(Overlay::Prompt { .. })
+                | Some(Overlay::Forwards { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
                 | Some(Overlay::Events { .. })
@@ -370,6 +373,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Confirm { text } => draw_confirm_popup(frame, text),
+        Overlay::Forwards { items, state } => draw_forwards_popup(frame, items, state),
         Overlay::Prompt { title, value } => draw_prompt_popup(frame, title, value),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

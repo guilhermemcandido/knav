@@ -289,6 +289,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             // Actions on the selected object (see `actions`).
+            // Forward a port of a pod, service or deployment.
+            KeyCode::Char('F') => {
+                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)
+                    && target.forward_resource().is_some()
+                {
+                    let input = target.first_port().map(|p| format!("{}:{p}", portforward::suggested_local(p))).unwrap_or_default();
+                    st.mode = Mode::Ports { target, input, back: Box::new(Mode::List) };
+                }
+            }
             // A Secret's values, decoded.
             KeyCode::Char('x') if st.current_kind == ResourceKind::Secrets => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)

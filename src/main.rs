@@ -13,6 +13,7 @@ mod k8s;
 mod metrics;
 mod mode;
 mod picker;
+mod portforward;
 mod scope;
 mod sort;
 mod ui;

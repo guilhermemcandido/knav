@@ -77,6 +77,8 @@ pub(crate) fn run(
         let hints = hints_for(&st.mode, st.current_kind);
         if !hints.is_empty() {
         }
+        st.forwards.retain_mut(|f| f.alive());
+        let forward_labels: Vec<String> = st.forwards.iter().map(|f| f.label()).collect();
         let view = draw::View {
             rows: &rows_view,
             overview: &overview,
@@ -91,6 +93,7 @@ pub(crate) fn run(
             header_now: &header_now,
             search: &st.search,
             sort_view,
+            forwards: &forward_labels,
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 

@@ -31,6 +31,42 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
+        Mode::Ports { target, input, back } => match key.code {
+            KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(c) if (c.is_ascii_digit() || c == ':') && input.len() < 11 => input.push(c),
+            KeyCode::Enter => {
+                let result = portforward::parse_ports(input).and_then(|(local, remote)| {
+                    let resource = target.forward_resource().expect("only forwardable kinds open this prompt");
+                    portforward::start(cx.active_context, target.namespace.as_deref().unwrap_or("default"), &resource, local, remote)
+                });
+                let outcome = match result {
+                    Ok(forward) => {
+                        let text = format!("Forwarding {} (:pf to stop)", forward.label());
+                        st.forwards.push(forward);
+                        actions::Outcome { text, error: false }
+                    }
+                    Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                };
+                let back = std::mem::replace(back, Box::new(Mode::List));
+                st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+            }
+            _ => {}
+        },
+        Mode::Forwards { state, back } => match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Char('j') | KeyCode::Down => select_next(state, st.forwards.len()),
+            KeyCode::Char('k') | KeyCode::Up => select_prev(state, st.forwards.len()),
+            KeyCode::Char('D') | KeyCode::Char('x') | KeyCode::Delete => {
+                if let Some(i) = state.selected().filter(|i| *i < st.forwards.len()) {
+                    st.forwards.remove(i);
+                    state.select(Some(i.saturating_sub(usize::from(i >= st.forwards.len()))));
+                }
+            }
+            _ => {}
+        },
         _ => {}
     }
     Ok(None)

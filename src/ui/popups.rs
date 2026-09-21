@@ -237,6 +237,22 @@ pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
     small_popup(frame, "Confirm", Color::Yellow, body);
 }
 
+pub(super) fn draw_forwards_popup(frame: &mut Frame, items: &[String], state: &TableState) {
+    let body: Vec<Line<'static>> = if items.is_empty() {
+        vec![Line::styled("No port-forwards (F on a pod, service or deployment)", Style::default().fg(Color::DarkGray))]
+    } else {
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let style = if state.selected() == Some(i) { Style::default().bg(Color::Rgb(58, 74, 96)).add_modifier(Modifier::BOLD) } else { Style::default() };
+                Line::styled(item.clone(), style)
+            })
+            .collect()
+    };
+    small_popup(frame, "Port-forwards", Color::Cyan, body);
+}
+
 pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str) {
     let body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
     small_popup(frame, title, Color::Cyan, body);

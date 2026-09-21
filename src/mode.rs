@@ -32,6 +32,10 @@ pub(crate) enum Mode {
     Notice { text: String, error: bool, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     Confirm { text: String, target: Target, action: Action, back: Box<Mode> },
+    /// Asks for the ports to forward (`local:remote`).
+    Ports { target: Target, input: String, back: Box<Mode> },
+    /// The active port-forwards, to stop them.
+    Forwards { state: TableState, back: Box<Mode> },
     /// Asks for a replica count (digits only) to scale to.
     Scale { target: Target, input: String, back: Box<Mode> },
     Spec {
@@ -125,7 +129,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Confirm { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Confirm { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -236,10 +240,11 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path
         }
         Mode::Events { .. } => vec![plain_segment("Events")],
+        Mode::Forwards { .. } => vec![plain_segment("Port-forwards")],
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::Scale { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
         Mode::Menu { .. } => vec![plain_segment("Resources")],
         Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }
@@ -290,8 +295,10 @@ pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> V
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
-        ResourceKind::Pods => vec![("l", "logs"), ("p", "previous logs"), ("S", "shell")],
-        ResourceKind::Deployments | ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
+        ResourceKind::Pods => vec![("l", "logs"), ("p", "previous logs"), ("S", "shell"), ("F", "forward")],
+        ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("F", "forward")],
+        ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
+        ResourceKind::Services => vec![("F", "forward")],
         ResourceKind::ReplicaSets => vec![("S", "scale")],
         ResourceKind::DaemonSets => vec![("r", "restart")],
         ResourceKind::Nodes => vec![("c", "cordon")],
@@ -338,7 +345,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::Scale { .. } => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
+        Mode::Forwards { .. } => vec![("↑↓/jk", "move"), ("D", "stop"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("↑↓/jk", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],

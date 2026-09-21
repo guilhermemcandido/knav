@@ -19,6 +19,7 @@ pub(super) struct View<'a> {
     pub header_now: &'a ui::HeaderInfo,
     pub search: &'a str,
     pub sort_view: ui::SortState,
+    pub forwards: &'a [String],
 }
 
 /// Draws one frame and returns the screen area it used (input handlers
@@ -32,7 +33,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, crds, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, crds, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, forwards } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -96,6 +97,21 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let title = format!("Scale {} to", target.label());
                     let overlay = ui::Overlay::Prompt { title: &title, value: input };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
+                })?;
+            }
+            Mode::Ports { target, input, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let title = format!("Forward {} (local:remote)", target.label());
+                    let overlay = ui::Overlay::Prompt { title: &title, value: input };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
+                })?;
+            }
+            Mode::Forwards { state, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Forwards { items: forwards, state };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
                 })?;
             }

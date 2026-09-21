@@ -76,6 +76,26 @@ impl Target {
         matches!(self.kind.as_str(), "Deployment" | "StatefulSet" | "DaemonSet")
     }
 
+    /// What `kubectl port-forward` calls this object (`pod/x`, `svc/x`, `deploy/x`).
+    pub fn forward_resource(&self) -> Option<String> {
+        let prefix = match self.kind.as_str() {
+            "Pod" => "pod",
+            "Service" => "svc",
+            "Deployment" => "deploy",
+            _ => return None,
+        };
+        Some(format!("{prefix}/{}", self.name))
+    }
+
+    /// The first port the object exposes, to pre-fill the forward prompt.
+    pub fn first_port(&self) -> Option<u16> {
+        let spec = self.manifest.get("spec")?;
+        let containers = spec.get("containers").or_else(|| spec.get("template")?.get("spec")?.get("containers"));
+        let from_containers = containers.and_then(|c| c.as_sequence()).into_iter().flatten().find_map(|c| c.get("ports")?.as_sequence()?.first()?.get("containerPort")?.as_u64());
+        let from_service = || spec.get("ports")?.as_sequence()?.first()?.get("port")?.as_u64();
+        from_containers.or_else(from_service).and_then(|p| u16::try_from(p).ok())
+    }
+
     /// The desired replica count now, to pre-fill the scale prompt.
     pub fn replicas(&self) -> i64 {
         self.manifest.get("spec").and_then(|s| s.get("replicas")).and_then(|r| r.as_i64()).unwrap_or(1)
@@ -287,6 +307,24 @@ mod tests {
         assert!(!daemon.scalable() && daemon.restartable());
         let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\n");
         assert!(!pod.scalable() && !pod.restartable());
+    }
+
+    #[test]
+    fn forwardable_kinds_name_themselves_the_way_kubectl_does() {
+        assert_eq!(target(DEPLOYMENT).forward_resource().as_deref(), Some("deploy/web"));
+        assert_eq!(target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\n").forward_resource().as_deref(), Some("pod/p"));
+        assert_eq!(target("apiVersion: v1\nkind: Node\nmetadata: {name: n}\n").forward_resource(), None);
+    }
+
+    #[test]
+    fn the_first_exposed_port_comes_from_containers_or_service_ports() {
+        let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a}, {name: b, ports: [{containerPort: 9000}]}]}\n");
+        assert_eq!(pod.first_port(), Some(9000));
+        let dep = target("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: d}\nspec: {template: {spec: {containers: [{name: a, ports: [{containerPort: 80}]}]}}}\n");
+        assert_eq!(dep.first_port(), Some(80));
+        let svc = target("apiVersion: v1\nkind: Service\nmetadata: {name: s}\nspec: {ports: [{port: 443}]}\n");
+        assert_eq!(svc.first_port(), Some(443));
+        assert_eq!(target(DEPLOYMENT).first_port(), None);
     }
 
     #[test]
