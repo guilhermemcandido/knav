@@ -1,25 +1,56 @@
 //! The bottom bar saying where you are: the trail of what you drilled
-//! through, then the selected pod. It always fits the terminal width: the
+//! through, then the selected row. It always fits the terminal width: the
 //! container detail goes first, then the longest names are shortened in
 //! the middle (`local-pa…d9885bc`).
 
 use super::*;
 
-/// The pod highlighted in the Pods list, shown at the end of the bar.
+/// The row highlighted in a list, shown at the end of the bar: a pod (with
+/// its containers), a deployment or node (with a short status note), or any
+/// other resource by name.
 pub struct BreadcrumbPod {
-    namespace: String,
+    namespace: Option<String>,
     name: String,
-    /// `(dot colour, container name, state)` per container.
+    /// A short status in brackets (`1/1`, `Ready`), dropped when space is short.
+    note: Option<String>,
+    /// `(dot colour, container name, state)` per container — pods only.
     containers: Vec<(Color, String, String)>,
 }
 
 impl BreadcrumbPod {
-    pub(super) fn from_row(pod: &PodRow) -> Self {
+    pub(super) fn from_pod(pod: &PodRow) -> Self {
         BreadcrumbPod {
-            namespace: pod.namespace.clone(),
+            namespace: Some(pod.namespace.clone()),
             name: pod.name.clone(),
+            note: None,
             containers: pod.containers.iter().map(|c| (container_dot(c).1, c.name.clone(), container_state_text(c))).collect(),
         }
+    }
+
+    pub(super) fn from_deployment(dep: &DeploymentRow) -> Self {
+        BreadcrumbPod { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some(format!("{} ready", dep.ready)), containers: Vec::new() }
+    }
+
+    pub(super) fn from_node(node: &NodeRow) -> Self {
+        let status = match (node.ready, node.schedulable) {
+            (true, true) => "Ready",
+            (true, false) => "Ready, cordoned",
+            (false, _) => "NotReady",
+        };
+        BreadcrumbPod { namespace: None, name: node.name.clone(), note: Some(status.to_string()), containers: Vec::new() }
+    }
+
+    pub(super) fn from_generic(row: &GenericRow) -> Self {
+        BreadcrumbPod {
+            namespace: (row.namespace != "-").then(|| row.namespace.clone()),
+            name: row.name.clone(),
+            note: None,
+            containers: Vec::new(),
+        }
+    }
+
+    pub(super) fn from_crd(crd: &CrdInfo) -> Self {
+        BreadcrumbPod { namespace: Some(crd.group.to_string()), name: crd.kind.to_string(), note: None, containers: Vec::new() }
     }
 }
 
@@ -72,7 +103,13 @@ fn build(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, caps: &[us
     if let Some(pod) = pod {
         let (ns_cap, name_cap) = (segments.len(), segments.len() + 1);
         spans.push(Span::styled(">>", punct_style));
-        spans.extend(namespace_name_spans(&cap(ns_cap, &pod.namespace), &cap(name_cap, &pod.name)));
+        match &pod.namespace {
+            Some(namespace) => spans.extend(namespace_name_spans(&cap(ns_cap, namespace), &cap(name_cap, &pod.name))),
+            None => spans.push(Span::styled(cap(name_cap, &pod.name), Style::default().add_modifier(Modifier::BOLD))),
+        }
+        if let (Some(note), Detail::Full) = (&pod.note, detail) {
+            spans.push(Span::styled(format!(" [{note}]"), value_style));
+        }
         if !matches!(detail, Detail::None) && !pod.containers.is_empty() {
             spans.push(Span::raw(" ["));
             for (i, (color, name, state)) in pod.containers.iter().enumerate() {
@@ -103,7 +140,7 @@ pub(super) fn breadcrumb_line(segments: &[BreadcrumbSegment], pod: Option<&Bread
     }
     // Then shorten the longest value/name a character at a time.
     let mut texts: Vec<usize> = segments.iter().map(|s| s.value.as_ref().map_or(0, |v| v.chars().count())).collect();
-    texts.push(pod.map_or(0, |p| p.namespace.chars().count()));
+    texts.push(pod.and_then(|p| p.namespace.as_ref()).map_or(0, |n| n.chars().count()));
     texts.push(pod.map_or(0, |p| p.name.chars().count()));
     let mut caps = texts.clone();
     loop {
@@ -137,14 +174,26 @@ mod tests {
 
     fn pod() -> BreadcrumbPod {
         BreadcrumbPod {
-            namespace: "kube-system".into(),
+            namespace: Some("kube-system".into()),
             name: "local-path-provisioner-5d9d9885bc-f".into(),
+            note: None,
             containers: vec![(Color::Green, "local-path-provisioner".into(), "Running".into())],
         }
     }
 
     fn text(line: &Line) -> String {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
+        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some("Ready".into()), containers: Vec::new() };
+        let wide = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 100));
+        assert!(wide.ends_with("worker-1 [Ready]"), "{wide}");
+        let tight = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 22));
+        assert!(tight.ends_with("worker-1"), "{tight}");
+        let configmap = BreadcrumbPod { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
+        assert!(text(&breadcrumb_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt"));
     }
 
     #[test]

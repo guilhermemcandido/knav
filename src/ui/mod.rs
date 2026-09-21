@@ -263,11 +263,20 @@ pub fn draw(
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
     draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
-    // The keyboard-selected pod, shown at the end of the breadcrumb bar
+    // The keyboard-selected row, shown at the end of the breadcrumb bar
     // (only while nothing is open on top of the list).
-    let selected_pod: Option<BreadcrumbPod> = match &rows {
-        Rows::Pods(pods) if !dimmed => table_state.selected().and_then(|i| pods.get(i)).map(BreadcrumbPod::from_row),
-        _ => None,
+    let selected_row = table_state.selected();
+    let selected_pod: Option<BreadcrumbPod> = if dimmed {
+        None
+    } else {
+        match &rows {
+            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod),
+            Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(BreadcrumbPod::from_deployment),
+            Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(BreadcrumbPod::from_node),
+            Rows::Generic(rows, _) => selected_row.and_then(|i| rows.get(i)).map(BreadcrumbPod::from_generic),
+            Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| BreadcrumbPod::from_crd(crd)),
+            Rows::Overview(..) => None,
+        }
     };
     match rows {
         Rows::Pods(pods) => {
