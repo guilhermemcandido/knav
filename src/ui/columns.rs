@@ -58,8 +58,8 @@ pub(super) fn shows_health(label: &str) -> bool {
 }
 
 /// The opened-up category view draws bigger cards for kinds with a health readout.
-pub(super) const DETAIL_WIDTH: u16 = 36;
-pub(super) const DETAIL_HEIGHT: u16 = 5;
+pub(super) const DETAIL_WIDTH: u16 = 42;
+pub(super) const DETAIL_HEIGHT: u16 = 6;
 
 /// The card size for the opened-up category view: bigger when its kinds have
 /// health to show, else the compact size.
@@ -99,14 +99,14 @@ fn compact(n: usize) -> String {
     }
 }
 
-/// `● 14 ok  ● 2 warn  ● 1 bad`, only the states that have objects. It gives up
+/// `● 14 ok  ● 2 warning  ● 1 error`, only the states that have objects. It gives up
 /// the words, then exact numbers, to fit `width`.
 pub(super) fn health_legend(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
     let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
     if total == 0 {
         return Line::styled("none", paint(theme().muted));
     }
-    let groups = [(health.good, "ok", theme().ok), (health.warn, "warn", theme().warn), (health.bad, "bad", theme().bad)];
+    let groups = [(health.good, "ok", theme().ok), (health.warn, "warning", theme().warn), (health.bad, "error", theme().bad)];
     let build = |words: bool, short: bool| -> Vec<(String, Color)> {
         groups
             .iter()
@@ -402,8 +402,12 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
         return;
     }
 
-    let icon_w = 3u16.min(inner.width);
-    let split = Layout::horizontal([Constraint::Length(icon_w), Constraint::Min(0)]).split(inner);
+    // Roomy cards (the opened-up view) get a bigger icon, a gap after it and
+    // one cell of padding on the right.
+    let roomy = inner.height >= 4;
+    let icon_w = if roomy { 7 } else { 3 }.min(inner.width);
+    let parts = Layout::horizontal([Constraint::Length(icon_w), Constraint::Min(0), Constraint::Length(u16::from(roomy))]).split(inner);
+    let split = [Rect { width: icon_w.saturating_sub(u16::from(roomy) * 2), x: parts[0].x + u16::from(roomy), ..parts[0] }, parts[1]];
 
     // A vendored image where the terminal can render one, else a small emoji glyph.
     // Skipped while dimmed, since an emoji can't be muted with ANSI styling.
@@ -430,6 +434,9 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
         ])],
     };
     // The opened-up view adds a bar and what it is made of.
+    if roomy {
+        lines.push(Line::raw(""));
+    }
     if let Some(health) = health {
         lines.push(health_bar(health, count, split[1].width as usize, dimmed));
         lines.push(health_legend(health, count, split[1].width as usize, dimmed));
@@ -564,7 +571,7 @@ mod health_tests {
     #[test]
     fn the_legend_lists_only_states_that_exist() {
         let text: String = health_legend(Health { good: 14, warn: 0, bad: 3 }, 17, 30, false).spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "● 14 ok  ● 3 bad");
+        assert_eq!(text, "● 14 ok  ● 3 error");
         assert_eq!(health_legend(Health::default(), 0, 30, false).spans[0].content, "none");
     }
 
