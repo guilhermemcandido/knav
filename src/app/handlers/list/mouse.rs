@@ -15,7 +15,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             };
             match mouse.kind {
                 MouseEventKind::Down(_) => {
-                    if let Some(hit) = ui::column_hit(ui::body_area(frame_area, false), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
+                    if let Some(hit) = ui::column_hit(ui::beside_sidebar(frame_area, false), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                         st.overview_selection = hit;
                         // A second click on the same tile soon after opens it.
                         let id = match hit {

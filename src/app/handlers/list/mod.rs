@@ -179,9 +179,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Char('j') | KeyCode::Down => select_next(&mut st.table_state, row_count),
             KeyCode::Char('k') | KeyCode::Up => select_prev(&mut st.table_state, row_count),
-            KeyCode::Char('m') => {
-                st.mode = Mode::Menu { selected: menu_position_for(st.current_kind, &catalog.crds) };
-            }
             KeyCode::Char('d') => match st.current_kind {
                 ResourceKind::Overview => unreachable!("handled in the Overview-specific arm above"),
                 ResourceKind::Pods => {

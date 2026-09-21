@@ -1,10 +1,8 @@
-//! The `:` command line, the `m` menu's layout, and the context-switcher helpers.
+//! The `:` command line, the sidebar's category layout, and the context-switcher helpers.
 
 use crate::*;
 
-/// The `m` menu's layout, same six categories as the Overview catalog.
-/// One shared function so the popup's render pass and its keyboard/Enter
-/// handling can't drift apart.
+/// The categories and kinds the sidebar lists, the same as the Home catalog.
 pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'static>> {
     // The whole unfiltered CRD picker, then one tile per discovered API
     // group (`crds` is already sorted by group, so adjacent-dedup keeps
@@ -208,19 +206,6 @@ pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &s
     shown
 }
 
-/// Where a `ResourceKind` sits in the menu grid, so opening the menu
-/// starts with the currently-viewed kind selected instead of always
-/// resetting to the top-left tile.
-pub(crate) fn menu_position_for(kind: ResourceKind, crds: &[k8s::CrdInfo]) -> (usize, usize) {
-    let sections = menu_sections(crds);
-    for (section_idx, section) in sections.iter().enumerate() {
-        if let Some(tile_idx) = section.tiles.iter().position(|k| *k == kind) {
-            return (section_idx, tile_idx);
-        }
-    }
-    (0, 0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,13 +345,6 @@ mod tests {
             custom,
             &[ResourceKind::CustomResourceList, ResourceKind::CustomResourceGroup("a.io"), ResourceKind::CustomResourceGroup("b.io")]
         );
-    }
-
-    #[test]
-    pub(crate) fn menu_position_for_finds_the_matching_tile() {
-        let sections = menu_sections(&[]);
-        let pos = menu_position_for(ResourceKind::ConfigMaps, &[]);
-        assert_eq!(sections[pos.0].tiles[pos.1], ResourceKind::ConfigMaps);
     }
 
     #[test]

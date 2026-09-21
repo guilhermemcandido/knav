@@ -5,7 +5,6 @@ use super::Cx;
 
 /// Handles one input event for these modes; `Some` ends the session.
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
-    let catalog = &mut *cx.catalog;
     let active_context = cx.active_context;
     let frame_area = cx.frame_area;
     match (event, &mut st.mode) {
@@ -155,32 +154,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     *error = None;
                     crate::app::jobs::check_context(st, name);
                 }
-            }
-        }
-        (Event::Key(key), Mode::Menu { selected }) => {
-            let sections = menu_sections(&catalog.crds);
-            let cols = ui::menu_cols(frame_area);
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
-                KeyCode::Char('h') | KeyCode::Left => {
-                    *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Left);
-                }
-                KeyCode::Char('l') | KeyCode::Right => {
-                    *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Right);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Up);
-                }
-                KeyCode::Char('j') | KeyCode::Down => {
-                    *selected = ui::move_menu_selection(&sections, cols, *selected, ui::Direction::Down);
-                }
-                KeyCode::Enter => {
-                    if let Some(kind) = sections.get(selected.0).and_then(|s| s.tiles.get(selected.1)) {
-                        st.switch_kind(*kind);
-                        st.mode = Mode::List;
-                    }
-                }
-                _ => {}
             }
         }
         _ => {}

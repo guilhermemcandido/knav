@@ -9,6 +9,7 @@ mod hints;
 pub mod mode;
 mod nav;
 mod path;
+mod sidebar;
 mod state;
 
 use handlers::Cx;
@@ -103,6 +104,14 @@ pub(crate) fn run(
         let screen = crate::input::keymap::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
         let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
+        // The sidebar shows Home and every category, with the cursor where the keys left it.
+        if st.sidebar {
+            let all = sidebar::entries(st.current_kind, &st.sidebar_folded, &catalog.crds, overview);
+            let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
+            ui::set_sidebar(Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus }));
+        } else {
+            ui::set_sidebar(None);
+        }
         // The info panel beside the list follows the selected row.
         let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
         if st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {

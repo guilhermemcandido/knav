@@ -34,7 +34,6 @@ pub(crate) enum Mode {
     /// The `:ctx` / `C` context browser. Enter checks the context is reachable, then
     /// hands control back to `main` to reconnect. `error` is why the last attempt failed.
     Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, sort: ListSort, back: Box<Mode> },
-    Menu { selected: (usize, usize) },
     /// The `n` namespace picker, from any view but the Namespaces list:
     /// choose a namespace (`/` filters), then which key it gets.
     NamespacePick { names: Vec<String>, filter: String, editing: bool, state: TableState, sort: ListSort, back: Box<Mode> },

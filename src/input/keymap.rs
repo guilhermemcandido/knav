@@ -14,7 +14,6 @@ use crate::app::mode::Mode;
 pub enum Screen {
     List,
     Overview,
-    Menu,
     Column,
     Events,
     Namespaces,
@@ -32,8 +31,8 @@ pub enum Screen {
 
 use Screen::*;
 
-const ALL: &[Screen] = &[List, Overview, Menu, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes, Other];
-const NAV: &[Screen] = &[List, Overview, Menu, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes];
+const ALL: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes, Other];
+const NAV: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes];
 const TABLES: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings];
 const SORTABLE: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail];
 const SEARCHABLE: &[Screen] = &[List, Events, Namespaces, Contexts, NodeDetail, Logs];
@@ -62,13 +61,13 @@ bindings! {
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
     ("move_down", "Move down", NAV, &["j", "down"]),
     ("move_up", "Move up", NAV, &["k", "up"]),
-    ("move_left", "Move left", &[Overview, Menu, Column, Settings], &["h", "left"]),
-    ("move_right", "Move right", &[Overview, Menu, Column, Settings], &["l", "right"]),
+    ("move_left", "Move left", &[Overview, Column, Settings], &["h", "left"]),
+    ("move_right", "Move right", &[Overview, Column, Settings], &["l", "right"]),
     ("top", "Go to top", &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings, Yaml], &["g", "home"]),
     ("bottom", "Go to bottom", &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings, Yaml], &["G", "end"]),
     ("page_down", "Page down", TABLES, &["ctrl-f", "pagedown"]),
     ("page_up", "Page up", TABLES, &["ctrl-b", "pageup"]),
-    ("open", "Open / drill in", &[List, Overview, Events, NodeDetail, Menu, Column, Themes], &["enter"]),
+    ("open", "Open / drill in", &[List, Overview, Events, NodeDetail, Column, Themes], &["enter"]),
     ("select", "Select", &[Namespaces, Contexts], &["enter"]),
     ("search", "Search / filter", SEARCHABLE, &["/", "f"]),
     ("sort", "Sort by column", SORTABLE, &["s"]),
@@ -92,7 +91,7 @@ bindings! {
     ("mark", "Mark the row", &[List], &["space"]),
     ("open_browser", "Open in the browser", &[List], &["o"]),
     ("namespaces", "Namespaces", &[List, Overview], &["n"]),
-    ("menu", "Resources menu", &[List, Overview], &["m"]),
+    ("menu", "Show or hide the sidebar", &[List, Overview], &["m"]),
     ("themes", "Themes", &[List, Overview], &["T"]),
     ("settings", "Settings", &[List, Overview], &[","]),
     ("history_back", "History back", &[List], &["["]),
@@ -229,7 +228,6 @@ pub fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<Screen> {
     Some(match mode {
         Mode::List if kind == ResourceKind::Overview => Overview,
         Mode::List => List,
-        Mode::Menu { .. } => Menu,
         Mode::ColumnDetail { .. } => Column,
         Mode::Events { editing: false, .. } => Events,
         Mode::NamespacePick { editing: false, .. } => Namespaces,

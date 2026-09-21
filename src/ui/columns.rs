@@ -3,12 +3,8 @@
 use super::*;
 use crate::k8s::Health;
 
-/// Column width for the resource-switcher menu's own tile grid (see
-/// `menu_cols`/`draw_menu_popup`), the Overview page no longer uses
-/// fixed-size tiles at all, but the menu still does.
-pub(super) const TILE_WIDTH: u16 = 22;
-/// One catalog column's fixed width in the Overview, borders included. A 1-cell
-/// gap separates columns (see `column_layout`).
+/// The narrowest a catalog column gets on Home, borders included. A 1-cell gap separates
+/// columns (see `column_layout`).
 pub(super) const COLUMN_WIDTH: u16 = 28;
 /// The widest a column grows to when the screen has room to spare.
 const MAX_COLUMN_WIDTH: u16 = 46;

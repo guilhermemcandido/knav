@@ -30,6 +30,11 @@ pub(super) struct State {
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
     pub info_key: String,
+    /// The resource sidebar (`m`): shown, holding the keys, its cursor and the folded categories.
+    pub sidebar: bool,
+    pub sidebar_focus: bool,
+    pub sidebar_cursor: usize,
+    pub sidebar_folded: HashSet<&'static str>,
     /// Whether the info view shows a Secret's values; off whenever the object changes.
     pub reveal: bool,
     /// A key to handle again on the next turn, after a job it waited for.
@@ -103,6 +108,10 @@ impl State {
             info_hscroll: 0,
             info_focus: false,
             info_key: String::new(),
+            sidebar: false,
+            sidebar_focus: false,
+            sidebar_cursor: 0,
+            sidebar_folded: crate::app::sidebar::folded_by_default(),
             reveal: false,
             replay: None,
             current_kind: ResourceKind::Overview,

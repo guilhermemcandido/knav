@@ -54,7 +54,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 entries: vec![
                     shown(":cmd", "command", "Command mode"),
                     shown("n", "namespaces", "Namespaces"),
-                    shown("m", "menu", "Resources menu"),
+                    shown("m", "sidebar", "Show or hide the resource sidebar"),
                     shown("C", "contexts", "Contexts"),
                     shown("T", "themes", "Themes"),
                     shown(",", "settings", "Settings"),
@@ -78,7 +78,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown("/term", "search", "Filter mode"),
                 shown("s", "sort", "Sort by column"),
                 shown("n", "namespaces", "Namespaces"),
-                shown("m", "menu", "Resources menu"),
+                shown("m", "sidebar", "Show or hide the resource sidebar"),
                 shown("C", "contexts", "Contexts"),
                 shown("T", "themes", "Themes"),
                 shown(",", "settings", "Settings"),

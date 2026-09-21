@@ -228,14 +228,6 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, None, true);
                 })?;
             }
-            Mode::Menu { selected } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let sections = menu_sections(crds);
-                    let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    paint(frame, None, None, Some(overlay), false);
-                })?;
-            }
             Mode::Spec { title, items, state, viewing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

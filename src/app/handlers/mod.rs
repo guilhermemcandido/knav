@@ -12,6 +12,7 @@ mod details;
 mod pickers;
 mod related;
 mod settings;
+mod sidebar;
 mod themes;
 
 use super::derive::Derived;
@@ -125,6 +126,10 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         {
             st.show_hints_panel = false;
         }
+        return Ok(None);
+    }
+    // The resource sidebar comes first: `m`, Shift-Left, its own keys and clicks.
+    if sidebar::handle(&event, st, cx) {
         return Ok(None);
     }
     // The info panel beside the list: Shift-Right hands it the keys, Shift-Left takes them back.
@@ -247,7 +252,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     match st.mode {
         Mode::List => list::handle(event, st, cx),
         Mode::Command { .. } | Mode::Search => command::handle(event, st, cx),
-        Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } | Mode::Menu { .. } => pickers::handle(event, st, cx),
+        Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } => pickers::handle(event, st, cx),
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Working { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),

@@ -27,9 +27,6 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             KeyCode::Char('l') | KeyCode::Right => {
                 st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Right);
             }
-            KeyCode::Char('m') => {
-                st.mode = Mode::Menu { selected: menu_position_for(st.current_kind, &catalog.crds) };
-            }
             KeyCode::Char('T') => crate::app::handlers::themes::open(st, cx.config),
             KeyCode::Char(',') => crate::app::handlers::settings::open(st),
             KeyCode::Enter => match st.overview_selection {

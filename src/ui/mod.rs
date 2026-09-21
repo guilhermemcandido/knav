@@ -30,16 +30,17 @@ mod health;
 mod help;
 mod layout;
 mod logs;
-mod menu;
 mod nav;
 mod overview;
 mod popups;
+mod sidebar;
 mod spec;
 mod tables;
 mod style;
 
 pub use self::columns::*;
 pub use self::nav::*;
+pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, set_sidebar, sidebar_area, sidebar_row_at};
 
 /// The area the relations diagram is drawn in.
 pub fn relations_inner(frame_area: Rect) -> Rect {
@@ -56,7 +57,6 @@ use self::layout::*;
 pub use self::path_bar::SelectedItem;
 use self::path_bar::*;
 pub use self::logs::*;
-pub use self::menu::*;
 use self::overview::*;
 pub use self::popups::*;
 pub use self::spec::*;
@@ -93,7 +93,6 @@ pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs { title: &'a str, lines: &'a [String], scroll: usize, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
-    Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
     /// A node's CPU/Memory/Pods gauges plus the pods scheduled on it. The usage values
     /// are `None` without metrics-server.
     NodeDetail {
@@ -306,6 +305,10 @@ pub struct PathSegment {
 
 #[allow(clippy::too_many_arguments)]
 /// Whether the rows are a resource list (not the Overview).
+fn draw_sidebar_if_any(frame: &mut Frame, area: Rect, dimmed: bool) {
+    sidebar::draw_sidebar(frame, area, dimmed);
+}
+
 fn is_list_kind(rows: &Rows) -> bool {
     !matches!(rows, Rows::Overview(..))
 }
@@ -348,7 +351,6 @@ pub fn draw(
             Some(Overlay::Spec { .. })
                 | Some(Overlay::Containers { .. })
                 | Some(Overlay::Logs { .. })
-                | Some(Overlay::Menu { .. })
                 | Some(Overlay::NodeDetail { .. })
                 | Some(Overlay::Context { .. })
                 | Some(Overlay::Notice { .. })
@@ -379,7 +381,9 @@ pub fn draw(
     // The namespace-shortcut line is for the resource lists; the main
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
-    let body = body_area(full, shortcuts_line);
+    let side = sidebar_area(full, shortcuts_line);
+    draw_sidebar_if_any(frame, side, dimmed);
+    let body = beside_sidebar(full, shortcuts_line);
     // A panel beside the list (`i`) takes the right of the body.
     let full_body = body;
     let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width).min(body.width), ..body } } else { body };
@@ -541,7 +545,6 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Logs { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing } => {
             draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, order, filter, filter_editing)
         }
-        Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
         Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search } => {
             draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search, dimmed)
         }

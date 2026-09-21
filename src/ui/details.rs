@@ -142,7 +142,7 @@ pub fn side_panel_max_scroll(sections: &[Section], size: ratatui::layout::Size) 
 
 /// The part of the body a list uses: all of it, or what is left of the panel.
 pub fn list_body(frame_area: Rect) -> Rect {
-    let body = body_area(frame_area, true);
+    let body = beside_sidebar(frame_area, true);
     Rect { width: body.width - side_panel_width(frame_area.width).min(body.width), ..body }
 }
 
