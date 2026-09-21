@@ -731,7 +731,7 @@ pub(crate) fn run(
                             ui::OverviewSelection::Item(_, i) => i,
                             _ => 0,
                         };
-                        let items_visible = ui::visible_items_per_column(columns_area.height);
+                        let items_visible = ui::visible_items_per_column(columns_area.height, ui::column_item_height(&overview, c));
                         overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
                     }
                 }
@@ -798,7 +798,7 @@ pub(crate) fn run(
                     macro_rules! move_and_rescroll {
                         ($dir:expr) => {{
                             *selected = ui::move_column_detail_selection(items_len, cols, *selected, $dir);
-                            let visible_rows = ui::column_detail_visible_rows(frame_area);
+                            let visible_rows = ui::column_detail_visible_rows(frame_area, overview.catalog.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]));
                             let selected_row = if cols > 0 { *selected / cols } else { 0 };
                             *row_scroll = ui::scroll_columns_to_show(*row_scroll, visible_rows, selected_row);
                         }};

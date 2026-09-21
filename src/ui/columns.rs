@@ -11,10 +11,66 @@ pub(super) const TILE_WIDTH: u16 = 22;
 /// `column_layout`) so each reads as a distinct bordered pane, herdr-style,
 /// rather than boxes sharing an edge.
 pub(super) const COLUMN_WIDTH: u16 = 28;
-/// Each item card's fixed height: a rounded-border top edge, one content
-/// row (icon on the left, name + live count filling the rest), and a
-/// rounded-border bottom edge.
+/// An item card's height: a rounded-border top edge, one content row (icon
+/// on the left, name + live count filling the rest), and a rounded-border
+/// bottom edge.
 pub(super) const ITEM_HEIGHT: u16 = 3;
+/// The taller card, with a second content row, used by a column that has
+/// a name too long for one row (`ClusterRoleBindings` -> `ClusterRole` /
+/// ` Bindings`). Every card in that column takes this height so they stay
+/// aligned.
+pub(super) const ITEM_HEIGHT_WRAPPED: u16 = 4;
+
+/// Room for a card's label on one row at a given column width: the column
+/// and card borders (2 + 2), the icon (3) and the count with its space.
+fn label_room(column_width: u16, count: usize) -> usize {
+    (usize::from(column_width)).saturating_sub(7 + count.to_string().len() + 1).max(1)
+}
+
+/// Splits a name over two rows at a capital letter, as evenly as it can:
+/// `ClusterRoleBindings` -> (`ClusterRole`, ` Bindings`). Falls back to a
+/// `.` boundary (API groups) and then to a hard split; the second row is
+/// truncated if it still doesn't fit. `None` when it fits on one row.
+pub(super) fn wrap_label(label: &str, room: usize) -> Option<(String, String)> {
+    let chars: Vec<char> = label.chars().collect();
+    if chars.len() <= room {
+        return None;
+    }
+    let boundaries = |pred: &dyn Fn(usize) -> bool| -> Vec<usize> { (1..chars.len()).filter(|&i| pred(i)).collect() };
+    let mut candidates = boundaries(&|i| chars[i].is_uppercase() && !chars[i - 1].is_uppercase());
+    if candidates.is_empty() {
+        candidates = boundaries(&|i| chars[i - 1] == '.');
+    }
+    if candidates.is_empty() {
+        candidates = vec![room.min(chars.len() - 1)];
+    }
+    // The most even split whose first row fits (the second row gets a
+    // leading space to read as a continuation).
+    let best = candidates
+        .into_iter()
+        .filter(|&i| i <= room)
+        .min_by_key(|&i| i.max(chars.len() - i + 1))
+        .unwrap_or(room.min(chars.len() - 1));
+    let first: String = chars[..best].iter().collect();
+    let rest: String = chars[best..].iter().collect();
+    let second = truncate(&format!(" {rest}"), room);
+    Some((first, second))
+}
+
+/// The height every card in a column takes: taller when any of its names
+/// needs two rows at `column_width`.
+pub fn item_height(items: &[(&str, usize)], column_width: u16) -> u16 {
+    if items.iter().any(|(label, count)| wrap_label(label, label_room(column_width, *count)).is_some()) {
+        ITEM_HEIGHT_WRAPPED
+    } else {
+        ITEM_HEIGHT
+    }
+}
+
+/// `item_height` for one Overview column.
+pub fn column_item_height(overview: &Overview, col: usize) -> u16 {
+    overview.catalog.get(col).map(|(_, items)| item_height(items, COLUMN_WIDTH)).unwrap_or(ITEM_HEIGHT)
+}
 /// Width of the left/right scroll-affordance gutters flanking the
 /// columns area (see `columns_inner`) — just wide enough for a single
 /// arrow glyph.
@@ -54,8 +110,8 @@ pub fn visible_columns(width: u16, total_columns: usize) -> usize {
 /// right for all of them. Used both to size the keyboard auto-scroll
 /// window and (implicitly, via the same math in `draw_column`) to decide
 /// how many cards actually get drawn.
-pub fn visible_items_per_column(columns_area_height: u16) -> usize {
-    (columns_area_height.saturating_sub(2) / ITEM_HEIGHT).max(1) as usize
+pub fn visible_items_per_column(columns_area_height: u16, item_height: u16) -> usize {
+    (columns_area_height.saturating_sub(2) / item_height).max(1) as usize
 }
 
 /// The shared column-rect layout — `draw_columns` and `column_hit` must
@@ -87,9 +143,9 @@ pub fn column_detail_cols(frame_area: Rect) -> usize {
 
 /// How many grid rows of item cards fit vertically in a column-detail
 /// popup at once.
-pub fn column_detail_visible_rows(frame_area: Rect) -> usize {
+pub fn column_detail_visible_rows(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
-    (inner.height / ITEM_HEIGHT).max(1) as usize
+    (inner.height / item_height(items, COLUMN_WIDTH)).max(1) as usize
 }
 
 /// Same movement rules as `move_selection`/`move_menu_selection`, for a
@@ -168,8 +224,8 @@ pub fn column_hit(
         return None;
     }
     let scroll = if col_idx == active_col { item_scroll } else { 0 };
-    let item_i = ((row - inner.y) / ITEM_HEIGHT) as usize + scroll;
     let (_, items) = &overview.catalog[col_idx];
+    let item_i = ((row - inner.y) / item_height(items, COLUMN_WIDTH)) as usize + scroll;
     if item_i < items.len() { Some(OverviewSelection::Item(col_idx, item_i)) } else { None }
 }
 
@@ -247,15 +303,16 @@ pub(super) fn draw_column(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    if items.is_empty() || inner.height < ITEM_HEIGHT {
+    let item_h = item_height(items, COLUMN_WIDTH);
+    if items.is_empty() || inner.height < item_h {
         return;
     }
 
-    let visible = visible_items_per_column(area.height);
+    let visible = visible_items_per_column(area.height, item_h);
     let scroll = item_scroll.min(items.len().saturating_sub(visible));
     let shown: Vec<(usize, &(&str, usize))> = items.iter().enumerate().skip(scroll).take(visible).collect();
 
-    let constraints: Vec<Constraint> = shown.iter().map(|_| Constraint::Length(ITEM_HEIGHT)).collect();
+    let constraints: Vec<Constraint> = shown.iter().map(|_| Constraint::Length(item_h)).collect();
     let rows = Layout::vertical(constraints).split(inner);
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
@@ -317,11 +374,22 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
 
     let count_text = count.to_string();
     let label_width = (split[1].width as usize).saturating_sub(count_text.chars().count() + 1).max(1);
-    let line = Line::from(vec![
-        Span::styled(format!("{:<label_width$}", truncate(label, label_width)), text_style),
-        Span::styled(count_text, count_style),
-    ]);
-    frame.render_widget(Paragraph::new(line), split[1]);
+    // A name too long for the row wraps onto a second one when the card is
+    // tall enough to have it; otherwise it's cut with an ellipsis.
+    let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };
+    let mut lines = match wrapped {
+        Some((first, second)) => vec![
+            Line::from(vec![Span::styled(format!("{first:<label_width$}"), text_style), Span::styled(count_text, count_style)]),
+            Line::styled(second, text_style),
+        ],
+        None => vec![Line::from(vec![
+            Span::styled(format!("{:<label_width$}", truncate(label, label_width)), text_style),
+            Span::styled(count_text, count_style),
+        ])],
+    };
+    // A single-row label sits on the card's first row.
+    lines.truncate(inner.height as usize);
+    frame.render_widget(Paragraph::new(lines), split[1]);
 }
 
 pub(super) fn icon_for(label: &str) -> &'static str {
@@ -379,11 +447,12 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
 
     let cols = ((inner.width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize;
     let total_rows = items.len().div_ceil(cols);
-    let visible_rows = (inner.height / ITEM_HEIGHT).max(1) as usize;
+    let item_h = item_height(items, COLUMN_WIDTH);
+    let visible_rows = (inner.height / item_h).max(1) as usize;
     let row_scroll = row_scroll.min(total_rows.saturating_sub(visible_rows));
     let rows_shown = visible_rows.min(total_rows.saturating_sub(row_scroll));
 
-    let row_constraints: Vec<Constraint> = (0..rows_shown).map(|_| Constraint::Length(ITEM_HEIGHT)).collect();
+    let row_constraints: Vec<Constraint> = (0..rows_shown).map(|_| Constraint::Length(item_h)).collect();
     let row_areas = Layout::vertical(row_constraints).split(inner);
 
     for (slot, row_area) in row_areas.iter().enumerate() {
@@ -396,6 +465,42 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
             let idx = start + i;
             draw_column_item(frame, *item_area, label, *count, title, idx == selected, false, icons);
         }
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::*;
+
+    #[test]
+    fn a_name_that_fits_is_left_alone() {
+        assert_eq!(wrap_label("Pods", 20), None);
+    }
+
+    #[test]
+    fn a_long_name_splits_at_the_capital_that_balances_the_rows() {
+        assert_eq!(wrap_label("ClusterRoleBindings", 12), Some(("ClusterRole".into(), " Bindings".into())));
+        assert_eq!(wrap_label("NetworkPolicies", 10), Some(("Network".into(), " Policies".into())));
+    }
+
+    #[test]
+    fn api_groups_split_after_a_dot() {
+        let (first, second) = wrap_label("gateway.networking.k8s.io", 16).unwrap();
+        assert!(first.ends_with('.') && first.len() <= 16, "{first}");
+        assert!(second.starts_with(' '));
+    }
+
+    #[test]
+    fn an_unbreakable_name_is_hard_split_and_the_tail_truncated() {
+        let (first, second) = wrap_label("Supercalifragilisticexpialidocious", 10).unwrap();
+        assert_eq!(first.chars().count(), 10);
+        assert!(second.chars().count() <= 10 && second.ends_with('…'));
+    }
+
+    #[test]
+    fn a_column_is_tall_only_when_one_of_its_names_needs_two_rows() {
+        assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
+        assert_eq!(item_height(&[("Pods", 3), ("ClusterRoleBindings", 61)], 22), ITEM_HEIGHT_WRAPPED);
     }
 }
 
@@ -416,6 +521,6 @@ mod column_detail_tests {
     fn column_detail_cols_and_visible_rows_are_at_least_one() {
         let tiny = Rect { x: 0, y: 0, width: 1, height: 1 };
         assert!(column_detail_cols(tiny) >= 1);
-        assert!(column_detail_visible_rows(tiny) >= 1);
+        assert!(column_detail_visible_rows(tiny, &[("Pods", 1)]) >= 1);
     }
 }
