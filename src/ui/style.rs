@@ -336,7 +336,11 @@ pub(super) fn pill_title(title: &str, dimmed: bool, border: Style) -> Line<'stat
     }
     let pill = Style::default().bg(theme().pill_bg);
     let mut spans = vec![gap, Span::styled(" ", pill)];
-    spans.extend(colored_slash_title(title).spans.into_iter().map(|s| Span::styled(s.content, s.style.bg(theme().pill_bg))));
+    // Every part gets its own text colour, so the title reads the same whatever the border colour.
+    spans.extend(colored_slash_title(title).spans.into_iter().map(|s| {
+        let fg = s.style.fg.unwrap_or(theme().text_strong);
+        Span::styled(s.content, s.style.fg(fg).bg(theme().pill_bg).add_modifier(Modifier::BOLD))
+    }));
     spans.push(Span::styled(" ", pill));
     Line::from(spans)
 }
