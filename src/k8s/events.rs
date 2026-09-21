@@ -44,7 +44,7 @@ impl EventFilter {
 /// The events the browser shows: the severity filter, then the `/` text
 /// search — a case-insensitive substring of the reason, object, kind or
 /// message (prose, so substring rather than fuzzy).
-pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str, sort: Option<crate::sort::SortSpec>) -> Vec<&'a EventEntry> {
+pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str, sort: Option<crate::k8s::sort::SortSpec>) -> Vec<&'a EventEntry> {
     let needle = search.to_lowercase();
     let mut shown: Vec<&EventEntry> = events
         .iter()
@@ -54,7 +54,7 @@ pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: 
                 || [&e.reason, &e.object, &e.kind, &e.message].iter().any(|field| field.to_lowercase().contains(&needle))
         })
         .collect();
-    crate::sort::apply(&mut shown, sort, |e, column| crate::sort::event_key(e, column));
+    crate::k8s::sort::apply(&mut shown, sort, |e, column| crate::k8s::sort::event_key(e, column));
     shown
 }
 

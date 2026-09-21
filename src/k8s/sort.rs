@@ -2,7 +2,7 @@
 //! and applying it. Column numbers here (0-based) match the order of the
 //! table headers in `ui::tables`, which shows them as `(1)NAME`, ...
 
-use super::*;
+use crate::*;
 
 /// The column a list is sorted by and which way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn a_kinds_own_columns_sort_between_name_and_age_numerically_when_they_can() {
-        use crate::describe::{Col, Tone};
+        use crate::k8s::describe::{Col, Tone};
         let row = k8s::GenericRow {
             namespace: "ns".into(),
             name: "web".into(),

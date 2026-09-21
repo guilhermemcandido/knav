@@ -1,6 +1,6 @@
 //! The resource catalog: one live watch per built-in kind, plus lazily-watched CRDs.
 
-use super::*;
+use crate::*;
 
 /// Every resource kind that gets a live watch + generic list/spec view but
 /// no specialized row type (unlike Pods/Deployments). Nodes reuses the

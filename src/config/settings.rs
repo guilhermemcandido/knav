@@ -8,13 +8,14 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::config::Config;
 use crate::theme::{self, Theme};
-use crate::tunables::{Tunables, set_tunables};
+use crate::config::tunables::{Tunables, set_tunables};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Choice(Vec<String>),
     Number { min: i64, max: i64 },
     Bool,
+    #[allow(dead_code)]
     Color,
     /// Key bindings for an action, typed as `x, ctrl-d`.
     Keys,
@@ -56,10 +57,7 @@ pub fn registry() -> Vec<Setting> {
     add("startup.mode", "Behaviour", "Start with", choice(&["direct", "menu"]), true);
     add("portforward.open_browser", "Behaviour", "Open browser on port-forward", Kind::Bool, false);
     add("api.refresh_seconds", "Behaviour", "API list refresh (s)", Kind::Number { min: 1, max: 60 }, false);
-    for (role, label) in theme::ROLES {
-        add(&format!("theme.colors.{role}"), "Colours", label, Kind::Color, false);
-    }
-    for binding in crate::keymap::BINDINGS {
+    for binding in crate::input::keymap::BINDINGS {
         add(&format!("keys.{}", binding.id), "Keys", binding.label, Kind::Keys, false);
     }
     settings
@@ -98,7 +96,7 @@ fn show(value: &toml::Value) -> String {
 pub fn current(config: &Config, theme: &Theme, setting: &Setting) -> String {
     if let Some(id) = setting.path.strip_prefix("keys.") {
         // The comma key is written `comma` here, since commas separate the keys.
-        return crate::keymap::keys_now(id).iter().map(|k| if k == "," { "comma" } else { k.as_str() }).collect::<Vec<_>>().join(", ");
+        return crate::input::keymap::keys_now(id).iter().map(|k| if k == "," { "comma" } else { k.as_str() }).collect::<Vec<_>>().join(", ");
     }
     if let Some(role) = setting.path.strip_prefix("theme.colors.") {
         return theme.get(role).map(theme::format_color).unwrap_or_default();
@@ -135,7 +133,7 @@ pub fn typed_value(config: &Config, setting: &Setting, text: &str) -> Result<tom
             // The whole set of bindings, checked as the config loader would.
             let mut keys = config.keys.clone();
             keys.insert(id.to_string(), list.clone());
-            let (_, problems) = crate::keymap::overrides_from_config(&keys);
+            let (_, problems) = crate::input::keymap::overrides_from_config(&keys);
             let prefix = format!("keys.{id}: ");
             if let Some(problem) = problems.iter().find_map(|p| p.strip_prefix(&prefix)) {
                 bail!("{problem}");
@@ -230,20 +228,23 @@ pub fn save(file: &Path, path: &str, value: Option<toml_edit::Value>) -> Result<
 mod tests {
     use super::*;
 
+    /// Colours are edited in theme files, not on the screen, but the value
+    /// handling stays for `[theme.colors]` in the config.
+    fn colour_setting(path: &str) -> Setting {
+        Setting { path: path.to_string(), section: "Colours", label: path.to_string(), kind: Kind::Color, restart: false }
+    }
+
     fn find(path: &str) -> Setting {
-        registry().into_iter().find(|s| s.path == path).unwrap_or_else(|| panic!("{path}"))
+        registry().into_iter().find(|s| s.path == path).unwrap_or_else(|| colour_setting(path))
     }
 
     #[test]
-    fn every_path_is_unique_and_every_colour_role_has_a_setting() {
+    fn every_path_is_unique() {
         let settings = registry();
         let mut paths: Vec<&str> = settings.iter().map(|s| s.path.as_str()).collect();
         paths.sort();
         paths.dedup();
         assert_eq!(paths.len(), settings.len());
-        for (role, _) in theme::ROLES {
-            assert!(settings.iter().any(|s| s.path == format!("theme.colors.{role}")), "{role}");
-        }
     }
 
     #[test]
@@ -287,7 +288,7 @@ mod tests {
     fn every_action_has_a_key_setting_that_reads_back_its_defaults() {
         let config = Config::default();
         let (theme, _) = theme::build("knav", &Default::default());
-        for binding in crate::keymap::BINDINGS {
+        for binding in crate::input::keymap::BINDINGS {
             let setting = find(&format!("keys.{}", binding.id));
             assert_eq!(current(&config, &theme, &setting), binding.defaults.iter().map(|k| if *k == "," { "comma" } else { k }).collect::<Vec<_>>().join(", "), "{}", binding.id);
         }

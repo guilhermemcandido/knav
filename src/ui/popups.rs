@@ -56,7 +56,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         frame.render_widget(Block::default().style(style), row);
         let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
         // All the same size, a little inside the square so they don't crowd the row.
-        let fill = crate::tunables::tunables().suggestion_icon_percent as f32 / 100.0;
+        let fill = crate::config::tunables::tunables().suggestion_icon_percent as f32 / 100.0;
         let square = icons.centered_square(icon_area);
         match suggestion.icon {
             SuggestionIcon::Kind(kind) => icons.draw_kind(frame, square, kind, fill),
@@ -114,7 +114,7 @@ pub(super) fn draw_context_popup(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_set(border_set()).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -195,7 +195,7 @@ pub(super) fn draw_namespace_picker(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_set(border_set()).title(title).title_bottom(Line::from(chips)))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -293,8 +293,8 @@ pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
 
 /// The port-forward dialog, laid out like k9s's: labelled fields, a warning
 /// when the port is a guess, and OK / Cancel.
-pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &crate::portforward::PortForm) {
-    use crate::portforward::Field;
+pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &crate::ops::portforward::PortForm) {
+    use crate::ops::portforward::Field;
     let full = frame.area();
     let width = (full.width * 3 / 5).clamp(44, full.width.max(1)).min(full.width);
     let height = 11u16.min(full.height);
@@ -340,7 +340,7 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
 
 /// The theme list: each theme with a strip of its colours. The screen behind
 /// is drawn in the theme being previewed, so the whole interface is the sample.
-pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::mode::ThemeEntry], state: &mut TableState, saved: &str) {
+pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::ThemeEntry], state: &mut TableState, saved: &str) {
     let area = centered_rect(64, 86, frame.area());
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -371,7 +371,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::mode::Theme
     let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(20), Constraint::Min(8)])
         .column_spacing(2)
         .style(theme_row(false))
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(entries.len().saturating_sub(1))));
     }
@@ -425,7 +425,7 @@ pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut
     let table = Table::new(table_rows, [Constraint::Length(14), Constraint::Length(34), Constraint::Length(24), Constraint::Min(10)])
         .column_spacing(2)
         .style(theme_row(false))
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(rows.len().saturating_sub(1))));
     }
@@ -759,7 +759,7 @@ pub(super) fn draw_events_popup(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
@@ -936,7 +936,7 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
         .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
 
     frame.render_stateful_widget(table, area, state);
 }

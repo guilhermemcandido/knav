@@ -2,6 +2,11 @@
 //! into rows: one module per concern, re-exported flat so callers keep
 //! writing `k8s::Thing`.
 
+pub mod catalog;
+pub mod describe;
+pub mod metrics;
+pub mod scope;
+pub mod sort;
 mod kind;
 mod pods;
 mod context;

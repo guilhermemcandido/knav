@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use super::*;
+use crate::*;
 
 pub(crate) const SLOTS: usize = 9;
 

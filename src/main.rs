@@ -1,29 +1,20 @@
-mod actions;
 mod app;
-mod catalog;
-mod cli;
-mod keys;
-mod clipboard;
-mod commands;
 mod config;
-mod describe;
-mod edit;
-mod favorites;
-mod fuzzy;
-mod icons;
+mod input;
 mod k8s;
-mod keymap;
-mod metrics;
-mod mode;
-mod picker;
-mod portforward;
-mod scope;
-mod settings;
-mod shell;
-mod sort;
+mod ops;
+mod startup;
 mod theme;
-mod tunables;
 mod ui;
+
+// Short names for the leaf modules, so siblings can say `keys::encode`.
+use app::{commands, mode};
+use config::{favorites, settings};
+use input::{keymap, keys};
+use k8s::{catalog, metrics, scope, sort};
+use ops::{actions, clipboard, edit, portforward, shell};
+use startup::{cli, fuzzy, picker};
+use ui::icons;
 
 use std::collections::{HashMap, HashSet};
 use std::io::stdout;

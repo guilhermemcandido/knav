@@ -138,14 +138,14 @@ fn terminated_reason(done: &k8s_openapi::api::core::v1::ContainerStateTerminated
 
 /// Whether a pod is worth a look: not running healthily, and not simply finished.
 pub fn pod_is_fault(pod: &Pod) -> bool {
-    use crate::describe::Tone;
+    use crate::k8s::describe::Tone;
     matches!(status_tone(&pod_status(pod)), Tone::Warn | Tone::Bad)
 }
 
 /// How a pod STATUS should be coloured: healthy plain, finished grey,
 /// in-progress orange, broken red.
-pub fn status_tone(status: &str) -> crate::describe::Tone {
-    use crate::describe::Tone;
+pub fn status_tone(status: &str) -> crate::k8s::describe::Tone {
+    use crate::k8s::describe::Tone;
     match status {
         "Running" => Tone::Plain,
         "Completed" | "Succeeded" => Tone::Muted,
@@ -286,7 +286,7 @@ pub fn stream_logs(
 #[cfg(test)]
 mod status_tests {
     use super::*;
-    use crate::describe::Tone;
+    use crate::k8s::describe::Tone;
 
     fn pod(json: serde_json::Value) -> Pod {
         serde_json::from_value(json).unwrap()

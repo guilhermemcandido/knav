@@ -38,7 +38,7 @@ impl<K: Resource<DynamicType = ()> + Clone + 'static> WatchedKind<K> {
 
 impl<K> CatalogKind for WatchedKind<K>
 where
-    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::k8s::describe::Extras + Default + 'static,
 {
     fn count(&self) -> usize {
         self.store.state().len()
@@ -61,7 +61,7 @@ where
 /// the one-liner most Catalog entries use.
 pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
-    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::k8s::describe::Extras + Default + 'static,
 {
     let (store, handle) = watch_generic::<K>(client);
     (Box::new(WatchedKind::from_store(store)), handle)

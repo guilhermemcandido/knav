@@ -13,7 +13,7 @@ use kube::{
 };
 use serde_json::json;
 
-pub use crate::edit::Outcome;
+pub use crate::ops::edit::Outcome;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {

@@ -4,7 +4,7 @@
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::describe::{Col, Tone};
+use crate::k8s::describe::{Col, Tone};
 use crate::k8s::GenericRow;
 
 use anyhow::{Context as _, Result, bail};

@@ -84,7 +84,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         let tone = crate::k8s::status_tone(&p.phase);
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
-        let ready_style = if dimmed || tone != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) };
+        let ready_style = if dimmed || tone != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) };
         let mut cells = vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
@@ -105,7 +105,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
     });
 
     let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| pods.get(i)).map(|p| crate::k8s::status_tone(&p.phase)).unwrap_or(crate::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| pods.get(i)).map(|p| crate::k8s::status_tone(&p.phase)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Pods", pods.len(), search, &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
@@ -219,8 +219,8 @@ pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
 }
 
 /// The state of a `have/want` ready count for colouring a whole row.
-pub(super) fn ready_tone(ready: &str) -> crate::describe::Tone {
-    use crate::describe::Tone;
+pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
+    use crate::k8s::describe::Tone;
     let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
     match (parts.next(), parts.next()) {
         (Some(0), Some(want)) if want > 0 => Tone::Bad,
@@ -257,7 +257,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         let mut cells = vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
-            Cell::from(d.ready.clone()).style(if dimmed || ready_tone(&d.ready) != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
+            Cell::from(d.ready.clone()).style(if dimmed || ready_tone(&d.ready) != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
@@ -269,7 +269,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     });
 
     let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Deployments", deployments.len(), search, &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
@@ -329,8 +329,8 @@ fn node_status_text(n: &NodeRow) -> String {
 }
 
 /// A node's state for colouring its row: cordoned is orange, NotReady red.
-fn node_tone(n: &NodeRow) -> crate::describe::Tone {
-    use crate::describe::Tone;
+fn node_tone(n: &NodeRow) -> crate::k8s::describe::Tone {
+    use crate::k8s::describe::Tone;
     match (n.ready, n.schedulable) {
         (true, true) => Tone::Plain,
         (true, false) => Tone::Warn,
@@ -339,8 +339,8 @@ fn node_tone(n: &NodeRow) -> crate::describe::Tone {
 }
 
 /// A row's own colour when it has a notable state (broken, starting, finished).
-fn generic_row_tone(r: &GenericRow) -> crate::describe::Tone {
-    use crate::describe::Tone;
+fn generic_row_tone(r: &GenericRow) -> crate::k8s::describe::Tone {
+    use crate::k8s::describe::Tone;
     match &r.status {
         Some((tone @ (Tone::Bad | Tone::Warn | Tone::Muted), _)) => *tone,
         _ => Tone::Plain,
@@ -406,7 +406,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     });
 
     let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| nodes.get(i)).map(node_tone).unwrap_or(crate::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| nodes.get(i)).map(node_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Nodes", nodes.len(), search, &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
@@ -470,7 +470,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     let header = header_row(&headers, sort, dimmed, &window);
 
     let table_rows = rows.iter().map(|r| {
-        use crate::describe::Tone;
+        use crate::k8s::describe::Tone;
         let row_tone = generic_row_tone(r);
         let cell_style = row_tone_style(row_tone, dimmed);
         let mut cells = Vec::with_capacity(headers.len());
@@ -487,7 +487,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     });
 
     let flags: Vec<bool> = rows.iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(generic_row_tone).unwrap_or(crate::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(generic_row_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title(label, rows.len(), search, &window, dimmed);
 
     let table = Table::new(mark_rows(table_rows, &flags, dimmed), window.constraints.clone())
@@ -539,7 +539,7 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }

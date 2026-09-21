@@ -25,15 +25,15 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
 
 /// The selected row, after k9s: a solid pale-blue bar with dark bold text,
 /// laid over the row's own colours (so a selected failing pod is still
-/// findable by the breadcrumb, not by its tint).
-pub(super) fn selection_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+/// findable by the path, not by its tint).
+pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     if dimmed {
         return dim_style();
     }
     // The bar wears the state of the row it is on, like k9s: red on a broken
     // pod, orange on a pending one, grey on a finished one.
     let bg = match tone {
-        crate::describe::Tone::Plain | crate::describe::Tone::Good => theme().select_bg,
+        crate::k8s::describe::Tone::Plain | crate::k8s::describe::Tone::Good => theme().select_bg,
         other => tone_color(other),
     };
     Style::default().bg(bg).fg(crate::theme::on(bg)).add_modifier(Modifier::BOLD)
@@ -143,7 +143,7 @@ pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Spa
 
 /// Shared namespace/name coloring — namespace in the app's cyan accent,
 /// name in plain bold, `/` muted — the same "kind vs value" split the
-/// breadcrumb uses, reused everywhere a `namespace/name` pair shows up
+/// path uses, reused everywhere a `namespace/name` pair shows up
 /// (this status line, the Containers/Logs popup titles) so it's one
 /// defined color pairing rather than a different pick per screen.
 pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
@@ -155,7 +155,7 @@ pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'sta
 }
 
 /// Colors a `/`-joined title (`namespace/name`, or `namespace/pod/
-/// container` for Logs) the same way as the breadcrumb: the outermost
+/// container` for Logs) the same way as the path: the outermost
 /// segment (namespace) in the app's cyan accent, the innermost (a
 /// container name, when there is one) in a distinct accent of its own,
 /// everything else plain bold — joined by muted `/`s instead of one
@@ -188,7 +188,7 @@ pub(super) fn match_style() -> Style {
 /// highlighted; plain `base` when there's no pattern or it doesn't match
 /// this cell. Consecutive matched characters share one span.
 pub(super) fn highlight_fuzzy(text: &str, pattern: &str, base: Style) -> Line<'static> {
-    let Some(positions) = (!pattern.is_empty()).then(|| crate::fuzzy::positions(pattern, text)).flatten() else {
+    let Some(positions) = (!pattern.is_empty()).then(|| crate::startup::fuzzy::positions(pattern, text)).flatten() else {
         return Line::styled(text.to_string(), base);
     };
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -253,7 +253,7 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
 
 /// The colour a cell's tone gets (see `describe::Tone`); plain cells keep
 /// the row colour, and everything goes dim behind a popup.
-pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+pub(super) fn tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     if dimmed {
         return dim_style();
     }
@@ -263,8 +263,8 @@ pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
 /// The state colours, after k9s: healthy stays the row teal, in-progress
 /// is orange, broken is a soft red, finished is grey.
 
-pub(super) fn tone_color(tone: crate::describe::Tone) -> Color {
-    use crate::describe::Tone;
+pub(super) fn tone_color(tone: crate::k8s::describe::Tone) -> Color {
+    use crate::k8s::describe::Tone;
     match tone {
         Tone::Plain => theme().row,
         Tone::Good => theme().ok,
@@ -276,7 +276,7 @@ pub(super) fn tone_color(tone: crate::describe::Tone) -> Color {
 
 /// The style of a row's ordinary cells: the row teal, or the colour of the
 /// row's state, so a failing pod reads as red from end to end.
-pub(super) fn row_tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+pub(super) fn row_tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     tone_style(tone, dimmed)
 }
 
@@ -304,14 +304,14 @@ mod row_style_tests {
 
     #[test]
     fn the_selection_is_a_pale_bar_with_dark_bold_text() {
-        let style = selection_style(crate::describe::Tone::Plain, false);
+        let style = selection_style(crate::k8s::describe::Tone::Plain, false);
         assert_eq!((style.bg, style.fg), (Some(theme().select_bg), Some(crate::theme::on(theme().select_bg))));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
     fn the_bar_takes_the_colour_of_the_rows_state() {
-        use crate::describe::Tone;
+        use crate::k8s::describe::Tone;
         assert_eq!(selection_style(Tone::Bad, false).bg, Some(theme().bad));
         assert_eq!(selection_style(Tone::Warn, false).bg, Some(theme().warn));
         assert_eq!(selection_style(Tone::Muted, false).bg, Some(theme().muted));

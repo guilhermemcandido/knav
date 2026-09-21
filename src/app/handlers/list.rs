@@ -56,6 +56,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     MouseEventKind::Down(_) => {
                         if let Some(hit) = ui::column_hit(ui::body_area(frame_area, false), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                             st.overview_selection = hit;
+                            // A second click on the same tile soon after opens it.
+                            let id = match hit {
+                                ui::OverviewSelection::Resources => 0,
+                                ui::OverviewSelection::Events => 1,
+                                ui::OverviewSelection::Header(c) => 10 + c * 100,
+                                ui::OverviewSelection::Item(c, i) => 11 + c * 100 + i,
+                            };
+                            let now = std::time::Instant::now();
+                            let again = st.last_click.is_some_and(|(at, prev)| prev == id && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
+                            st.last_click = if again { None } else { Some((now, id)) };
+                            open = again;
                         }
                     }
                     MouseEventKind::ScrollDown => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Down),
@@ -77,7 +88,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                             st.table_state.select(Some(index));
                             let now = std::time::Instant::now();
-                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::tunables::tunables().double_click_ms));
+                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
                             st.last_click = if again { None } else { Some((now, index)) };
                             open = again;
                         }

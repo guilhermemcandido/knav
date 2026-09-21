@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::k8s::ResourceKind;
-use crate::mode::Mode;
+use crate::app::mode::Mode;
 
 /// A screen that has its own keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -65,8 +65,6 @@ bindings! {
     ("move_up", "Move up", NAV, &["k", "up"]),
     ("move_left", "Move left", &[Overview, Menu, Column, Settings], &["h", "left"]),
     ("move_right", "Move right", &[Overview, Menu, Column, Settings], &["l", "right"]),
-    ("scroll_left", "Scroll columns left", &[List], &["left"]),
-    ("scroll_right", "Scroll columns right", &[List], &["right"]),
     ("top", "Go to top", &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings, Yaml], &["g", "home"]),
     ("bottom", "Go to bottom", &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings, Yaml], &["G", "end"]),
     ("page_down", "Page down", TABLES, &["ctrl-f", "pagedown"]),
@@ -101,21 +99,6 @@ bindings! {
     ("last_view", "Last view", &[List], &["-"]),
     ("faults", "Faults only", &[List], &["ctrl-z"]),
     ("wide", "Wide columns", &[List], &["ctrl-w"]),
-    ("filter_all", "All events", &[Events], &["a"]),
-    ("filter_warnings", "Warnings", &[Events], &["w"]),
-    ("filter_normal", "Normal events", &[Events], &["n"]),
-    ("clear_key", "Clear a namespace key", &[Namespaces], &["d", "delete", "backspace"]),
-    ("logs", "Open the logs", &[Containers], &["enter", "l"]),
-    ("shell", "Shell in the container", &[Containers], &["S"]),
-    ("follow", "Follow the log", &[Logs], &["G"]),
-    ("timestamps", "Log timestamps", &[Logs], &["t"]),
-    ("order", "Log order", &[Logs], &["o"]),
-    ("expand_all", "Expand / collapse all", &[Spec], &["a"]),
-    ("full_value", "Show the full value", &[Spec], &["v"]),
-    ("toggle", "Open / close a node", &[Spec], &["enter", "space"]),
-    ("copy_yaml", "Copy the YAML", &[Yaml], &["c"]),
-    ("change", "Change the value", &[Settings], &["enter", "space"]),
-    ("reset", "Reset to default", &[Settings], &["r", "delete", "backspace"]),
 }
 
 /// A key as the keymap compares them: the code and Ctrl/Alt. Shift is folded
@@ -389,16 +372,9 @@ impl Keymap {
         (Keymap::new(overrides), problems)
     }
 
-    /// From the whole config: `[keys]`, plus the older `[keybindings.logs]`
-    /// settings for the two log keys when `[keys]` doesn't say.
+    /// From the whole config (its `[keys]` table).
     pub fn from_app_config(config: &crate::config::Config) -> (Keymap, Vec<String>) {
-        let mut keys = config.keys.clone();
-        for (id, old, default) in [("timestamps", config.keybindings.logs.toggle_timestamp, 't'), ("order", config.keybindings.logs.toggle_order, 'o')] {
-            if old != default {
-                keys.entry(id.to_string()).or_insert_with(|| vec![old.to_string()]);
-            }
-        }
-        Keymap::from_config(&keys)
+        Keymap::from_config(&config.keys)
     }
 
     /// The key event to hand the handler for `event` on `screen`; `None` to drop it.
@@ -548,11 +524,10 @@ mod tests {
     }
 
     #[test]
-    fn the_same_key_on_different_screens_is_fine() {
-        // `n` is namespaces on the list and "normal events" in the events popup.
-        assert!(conflict(&Overrides::new(), BINDINGS.iter().find(|b| b.id == "filter_normal").unwrap(), parse_key("m").unwrap()).is_none());
-        let (_, problems) = Keymap::from_config(&keys(&[("filter_normal", &["m"])]));
-        assert!(problems.is_empty(), "{problems:?}");
+    fn popup_letters_are_not_bindable() {
+        // The events popup's `w` / `n` / `a` and the like are fixed.
+        let (_, problems) = Keymap::from_config(&keys(&[("filter_warnings", &["m"])]));
+        assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
     #[test]

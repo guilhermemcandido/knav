@@ -172,7 +172,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                     && scope.is_none_or(|s| s.matches_row(row))
             })
             .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
-            .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::describe::Tone::Warn | crate::describe::Tone::Bad, _))))
+            .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::k8s::describe::Tone::Warn | crate::k8s::describe::Tone::Bad, _))))
             .collect();
         // Whether the table will show a namespace column — decides which
         // sort column is which.

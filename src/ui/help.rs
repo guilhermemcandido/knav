@@ -18,17 +18,17 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
     let entry = |key: &str, what: &str| (key.to_string(), what.to_string());
     // An action's keys as they are now: `default` when untouched.
     let shown = |default: &str, id: &str, what: &str| {
-        let keys = crate::keymap::keys_now(id);
-        let untouched = crate::keymap::BINDINGS.iter().find(|b| b.id == id).is_some_and(|b| keys.iter().map(String::as_str).eq(b.defaults.iter().copied()));
-        (if untouched { default.to_string() } else { keys.iter().map(|k| crate::keymap::glyph(k)).collect::<Vec<_>>().join(" / ") }, what.to_string())
+        let keys = crate::input::keymap::keys_now(id);
+        let untouched = crate::input::keymap::BINDINGS.iter().find(|b| b.id == id).is_some_and(|b| keys.iter().map(String::as_str).eq(b.defaults.iter().copied()));
+        (if untouched { default.to_string() } else { keys.iter().map(|k| crate::input::keymap::glyph(k)).collect::<Vec<_>>().join(" / ") }, what.to_string())
     };
     // Two actions' keys side by side.
     let pair = |default: &str, first: &str, second: &str, what: &str| {
-        let a = crate::keymap::keys_now(first);
-        let b = if second.is_empty() { Vec::new() } else { crate::keymap::keys_now(second) };
-        let untouched = |id: &str, keys: &[String]| crate::keymap::BINDINGS.iter().find(|x| x.id == id).is_none_or(|x| keys.iter().map(String::as_str).eq(x.defaults.iter().copied()));
+        let a = crate::input::keymap::keys_now(first);
+        let b = if second.is_empty() { Vec::new() } else { crate::input::keymap::keys_now(second) };
+        let untouched = |id: &str, keys: &[String]| crate::input::keymap::BINDINGS.iter().find(|x| x.id == id).is_none_or(|x| keys.iter().map(String::as_str).eq(x.defaults.iter().copied()));
         let both_default = untouched(first, &a) && (second.is_empty() || untouched(second, &b));
-        let text = if both_default { default.to_string() } else { a.iter().chain(b.iter()).map(|k| crate::keymap::glyph(k)).collect::<Vec<_>>().join(" ") };
+        let text = if both_default { default.to_string() } else { a.iter().chain(b.iter()).map(|k| crate::input::keymap::glyph(k)).collect::<Vec<_>>().join(" ") };
         (text, what.to_string())
     };
     let resource: Vec<(String, String)> = hints
@@ -37,13 +37,38 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         .map(|(key, what)| entry(key, what))
         .collect();
     // The Overview has no list of its own, so say what its tiles do.
-    let resource = if resource.is_empty() {
+    let on_overview = resource.is_empty();
+    let resource = if on_overview {
         vec![entry("enter", "Open tile"), entry("hjkl", "Move tiles"), entry("click", "Select tile"), entry("dbl-click", "Open tile")]
     } else {
         resource
     };
     let mut hotkeys = vec![entry("0", "All namespaces")];
     hotkeys.extend(slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (format!("{}", i + 1), ns.clone()))));
+    // The Overview has no rows to filter, sort, mark or scroll sideways.
+    if on_overview {
+        return vec![
+            Section { title: "RESOURCE", entries: resource },
+            Section {
+                title: "GENERAL",
+                entries: vec![
+                    shown(":cmd", "command", "Command mode"),
+                    shown("n", "namespaces", "Namespaces"),
+                    shown("m", "menu", "Resources menu"),
+                    shown("C", "contexts", "Contexts"),
+                    shown("T", "themes", "Themes"),
+                    shown(",", "settings", "Settings"),
+                    shown("?", "help", "Help"),
+                    entry(":q", "Quit"),
+                ],
+            },
+            Section {
+                title: "NAVIGATION",
+                entries: vec![pair("j / ↓", "move_down", "", "Down"), pair("k / ↑", "move_up", "", "Up"), entry("← →", "Previous / next column"), entry("wheel", "Scroll")],
+            },
+            Section { title: "HOTKEYS", entries: hotkeys },
+        ];
+    }
     vec![
         Section { title: "RESOURCE", entries: resource },
         Section {
@@ -76,7 +101,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown("G", "bottom", "Go to bottom"),
                 shown("ctrl-f", "page_down", "Page down"),
                 shown("ctrl-b", "page_up", "Page up"),
-                shown("← →", "scroll_left", "Scroll columns"),
+                entry("← →", "Scroll columns"),
                 entry("click", "Select row"),
                 entry("dbl-click", "Open row"),
                 entry("wheel", "Scroll"),

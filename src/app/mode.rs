@@ -1,6 +1,6 @@
-//! What the app is currently showing (`Mode`) and the small helpers that describe it: breadcrumbs, hints, filtering.
+//! What the app is currently showing (`Mode`) and the small helpers that describe it: paths, hints, filtering.
 
-use super::*;
+use crate::*;
 
 pub(crate) enum Mode {
     List,
@@ -31,11 +31,11 @@ pub(crate) enum Mode {
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
-    Settings { settings: Vec<crate::settings::Setting>, state: TableState, editing: Option<String>, error: Option<String>, back: Box<Mode> },
+    Settings { settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, error: Option<String>, back: Box<Mode> },
     /// The theme list, previewing each theme live as you move through it.
     ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
-    Shell { title: String, session: Box<crate::shell::ShellSession>, back: Box<Mode> },
+    Shell { title: String, session: Box<crate::ops::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
@@ -43,7 +43,7 @@ pub(crate) enum Mode {
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
     OpenUrl { text: String, url: String, back: Box<Mode> },
     /// The port-forward dialog.
-    Ports { target: Target, form: crate::portforward::PortForm, back: Box<Mode> },
+    Ports { target: Target, form: crate::ops::portforward::PortForm, back: Box<Mode> },
     /// Asks for a replica count (digits only) to scale to.
     Scale { targets: Vec<Target>, input: String, back: Box<Mode> },
     Spec {
@@ -191,22 +191,22 @@ pub(crate) fn node_detail_name(mode: &Mode) -> Option<&str> {
     }
 }
 
-/// The full "how did I get here" path for the breadcrumb bar, oldest
+/// The full "how did I get here" path for the path bar, oldest
 /// first — e.g. `["Node: worker-1", "Pod: default/web-1", "Logs:
 /// nginx"]`. `None` for `Mode::List` itself (nothing to show — you're
 /// already home) and for modes that don't chain back further than the
 /// base list (Menu, Command, Events, ResourcesDetail, ColumnDetail),
 /// since their own overlay title already says what they are.
-pub(crate) fn segment(kind: &str, value: impl Into<String>) -> ui::BreadcrumbSegment {
-    ui::BreadcrumbSegment { kind: kind.to_string(), value: Some(value.into()) }
+pub(crate) fn segment(kind: &str, value: impl Into<String>) -> ui::PathSegment {
+    ui::PathSegment { kind: kind.to_string(), value: Some(value.into()) }
 }
 
-pub(crate) fn plain_segment(kind: &str) -> ui::BreadcrumbSegment {
-    ui::BreadcrumbSegment { kind: kind.to_string(), value: None }
+pub(crate) fn plain_segment(kind: &str) -> ui::PathSegment {
+    ui::PathSegment { kind: kind.to_string(), value: None }
 }
 
 /// Each segment carries `Kind[identifier]` — e.g. `Node[worker-1]`,
-/// `Pod[default/web-1]`, `Logs[nginx]` — so the breadcrumb reads as a
+/// `Pod[default/web-1]`, `Logs[nginx]` — so the path reads as a
 /// literal address into the cluster, not just a label trail.
 /// One theme in the picker, with the colours to show as its swatch.
 pub(crate) struct ThemeEntry {
@@ -227,15 +227,15 @@ pub(crate) fn theme_entries(current: &str) -> (Vec<ThemeEntry>, usize) {
     (entries, at)
 }
 
-pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
+pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
     match mode {
         Mode::NodeDetail { name, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(segment("Node", name.clone()));
             path
         }
         Mode::Containers { title, containers, state, sort, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(segment("Pod", title.clone()));
             // The container the cursor is on, like the selected row of a list.
             if let Some(container) = state.selected().and_then(|i| sorted_containers(containers, *sort).get(i).map(|c| c.name.clone())) {
@@ -244,12 +244,12 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path
         }
         Mode::Spec { title, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(segment("Spec", title.clone()));
             path
         }
         Mode::Logs { title, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             // The container being read replaces the one that was selected.
             if path.last().is_some_and(|s| s.kind == "Container") {
                 path.pop();
@@ -264,17 +264,17 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ThemePicker { .. } => vec![plain_segment("Themes")],
         Mode::Settings { .. } => vec![plain_segment("Settings")],
         Mode::Shell { title, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));
             path
         }
         Mode::Yaml { title, back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(segment("YAML", title.clone()));
             path
         }
         Mode::EventDetail { back, .. } => {
-            let mut path = breadcrumb_path(back);
+            let mut path = mode_path(back);
             path.push(plain_segment("Event"));
             path
         }
@@ -282,7 +282,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::OpenUrl { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::OpenUrl { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => mode_path(back),
         Mode::Menu { .. } => vec![plain_segment("Resources")],
         Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }
@@ -292,9 +292,9 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
 /// drilled through to get here, then the list itself —
 /// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`. Each level says what it is
 /// once (kind and name) rather than repeating the list it came from.
-pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::BreadcrumbSegment> {
+pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::PathSegment> {
     // Every level's scope names the thing it's inside; together they are the path.
-    let mut segments: Vec<ui::BreadcrumbSegment> = trail
+    let mut segments: Vec<ui::PathSegment> = trail
         .iter()
         .filter_map(|(_, sc, _)| sc.as_ref())
         .chain(scope)
@@ -307,11 +307,11 @@ pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Optio
     segments
 }
 
-/// The breadcrumb bar's segments: the list's `location`, then the open
+/// The path bar's segments: the list's `location`, then the open
 /// popups.
-pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> Vec<ui::BreadcrumbSegment> {
+pub(crate) fn full_path(mode: &Mode, location: Vec<ui::PathSegment>) -> Vec<ui::PathSegment> {
     let mut segments = location;
-    let path = breadcrumb_path(mode);
+    let path = mode_path(mode);
     // `Nodes>>Node[worker-1]` says the same thing twice: once a popup names
     // the specific one (`Node[...]`, `Pod[...]`), it replaces its list.
     if let (Some(list), Some(first)) = (segments.last(), path.first())
@@ -497,7 +497,7 @@ pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: us
         MouseEventKind::ScrollUp => select_prev,
         _ => return false,
     };
-    for _ in 0..crate::tunables::tunables().wheel_rows {
+    for _ in 0..crate::config::tunables::tunables().wheel_rows {
         step(state, len);
     }
     true
@@ -517,7 +517,7 @@ pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
 }
 
 #[cfg(test)]
-mod breadcrumb_tests {
+mod path_tests {
     use super::*;
     use crate::k8s::{ContainerInfo, ContainerStatusKind};
 
@@ -537,13 +537,13 @@ mod breadcrumb_tests {
         }
     }
 
-    fn text(path: &[ui::BreadcrumbSegment]) -> Vec<String> {
+    fn text(path: &[ui::PathSegment]) -> Vec<String> {
         path.iter().map(|s| format!("{}[{}]", s.kind, s.value.clone().unwrap_or_default())).collect()
     }
 
     #[test]
     fn the_selected_container_follows_the_pod() {
-        assert_eq!(text(&breadcrumb_path(&containers_mode(1))), ["Pod[default/web]", "Container[sidecar]"]);
+        assert_eq!(text(&mode_path(&containers_mode(1))), ["Pod[default/web]", "Container[sidecar]"]);
     }
 
     #[test]
@@ -563,7 +563,7 @@ mod breadcrumb_tests {
             handle: runtime.spawn(async {}),
             back: Box::new(containers_mode(1)),
         };
-        assert_eq!(text(&breadcrumb_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);
+        assert_eq!(text(&mode_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);
     }
 }
 

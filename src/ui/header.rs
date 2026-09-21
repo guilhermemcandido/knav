@@ -43,7 +43,7 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
         return area;
     }
     let height = if shortcuts { HEADER_HEIGHT } else { 1 };
-    // The last row belongs to the breadcrumb bar.
+    // The last row belongs to the path bar.
     Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height - 1 }
 }
 

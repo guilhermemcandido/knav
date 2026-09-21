@@ -23,6 +23,7 @@ macro_rules! theme_roles {
 
         /// Every role, in the order the config screen lists them: its config
         /// key and a short description.
+        #[allow(dead_code)]
         pub const ROLES: &[(&str, &str)] = &[$((stringify!($field), $label),)+];
 
         impl Theme {

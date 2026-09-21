@@ -1,3 +1,9 @@
+//! The `config.toml` file, its defaults, and the settings built on it.
+
+pub mod favorites;
+pub mod settings;
+pub mod tunables;
+
 use std::path::PathBuf;
 
 use std::collections::BTreeMap;

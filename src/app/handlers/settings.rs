@@ -4,7 +4,7 @@
 
 use super::super::*;
 use super::Cx;
-use crate::settings::{self, Kind, Setting};
+use crate::config::settings::{self, Kind, Setting};
 
 /// What to do to the config file once the screen's own state is released.
 enum Change {
@@ -163,7 +163,7 @@ mod tests {
     use super::*;
 
     fn find(path: &str) -> Setting {
-        settings::registry().into_iter().find(|s| s.path == path).unwrap()
+        settings::registry().into_iter().chain([Setting { path: "theme.colors.ok".into(), section: "Colours", label: "ok".into(), kind: Kind::Color, restart: false }]).find(|s| s.path == path).unwrap()
     }
 
     #[test]

@@ -15,12 +15,13 @@ use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::{LogOrder, TimestampFormat};
 use crate::theme::theme;
-use crate::icons::IconCache;
+use crate::ui::icons::IconCache;
 use crate::k8s::{
     ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, EventEntry, EventFilter, GenericRow, NodeRow, Overview, PodRow, ResourceKind,
 };
 
-mod breadcrumb;
+mod path_bar;
+pub mod icons;
 mod columns;
 mod header;
 mod help;
@@ -31,23 +32,23 @@ mod overview;
 mod popups;
 mod spec;
 mod tables;
-mod theme;
+mod style;
 
 pub use self::columns::*;
 pub use self::header::*;
 use self::help::draw_help;
 pub use self::layout::configure_columns;
 use self::layout::*;
-pub use self::breadcrumb::BreadcrumbPod;
-use self::breadcrumb::*;
+pub use self::path_bar::SelectedItem;
+use self::path_bar::*;
 pub use self::logs::*;
 pub use self::menu::*;
 pub use self::overview::*;
 pub use self::popups::*;
 pub use self::spec::*;
 pub use self::tables::*;
-use self::theme::*;
-pub use self::theme::{border_set, configure_border, mark_key};
+use self::style::*;
+pub use self::style::{border_set, configure_border, mark_key};
 
 pub enum Rows<'a> {
     /// The two `usize`s are the horizontal column scroll offset and the
@@ -139,13 +140,13 @@ pub enum Overlay<'a> {
     /// The settings screen.
     Settings { rows: &'a [SettingView], state: &'a mut TableState, error: Option<&'a str> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
-    ThemePicker { entries: &'a [crate::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
+    ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
     /// A manifest as text, from line `scroll`.
     Yaml { title: &'a str, text: &'a str, scroll: usize },
     /// The port-forward dialog.
-    PortForward { title: &'a str, form: &'a crate::portforward::PortForm },
+    PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
     /// A number being typed.
     Prompt { title: &'a str, value: &'a str, hint: &'a str },
     /// The `n` namespace picker: every namespace in the cluster with the
@@ -179,8 +180,8 @@ pub struct SortState {
 }
 
 impl SortState {
-    pub fn spec(self) -> Option<crate::sort::SortSpec> {
-        self.column.map(|column| crate::sort::SortSpec { column, descending: self.descending })
+    pub fn spec(self) -> Option<crate::k8s::sort::SortSpec> {
+        self.column.map(|column| crate::k8s::sort::SortSpec { column, descending: self.descending })
     }
 }
 
@@ -237,13 +238,13 @@ pub struct SuggestionView {
     pub icon: SuggestionIcon,
 }
 
-/// One breadcrumb segment — `kind` (e.g. "Node", "Pod") in one color,
+/// One path segment — `kind` (e.g. "Node", "Pod") in one color,
 /// its bracketed `value` (e.g. "worker-1") in another, so the two read
 /// as visually distinct without either one shouting. `value` is `None`
 /// for segments that are just a label with no specific identifier
 /// (`Resources`, `Events`, `Category`).
 #[derive(Debug, PartialEq, Eq)]
-pub struct BreadcrumbSegment {
+pub struct PathSegment {
     pub kind: String,
     pub value: Option<String>,
 }
@@ -271,7 +272,7 @@ pub fn draw(
     // The full "how did I get here" path, rendered as a bottom bar on
     // top of everything — e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
     // Container: nginx › Logs".
-    breadcrumb: Option<&[BreadcrumbSegment]>,
+    path: Option<&[PathSegment]>,
     icons: &mut IconCache,
     header: &HeaderInfo,
     // The `/` search on the main list: shown in its title and highlighted
@@ -335,21 +336,21 @@ pub fn draw(
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
     draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
-    // The keyboard-selected row, shown at the end of the breadcrumb bar
+    // The keyboard-selected row, shown at the end of the path bar
     // (only while nothing is open on top of the list).
     let selected_row = table_state.selected();
-    let selected_pod: Option<BreadcrumbPod> = match &overlay {
+    let selected_pod: Option<SelectedItem> = match &overlay {
         // A node's own view: the pod highlighted in its pods table.
         Some(Overlay::NodeDetail { pods, state, .. }) if background.is_none() => {
-            state.selected().and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod)
+            state.selected().and_then(|i| pods.get(i)).map(SelectedItem::from_pod)
         }
         _ if dimmed => None,
         _ => match &rows {
-            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod),
-            Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(BreadcrumbPod::from_deployment),
-            Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(BreadcrumbPod::from_node),
-            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(BreadcrumbPod::from_generic),
-            Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| BreadcrumbPod::from_crd(crd)),
+            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(SelectedItem::from_pod),
+            Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(SelectedItem::from_deployment),
+            Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
+            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(SelectedItem::from_generic),
+            Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
             Rows::Overview(..) => None,
         },
     };
@@ -447,8 +448,8 @@ pub fn draw(
     if !suppress_hints && (!hints.is_empty() || show_hints_panel) {
         draw_hints(frame, hints, show_hints_panel, &header.namespace_slots, shortcuts_line);
     }
-    if let Some(segments) = breadcrumb {
-        draw_breadcrumb_bar(frame, segments, selected_pod);
+    if let Some(segments) = path {
+        draw_path_bar(frame, segments, selected_pod);
     }
     paint_theme_base(frame);
 }
@@ -517,7 +518,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
 /// toggles a bordered panel open just underneath it, off to the side,
 /// rather than cluttering the screen with a permanent hint list. Each
 /// hint's key and its description get their own color, same reasoning
-/// as the breadcrumb's kind/value split — a flat run of same-colored
+/// as the path's kind/value split — a flat run of same-colored
 /// text reads as one undifferentiated blob, not a list of distinct
 /// commands.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {

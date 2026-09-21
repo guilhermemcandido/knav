@@ -36,8 +36,8 @@ pub fn node_capacity(node: &Node) -> NodeCapacity {
         allocatable.and_then(|a| a.get(key)).map(|q| parse(&q.0)).unwrap_or(0)
     };
     NodeCapacity {
-        cpu_millicores: get("cpu", &crate::metrics::parse_cpu_millicores),
-        memory_bytes: get("memory", &crate::metrics::parse_memory_bytes),
+        cpu_millicores: get("cpu", &crate::k8s::metrics::parse_cpu_millicores),
+        memory_bytes: get("memory", &crate::k8s::metrics::parse_memory_bytes),
         pods: get("pods", &|s| s.parse().unwrap_or(0)),
     }
 }
@@ -90,7 +90,7 @@ fn node_roles(node: &Node) -> String {
     if roles.is_empty() { "<none>".to_string() } else { roles.join(",") }
 }
 
-pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_count: usize) -> NodeRow {
+pub fn node_row(node: &Node, usage: Option<&crate::k8s::metrics::NodeUsage>, pod_count: usize) -> NodeRow {
     let name = node.metadata.name.clone().unwrap_or_default();
     let ready = node
         .status

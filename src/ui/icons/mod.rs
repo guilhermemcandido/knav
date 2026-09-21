@@ -18,44 +18,44 @@ use crate::k8s::ResourceKind;
 const RENDER_SIZE: u32 = 128;
 
 /// Each resource kind's official Kubernetes icon — vendored from
-/// `kubernetes/community`'s icon set (see `assets/icons/ATTRIBUTION.md`),
+/// `kubernetes/community`'s icon set (see `svg/ATTRIBUTION.md`),
 /// keyed by that project's own short filename so the cache key and the
 /// embedded bytes can't drift apart. Every CRD kind shares the one
 /// generic "crd" icon — there's no per-CRD official icon to use instead.
 fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
     match kind {
-        ResourceKind::Nodes => ("node", include_bytes!("../assets/icons/node.svg")),
-        ResourceKind::Namespaces => ("ns", include_bytes!("../assets/icons/ns.svg")),
-        ResourceKind::Pods => ("pod", include_bytes!("../assets/icons/pod.svg")),
-        ResourceKind::Deployments => ("deploy", include_bytes!("../assets/icons/deploy.svg")),
-        ResourceKind::ReplicaSets => ("rs", include_bytes!("../assets/icons/rs.svg")),
-        ResourceKind::StatefulSets => ("sts", include_bytes!("../assets/icons/sts.svg")),
-        ResourceKind::DaemonSets => ("ds", include_bytes!("../assets/icons/ds.svg")),
-        ResourceKind::Jobs => ("job", include_bytes!("../assets/icons/job.svg")),
-        ResourceKind::CronJobs => ("cronjob", include_bytes!("../assets/icons/cronjob.svg")),
-        ResourceKind::ConfigMaps => ("cm", include_bytes!("../assets/icons/cm.svg")),
-        ResourceKind::Secrets => ("secret", include_bytes!("../assets/icons/secret.svg")),
-        ResourceKind::Hpas => ("hpa", include_bytes!("../assets/icons/hpa.svg")),
-        ResourceKind::Services | ResourceKind::PortForwards => ("svc", include_bytes!("../assets/icons/svc.svg")),
-        ResourceKind::Endpoints => ("ep", include_bytes!("../assets/icons/ep.svg")),
-        ResourceKind::Ingresses => ("ing", include_bytes!("../assets/icons/ing.svg")),
-        ResourceKind::NetworkPolicies => ("netpol", include_bytes!("../assets/icons/netpol.svg")),
-        ResourceKind::Pvcs => ("pvc", include_bytes!("../assets/icons/pvc.svg")),
-        ResourceKind::Pvs => ("pv", include_bytes!("../assets/icons/pv.svg")),
-        ResourceKind::StorageClasses => ("sc", include_bytes!("../assets/icons/sc.svg")),
-        ResourceKind::ServiceAccounts => ("sa", include_bytes!("../assets/icons/sa.svg")),
-        ResourceKind::Roles => ("role", include_bytes!("../assets/icons/role.svg")),
-        ResourceKind::RoleBindings => ("rb", include_bytes!("../assets/icons/rb.svg")),
-        ResourceKind::ClusterRoles => ("c-role", include_bytes!("../assets/icons/c-role.svg")),
-        ResourceKind::ClusterRoleBindings => ("crb", include_bytes!("../assets/icons/crb.svg")),
+        ResourceKind::Nodes => ("node", include_bytes!("svg/node.svg")),
+        ResourceKind::Namespaces => ("ns", include_bytes!("svg/ns.svg")),
+        ResourceKind::Pods => ("pod", include_bytes!("svg/pod.svg")),
+        ResourceKind::Deployments => ("deploy", include_bytes!("svg/deploy.svg")),
+        ResourceKind::ReplicaSets => ("rs", include_bytes!("svg/rs.svg")),
+        ResourceKind::StatefulSets => ("sts", include_bytes!("svg/sts.svg")),
+        ResourceKind::DaemonSets => ("ds", include_bytes!("svg/ds.svg")),
+        ResourceKind::Jobs => ("job", include_bytes!("svg/job.svg")),
+        ResourceKind::CronJobs => ("cronjob", include_bytes!("svg/cronjob.svg")),
+        ResourceKind::ConfigMaps => ("cm", include_bytes!("svg/cm.svg")),
+        ResourceKind::Secrets => ("secret", include_bytes!("svg/secret.svg")),
+        ResourceKind::Hpas => ("hpa", include_bytes!("svg/hpa.svg")),
+        ResourceKind::Services | ResourceKind::PortForwards => ("svc", include_bytes!("svg/svc.svg")),
+        ResourceKind::Endpoints => ("ep", include_bytes!("svg/ep.svg")),
+        ResourceKind::Ingresses => ("ing", include_bytes!("svg/ing.svg")),
+        ResourceKind::NetworkPolicies => ("netpol", include_bytes!("svg/netpol.svg")),
+        ResourceKind::Pvcs => ("pvc", include_bytes!("svg/pvc.svg")),
+        ResourceKind::Pvs => ("pv", include_bytes!("svg/pv.svg")),
+        ResourceKind::StorageClasses => ("sc", include_bytes!("svg/sc.svg")),
+        ResourceKind::ServiceAccounts => ("sa", include_bytes!("svg/sa.svg")),
+        ResourceKind::Roles => ("role", include_bytes!("svg/role.svg")),
+        ResourceKind::RoleBindings => ("rb", include_bytes!("svg/rb.svg")),
+        ResourceKind::ClusterRoles => ("c-role", include_bytes!("svg/c-role.svg")),
+        ResourceKind::ClusterRoleBindings => ("crb", include_bytes!("svg/crb.svg")),
         ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::CustomResource(_, _) | ResourceKind::ApiResources | ResourceKind::Api(_, _) => {
-            ("crd", include_bytes!("../assets/icons/crd.svg"))
+            ("crd", include_bytes!("svg/crd.svg"))
         }
         // Overview's tile isn't drawn with an icon at all (see `IconCache::draw`'s
         // caller), so this arm is never actually reached — a fallback is still
         // required since `icon_asset` is total over `ResourceKind`.
         // The command line shows Overview as a house.
-        ResourceKind::Overview => ("home", include_bytes!("../assets/icons/home.svg")),
+        ResourceKind::Overview => ("home", include_bytes!("svg/home.svg")),
     }
 }
 
@@ -66,12 +66,12 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
 /// Icons that are not a resource kind, by name.
 fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
     Some(match name {
-        "home" => ("home", include_bytes!("../assets/icons/home.svg")),
-        "door" => ("door", include_bytes!("../assets/icons/door.svg")),
-        "bell" => ("bell", include_bytes!("../assets/icons/bell.svg")),
-        "switch" => ("switch", include_bytes!("../assets/icons/switch.svg")),
-        "palette" => ("palette", include_bytes!("../assets/icons/palette.svg")),
-        "gear" => ("gear", include_bytes!("../assets/icons/gear.svg")),
+        "home" => ("home", include_bytes!("svg/home.svg")),
+        "door" => ("door", include_bytes!("svg/door.svg")),
+        "bell" => ("bell", include_bytes!("svg/bell.svg")),
+        "switch" => ("switch", include_bytes!("svg/switch.svg")),
+        "palette" => ("palette", include_bytes!("svg/palette.svg")),
+        "gear" => ("gear", include_bytes!("svg/gear.svg")),
         _ => return None,
     })
 }

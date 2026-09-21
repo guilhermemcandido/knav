@@ -1,8 +1,10 @@
 //! The interactive loop: draws the current `Mode` and handles keyboard/mouse input.
 
 mod derive;
+pub mod commands;
 mod draw;
 mod handlers;
+pub mod mode;
 mod state;
 
 use handlers::Cx;
@@ -79,8 +81,8 @@ pub(crate) fn run(
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing };
-        let breadcrumb_segments = breadcrumb(&st.mode, location(st.current_kind, &st.nav_stack, st.scope.as_ref()));
-        let screen = crate::keymap::screen_of(&st.mode, st.current_kind).unwrap_or(crate::keymap::Screen::Other);
+        let path_segments = full_path(&st.mode, location(st.current_kind, &st.nav_stack, st.scope.as_ref()));
+        let screen = crate::input::keymap::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
         let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         if !hints.is_empty() {
@@ -101,7 +103,7 @@ pub(crate) fn run(
             favorites: &st.favorites,
             hints: &hints,
             show_hints_panel: st.show_hints_panel,
-            breadcrumb: &breadcrumb_segments,
+            path: &path_segments,
             header_now: &header_now,
             search: &st.search,
             sort_view,
@@ -112,7 +114,7 @@ pub(crate) fn run(
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
         // A shell's output arrives on its own, so redraw quickly while one is open.
-        let wait = if matches!(st.mode, Mode::Shell { .. }) { crate::tunables::tunables().shell_redraw_ms } else { crate::tunables::tunables().idle_redraw_ms };
+        let wait = if matches!(st.mode, Mode::Shell { .. }) { crate::config::tunables::tunables().shell_redraw_ms } else { crate::config::tunables::tunables().idle_redraw_ms };
         if !event::poll(Duration::from_millis(wait))? {
             continue;
         }

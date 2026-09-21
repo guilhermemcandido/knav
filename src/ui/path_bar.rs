@@ -8,7 +8,7 @@ use super::*;
 /// The row highlighted in a list, shown at the end of the bar: a pod (with
 /// its containers), a deployment or node (with a short status note), or any
 /// other resource by name.
-pub struct BreadcrumbPod {
+pub struct SelectedItem {
     namespace: Option<String>,
     name: String,
     /// A short coloured status after the name (`● 1/1`, `● Ready`), dropped
@@ -18,9 +18,9 @@ pub struct BreadcrumbPod {
     containers: Vec<(Color, String, String)>,
 }
 
-impl BreadcrumbPod {
+impl SelectedItem {
     pub(super) fn from_pod(pod: &PodRow) -> Self {
-        BreadcrumbPod {
+        SelectedItem {
             namespace: Some(pod.namespace.clone()),
             name: pod.name.clone(),
             note: None,
@@ -29,7 +29,7 @@ impl BreadcrumbPod {
     }
 
     pub(super) fn from_deployment(dep: &DeploymentRow) -> Self {
-        BreadcrumbPod { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some((ready_color(&dep.ready), dep.ready.clone())), containers: Vec::new() }
+        SelectedItem { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some((ready_color(&dep.ready), dep.ready.clone())), containers: Vec::new() }
     }
 
     pub(super) fn from_node(node: &NodeRow) -> Self {
@@ -38,12 +38,12 @@ impl BreadcrumbPod {
             (true, false) => (theme().warn, "Ready, cordoned"),
             (false, _) => (theme().bad, "NotReady"),
         };
-        BreadcrumbPod { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new() }
+        SelectedItem { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new() }
     }
 
     pub(super) fn from_generic(row: &GenericRow) -> Self {
-        use crate::describe::Tone;
-        BreadcrumbPod {
+        use crate::k8s::describe::Tone;
+        SelectedItem {
             namespace: (row.namespace != "-").then(|| row.namespace.clone()),
             name: row.name.clone(),
             note: row.status.as_ref().map(|(tone, text)| {
@@ -61,7 +61,7 @@ impl BreadcrumbPod {
     }
 
     pub(super) fn from_crd(crd: &CrdInfo) -> Self {
-        BreadcrumbPod { namespace: Some(crd.group.to_string()), name: crd.kind.to_string(), note: None, containers: Vec::new() }
+        SelectedItem { namespace: Some(crd.group.to_string()), name: crd.kind.to_string(), note: None, containers: Vec::new() }
     }
 }
 
@@ -93,7 +93,7 @@ enum Detail {
     None,
 }
 
-fn build(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, caps: &[usize], detail: Detail) -> Line<'static> {
+fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], detail: Detail) -> Line<'static> {
     let kind_style = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let value_style = Style::default().fg(theme().text_soft);
     let punct_style = Style::default().fg(theme().muted);
@@ -140,7 +140,7 @@ fn build(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, caps: &[us
 }
 
 /// The bar's line for a terminal `width` cells wide.
-pub(super) fn breadcrumb_line(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, width: u16) -> Line<'static> {
+pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, width: u16) -> Line<'static> {
     let width = usize::from(width);
     // Give up container detail before touching any name.
     for detail in [Detail::Full, Detail::Dots, Detail::None] {
@@ -168,23 +168,23 @@ pub(super) fn breadcrumb_line(segments: &[BreadcrumbSegment], pod: Option<&Bread
 }
 
 /// The bar's line drawn on the last row of the screen, over everything.
-pub(super) fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment], pod: Option<BreadcrumbPod>) {
+pub(super) fn draw_path_bar(frame: &mut Frame, segments: &[PathSegment], pod: Option<SelectedItem>) {
     let area = frame.area();
     let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
-    frame.render_widget(Paragraph::new(breadcrumb_line(segments, pod.as_ref(), bar.width)), bar);
+    frame.render_widget(Paragraph::new(path_line(segments, pod.as_ref(), bar.width)), bar);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn seg(kind: &str, value: Option<&str>) -> BreadcrumbSegment {
-        BreadcrumbSegment { kind: kind.into(), value: value.map(String::from) }
+    fn seg(kind: &str, value: Option<&str>) -> PathSegment {
+        PathSegment { kind: kind.into(), value: value.map(String::from) }
     }
 
-    fn pod() -> BreadcrumbPod {
-        BreadcrumbPod {
+    fn pod() -> SelectedItem {
+        SelectedItem {
             namespace: Some("kube-system".into()),
             name: "local-path-provisioner-5d9d9885bc-f".into(),
             note: None,
@@ -198,13 +198,13 @@ mod tests {
 
     #[test]
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
-        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
-        let wide = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 100));
+        let node = SelectedItem { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
+        let wide = text(&path_line(&[seg("Nodes", None)], Some(&node), 100));
         assert!(wide.ends_with("worker-1 ● Ready"), "{wide}");
-        let tight = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 22));
+        let tight = text(&path_line(&[seg("Nodes", None)], Some(&node), 22));
         assert!(tight.ends_with("worker-1"), "{tight}");
-        let configmap = BreadcrumbPod { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
-        assert!(text(&breadcrumb_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt"));
+        let configmap = SelectedItem { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
+        assert!(text(&path_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt"));
     }
 
     #[test]
@@ -216,16 +216,16 @@ mod tests {
     #[test]
     fn a_wide_terminal_shows_everything() {
         let segments = [seg("Deployment", Some("web")), seg("Pods", None)];
-        let line = breadcrumb_line(&segments, Some(&pod()), 300);
+        let line = path_line(&segments, Some(&pod()), 300);
         assert!(text(&line).contains("● local-path-provisioner(Running)"));
     }
 
     #[test]
     fn container_detail_goes_before_names_are_touched() {
         let segments = [seg("Deployment", Some("local-path-provisioner")), seg("ReplicaSet", Some("local-path-provisioner-5d9d9885bc")), seg("Pods", None)];
-        let full = breadcrumb_line(&segments, Some(&pod()), 500).width();
+        let full = path_line(&segments, Some(&pod()), 500).width();
         // A little narrower than everything: the container text is dropped, the names are intact.
-        let line = breadcrumb_line(&segments, Some(&pod()), (full - 10) as u16);
+        let line = path_line(&segments, Some(&pod()), (full - 10) as u16);
         let t = text(&line);
         assert!(t.contains("local-path-provisioner-5d9d9885bc]"), "{t}");
         assert!(!t.contains("(Running)"), "{t}");
@@ -235,9 +235,9 @@ mod tests {
     fn it_always_fits_by_shortening_the_longest_names() {
         let segments = [seg("Deployment", Some("local-path-provisioner")), seg("ReplicaSet", Some("local-path-provisioner-5d9d9885bc")), seg("Pods", None)];
         for width in [120u16, 100, 80, 60] {
-            let line = breadcrumb_line(&segments, Some(&pod()), width);
+            let line = path_line(&segments, Some(&pod()), width);
             assert!(line.width() <= usize::from(width), "width {width}: {} > {width} in {:?}", line.width(), text(&line));
         }
-        assert!(text(&breadcrumb_line(&segments, Some(&pod()), 80)).contains('…'));
+        assert!(text(&path_line(&segments, Some(&pod()), 80)).contains('…'));
     }
 }

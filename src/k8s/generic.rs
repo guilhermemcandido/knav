@@ -37,9 +37,9 @@ pub struct GenericRow {
     pub age: String,
     pub age_secs: i64,
     /// Kind-specific columns (see `describe`), between NAME and AGE.
-    pub extras: Vec<crate::describe::Col>,
+    pub extras: Vec<crate::k8s::describe::Col>,
     /// A short coloured status for the bottom bar.
-    pub status: crate::describe::Note,
+    pub status: crate::k8s::describe::Note,
     pub uid: String,
     /// UIDs of this object's owners (`ownerReferences`) — what lets a
     /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
@@ -60,7 +60,7 @@ pub fn label_text(labels: Option<&std::collections::BTreeMap<String, String>>) -
     }
 }
 
-pub fn generic_row<K: kube::Resource + crate::describe::Extras>(item: &K) -> GenericRow {
+pub fn generic_row<K: kube::Resource + crate::k8s::describe::Extras>(item: &K) -> GenericRow {
     let meta = item.meta();
     let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
     let name = meta.name.clone().unwrap_or_default();

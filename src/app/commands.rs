@@ -1,6 +1,6 @@
 //! The `:` command line, the `m` menu's layout, and the context-switcher helpers.
 
-use super::*;
+use crate::*;
 
 /// The `m` menu's layout — same six categories as the Overview catalog.
 /// One shared function so the popup's render pass and its keyboard/Enter
@@ -405,14 +405,14 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn breadcrumb_is_none_for_plain_list() {
-        assert_eq!(breadcrumb(&Mode::List, location(ResourceKind::Pods, &[], None)), vec![plain_segment("Pods")]);
+    pub(crate) fn path_of_a_plain_list_is_one_segment() {
+        assert_eq!(full_path(&Mode::List, location(ResourceKind::Pods, &[], None)), vec![plain_segment("Pods")]);
     }
 
     #[test]
     fn a_popup_naming_the_selected_thing_replaces_its_list() {
         let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
-        let rendered: Vec<String> = breadcrumb(&node_detail, location(ResourceKind::Nodes, &[], None))
+        let rendered: Vec<String> = full_path(&node_detail, location(ResourceKind::Nodes, &[], None))
             .into_iter()
             .map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind })
             .collect();
@@ -424,7 +424,7 @@ mod tests {
         let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into() };
         let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into() };
         let trail = [(ResourceKind::Deployments, None, 0), (ResourceKind::ReplicaSets, Some(deployment), 1)];
-        let render = |segments: Vec<ui::BreadcrumbSegment>| -> String {
+        let render = |segments: Vec<ui::PathSegment>| -> String {
             segments.into_iter().map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind }).collect::<Vec<_>>().join(">>")
         };
         assert_eq!(render(location(ResourceKind::Pods, &trail, Some(&replicaset))), "Deployment[web]>>ReplicaSet[web-5d9d]>>Pods");
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn breadcrumb_walks_the_whole_back_chain_oldest_first() {
+    pub(crate) fn path_walks_the_whole_back_chain_oldest_first() {
         let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
         let containers = Mode::Containers {
             title: "default/web-1".into(),
@@ -446,7 +446,7 @@ mod tests {
             sort: ListSort::default(),
             back: Box::new(node_detail),
         };
-        let rendered: Vec<String> = breadcrumb(&containers, location(ResourceKind::Overview, &[], None))
+        let rendered: Vec<String> = full_path(&containers, location(ResourceKind::Overview, &[], None))
             .into_iter()
             .map(|s| match s.value {
                 Some(v) => format!("{}[{v}]", s.kind),

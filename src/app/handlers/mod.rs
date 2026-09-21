@@ -64,7 +64,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     // Your key bindings: the key pressed becomes the built-in key of the
     // action it is bound to (or is dropped if that action moved elsewhere).
     let event = match event {
-        Event::Key(key) => match crate::keymap::screen_of(&st.mode, st.current_kind) {
+        Event::Key(key) => match crate::input::keymap::screen_of(&st.mode, st.current_kind) {
             Some(screen) => match st.keymap.translate(screen, &key) {
                 Some(translated) => Event::Key(translated),
                 None => return Ok(None),

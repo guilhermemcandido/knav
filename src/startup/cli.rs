@@ -1,6 +1,6 @@
 //! Command-line arguments and startup context resolution.
 
-use super::*;
+use crate::*;
 
 /// Command-line arguments — deliberately hand-rolled instead of pulling in
 /// a full argument-parsing crate for what's currently a single flag.

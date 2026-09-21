@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
-use super::*;
+use crate::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Scope {

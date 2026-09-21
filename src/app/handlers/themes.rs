@@ -29,7 +29,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::PageUp => (0..10).for_each(|_| select_prev(state, len)),
                 KeyCode::Enter => {
                     if let Some(entry) = state.selected().and_then(|i| entries.get(i)) {
-                        match crate::settings::save(&Config::path(), "theme.preset", Some(toml_edit::Value::from(entry.name.as_str()))) {
+                        match crate::config::settings::save(&Config::path(), "theme.preset", Some(toml_edit::Value::from(entry.name.as_str()))) {
                             Ok(config) => saved = Some(config),
                             Err(e) => notice = Some(format!("{e:#}")),
                         }
@@ -64,7 +64,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         match saved {
             Some(config) => st.reload(config),
             None => {
-                crate::settings::apply(&st.config);
+                crate::config::settings::apply(&st.config);
             }
         }
     }

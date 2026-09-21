@@ -16,7 +16,7 @@ use ratatui::{
 };
 
 use crate::theme::theme;
-use crate::fuzzy;
+use crate::startup::fuzzy;
 use crate::k8s::ContextInfo;
 
 /// Runs the picker to completion and restores the terminal before

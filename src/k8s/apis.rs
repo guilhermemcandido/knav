@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::task::JoinHandle;
 
 use super::*;
-use crate::describe::{Col, Tone};
+use crate::k8s::describe::{Col, Tone};
 
 /// One listable resource type, from discovery.
 #[derive(Clone, Debug)]
@@ -190,7 +190,7 @@ impl TableKind {
                             Err(e) => data.error = Some(format!("{e:#}")),
                         }
                     }
-                    tokio::time::sleep(Duration::from_secs(crate::tunables::tunables().api_refresh_seconds.max(1))).await;
+                    tokio::time::sleep(Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1))).await;
                 }
             })
         };
