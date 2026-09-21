@@ -11,8 +11,9 @@ use super::*;
 pub struct BreadcrumbPod {
     namespace: Option<String>,
     name: String,
-    /// A short status in brackets (`1/1`, `Ready`), dropped when space is short.
-    note: Option<String>,
+    /// A short coloured status after the name (`● 1/1`, `● Ready`), dropped
+    /// when space is short.
+    note: Option<(Color, String)>,
     /// `(dot colour, container name, state)` per container — pods only.
     containers: Vec<(Color, String, String)>,
 }
@@ -28,16 +29,16 @@ impl BreadcrumbPod {
     }
 
     pub(super) fn from_deployment(dep: &DeploymentRow) -> Self {
-        BreadcrumbPod { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some(format!("{} ready", dep.ready)), containers: Vec::new() }
+        BreadcrumbPod { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some((ready_color(&dep.ready), dep.ready.clone())), containers: Vec::new() }
     }
 
     pub(super) fn from_node(node: &NodeRow) -> Self {
-        let status = match (node.ready, node.schedulable) {
-            (true, true) => "Ready",
-            (true, false) => "Ready, cordoned",
-            (false, _) => "NotReady",
+        let (color, status) = match (node.ready, node.schedulable) {
+            (true, true) => (Color::Green, "Ready"),
+            (true, false) => (Color::Yellow, "Ready, cordoned"),
+            (false, _) => (Color::Red, "NotReady"),
         };
-        BreadcrumbPod { namespace: None, name: node.name.clone(), note: Some(status.to_string()), containers: Vec::new() }
+        BreadcrumbPod { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new() }
     }
 
     pub(super) fn from_generic(row: &GenericRow) -> Self {
@@ -107,8 +108,8 @@ fn build(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, caps: &[us
             Some(namespace) => spans.extend(namespace_name_spans(&cap(ns_cap, namespace), &cap(name_cap, &pod.name))),
             None => spans.push(Span::styled(cap(name_cap, &pod.name), Style::default().add_modifier(Modifier::BOLD))),
         }
-        if let (Some(note), Detail::Full) = (&pod.note, detail) {
-            spans.push(Span::styled(format!(" [{note}]"), value_style));
+        if let (Some((color, note)), Detail::Full) = (&pod.note, detail) {
+            spans.push(Span::styled(format!(" ● {note}"), Style::default().fg(*color)));
         }
         if !matches!(detail, Detail::None) && !pod.containers.is_empty() {
             spans.push(Span::raw(" ["));
@@ -187,9 +188,9 @@ mod tests {
 
     #[test]
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
-        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some("Ready".into()), containers: Vec::new() };
+        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some((Color::Green, "Ready".into())), containers: Vec::new() };
         let wide = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 100));
-        assert!(wide.ends_with("worker-1 [Ready]"), "{wide}");
+        assert!(wide.ends_with("worker-1 ● Ready"), "{wide}");
         let tight = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 22));
         assert!(tight.ends_with("worker-1"), "{tight}");
         let configmap = BreadcrumbPod { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };

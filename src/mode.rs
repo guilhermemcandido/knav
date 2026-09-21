@@ -256,7 +256,17 @@ pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Optio
 /// popups.
 pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> Vec<ui::BreadcrumbSegment> {
     let mut segments = location;
-    segments.extend(breadcrumb_path(mode));
+    let path = breadcrumb_path(mode);
+    // `Nodes>>Node[worker-1]` says the same thing twice: once a popup names
+    // the specific one (`Node[...]`, `Pod[...]`), it replaces its list.
+    if let (Some(list), Some(first)) = (segments.last(), path.first())
+        && first.value.is_some()
+        && list.value.is_none()
+        && list.kind.strip_suffix('s') == Some(first.kind.as_str())
+    {
+        segments.pop();
+    }
+    segments.extend(path);
     segments
 }
 

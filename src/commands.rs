@@ -369,6 +369,16 @@ mod tests {
     }
 
     #[test]
+    fn a_popup_naming_the_selected_thing_replaces_its_list() {
+        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
+        let rendered: Vec<String> = breadcrumb(&node_detail, location(ResourceKind::Nodes, &[], None))
+            .into_iter()
+            .map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind })
+            .collect();
+        assert_eq!(rendered.join(">>"), "Node[worker-1]");
+    }
+
+    #[test]
     fn location_names_each_drilled_thing_once_then_the_list() {
         let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into() };
         let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into() };

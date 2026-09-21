@@ -170,6 +170,17 @@ pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &T
     (index < row_count).then_some(index)
 }
 
+/// Green when every desired replica is ready (`3/3`), yellow when some
+/// aren't (`0/1`, `2/3`), grey when nothing is desired (`0/0`).
+pub(super) fn ready_color(ready: &str) -> Color {
+    let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
+    match (parts.next(), parts.next()) {
+        (Some(_), Some(0)) => Color::DarkGray,
+        (Some(have), Some(want)) if have >= want => Color::Green,
+        _ => Color::Yellow,
+    }
+}
+
 pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
@@ -188,7 +199,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
-            Cell::from(d.ready.clone()).style(cell_style),
+            Cell::from(d.ready.clone()).style(if dimmed { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
@@ -411,6 +422,16 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 #[cfg(test)]
 mod generic_table_tests {
     use super::*;
+
+    #[test]
+    fn ready_is_green_when_complete_yellow_when_not_grey_when_nothing_is_wanted() {
+        assert_eq!(ready_color("1/1"), Color::Green);
+        assert_eq!(ready_color("3/3"), Color::Green);
+        assert_eq!(ready_color("0/1"), Color::Yellow);
+        assert_eq!(ready_color("2/3"), Color::Yellow);
+        assert_eq!(ready_color("0/0"), Color::DarkGray);
+        assert_eq!(ready_color("junk"), Color::Yellow);
+    }
 
     fn row(namespace: &str) -> GenericRow {
         GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, uid: String::new(), owners: Vec::new() }

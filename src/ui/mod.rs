@@ -266,17 +266,20 @@ pub fn draw(
     // The keyboard-selected row, shown at the end of the breadcrumb bar
     // (only while nothing is open on top of the list).
     let selected_row = table_state.selected();
-    let selected_pod: Option<BreadcrumbPod> = if dimmed {
-        None
-    } else {
-        match &rows {
+    let selected_pod: Option<BreadcrumbPod> = match &overlay {
+        // A node's own view: the pod highlighted in its pods table.
+        Some(Overlay::NodeDetail { pods, state, .. }) if background.is_none() => {
+            state.selected().and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod)
+        }
+        _ if dimmed => None,
+        _ => match &rows {
             Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod),
             Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(BreadcrumbPod::from_deployment),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(BreadcrumbPod::from_node),
             Rows::Generic(rows, _) => selected_row.and_then(|i| rows.get(i)).map(BreadcrumbPod::from_generic),
             Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| BreadcrumbPod::from_crd(crd)),
             Rows::Overview(..) => None,
-        }
+        },
     };
     match rows {
         Rows::Pods(pods) => {
