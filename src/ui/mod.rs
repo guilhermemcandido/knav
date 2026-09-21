@@ -85,6 +85,7 @@ pub enum Rows<'a> {
 }
 
 pub struct MenuSection<'a> {
+    #[allow(dead_code)]
     pub title: &'a str,
     pub tiles: Vec<ResourceKind>,
 }
@@ -243,7 +244,7 @@ impl SettingsTab {
         match self {
             SettingsTab::General => "General",
             SettingsTab::Keys => "Keys",
-            SettingsTab::Overview => "Home layout",
+            SettingsTab::Overview => "Layout",
         }
     }
 

@@ -100,7 +100,7 @@ pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u
 /// table row, since the point is showing the *un*truncated message a
 /// narrow MESSAGE column would otherwise clip.
 pub(in crate::ui) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
-    let area = centered_rect(70, 50, frame.area());
+    let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
 
     let color = match (entry.severity, entry.kind.as_str()) {

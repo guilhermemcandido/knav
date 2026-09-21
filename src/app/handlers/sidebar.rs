@@ -21,7 +21,7 @@ fn shown(st: &State, cx: &Cx) -> bool {
 }
 
 fn entries(st: &State, cx: &Cx) -> Vec<Entry> {
-    rows::entries(st.current_kind, &st.sidebar_folded, &cx.catalog.crds, &cx.d.overview)
+    rows::entries(st.current_kind, &st.sidebar_folded, cx.catalog, &cx.d.overview)
 }
 
 fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {

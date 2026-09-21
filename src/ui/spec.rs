@@ -6,7 +6,8 @@ use super::*;
 /// Node colours are baked into each `TreeItem`, so only the border, title and
 /// selection are muted.
 pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, dimmed: bool) {
-    let area = centered_rect(85, 85, frame.area());
+    // Full width, so selecting text with the mouse never takes in what is behind.
+    let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
 
     let border_style = if dimmed { dim_style() } else { Style::default() };
@@ -28,7 +29,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
 /// A leaf's full value, opened by `v`. Wrapped plain text, since the tree clips
 /// long values.
 pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &str) {
-    let area = centered_rect(70, 50, frame.area());
+    let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
 
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(pill_title(label, false, Style::default()));

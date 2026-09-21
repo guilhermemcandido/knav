@@ -159,9 +159,9 @@ the new key and confirm. `r` resets one to its default. Changes save to `config.
 comments and other settings stay) and apply at once, except the few marked "restart to apply".
 
 The settings screen has three tabs, switched with `Tab` / `Shift-Tab` or a click: **General**,
-**Keys** and **Home layout**. The last one reorders Home (the start screen): `K` / `J` (or `Shift` with the
+**Keys** and **Layout**. The last one reorders and hides categories and kinds, for both Home (the start screen) and the Browse sidebar: `K` / `J` (or `Shift` with the
 arrows) move a category or a kind up and down, `Space` hides or shows it, `r` restores the default.
-Kinds stay inside their category, and the sidebar keeps its own order. In the file:
+Kinds stay inside their category. In the file:
 
 ```toml
 [overview]

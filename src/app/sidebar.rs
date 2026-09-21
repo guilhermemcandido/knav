@@ -16,20 +16,23 @@ pub(crate) fn folded_by_default() -> HashSet<&'static str> {
     HashSet::from(["Custom Resources"])
 }
 
-/// Every visible row, with live counts from the Home catalog.
-pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, crds: &[k8s::CrdInfo], overview: &k8s::Overview) -> Vec<Entry> {
-    let counts: HashMap<&str, usize> = overview.catalog.iter().flat_map(|(_, items)| items.iter().copied()).collect();
+/// Every visible row, in the order and with the entries of the Home catalog (so the Layout
+/// settings shape both), with its live counts.
+pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, catalog: &Catalog, overview: &k8s::Overview) -> Vec<Entry> {
     let mut out = vec![Entry { row: ui::SidebarRow { label: "Home".into(), heading: false, collapsed: false, count: None, current: current == ResourceKind::Overview }, kind: Some(ResourceKind::Overview), section: "" }];
-    for section in commands::menu_sections(crds) {
-        let collapsed = folded.contains(section.title);
-        let title: &'static str = section.title;
-        out.push(Entry { row: ui::SidebarRow { label: title.into(), heading: true, collapsed, count: None, current: false }, kind: None, section: title });
+    for (title, items) in &overview.catalog {
+        let collapsed = folded.contains(title);
+        out.push(Entry { row: ui::SidebarRow { label: (*title).into(), heading: true, collapsed, count: None, current: false }, kind: None, section: title });
         if collapsed {
             continue;
         }
-        for kind in section.tiles.into_iter().filter(|k| *k != ResourceKind::Overview) {
-            let label = kind.label();
-            out.push(Entry { row: ui::SidebarRow { label: label.to_string(), heading: false, collapsed: false, count: counts.get(label).copied(), current: kind == current }, kind: Some(kind), section: title });
+        let mut kinds: Vec<(&'static str, Option<usize>, ResourceKind)> = items.iter().filter_map(|(label, count)| catalog.kind_for_tile_label(label).map(|kind| (*label, Some(*count), kind))).collect();
+        // Port-forwards are knav's own, so the catalog has no tile for them.
+        if *title == "Network" {
+            kinds.push(("Port-forwards", None, ResourceKind::PortForwards));
+        }
+        for (label, count, kind) in kinds {
+            out.push(Entry { row: ui::SidebarRow { label: label.to_string(), heading: false, collapsed: false, count, current: kind == current }, kind: Some(kind), section: title });
         }
     }
     out

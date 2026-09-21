@@ -13,6 +13,11 @@ fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str>
     out
 }
 
+/// The lines the logs view shows, as text (filter and order applied), for copying.
+pub fn logs_text(lines: &[String], filter: &str, order: LogOrder) -> String {
+    shown(lines, filter, order).join("\n")
+}
+
 /// Case-insensitive `contains` for an already lowercased `needle`, without copying the line
 /// when both are ASCII.
 fn contains_ci(hay: &str, needle: &str) -> bool {
@@ -58,7 +63,7 @@ fn rows_of(raw: &str, format: TimestampFormat, filter: &str, width: usize) -> Ve
 
 /// The inside of the logs popup, where rows are wrapped.
 fn text_area(frame_area: Rect) -> Rect {
-    let area = centered_rect(90, 90, frame_area);
+    let area = body_area(frame_area, true);
     Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) }
 }
 
@@ -87,7 +92,8 @@ pub(super) fn draw_logs_popup(
     filter: &str,
     filter_editing: bool,
 ) {
-    let area = centered_rect(90, 90, frame.area());
+    // The whole width of the body, so selecting text with the mouse never takes in what is behind.
+    let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let ordered = shown(lines, filter, order);
 

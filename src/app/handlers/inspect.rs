@@ -219,6 +219,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 *order = order.toggled();
                 *follow = true;
             }
+            // `c` copies the lines shown (the filter and order applied) to the clipboard.
+            KeyCode::Char('c') => {
+                let text = ui::logs_text(lines, filter, *order);
+                let count = text.lines().count();
+                let outcome = match clipboard::copy(&text) {
+                    Ok(how) => actions::Outcome { text: format!("Copied {count} log lines with {how}"), error: false },
+                    Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                };
+                let back = std::mem::replace(&mut st.mode, Mode::List);
+                st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+            }
             _ => {}
         },
         (Event::Mouse(mouse), Mode::Containers { containers, state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {

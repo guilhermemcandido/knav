@@ -106,7 +106,7 @@ pub(crate) fn run(
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {
-            let all = sidebar::entries(st.current_kind, &st.sidebar_folded, &catalog.crds, overview);
+            let all = sidebar::entries(st.current_kind, &st.sidebar_folded, catalog, overview);
             let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
             ui::set_sidebar(Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus }));
         } else {
