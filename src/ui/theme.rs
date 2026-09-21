@@ -179,8 +179,8 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
     let cells = window.range().map(|i| {
         let name = names[i];
         let mut spans = Vec::new();
-        if sort.choosing {
-            // Columns 1-9 are keys 1-9; the tenth is key 0.
+        if sort.choosing && i < 10 {
+            // Columns 1-9 are keys 1-9; the tenth is key 0; later ones have none.
             spans.push(Span::styled(format!("({})", (i + 1) % 10), number));
         }
         spans.push(Span::styled(name.to_string(), text));

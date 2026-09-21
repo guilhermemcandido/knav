@@ -302,7 +302,7 @@ pub fn draw(
     let is_overview = matches!(rows, Rows::Overview(..));
     match rows {
         Rows::Pods(pods) => {
-            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, dimmed);
+            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, dimmed);
 
             // The mouse-hover popup is separate from the status line and
             // only appears while actively hovering over a container dot
@@ -316,16 +316,16 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, header.wide, dimmed);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label, kind_headers) => {
-            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, dimmed);
+            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, header.wide, dimmed);
         }
         Rows::CrdList(crds, heading) => {
             draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, hscroll, dimmed);

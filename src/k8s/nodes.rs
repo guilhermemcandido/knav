@@ -63,6 +63,11 @@ pub struct NodeRow {
     pub pod_count: usize,
     pub pod_capacity: i64,
     pub taints: usize,
+    /// Address, OS, kernel and runtime, for the wide view.
+    pub internal_ip: String,
+    pub os_image: String,
+    pub kernel: String,
+    pub runtime: String,
     pub age: String,
     pub age_secs: i64,
 }
@@ -104,7 +109,19 @@ pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_coun
     let capacity = node_capacity(node);
     let age = node.metadata.creation_timestamp.as_ref().map(|t| humanize_age(t.0)).unwrap_or_else(|| "-".into());
 
+    let info = node.status.as_ref().and_then(|s| s.node_info.as_ref());
+    let internal_ip = node
+        .status
+        .as_ref()
+        .and_then(|s| s.addresses.as_ref())
+        .and_then(|a| a.iter().find(|a| a.type_ == "InternalIP"))
+        .map(|a| a.address.clone())
+        .unwrap_or_else(|| "-".into());
     NodeRow {
+        internal_ip,
+        os_image: info.map(|i| i.os_image.clone()).unwrap_or_else(|| "-".into()),
+        kernel: info.map(|i| i.kernel_version.clone()).unwrap_or_else(|| "-".into()),
+        runtime: info.map(|i| i.container_runtime_version.clone()).unwrap_or_else(|| "-".into()),
         name,
         ready,
         schedulable,

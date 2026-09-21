@@ -48,6 +48,7 @@ impl Forward {
             status: Some((Tone::Good, self.label())),
             uid: format!("forward-{}", self.local),
             owners: Vec::new(),
+            labels: String::new(),
         }
     }
 

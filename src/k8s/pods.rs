@@ -24,6 +24,9 @@ pub struct PodRow {
     /// What controls it — the kind of its owner (`ReplicaSet`, `Job`), or `-`.
     pub controlled_by: String,
     pub qos: String,
+    /// Pod IP and the images it runs, for the wide view.
+    pub ip: String,
+    pub images: String,
     pub age: String,
     pub age_secs: i64,
 }
@@ -176,7 +179,9 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let age_secs = age_seconds(pod.metadata.creation_timestamp.as_ref());
     let controlled_by = pod.metadata.owner_references.as_ref().and_then(|o| o.first()).map(|o| o.kind.clone()).unwrap_or_else(|| "-".into());
     let qos = status.qos_class.unwrap_or_else(|| "-".into());
-    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, age, age_secs }
+    let ip = status.pod_ip.clone().unwrap_or_else(|| "-".into());
+    let images = pod.spec.as_ref().map(|s| s.containers.iter().filter_map(|c| c.image.clone()).collect::<Vec<_>>().join(",")).filter(|i| !i.is_empty()).unwrap_or_else(|| "-".into());
+    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs }
 }
 
 /// Starts a background watch on every Pod in the cluster and keeps an

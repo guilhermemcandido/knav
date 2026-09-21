@@ -89,12 +89,12 @@ const CRD_COLUMNS: usize = 3;
 /// How many sortable columns the list for `kind` has. `generic_columns` is
 /// the current generic table's width (namespace if any, name, the kind's
 /// own columns, age).
-pub(crate) fn column_count(kind: ResourceKind, generic_columns: usize) -> usize {
+pub(crate) fn column_count(kind: ResourceKind, generic_columns: usize, wide: bool) -> usize {
     match kind {
         ResourceKind::Overview => 0,
-        ResourceKind::Pods => POD_COLUMNS,
-        ResourceKind::Deployments => DEPLOYMENT_COLUMNS,
-        ResourceKind::Nodes => NODE_COLUMNS,
+        ResourceKind::Pods => POD_COLUMNS + if wide { 2 } else { 0 },
+        ResourceKind::Deployments => DEPLOYMENT_COLUMNS + usize::from(wide),
+        ResourceKind::Nodes => NODE_COLUMNS + if wide { 4 } else { 0 },
         ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => CRD_COLUMNS,
         _ => generic_columns,
     }
@@ -118,7 +118,7 @@ fn ready_fraction(ready: &str) -> i64 {
     }
 }
 
-pub(crate) fn pod_key(row: &k8s::PodRow, column: usize) -> Key {
+pub(crate) fn pod_key(row: &k8s::PodRow, column: usize, wide: bool) -> Key {
     match column {
         0 => text(&row.namespace),
         1 => text(&row.name),
@@ -129,22 +129,25 @@ pub(crate) fn pod_key(row: &k8s::PodRow, column: usize) -> Key {
         6 => text(&row.node),
         7 => text(&row.qos),
         8 => Key::Num(row.age_secs),
+        9 if wide => text(&row.ip),
+        10 if wide => text(&row.images),
         _ => Key::Num(row.containers.len() as i64),
     }
 }
 
-pub(crate) fn deployment_key(row: &k8s::DeploymentRow, column: usize) -> Key {
+pub(crate) fn deployment_key(row: &k8s::DeploymentRow, column: usize, wide: bool) -> Key {
     match column {
         0 => text(&row.namespace),
         1 => text(&row.name),
         2 => Key::Num(ready_fraction(&row.ready)),
         3 => Key::Num(i64::from(row.up_to_date)),
         4 => Key::Num(i64::from(row.available)),
+        6 if wide => text(&row.images),
         _ => Key::Num(row.age_secs),
     }
 }
 
-pub(crate) fn node_key(row: &k8s::NodeRow, column: usize) -> Key {
+pub(crate) fn node_key(row: &k8s::NodeRow, column: usize, wide: bool) -> Key {
     match column {
         0 => text(&row.name),
         // NotReady, then cordoned, then ready — the order you want to see problems in.
@@ -159,6 +162,10 @@ pub(crate) fn node_key(row: &k8s::NodeRow, column: usize) -> Key {
         5 => Key::Num(row.memory_bytes.unwrap_or(-1)),
         6 => Key::Num(row.pod_count as i64),
         7 => Key::Num(row.age_secs),
+        9 if wide => text(&row.internal_ip),
+        10 if wide => text(&row.os_image),
+        11 if wide => text(&row.kernel),
+        12 if wide => text(&row.runtime),
         _ => text(&row.version),
     }
 }
@@ -174,7 +181,9 @@ pub(crate) fn generic_key(row: &k8s::GenericRow, column: usize, has_namespace: b
             let extra = &row.extras[c - 2];
             extra.sort.map_or_else(|| text(&extra.text), Key::Num)
         }
-        _ => Key::Num(row.age_secs),
+        c if c == row.extras.len() + 2 => Key::Num(row.age_secs),
+        // Past AGE: the wide view's LABELS.
+        _ => text(&row.labels),
     }
 }
 
@@ -321,6 +330,7 @@ mod tests {
             status: None,
             uid: String::new(),
             owners: Vec::new(),
+            labels: String::new(),
         };
         assert_eq!(generic_key(&row, 0, true), Key::Text("ns".into()));
         assert_eq!(generic_key(&row, 0, false), Key::Text("web".into()));
@@ -342,6 +352,7 @@ mod tests {
             status: None,
             uid: String::new(),
             owners: Vec::new(),
+            labels: String::new(),
         };
         assert_eq!(generic_key(&row, 2, true), Key::Num(10), "numeric, so 10 sorts after 9");
         assert_eq!(generic_key(&row, 3, true), Key::Text("opaque".into()));
@@ -350,9 +361,10 @@ mod tests {
 
     #[test]
     fn column_counts_match_the_tables() {
-        assert_eq!(column_count(ResourceKind::Pods, 0), POD_COLUMNS);
-        assert_eq!(column_count(ResourceKind::ConfigMaps, 5), 5);
-        assert_eq!(column_count(ResourceKind::Nodes, 0), NODE_COLUMNS);
-        assert_eq!(column_count(ResourceKind::Overview, 3), 0);
+        assert_eq!(column_count(ResourceKind::Pods, 0, false), POD_COLUMNS);
+        assert_eq!(column_count(ResourceKind::Pods, 0, true), POD_COLUMNS + 2);
+        assert_eq!(column_count(ResourceKind::ConfigMaps, 5, false), 5);
+        assert_eq!(column_count(ResourceKind::Nodes, 0, false), NODE_COLUMNS);
+        assert_eq!(column_count(ResourceKind::Overview, 3, true), 0);
     }
 }

@@ -72,11 +72,11 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
     let border_style = theme_border(dimmed);
 
-    let window = pod_window(pods, area.width, hscroll);
-    let header = header_row(&POD_HEADERS, sort, dimmed, &window);
+    let window = pod_window(pods, area.width, hscroll, wide);
+    let header = header_row(&pod_headers(wide), sort, dimmed, &window);
 
     let rows = pods.iter().map(|p| {
         // The whole row wears its state: red when broken, orange while
@@ -85,7 +85,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
         let ready_style = if dimmed || tone != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) };
-        Row::new(window.slice(vec![
+        let mut cells = vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
             Cell::from(p.ready.clone()).style(ready_style),
@@ -95,8 +95,13 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
             Cell::from(p.node.clone()).style(cell_style),
             Cell::from(p.qos.clone()).style(cell_style),
             Cell::from(p.age.clone()).style(cell_style),
-            Cell::from(containers_cell(&p.containers, dimmed)),
-        ]))
+        ];
+        if wide {
+            cells.push(Cell::from(p.ip.clone()).style(cell_style));
+            cells.push(Cell::from(p.images.clone()).style(cell_style));
+        }
+        cells.push(Cell::from(containers_cell(&p.containers, dimmed)));
+        Row::new(window.slice(cells))
     });
 
     let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
@@ -113,13 +118,22 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
     frame.render_stateful_widget(table, area, table_state);
 }
 
-const POD_HEADERS: [&str; 10] = ["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CONTROLLER", "NODE", "QOS", "AGE", "CONTAINERS"];
+/// The pods table's headers; the wide view adds IP and IMAGES before
+/// CONTAINERS, which stays last.
+fn pod_headers(wide: bool) -> Vec<&'static str> {
+    let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CONTROLLER", "NODE", "QOS", "AGE"];
+    if wide {
+        headers.extend(["IP", "IMAGES"]);
+    }
+    headers.push("CONTAINERS");
+    headers
+}
 
 /// The pods table's visible columns — shared by drawing and by hover
 /// hit-testing so they can't disagree about where CONTAINERS is.
-fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window {
+fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool) -> Window {
     let rows = pods.iter().map(|p| {
-        vec![
+        let mut widths = vec![
             cell_width(&p.namespace),
             cell_width(&p.name),
             cell_width(&p.ready),
@@ -129,10 +143,15 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window 
             cell_width(&p.node),
             cell_width(&p.qos),
             cell_width(&p.age),
-            p.containers.len() * 2,
-        ]
+        ];
+        if wide {
+            widths.push(cell_width(&p.ip));
+            widths.push(cell_width(&p.images));
+        }
+        widths.push(p.containers.len() * 2);
+        widths
     });
-    layout_table(&POD_HEADERS, rows, table_width.saturating_sub(2), None, hscroll)
+    layout_table(&pod_headers(wide), rows, table_width.saturating_sub(2), None, hscroll)
 }
 
 /// Which pod row sits under an absolute terminal position, restricted to
@@ -154,7 +173,7 @@ pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) 
     (index < row_count).then_some(index)
 }
 
-pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
+pub fn row_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area = frame_area;
 
     let inner = Rect {
@@ -168,10 +187,10 @@ pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &T
         return None;
     }
 
-    let window = pod_window(pods, table_area.width, &mut { hscroll });
+    let window = pod_window(pods, table_area.width, &mut { hscroll }, wide);
     let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
     // CONTAINERS is the last column; nothing to hover if it's scrolled away.
-    let containers_col = if window.range().end == POD_HEADERS.len() { columns.last()? } else { return None };
+    let containers_col = if window.range().end == pod_headers(wide).len() { columns.last()? } else { return None };
     if column < containers_col.x || column >= containers_col.x + containers_col.width {
         return None;
     }
@@ -209,30 +228,43 @@ pub(super) fn ready_tone(ready: &str) -> crate::describe::Tone {
     }
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
     let border_style = theme_border(dimmed);
 
-    const HEADERS: [&str; 6] = ["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
+    let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
+    if wide {
+        headers.push("IMAGES");
+    }
     let window = layout_table(
-        &HEADERS,
-        deployments.iter().map(|d| vec![cell_width(&d.namespace), cell_width(&d.name), cell_width(&d.ready), d.up_to_date.to_string().len(), d.available.to_string().len(), cell_width(&d.age)]),
+        &headers,
+        deployments.iter().map(|d| {
+            let mut widths = vec![cell_width(&d.namespace), cell_width(&d.name), cell_width(&d.ready), d.up_to_date.to_string().len(), d.available.to_string().len(), cell_width(&d.age)];
+            if wide {
+                widths.push(cell_width(&d.images));
+            }
+            widths
+        }),
         area.width.saturating_sub(2),
         None,
         hscroll,
     );
-    let header = header_row(&HEADERS, sort, dimmed, &window);
+    let header = header_row(&headers, sort, dimmed, &window);
 
     let rows = deployments.iter().map(|d| {
         // A deployment short of its replicas turns orange (red with none available).
         let cell_style = row_tone_style(ready_tone(&d.ready), dimmed);
-        Row::new(window.slice(vec![
+        let mut cells = vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
             Cell::from(d.ready.clone()).style(if dimmed || ready_tone(&d.ready) != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
-        ]))
+        ];
+        if wide {
+            cells.push(Cell::from(d.images.clone()).style(cell_style));
+        }
+        Row::new(window.slice(cells))
     });
 
     let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
@@ -294,16 +326,19 @@ fn node_status_text(n: &NodeRow) -> String {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
     let border_style = theme_border(dimmed);
 
-    const HEADERS: [&str; 9] = ["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
+    let mut headers = vec!["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
+    if wide {
+        headers.extend(["INTERNAL-IP", "OS-IMAGE", "KERNEL", "RUNTIME"]);
+    }
     // `[▓▓▓▓▓▓▓▓▓▓] 100%` — the usage bars are a fixed width.
     const BAR_WIDTH: usize = 17;
     let window = layout_table(
-        &HEADERS,
+        &headers,
         nodes.iter().map(|n| {
-            vec![
+            let mut widths = vec![
                 cell_width(&n.name),
                 cell_width(&node_status_text(n)),
                 cell_width(&n.roles),
@@ -313,13 +348,17 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
                 cell_width(&format!("{}/{}", n.pod_count, n.pod_capacity)),
                 cell_width(&n.age),
                 cell_width(&n.version),
-            ]
+            ];
+            if wide {
+                widths.extend([cell_width(&n.internal_ip), cell_width(&n.os_image), cell_width(&n.kernel), cell_width(&n.runtime)]);
+            }
+            widths
         }),
         area.width.saturating_sub(2),
         None,
         hscroll,
     );
-    let header = header_row(&HEADERS, sort, dimmed, &window);
+    let header = header_row(&headers, sort, dimmed, &window);
 
     let rows = nodes.iter().map(|n| {
         let tone = match (n.ready, n.schedulable) {
@@ -330,7 +369,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
         let status = node_status_text(n);
-        Row::new(window.slice(vec![
+        let mut cells = vec![
             Cell::from(highlight_fuzzy(&n.name, search.text, cell_style)),
             Cell::from(status).style(status_style),
             Cell::from(n.roles.clone()).style(cell_style),
@@ -340,7 +379,13 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
             Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)).style(cell_style),
             Cell::from(n.age.clone()).style(cell_style),
             Cell::from(n.version.clone()).style(cell_style),
-        ]))
+        ];
+        if wide {
+            for text in [&n.internal_ip, &n.os_image, &n.kernel, &n.runtime] {
+                cells.push(Cell::from(text.clone()).style(cell_style));
+            }
+        }
+        Row::new(window.slice(cells))
     });
 
     let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
@@ -368,7 +413,7 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
     let border_style = theme_border(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
@@ -381,6 +426,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     headers.push("NAME");
     headers.extend(kind_headers.iter().copied());
     headers.push("AGE");
+    if wide {
+        headers.push("LABELS");
+    }
 
     let window = layout_table(
         &headers,
@@ -392,6 +440,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
             widths.push(cell_width(&r.name));
             widths.extend(r.extras.iter().map(|c| cell_width(&c.text)));
             widths.push(cell_width(&r.age));
+            if wide {
+                widths.push(cell_width(&r.labels));
+            }
             widths
         }),
         area.width.saturating_sub(2),
@@ -415,6 +466,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
         cells.extend(r.extras.iter().map(|c| Cell::from(c.text.clone()).style(if c.tone == Tone::Plain { cell_style } else { tone_style(c.tone, dimmed) })));
         cells.push(Cell::from(r.age.clone()).style(cell_style));
+        if wide {
+            cells.push(Cell::from(r.labels.clone()).style(cell_style));
+        }
         Row::new(window.slice(cells))
     });
 
@@ -509,7 +563,7 @@ mod generic_table_tests {
     }
 
     fn row(namespace: &str) -> GenericRow {
-        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, extras: Vec::new(), status: None, uid: String::new(), owners: Vec::new() }
+        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, extras: Vec::new(), status: None, uid: String::new(), owners: Vec::new(), labels: String::new() }
     }
 
     #[test]

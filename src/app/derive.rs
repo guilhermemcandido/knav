@@ -35,6 +35,8 @@ pub(super) struct Query<'a> {
     pub sort: Option<SortSpec>,
     /// Show only rows that need a look (`Ctrl-z`).
     pub faults: bool,
+    /// Show the extra columns (`Ctrl-w`), which the sort keys must know about.
+    pub wide: bool,
 }
 
 pub(super) struct Sources<'a> {
@@ -50,7 +52,7 @@ pub(super) struct Sources<'a> {
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
-    let Query { current_kind, namespace, scope, search, sort, faults } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // `search` only ever has an effect on whichever kind it was typed
@@ -72,7 +74,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .filter(|p| !(faults && current_kind == ResourceKind::Pods) || k8s::pod_is_fault(p))
             .collect();
         if current_kind == ResourceKind::Pods {
-            apply(&mut pods, sort, |p, column| pod_key(&k8s::row_for(p), column));
+            apply(&mut pods, sort, |p, column| pod_key(&k8s::row_for(p), column, wide));
         }
         let pod_rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
         let mut deployments: Vec<std::sync::Arc<Deployment>> = k8s::snapshot_deployments(dep_store)
@@ -82,7 +84,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .filter(|d| !(faults && current_kind == ResourceKind::Deployments) || k8s::ready_is_short(&k8s::row_for_deployment(d).ready))
             .collect();
         if current_kind == ResourceKind::Deployments {
-            apply(&mut deployments, sort, |d, column| deployment_key(&k8s::row_for_deployment(d), column));
+            apply(&mut deployments, sort, |d, column| deployment_key(&k8s::row_for_deployment(d), column, wide));
         }
         let dep_rows: Vec<k8s::DeploymentRow> = deployments.iter().map(|d| k8s::row_for_deployment(d)).collect();
         let nodes = node_store.state();
@@ -101,7 +103,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         };
         let node_search = node_detail_search(mode).to_string();
         node_detail_pods.retain(|p| row_matches(&node_search, &meta_search_text(&p.metadata)));
-        apply(&mut node_detail_pods, node_detail_sort(mode), |p, column| pod_key(&k8s::row_for(p), column));
+        apply(&mut node_detail_pods, node_detail_sort(mode), |p, column| pod_key(&k8s::row_for(p), column, false));
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         // Nodes get their own specialized rows (CPU/Memory visible right
         // in the list) instead of the generic Namespace/Name/Age table.
@@ -134,7 +136,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             node_pairs.retain(|(_, row)| !row.ready || !row.schedulable);
         }
         if current_kind == ResourceKind::Nodes {
-            apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column));
+            apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column, wide));
         }
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
         let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
@@ -174,7 +176,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // The generic table's width: namespace (if shown), name, the kind's own
         // columns, age — what sort digits can reach.
         let generic_columns =
-            usize::from(generic_has_namespace) + 1 + generic_headers.len() + 1;
+            usize::from(generic_has_namespace) + 1 + generic_headers.len() + 1 + usize::from(wide);
         apply(&mut generic_visible, sort, |&i, column| generic_key(&generic_rows_full[i], column, generic_has_namespace));
         let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
         // The CRD picker, unfiltered or scoped to one API group — each

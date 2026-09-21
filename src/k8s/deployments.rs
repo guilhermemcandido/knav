@@ -18,6 +18,8 @@ pub struct DeploymentRow {
     pub ready: String,
     pub up_to_date: i32,
     pub available: i32,
+    /// The images it runs, for the wide view.
+    pub images: String,
     pub age: String,
     pub age_secs: i64,
 }
@@ -44,7 +46,14 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
         .unwrap_or_else(|| "-".into());
 
     let age_secs = age_seconds(dep.metadata.creation_timestamp.as_ref());
-    DeploymentRow { namespace, name, ready, up_to_date, available, age, age_secs }
+    let images = dep
+        .spec
+        .as_ref()
+        .and_then(|s| s.template.spec.as_ref())
+        .map(|p| p.containers.iter().filter_map(|c| c.image.clone()).collect::<Vec<_>>().join(","))
+        .filter(|i| !i.is_empty())
+        .unwrap_or_else(|| "-".into());
+    DeploymentRow { namespace, name, ready, up_to_date, available, images, age, age_secs }
 }
 
 /// Same live-watch pattern as `watch_pods`, for Deployments — see there

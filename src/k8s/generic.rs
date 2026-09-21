@@ -44,12 +44,22 @@ pub struct GenericRow {
     /// UIDs of this object's owners (`ownerReferences`) — what lets a
     /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
     pub owners: Vec<String>,
+    /// `k=v,k=v`, for the wide view.
+    pub labels: String,
 }
 
 /// Not pinned to `DynamicType = ()` — `Resource::meta()` only reads
 /// `self`, so this works identically for a typed k8s-openapi struct and
 /// for a `DynamicObject` (used for CRDs, whose `DynamicType` is
 /// `ApiResource` since the schema isn't known at compile time).
+/// `k=v,k=v` in key order, `-` when there are none.
+pub fn label_text(labels: Option<&std::collections::BTreeMap<String, String>>) -> String {
+    match labels.filter(|l| !l.is_empty()) {
+        Some(l) => l.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","),
+        None => "-".into(),
+    }
+}
+
 pub fn generic_row<K: kube::Resource + crate::describe::Extras>(item: &K) -> GenericRow {
     let meta = item.meta();
     let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
@@ -59,7 +69,8 @@ pub fn generic_row<K: kube::Resource + crate::describe::Extras>(item: &K) -> Gen
     let owners = meta.owner_references.iter().flatten().map(|o| o.uid.clone()).collect();
     let age_secs = age_seconds(meta.creation_timestamp.as_ref());
     let (extras, status) = item.extras();
-    GenericRow { namespace, name, age, age_secs, extras, status, uid, owners }
+    let labels = label_text(meta.labels.as_ref());
+    GenericRow { namespace, name, age, age_secs, extras, status, uid, owners, labels }
 }
 
 /// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic

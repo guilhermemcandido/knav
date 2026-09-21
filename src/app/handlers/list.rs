@@ -38,7 +38,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char(c @ '0'..='9') => {
                     // 1-9 are columns 1-9; 0 is the tenth.
                     let column = (c as usize + 9 - '0' as usize) % 10;
-                    if column < column_count(st.current_kind, *generic_columns) {
+                    if column < column_count(st.current_kind, *generic_columns, st.wide) {
                         st.sort = Some(SortSpec::pressed(st.sort, column));
                         st.table_state.select(Some(0));
                     }
@@ -67,12 +67,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let table = ui::body_area(frame_area, true);
                 match mouse.kind {
                     MouseEventKind::Moved => {
-                        st.hovered = ui::row_at(table, pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                        st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
                             .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                     }
                     // A click selects the row; a second click on it soon after opens it.
                     MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                        st.hovered = ui::row_at(table, pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                        st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
                             .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                         if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                             st.table_state.select(Some(index));
@@ -250,7 +250,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Right => st.hscroll += 1,
             // `s` sorts: the column numbers in the header light up and the
             // next digit picks one.
-            KeyCode::Char('s') if column_count(st.current_kind, *generic_columns) > 0 => st.sort_choosing = true,
+            KeyCode::Char('s') if column_count(st.current_kind, *generic_columns, st.wide) > 0 => st.sort_choosing = true,
             // `n` gives a namespace one of the number keys 1-9. On the
             // Namespaces list it acts on the highlighted row right
             // away; from every other view it first shows the
