@@ -31,36 +31,45 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
-                // The highlighted suggestion wins; `from_command` is only the fallback for an
-                // exact alias that did not score into the visible list.
+                // The highlighted suggestion wins; what was typed is only the fallback for
+                // an exact alias that did not make the visible list.
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
-                let highlighted = suggestions.get(*selected).map(|s| s.cmd);
-                if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {
-                    return Ok(Some(Outcome::Quit));
-                }
-                if matches!(highlighted, Some(Cmd::Settings)) || matches!(cmd.as_str(), "config" | "settings" | "preferences" | "prefs" | "options") {
-                    let mut opened = std::mem::replace(&mut **back, Mode::List);
-                    std::mem::swap(&mut st.mode, &mut opened);
-                    super::settings::open(st);
-                } else if matches!(highlighted, Some(Cmd::Theme)) || matches!(cmd.as_str(), "theme" | "themes" | "skin" | "skins") {
-                    let mut opened = std::mem::replace(&mut **back, Mode::List);
-                    std::mem::swap(&mut st.mode, &mut opened);
-                    super::themes::open(st, cx.config);
-                } else if matches!(highlighted, Some(Cmd::Events)) {
-                    st.mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
-                } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
-                    let mut opened = std::mem::replace(&mut **back, Mode::List);
-                    open_context_switcher(&mut opened, active_context);
-                    st.mode = opened;
-                } else if let Some(kind) = match highlighted {
-                    Some(Cmd::Kind(k)) => Some(k),
-                    Some(Cmd::Api(index, plural, _)) => Some(ResourceKind::Api(index, plural)),
-                    _ => k8s::ResourceKind::from_command(&cmd),
-                } {
-                    st.switch_kind(kind);
-                    st.mode = Mode::List;
-                } else {
-                    st.mode = std::mem::replace(&mut **back, Mode::List);
+                let typed = || match cmd.as_str() {
+                    "q" | "quit" | "exit" => Some(Cmd::Quit),
+                    "config" | "settings" | "preferences" | "prefs" | "options" => Some(Cmd::Settings),
+                    "theme" | "themes" | "skin" | "skins" => Some(Cmd::Theme),
+                    c if is_context_command(c) => Some(Cmd::Context),
+                    c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
+                };
+                match suggestions.get(*selected).map(|s| s.cmd).or_else(typed) {
+                    Some(Cmd::Quit) => return Ok(Some(Outcome::Quit)),
+                    Some(Cmd::Settings) => {
+                        let mut opened = std::mem::replace(&mut **back, Mode::List);
+                        std::mem::swap(&mut st.mode, &mut opened);
+                        super::settings::open(st);
+                    }
+                    Some(Cmd::Theme) => {
+                        let mut opened = std::mem::replace(&mut **back, Mode::List);
+                        std::mem::swap(&mut st.mode, &mut opened);
+                        super::themes::open(st, cx.config);
+                    }
+                    Some(Cmd::Events) => {
+                        st.mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
+                    }
+                    Some(Cmd::Context) => {
+                        let mut opened = std::mem::replace(&mut **back, Mode::List);
+                        open_context_switcher(&mut opened, active_context);
+                        st.mode = opened;
+                    }
+                    Some(Cmd::Kind(kind)) => {
+                        st.switch_kind(kind);
+                        st.mode = Mode::List;
+                    }
+                    Some(Cmd::Api(index, plural, _)) => {
+                        st.switch_kind(ResourceKind::Api(index, plural));
+                        st.mode = Mode::List;
+                    }
+                    None => st.mode = std::mem::replace(&mut **back, Mode::List),
                 }
             }
             KeyCode::Backspace => {
