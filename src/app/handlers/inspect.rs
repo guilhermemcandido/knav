@@ -143,24 +143,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
-        (Event::Key(key), Mode::NodeDetail { search, editing: editing @ true, state, .. }) => match key.code {
-            // Esc clears the search; Enter keeps it and goes back to
-            // browsing the matches.
-            KeyCode::Esc => {
-                search.clear();
-                *editing = false;
-            }
-            KeyCode::Enter => *editing = false,
-            KeyCode::Backspace => {
-                search.pop();
+        (Event::Key(key), Mode::NodeDetail { search, editing: editing @ true, state, .. }) => {
+            if super::edit_line(key.code, search, editing) {
                 state.select(Some(0));
             }
-            KeyCode::Char(c) => {
-                search.push(c);
-                state.select(Some(0));
-            }
-            _ => {}
-        },
+        }
         (Event::Key(key), Mode::NodeDetail { name, state, sort, search, editing, back }) => match key.code {
             KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
             KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
@@ -214,20 +201,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
-        (Event::Key(key), Mode::Logs { filter, filter_editing: filter_editing @ true, .. }) => match key.code {
-            // Esc while typing clears the filter; Enter keeps it and goes back to
-            // scrolling the filtered lines.
-            KeyCode::Esc => {
-                filter.clear();
-                *filter_editing = false;
-            }
-            KeyCode::Enter => *filter_editing = false,
-            KeyCode::Backspace => {
-                filter.pop();
-            }
-            KeyCode::Char(c) => filter.push(c),
-            _ => {}
-        },
+        (Event::Key(key), Mode::Logs { filter, filter_editing: filter_editing @ true, .. }) => {
+            super::edit_line(key.code, filter, filter_editing);
+        }
         (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, filter_editing, back, .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 st.mode = std::mem::replace(&mut **back, Mode::List);

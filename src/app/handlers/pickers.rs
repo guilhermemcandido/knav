@@ -11,22 +11,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     match (event, &mut st.mode) {
         // Any key (or click) closes a notice, checked before the
         // global keys below so they don't also fire on that press.
-        (Event::Key(key), Mode::NamespacePick { filter, editing: editing @ true, state, .. }) => match key.code {
-            KeyCode::Esc => {
-                filter.clear();
-                *editing = false;
-            }
-            KeyCode::Enter => *editing = false,
-            KeyCode::Backspace => {
-                filter.pop();
+        (Event::Key(key), Mode::NamespacePick { filter, editing: editing @ true, state, .. }) => {
+            if super::edit_line(key.code, filter, editing) {
                 state.select(Some(0));
             }
-            KeyCode::Char(c) => {
-                filter.push(c);
-                state.select(Some(0));
-            }
-            _ => {}
-        },
+        }
         (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, sort, back }) => {
             let mut chosen: Option<String> = None;
             let mut close = false;

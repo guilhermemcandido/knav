@@ -10,24 +10,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let catalog = &mut *cx.catalog;
     let frame_area = cx.frame_area;
     match (event, &mut st.mode) {
-        (Event::Key(key), Mode::Events { search, editing: editing @ true, state, .. }) => match key.code {
-            // Esc clears the search and leaves typing; Enter keeps
-            // it applied and goes back to browsing the matches.
-            KeyCode::Esc => {
-                search.clear();
-                *editing = false;
-            }
-            KeyCode::Enter => *editing = false,
-            KeyCode::Backspace => {
-                search.pop();
+        (Event::Key(key), Mode::Events { search, editing: editing @ true, state, .. }) => {
+            if super::edit_line(key.code, search, editing) {
                 state.select(Some(0));
             }
-            KeyCode::Char(c) => {
-                search.push(c);
-                state.select(Some(0));
-            }
-            _ => {}
-        },
+        }
         (Event::Key(key), Mode::Events { filter, search, editing, state, sort }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => st.mode = Mode::List,
             KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,

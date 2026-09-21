@@ -17,6 +17,27 @@ mod themes;
 use super::derive::Derived;
 use super::*;
 
+/// One key of a search box being typed in: Esc clears and leaves, Enter keeps and leaves,
+/// characters and Backspace edit. `true` when the text changed, so the caller can reset its selection.
+pub(super) fn edit_line(code: KeyCode, text: &mut String, editing: &mut bool) -> bool {
+    match code {
+        KeyCode::Esc => {
+            *editing = false;
+            !std::mem::take(text).is_empty()
+        }
+        KeyCode::Enter => {
+            *editing = false;
+            false
+        }
+        KeyCode::Backspace => text.pop().is_some(),
+        KeyCode::Char(c) => {
+            text.push(c);
+            true
+        }
+        _ => false,
+    }
+}
+
 /// What a handler may read besides the state it changes.
 pub(super) struct Cx<'a> {
     pub terminal: &'a mut ratatui::DefaultTerminal,
