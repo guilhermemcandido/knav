@@ -85,7 +85,8 @@ impl Fitted {
     fn from_natural(headers: &[&str], natural: Vec<usize>, available: u16, flex: Option<usize>) -> Self {
         let mut widths = natural;
         // A column is never asked to be wider than it needs to be.
-        let mins: Vec<usize> = headers.iter().zip(&widths).map(|(h, natural)| configured_min(h).min(*natural)).collect();
+        // A column never shrinks below its own header plus the `(n)` sort number, so headers are not cut.
+        let mins: Vec<usize> = headers.iter().zip(&widths).map(|(h, natural)| configured_min(h).max(cell_width(h) + 3).min(*natural)).collect();
         if let Some(f) = flex {
             widths[f] = mins[f].max(FLEX_MIN.min(widths[f]));
         }
@@ -260,5 +261,20 @@ mod tests {
         let w = fit.window(1, 30);
         let cells = vec!["a", "b", "c", "d"];
         assert_eq!(w.slice(cells), ["b", "c"]);
+    }
+}
+
+#[cfg(test)]
+mod header_width_tests {
+    use super::*;
+
+    #[test]
+    fn a_narrow_screen_never_cuts_a_header_or_its_sort_number() {
+        let headers = ["NAMESPACE", "CONTROLLER", "AGE"];
+        let fit = Fitted::new(&headers, vec![vec![30, 30, 3]].into_iter(), 40, None);
+        let widths: Vec<usize> = fit.window(0, 40).constraints.iter().map(|c| if let Constraint::Length(n) = c { usize::from(*n) } else { 0 }).collect();
+        for (h, w) in headers.iter().zip(&widths) {
+            assert!(*w >= h.len() + 3, "{h} got {w}");
+        }
     }
 }

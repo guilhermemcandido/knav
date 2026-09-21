@@ -99,7 +99,7 @@ pub(super) fn draw_logs_popup(
 
     // Just the live state; the keys for pausing and toggling live in the `?` panel.
     // The arrow points the way the log reads: down when the newest line is at the bottom.
-    let direction = if order == LogOrder::OldestFirst { "↓ oldest first" } else { "↑ newest first" };
+    let direction = if order == LogOrder::OldestFirst { "↓" } else { "↑" };
     let follow_status = if follow { "following" } else { "scrolled" };
     let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", ordered.len(), lines.len()) };
     let mut title_line = pill_title(title, false, Style::default());
