@@ -218,10 +218,35 @@ fn container_lines(spec: &Value, status: Option<&Value>) -> Vec<Line> {
     if !limits.is_empty() {
         lines.push(Line::Sub("limits".into(), vec![chunk(limits, Style::Plain)]));
     }
-    let env = items(spec, &["env"]).len() + items(spec, &["envFrom"]).len();
-    let mounts = items(spec, &["volumeMounts"]).len();
-    if env > 0 || mounts > 0 {
-        lines.push(Line::Sub("uses".into(), vec![chunk(format!("{env} environment source{}, {mounts} mount{}", if env == 1 { "" } else { "s" }, if mounts == 1 { "" } else { "s" }), Style::Muted)]));
+    // Environment: plain values as they are, references by where they come from.
+    let mut env: Vec<Vec<Chunk>> = Vec::new();
+    for var in items(spec, &["env"]) {
+        let name = text(var, &["name"]).unwrap_or("?");
+        let value = if let Some(v) = text(var, &["value"]) {
+            vec![chunk(v, Style::Plain)]
+        } else if let Some(r) = at(var, &["valueFrom", "configMapKeyRef"]) {
+            vec![chunk(format!("configMap {} / {}", text(r, &["name"]).unwrap_or("?"), text(r, &["key"]).unwrap_or("?")), Style::Muted)]
+        } else if let Some(r) = at(var, &["valueFrom", "secretKeyRef"]) {
+            vec![chunk(format!("secret {} / {}", text(r, &["name"]).unwrap_or("?"), text(r, &["key"]).unwrap_or("?")), Style::Muted)]
+        } else if let Some(r) = at(var, &["valueFrom", "fieldRef"]) {
+            vec![chunk(format!("field {}", text(r, &["fieldPath"]).unwrap_or("?")), Style::Muted)]
+        } else {
+            vec![chunk("(from elsewhere)", Style::Muted)]
+        };
+        let mut chunks = vec![chunk(format!("{name} = "), Style::Strong)];
+        chunks.extend(value);
+        env.push(chunks);
+    }
+    for source in items(spec, &["envFrom"]) {
+        let (kind, name) = if let Some(n) = text(source, &["configMapRef", "name"]) { ("configMap", n) } else if let Some(n) = text(source, &["secretRef", "name"]) { ("secret", n) } else { continue };
+        env.push(vec![chunk(format!("every key of {kind} {name}"), Style::Muted)]);
+    }
+    for (i, chunks) in env.into_iter().enumerate() {
+        lines.push(Line::Sub(if i == 0 { "env".into() } else { String::new() }, chunks));
+    }
+    for (i, mount) in items(spec, &["volumeMounts"]).iter().enumerate() {
+        let read_only = at(mount, &["readOnly"]).and_then(Value::as_bool).unwrap_or(false);
+        lines.push(Line::Sub(if i == 0 { "mounts".into() } else { String::new() }, vec![chunk(text(mount, &["mountPath"]).unwrap_or("?"), Style::Plain), chunk(format!("  from {}{}", text(mount, &["name"]).unwrap_or("?"), if read_only { " (read only)" } else { "" }), Style::Muted)]));
     }
     lines
 }
@@ -365,17 +390,62 @@ fn ingress_sections(manifest: &Value) -> Vec<Section> {
     vec![Section { title: "Ingress".into(), lines }]
 }
 
-/// Config and Secret keys, never their values.
+/// Values longer than this many lines are cut, saying how many were left.
+const VALUE_LINES: usize = 40;
+
+fn size_text(bytes: usize) -> String {
+    match bytes {
+        0..=1023 => format!("{bytes} bytes"),
+        _ => format!("{:.1} KB", bytes as f64 / 1024.0),
+    }
+}
+
+/// A ConfigMap's keys with their values, and a Secret's keys with their sizes:
+/// secret values stay hidden here (`x` decodes them on request).
 fn keys_section(manifest: &Value, kind: &str) -> Vec<Section> {
-    let mut names: Vec<String> = ["data", "binaryData", "stringData"].iter().flat_map(|k| at(manifest, &[k]).and_then(Value::as_mapping).into_iter().flat_map(|m| m.keys().filter_map(Value::as_str).map(String::from))).collect();
-    names.sort();
-    names.dedup();
     let mut lines = Vec::new();
     if kind == "Secret" {
         lines.push(field("Type", text(manifest, &["type"]).unwrap_or("Opaque")));
+        lines.push(Line::Blank);
     }
-    lines.push(Line::Field(if kind == "Secret" { "Keys (values hidden)" } else { "Keys" }.into(), if names.is_empty() { vec![chunk("none", Style::Muted)] } else { names.iter().map(|n| chunk(n.clone(), Style::Chip)).collect() }));
-    vec![Section { title: if kind == "Secret" { "Secret" } else { "Data" }.into(), lines }]
+    let mut entries: Vec<(String, Option<String>, usize)> = Vec::new();
+    for (field, binary) in [("data", kind == "Secret"), ("stringData", false), ("binaryData", true)] {
+        let Some(map) = at(manifest, &[field]).and_then(Value::as_mapping) else { continue };
+        for (key, value) in map {
+            let (Some(key), Some(value)) = (key.as_str(), value.as_str()) else { continue };
+            // Base64 in a Secret or in binaryData: about three bytes for every four characters.
+            let size = if binary { value.len() * 3 / 4 } else { value.len() };
+            entries.push((key.to_string(), (kind == "ConfigMap" && !binary).then(|| value.to_string()), size));
+        }
+    }
+    entries.sort();
+    if entries.is_empty() {
+        lines.push(Line::Item(vec![chunk("no data", Style::Muted)]));
+    }
+    for (i, (key, value, size)) in entries.iter().enumerate() {
+        if i > 0 {
+            lines.push(Line::Blank);
+        }
+        let mut head = vec![chunk(key.clone(), Style::Strong), chunk(format!("   {}", size_text(*size)), Style::Muted)];
+        match value {
+            Some(value) => {
+                lines.push(Line::Item(head));
+                let all: Vec<&str> = value.lines().collect();
+                for line in all.iter().take(VALUE_LINES) {
+                    lines.push(Line::Pad(4, vec![chunk(*line, Style::Plain)]));
+                }
+                if all.len() > VALUE_LINES {
+                    lines.push(Line::Pad(4, vec![chunk(format!("… {} more lines", all.len() - VALUE_LINES), Style::Muted)]));
+                }
+            }
+            None => {
+                head.push(chunk(if kind == "Secret" { "   hidden" } else { "   binary" }, Style::Muted));
+                lines.push(Line::Item(head));
+            }
+        }
+    }
+    let title = if kind == "Secret" { "Secret (values hidden, x decodes them)" } else { "Data" };
+    vec![Section { title: title.into(), lines }]
 }
 
 fn storage_sections(manifest: &Value, kind: &str) -> Vec<Section> {
@@ -573,6 +643,18 @@ mod tests {
         let all = format!("{sections:?}");
         assert!(all.contains("password") && all.contains("user"));
         assert!(!all.contains("c2VjcmV0") && !all.contains("YWRtaW4="));
+    }
+
+    #[test]
+    fn config_maps_show_their_values_and_pods_show_their_environment() {
+        let map = v(json!({"kind": "ConfigMap", "metadata": {"name": "c"}, "data": {"Corefile": ".:53 {\n  errors\n}", "mode": "fast"}}));
+        let text = format!("{:?}", details(&map, &[]));
+        assert!(text.contains("errors") && text.contains("fast") && text.contains("Corefile"), "{text}");
+        let pod = v(json!({"kind": "Pod", "metadata": {"name": "p"}, "spec": {"containers": [{"name": "c", "image": "i",
+            "env": [{"name": "A", "value": "1"}, {"name": "B", "valueFrom": {"secretKeyRef": {"name": "db", "key": "pw"}}}], "envFrom": [{"configMapRef": {"name": "cfg"}}],
+            "volumeMounts": [{"name": "data", "mountPath": "/data", "readOnly": true}]}]}}));
+        let text = format!("{:?}", details(&pod, &[]));
+        assert!(text.contains("A = ") && text.contains("secret db / pw") && text.contains("every key of configMap cfg") && text.contains("/data") && text.contains("read only"), "{text}");
     }
 
     #[test]
