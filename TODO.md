@@ -5,7 +5,7 @@
 Correctness and robustness
 - [x] Logs: wrapped lines break follow mode (fixed: scrolling counts wrapped rows, no 65k limit).
 - [x] Logs: search highlighting matches by character.
-- [ ] Wide characters: column and box widths count characters, not terminal cells (CJK, emoji misalign).
+- [x] Wide characters: widths now count terminal cells.
 - [ ] Config: a broken `config.toml` warning is wiped by the screen clearing; show it inside the app.
 - [ ] Blocking: `e` edit apply, clipboard copy (`xclip` / `wl-copy`), port-forward stderr never drained.
 - [ ] Details: suspended Jobs show as Pending; work-queue Jobs read `0/1`; Endpoints ignore not-ready addresses.

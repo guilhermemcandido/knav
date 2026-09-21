@@ -32,8 +32,12 @@ pub(crate) fn run(
     config: &Config,
     active_context: &str,
     header: &ui::HeaderInfo,
+    notes: Vec<String>,
 ) -> Result<Outcome> {
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
+    if !notes.is_empty() {
+        st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), error: true, back: Box::new(Mode::List) };
+    }
 
     let mut cache: Option<derive::Cache> = None;
     loop {

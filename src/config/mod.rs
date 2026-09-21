@@ -230,19 +230,22 @@ pub struct Config {
 
 impl Config {
     /// Reads `$XDG_CONFIG_HOME/knav/config.toml`, falling back to `~/.config/knav/config.toml`.
-    /// A missing file or field means the default. A malformed file is reported and
-    /// defaults are used, since an error can't be printed once the TUI is up.
+    /// A missing file or field means the default; a malformed file gives the defaults.
     pub fn load() -> Self {
+        Self::load_reporting().0
+    }
+
+    /// Like `load`, with what went wrong in words, for showing once the screen is up.
+    pub fn load_reporting() -> (Self, Vec<String>) {
         let path = Self::path();
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            return Config::default();
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::default(), Vec::new()),
+            Err(e) => return (Config::default(), vec![format!("could not read {}: {e}", path.display())]),
         };
         match toml::from_str(&contents) {
-            Ok(config) => config,
-            Err(e) => {
-                eprintln!("warning: failed to parse {}: {e}\nusing defaults", path.display());
-                Config::default()
-            }
+            Ok(config) => (config, Vec::new()),
+            Err(e) => (Config::default(), vec![format!("{} could not be read, so defaults are in use:\n{e}", path.display())]),
         }
     }
 

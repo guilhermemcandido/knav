@@ -57,12 +57,9 @@ pub(crate) enum Outcome {
 }
 
 fn main() -> Result<()> {
-    // Read before the TUI takes over the screen, a parse error needs to
-    // print somewhere a human can actually see it.
-    let config = Config::load();
-    for problem in settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1) {
-        eprintln!("warning: {problem}");
-    }
+    // Problems with the config are kept and shown in the app, since the screen clears when it starts.
+    let (config, mut notes) = Config::load_reporting();
+    notes.extend(settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1));
     let cli = Cli::parse(std::env::args().skip(1))?;
     let mut context = resolve_context(&cli, &config)?;
 
@@ -73,7 +70,7 @@ fn main() -> Result<()> {
         // Reloaded so a switch keeps what was saved in Settings meanwhile.
         let config = Config::load();
         let runtime = tokio::runtime::Runtime::new()?;
-        let outcome = runtime.block_on(session(&config, context.as_deref()));
+        let outcome = runtime.block_on(session(&config, context.as_deref(), std::mem::take(&mut notes)));
         runtime.shutdown_background();
         match outcome? {
             Outcome::Quit => return Ok(()),
@@ -85,7 +82,7 @@ fn main() -> Result<()> {
     }
 }
 
-pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Outcome> {
+pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>) -> Result<Outcome> {
     let client = k8s::connect_to_context(context).await?;
     let k8s_version = k8s::ensure_reachable(&client, context).await?;
     let active_context = match context {
@@ -137,6 +134,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         config,
         &active_context,
         &header,
+        notes,
     );
 
     let _ = execute!(stdout(), DisableMouseCapture);
