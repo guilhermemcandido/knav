@@ -489,7 +489,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     }
 }
 
-/// The screen's key hints: a small "commands: ?" indicator sits top-right and
+/// The screen's key hints: a small "help: ?" indicator sits top-right and
 /// `?` toggles a bordered panel under it. Key and description get their own colours.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
     let key_style = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
@@ -497,9 +497,9 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
     let sep_style = Style::default().fg(theme().muted);
 
     let indicator = Line::from(vec![
-        Span::styled(if open { "close" } else { "commands" }, desc_style),
+        Span::styled(if open { "close" } else { "help" }, desc_style),
         Span::styled(": ", sep_style),
-        Span::styled("?", key_style),
+        Span::styled(crate::input::keymap::keys_now("help").first().map(|k| crate::input::keymap::glyph(k)).unwrap_or_else(|| "?".into()), key_style),
     ]);
     let area = frame.area();
     let indicator_width = (indicator.width() as u16).min(area.width);

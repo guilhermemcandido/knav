@@ -62,7 +62,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
         ("K8s Version:", info.k8s_version.as_str()),
         ("knav Version:", info.knav_version.as_str()),
     ];
-    // Leave the top-right corner to the `commands: ?` indicator; when the
+    // Leave the top-right corner to the `help: ?` indicator; when the
     // terminal is too narrow for everything, the trailing fields drop.
     let available = area.width.saturating_sub(1 + 14) as usize;
     let mut spans: Vec<Span> = Vec::new();
