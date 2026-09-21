@@ -14,7 +14,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
 
     let border_style = if dimmed { dim_style() } else { Style::default() };
     let title_line = if dimmed { Line::styled(title.to_string(), dim_style()) } else { colored_slash_title(title) };
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title_line);
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title_line);
 
     let highlight_style = if dimmed { dim_style() } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
     let tree = Tree::new(items)
@@ -36,7 +36,7 @@ pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &st
     let area = centered_rect(70, 50, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(label.to_string());
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).title(label.to_string());
     let paragraph = Paragraph::new(value.to_string()).wrap(Wrap { trim: false }).block(block);
     frame.render_widget(paragraph, area);
 }

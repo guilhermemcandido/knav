@@ -58,6 +58,9 @@ pub fn mark_key(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
 
+/// The line style of every box: heavy strokes so the frames read clearly.
+pub const BORDER: BorderType = BorderType::Thick;
+
 pub(super) fn theme_border(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }
 }

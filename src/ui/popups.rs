@@ -18,7 +18,7 @@ const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HE
 /// the cursor.
 pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     frame.render_widget(Clear, bar);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(COMMAND_FG));
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(Style::default().fg(COMMAND_FG));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
@@ -50,7 +50,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     let width = (suggestions.iter().map(|s| s.label.chars().count()).max().unwrap_or(0) as u16 + SUGGESTION_ICON.width + 8).max(40).min(bar.width);
     let list = Rect { x: bar.x, y: bar.bottom(), width, height: shown as u16 * SUGGESTION_HEIGHT + 2 };
     frame.render_widget(Clear, list);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(COMMAND_FG));
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(Style::default().fg(COMMAND_FG));
     let inner = block.inner(list);
     frame.render_widget(block, list);
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
@@ -115,7 +115,7 @@ pub(super) fn draw_context_popup(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
 
@@ -196,7 +196,7 @@ pub(super) fn draw_namespace_picker(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title).title_bottom(Line::from(chips)))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).title(title).title_bottom(Line::from(chips)))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
 
@@ -213,7 +213,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     frame.render_widget(Clear, bar);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .title(format!(" Choose the key for '{namespace}' "));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
@@ -268,7 +268,7 @@ pub(super) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
     let color = if error { Color::Red } else { Color::Green };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(Style::default().fg(color))
         .title(if error { "Failed" } else { "Done" });
     frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
@@ -281,7 +281,7 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
     let height = (body.len() as u16 + 2).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(color)).title(title.to_string());
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(Style::default().fg(color)).title(title.to_string());
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -305,7 +305,7 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(theme_border(false))
         .title(Line::styled("<PortForward>", Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
@@ -362,7 +362,7 @@ pub(super) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &vt100::S
     let bottom = if exited { " the shell ended; press any key " } else { " ctrl-] closes " };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(theme_border(false))
         .title(Line::styled(format!(" Shell {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered())
         .title_bottom(Line::styled(bottom, Style::default().fg(if exited { WARN_FG } else { MUTED_FG })).right_aligned());
@@ -423,7 +423,7 @@ pub(super) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(theme_border(false))
         .title(Line::styled(format!(" {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
@@ -466,7 +466,7 @@ pub(super) fn draw_node_detail_popup(
     let border_style = if dimmed { dim_style() } else { Style::default() };
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(border_style)
         .title(format!("Node: {name}"));
     let inner = outer.inner(area);
@@ -642,7 +642,7 @@ pub(super) fn draw_events_popup(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
 
@@ -698,7 +698,7 @@ pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
         Line::raw(entry.message.clone()),
     ];
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Event detail");
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).title("Event detail");
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
@@ -720,7 +720,7 @@ pub(super) fn draw_gauge_box(frame: &mut Frame, area: Rect, label: &str, used: f
     let gauge_style = if dimmed { dim_style() } else { Style::default().fg(usage_color(ratio, dimmed)) };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BORDER)
         .border_style(border_style)
         .title(Line::styled(format!(" {label} "), title_style));
     let label_text = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
@@ -738,7 +738,7 @@ pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview
     frame.render_widget(Clear, area);
 
     let border_style = if dimmed { dim_style() } else { Style::default() };
-    let outer = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title("Resources");
+    let outer = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title("Resources");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -816,7 +816,7 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
+                .border_type(BORDER)
                 .border_style(border_style)
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )

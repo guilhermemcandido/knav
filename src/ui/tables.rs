@@ -68,7 +68,7 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     let area = popup_near(column, row, width, height, bounds);
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{}/{}", pod.namespace, pod.name));
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER).title(format!("{}/{}", pod.namespace, pod.name));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
@@ -112,7 +112,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -276,7 +276,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -413,7 +413,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -494,7 +494,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -537,7 +537,7 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).title(title))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
 
