@@ -4,7 +4,10 @@ mod derive;
 pub mod commands;
 mod draw;
 mod handlers;
+mod hints;
 pub mod mode;
+mod nav;
+mod path;
 mod state;
 
 use handlers::Cx;
