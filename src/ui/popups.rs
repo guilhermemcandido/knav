@@ -94,7 +94,48 @@ pub(super) fn draw_context_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// The `s` popup: `0` (always "all", not assignable) and keys 1-9 with
+/// The `n` namespace picker — the same full-size table as the context
+/// browser (same geometry, so `event_row_at` hit-tests its rows too).
+/// Enter on a row moves on to choosing that namespace's number key.
+pub(super) fn draw_namespace_picker(
+    frame: &mut Frame,
+    items: &[(String, Option<usize>)],
+    total: usize,
+    filter: &str,
+    editing: bool,
+    state: &mut TableState,
+) {
+    let area = centered_rect(94, 88, frame.area());
+    frame.render_widget(Clear, area);
+
+    let header = Row::new(vec!["NAMESPACE", "KEY"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let rows = items.iter().map(|(name, key)| {
+        Row::new(vec![
+            Cell::from(name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(Color::Rgb(240, 160, 110))),
+        ])
+    });
+    let widths = [Constraint::Fill(1), Constraint::Length(5)];
+
+    let mut title = colored_slash_title(&format!("Give which namespace a key? ({}/{total})", items.len()));
+    if editing || !filter.is_empty() {
+        title.push_span(Span::styled(format!("  —  /{filter}{}", if editing { "▏" } else { "" }), Style::default().fg(Color::Yellow)));
+    }
+
+    let table = Table::new(rows, widths)
+        .style(theme_row(false))
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
+        .row_highlight_style(theme_highlight(false))
+        .highlight_symbol("");
+
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(items.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, area, state);
+}
+
+/// The key picker: `0` (always "all", not assignable) and keys 1-9 with
 /// what each holds; the highlighted key is where Enter puts the namespace.
 pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Option<String>], selected: usize) {
     let bar = centered_box(frame.area(), 2 + 1 + 9 + 1 + 1);

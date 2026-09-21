@@ -21,7 +21,10 @@ pub(crate) enum Mode {
     /// attempt failed. Esc returns to `back`.
     Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     Menu { selected: (usize, usize) },
-    /// The `s` popup on a namespace: pick which number key (1-9) it goes
+    /// The `n` namespace picker, from any view but the Namespaces list:
+    /// choose a namespace (`/` filters), then which key it gets.
+    NamespacePick { names: Vec<String>, filter: String, editing: bool, state: TableState, back: Box<Mode> },
+    /// The key picker on a namespace: pick which number key (1-9) it goes
     /// on. `selected` is the highlighted key minus one. Esc cancels.
     Slots { namespace: String, selected: usize, back: Box<Mode> },
     /// A result message (see `edit`) — any key or click dismisses it,
@@ -112,7 +115,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -200,7 +203,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } | Mode::Slots { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
 }
@@ -247,9 +250,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
             }
-            if current_kind.is_namespaced() {
-                hints.push(("n", "namespace key"));
-            }
+            hints.push(("n", "namespace key"));
             hints.push(("0-9", "namespace"));
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
@@ -258,7 +259,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints
         }
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } => Vec::new(),
-        Mode::Context { editing: true, .. } => Vec::new(),
+        Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
+        Mode::NamespacePick { .. } => vec![("j/k", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("j/k", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
         Mode::Spec { .. } => {

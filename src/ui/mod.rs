@@ -121,7 +121,11 @@ pub enum Overlay<'a> {
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
     /// A short result message (e.g. after an edit) — any key closes it.
     Notice { text: &'a str, error: bool },
-    /// The `s` popup: keys 1-9 (and the fixed `0` = all) with what each
+    /// The `n` namespace picker: every namespace in the cluster with the
+    /// number key it already has (if any), for choosing which one to give a
+    /// key to. Same table layout as `Context`.
+    NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState },
+    /// The key picker: keys 1-9 (and the fixed `0` = all) with what each
     /// currently holds, for choosing where a namespace goes.
     Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
     /// The `/`/`f` live-filter input bar — still doesn't dim the
@@ -198,6 +202,7 @@ pub fn draw(
                 | Some(Overlay::Context { .. })
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Slots { .. })
+                | Some(Overlay::NamespacePicker { .. })
                 | Some(Overlay::Events { .. })
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
@@ -297,6 +302,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
+        Overlay::NamespacePicker { items, total, filter, editing, state } => draw_namespace_picker(frame, items, total, filter, editing, state),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
 }

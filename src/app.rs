@@ -236,6 +236,15 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
+            Mode::NamespacePick { names, filter, editing, state, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let items: Vec<(String, Option<usize>)> =
+                        filtered_names(names, filter).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
+                    let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state };
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
+                })?;
+            }
             Mode::Slots { namespace, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -429,6 +438,58 @@ pub(crate) fn run(
             match (event::read()?, &mut mode) {
                 // Any key (or click) closes a notice — checked before the
                 // global keys below so they don't also fire on that press.
+                (Event::Key(key), Mode::NamespacePick { filter, editing: editing @ true, state, .. }) => match key.code {
+                    KeyCode::Esc => {
+                        filter.clear();
+                        *editing = false;
+                    }
+                    KeyCode::Enter => *editing = false,
+                    KeyCode::Backspace => {
+                        filter.pop();
+                        state.select(Some(0));
+                    }
+                    KeyCode::Char(c) => {
+                        filter.push(c);
+                        state.select(Some(0));
+                    }
+                    _ => {}
+                },
+                (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, back }) => {
+                    let mut chosen: Option<String> = None;
+                    let mut close = false;
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => close = true,
+                        KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
+                        KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter).len()),
+                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_names(names, filter).len()),
+                        KeyCode::Enter => chosen = state.selected().and_then(|i| filtered_names(names, filter).get(i).map(|n| (*n).clone())),
+                        _ => {}
+                    }
+                    if let Some(name) = chosen {
+                        // Straight on to choosing its key; Esc from there goes
+                        // back to the view this was opened from.
+                        let back = std::mem::replace(&mut **back, Mode::List);
+                        let mut next = key_picker(name, &favorites);
+                        if let Mode::Slots { back: slot_back, .. } = &mut next {
+                            *slot_back = Box::new(back);
+                        }
+                        mode = next;
+                    } else if close {
+                        mode = std::mem::replace(&mut **back, Mode::List);
+                    }
+                }
+                (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let matches = filtered_names(names, filter);
+                    if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
+                        let name = matches[idx].clone();
+                        let back = std::mem::replace(&mut **back, Mode::List);
+                        let mut next = key_picker(name, &favorites);
+                        if let Mode::Slots { back: slot_back, .. } = &mut next {
+                            *slot_back = Box::new(back);
+                        }
+                        mode = next;
+                    }
+                }
                 (Event::Key(key), Mode::Slots { namespace, selected, back }) => {
                     let mut assign_to = None;
                     let mut close = false;
@@ -538,6 +599,11 @@ pub(crate) fn run(
                     let columns_area = ui::columns_area(ui::body_area(frame_area, false), &overview);
                     let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
                     match key.code {
+                        KeyCode::Char('n') => {
+                            let names: Vec<String> =
+                                catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name).collect();
+                            open_namespace_picker(&mut mode, names);
+                        }
                         // Esc and `q` are no-ops here — there's nowhere
                         // further "back" than the main screen, and quitting
                         // takes a deliberate `:q` so a stray key can't do it.
@@ -739,30 +805,19 @@ pub(crate) fn run(
                             search.clear();
                         }
                     }
-                    // `n` opens the list of number keys 1-9 to choose which one
-                    // the selected row's namespace goes on (0 is always "all").
-                    // Works on any namespaced row — a Pod, a Deployment, a
-                    // ConfigMap — and on the Namespaces list itself.
+                    // `n` gives a namespace one of the number keys 1-9. On the
+                    // Namespaces list it acts on the highlighted row right
+                    // away; from every other view it first shows the
+                    // namespaces to choose from.
                     KeyCode::Char('n') => {
-                        let selected_row = table_state.selected();
-                        let name = match current_kind {
-                            ResourceKind::Namespaces => selected_row.and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()),
-                            ResourceKind::Pods => selected_row.and_then(|i| pods.get(i)).and_then(|p| p.metadata.namespace.clone()),
-                            ResourceKind::Deployments => selected_row.and_then(|i| deployments.get(i)).and_then(|d| d.metadata.namespace.clone()),
-                            ResourceKind::Overview
-                            | ResourceKind::Nodes
-                            | ResourceKind::CustomResourceList
-                            | ResourceKind::CustomResourceGroup(_) => None,
-                            _ => selected_row.and_then(|i| generic_rows.get(i)).map(|r| r.namespace.clone()).filter(|ns| ns != "-"),
-                        };
-                        if let Some(name) = name {
-                            // Start on the key it already has, else the first free one.
-                            let selected = favorites
-                                .key_of(&name)
-                                .map(|k| k - 1)
-                                .or_else(|| favorites.slots.iter().position(Option::is_none))
-                                .unwrap_or(0);
-                            mode = Mode::Slots { namespace: name, selected, back: Box::new(Mode::List) };
+                        if current_kind == ResourceKind::Namespaces {
+                            if let Some(name) = table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
+                                mode = key_picker(name, &favorites);
+                            }
+                        } else {
+                            let names: Vec<String> =
+                                catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name).collect();
+                            open_namespace_picker(&mut mode, names);
                         }
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),

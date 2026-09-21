@@ -90,22 +90,6 @@ impl ResourceKind {
         }
     }
 
-    /// Whether this kind's objects live in a namespace — false for the
-    /// cluster-scoped built-ins, where a row has no namespace to act on.
-    pub fn is_namespaced(self) -> bool {
-        !matches!(
-            self,
-            ResourceKind::Overview
-                | ResourceKind::Nodes
-                | ResourceKind::Pvs
-                | ResourceKind::StorageClasses
-                | ResourceKind::ClusterRoles
-                | ResourceKind::ClusterRoleBindings
-                | ResourceKind::CustomResourceList
-                | ResourceKind::CustomResourceGroup(_)
-        )
-    }
-
     /// What Enter on a row of this kind drills into, if anything: a
     /// Deployment's ReplicaSets, a ReplicaSet's/StatefulSet's/
     /// DaemonSet's/Job's/Service's Pods, a CronJob's Jobs, a Namespace's
@@ -1148,14 +1132,6 @@ pub fn watch_crd(client: Client, crd: &CrdInfo) -> (Box<dyn CatalogKind>, JoinHa
 #[cfg(test)]
 mod resource_kind_tests {
     use super::*;
-
-    #[test]
-    fn namespaced_kinds_are_told_apart_from_cluster_scoped_ones() {
-        assert!(ResourceKind::Pods.is_namespaced());
-        assert!(ResourceKind::Namespaces.is_namespaced());
-        assert!(!ResourceKind::Nodes.is_namespaced());
-        assert!(!ResourceKind::ClusterRoles.is_namespaced());
-    }
 
     #[test]
     fn enter_opens_the_spec_except_where_it_drills_elsewhere() {

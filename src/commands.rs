@@ -160,6 +160,27 @@ pub(crate) fn switch_target(name: &str, active_context: &str) -> std::result::Re
     }
 }
 
+/// The key picker for `namespace`, starting on the key it already has, or
+/// else the first free one. Its `back` is the plain list; callers that came
+/// from somewhere else replace it.
+pub(crate) fn key_picker(namespace: String, favorites: &Favorites) -> Mode {
+    let selected = favorites.key_of(&namespace).map(|k| k - 1).or_else(|| favorites.slots.iter().position(Option::is_none)).unwrap_or(0);
+    Mode::Slots { namespace, selected, back: Box::new(Mode::List) }
+}
+
+/// Opens the namespace picker (`n` from any view but the Namespaces list).
+pub(crate) fn open_namespace_picker(mode: &mut Mode, names: Vec<String>) {
+    let back = Box::new(std::mem::replace(mode, Mode::List));
+    *mode = Mode::NamespacePick { names, filter: String::new(), editing: false, state: TableState::default().with_selected(0), back };
+}
+
+/// Namespaces matching the picker's filter, best match first.
+pub(crate) fn filtered_names<'a>(names: &'a [String], filter: &str) -> Vec<&'a String> {
+    let mut scored: Vec<(i64, &String)> = names.iter().filter_map(|n| fuzzy::score(filter, n).map(|s| (s, n))).collect();
+    scored.sort_by_key(|(score, name)| (std::cmp::Reverse(*score), (*name).clone()));
+    scored.into_iter().map(|(_, n)| n).collect()
+}
+
 /// Contexts matching the browser's filter, best match first.
 pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &str) -> Vec<&'a k8s::ContextInfo> {
     let mut scored: Vec<(i64, &k8s::ContextInfo)> =
@@ -214,6 +235,14 @@ mod tests {
         assert!(matches!(top("ctx").cmd, Cmd::Context));
         assert!(matches!(top("context").cmd, Cmd::Context));
         assert!(matches!(top("ev").cmd, Cmd::Events));
+    }
+
+    #[test]
+    fn namespace_filter_ranks_matches_and_keeps_alphabetical_order_when_empty() {
+        let names: Vec<String> = ["kube-system", "default", "kube-public"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(filtered_names(&names, "").into_iter().cloned().collect::<Vec<_>>(), ["default", "kube-public", "kube-system"]);
+        assert_eq!(filtered_names(&names, "sys").into_iter().cloned().collect::<Vec<_>>(), ["kube-system"]);
+        assert!(filtered_names(&names, "zzz").is_empty());
     }
 
     #[test]
