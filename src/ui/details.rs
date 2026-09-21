@@ -61,6 +61,7 @@ pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'sta
                     out.extend(flow(prefix, LABEL_W + 2, chunks, width));
                 }
                 DLine::Item(chunks) => out.extend(flow(vec![Span::raw("  ")], 2, chunks, width)),
+                DLine::Pad(indent, chunks) => out.extend(flow(vec![Span::raw(" ".repeat(*indent))], *indent, chunks, width)),
                 DLine::Sub(label, chunks) => {
                     let prefix = vec![Span::styled(format!("      {label:<10}"), Style::default().fg(theme().muted))];
                     out.extend(flow(prefix, 16, chunks, width));

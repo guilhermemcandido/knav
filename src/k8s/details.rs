@@ -51,6 +51,8 @@ pub enum Line {
     Item(Vec<Chunk>),
     /// A line indented under the one before.
     Sub(String, Vec<Chunk>),
+    /// A line pushed in by this many cells, to line up under a column above.
+    Pad(usize, Vec<Chunk>),
     Blank,
 }
 
@@ -125,9 +127,12 @@ fn conditions(manifest: &Value) -> Option<Section> {
     if list.is_empty() {
         return None;
     }
+    // Type, status and reason in columns, the message under the reason.
+    let type_w = list.iter().filter_map(|c| text(c, &["type"])).map(|t| t.chars().count()).max().unwrap_or(4).min(30);
+    let status_w = 7;
     let lines = list
         .iter()
-        .map(|c| {
+        .flat_map(|c| {
             let kind = text(c, &["type"]).unwrap_or("?");
             let status = text(c, &["status"]).unwrap_or("?");
             let style = match (status, true_is_bad(kind)) {
@@ -136,18 +141,17 @@ fn conditions(manifest: &Value) -> Option<Section> {
                 ("False", false) => Style::Warn,
                 _ => Style::Muted,
             };
-            let mut chunks = vec![chunk(format!("{kind:<28}"), Style::Plain), chunk(format!("{status:<8}"), style)];
+            let mut chunks = vec![chunk(format!("{kind:<type_w$}  "), Style::Plain), chunk(format!("{status:<status_w$} "), style)];
             if let Some(reason) = text(c, &["reason"]) {
                 chunks.push(chunk(reason, Style::Muted));
             }
-            // The message goes under its condition, in full.
             let mut lines = vec![Line::Item(chunks)];
+            // The message goes under the reason, in full.
             if let Some(message) = text(c, &["message"]).filter(|m| !m.is_empty()) {
-                lines.push(Line::Sub(String::new(), vec![chunk(message, Style::Muted)]));
+                lines.push(Line::Pad(2 + type_w + 2 + status_w + 1, vec![chunk(message, Style::Muted)]));
             }
             lines
         })
-        .flatten()
         .collect();
     Some(Section { title: "Conditions".into(), lines })
 }
