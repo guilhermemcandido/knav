@@ -21,6 +21,12 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         .filter(|(key, _)| !GENERAL_KEYS.contains(key) && !NAVIGATION_KEYS.iter().any(|n| key.contains(n)))
         .map(|(key, what)| entry(key, what))
         .collect();
+    // The Overview has no list of its own, so say what its tiles do.
+    let resource = if resource.is_empty() {
+        vec![entry("enter", "Open tile"), entry("hjkl", "Move tiles"), entry("click", "Select tile"), entry("dbl-click", "Open tile")]
+    } else {
+        resource
+    };
     let mut hotkeys = vec![entry("0", "All namespaces")];
     hotkeys.extend(slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (format!("{}", i + 1), ns.clone()))));
     vec![
@@ -30,7 +36,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
             entries: vec![
                 entry(":cmd", "Command mode"),
                 entry("/term", "Filter mode"),
-                entry("s", "Sort (then a column number)"),
+                entry("s", "Sort by column"),
                 entry("n", "Namespaces"),
                 entry("m", "Resources menu"),
                 entry("C", "Contexts"),
@@ -38,7 +44,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 entry("ctrl-z", "Faults only"),
                 entry("ctrl-w", "Wide columns"),
                 entry("[ ]", "History back / forward"),
-                entry("-", "Last view"),
+                entry("minus", "Last view"),
                 entry("esc", "Back / clear marks"),
                 entry("?", "Help"),
                 entry(":q", "Quit"),
@@ -68,8 +74,9 @@ const KEY_FG: Color = Color::Rgb(84, 148, 255);
 const DESC_FG: Color = Color::Rgb(170, 176, 192);
 
 /// Draws the help over the whole body of the screen.
-pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>]) {
-    let area = body_area(frame.area(), true);
+pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>], shortcuts_line: bool) {
+    // The same body the page itself uses (the Overview has one header line, lists two).
+    let area = body_area(frame.area(), shortcuts_line);
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -108,6 +115,19 @@ mod tests {
         let sections = help_sections(&hints, &[]);
         let resource: Vec<&str> = sections[0].entries.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(resource, ["enter", "d", "D"]);
+    }
+
+    #[test]
+    fn the_overview_still_gets_a_resource_column() {
+        let sections = help_sections(&[], &[]);
+        assert!(sections[0].entries.iter().any(|(k, _)| k == "enter"));
+    }
+
+    #[test]
+    fn no_key_is_drawn_as_an_arrow_ligature() {
+        // Fonts fuse `<->` into an arrow, so the dash key goes by name.
+        let sections = help_sections(&[], &[]);
+        assert!(sections.iter().flat_map(|s| &s.entries).all(|(k, _)| k != "-"));
     }
 
     #[test]

@@ -423,7 +423,7 @@ pub fn draw(
         None => {}
     }
     if !suppress_hints && (!hints.is_empty() || show_hints_panel) {
-        draw_hints(frame, hints, show_hints_panel, &header.namespace_slots);
+        draw_hints(frame, hints, show_hints_panel, &header.namespace_slots, shortcuts_line);
     }
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments, selected_pod);
@@ -478,7 +478,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
 /// as the breadcrumb's kind/value split — a flat run of same-colored
 /// text reads as one undifferentiated blob, not a list of distinct
 /// commands.
-pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>]) {
+pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
     let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
     let sep_style = Style::default().fg(Color::DarkGray);
@@ -498,7 +498,7 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
         return;
     }
 
-    draw_help(frame, hints, slots);
+    draw_help(frame, hints, slots, shortcuts_line);
 }
 
 /// A floating box, horizontally centered with its top edge a quarter of the
