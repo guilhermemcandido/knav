@@ -82,3 +82,54 @@ pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
     }
     Line::from(spans)
 }
+
+/// The look of a matched search character: yellow fill, dark bold text,
+/// underlined so it still shows on the selected row's own fill.
+pub(super) fn match_style() -> Style {
+    Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+}
+
+/// `text` with the characters the fuzzy filter `pattern` matched
+/// highlighted; plain `base` when there's no pattern or it doesn't match
+/// this cell. Consecutive matched characters share one span.
+pub(super) fn highlight_fuzzy(text: &str, pattern: &str, base: Style) -> Line<'static> {
+    let Some(positions) = (!pattern.is_empty()).then(|| crate::fuzzy::positions(pattern, text)).flatten() else {
+        return Line::styled(text.to_string(), base);
+    };
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut run = String::new();
+    let mut run_matched = false;
+    for (i, ch) in text.chars().enumerate() {
+        let matched = positions.binary_search(&i).is_ok();
+        if matched != run_matched && !run.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut run), if run_matched { match_style() } else { base }));
+        }
+        run_matched = matched;
+        run.push(ch);
+    }
+    if !run.is_empty() {
+        spans.push(Span::styled(run, if run_matched { match_style() } else { base }));
+    }
+    Line::from(spans)
+}
+
+#[cfg(test)]
+mod highlight_tests {
+    use super::*;
+
+    fn texts(line: &Line) -> Vec<(String, bool)> {
+        line.spans.iter().map(|s| (s.content.to_string(), s.style.bg == Some(Color::Yellow))).collect()
+    }
+
+    #[test]
+    fn matched_characters_are_split_into_highlighted_runs() {
+        let line = highlight_fuzzy("kube-system", "ksy", Style::default());
+        assert_eq!(texts(&line), [("k".into(), true), ("ube-".into(), false), ("sy".into(), true), ("stem".into(), false)]);
+    }
+
+    #[test]
+    fn no_pattern_or_no_match_is_plain() {
+        assert_eq!(texts(&highlight_fuzzy("default", "", Style::default())), [("default".into(), false)]);
+        assert_eq!(texts(&highlight_fuzzy("default", "zzz", Style::default())), [("default".into(), false)]);
+    }
+}

@@ -66,8 +66,8 @@ pub(super) fn draw_context_popup(
     let header = Row::new(vec!["CONTEXT", "CLUSTER", "STATUS"]).style(Style::default().add_modifier(Modifier::BOLD));
     let rows = items.iter().map(|(name, cluster, current)| {
         Row::new(vec![
-            Cell::from(name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from(cluster.clone()),
+            Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
+            Cell::from(highlight_fuzzy(cluster, filter, Style::default())),
             Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(Color::Green)),
         ])
     });
@@ -111,7 +111,7 @@ pub(super) fn draw_namespace_picker(
     let header = Row::new(vec!["NAMESPACE", "KEY"]).style(Style::default().add_modifier(Modifier::BOLD));
     let rows = items.iter().map(|(name, key)| {
         Row::new(vec![
-            Cell::from(name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
             Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(Color::Rgb(240, 160, 110))),
         ])
     });
@@ -254,7 +254,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, dimmed);
+    draw_table(frame, chunks[2], pods, state, "", dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
@@ -366,10 +366,10 @@ pub(super) fn draw_events_popup(
         };
         Row::new(vec![
             Cell::from(type_text).style(Style::default().fg(color)),
-            Cell::from(e.reason.clone()).style(cell_style),
-            Cell::from(e.object.clone()).style(cell_style),
-            Cell::from(e.kind.clone()).style(cell_style),
-            Cell::from(e.message.clone()).style(cell_style),
+            Cell::from(Line::from(highlight_matches(&e.reason, search, cell_style))),
+            Cell::from(Line::from(highlight_matches(&e.object, search, cell_style))),
+            Cell::from(Line::from(highlight_matches(&e.kind, search, cell_style))),
+            Cell::from(Line::from(highlight_matches(&e.message, search, cell_style))),
             Cell::from(e.age.clone()).style(cell_style),
         ])
     });

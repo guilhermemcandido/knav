@@ -186,6 +186,9 @@ pub fn draw(
     breadcrumb: Option<&[BreadcrumbSegment]>,
     icons: &mut IconCache,
     header: &HeaderInfo,
+    // The active `/` filter on the main list, so what it matched can be
+    // highlighted in the rows.
+    search: &str,
 ) {
     // `Command` is a real modal jump now, so it dims like everything
     // else; `Search` stays undimmed — you're meant to see (and read) the
@@ -220,6 +223,8 @@ pub fn draw(
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
     let body = body_area(full, shortcuts_line);
+    // Only the focused list highlights matches; behind a popup it's dimmed.
+    let search = if dimmed { "" } else { search };
     draw_header(frame, full, header, shortcuts_line, dimmed);
     match rows {
         Rows::Pods(pods) => {
@@ -228,7 +233,7 @@ pub fn draw(
             // there, keyboard-driven, works regardless of mouse/terminal
             // support.
             let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(body);
-            draw_table(frame, chunks[0], pods, table_state, dimmed);
+            draw_table(frame, chunks[0], pods, table_state, search, dimmed);
             draw_status_line(frame, chunks[1], pods, table_state.selected(), dimmed);
 
             // The mouse-hover popup is separate from the status line and
@@ -243,19 +248,19 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, search, dimmed);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, search, dimmed);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label) => {
-            draw_generic_table(frame, body, rows, label, table_state, dimmed);
+            draw_generic_table(frame, body, rows, label, table_state, search, dimmed);
         }
         Rows::CrdList(crds, heading) => {
-            draw_crd_list_table(frame, body, crds, heading, table_state, dimmed);
+            draw_crd_list_table(frame, body, crds, heading, table_state, search, dimmed);
         }
     }
 

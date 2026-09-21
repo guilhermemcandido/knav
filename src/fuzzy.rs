@@ -38,6 +38,21 @@ pub fn score(pattern: &str, text: &str) -> Option<i64> {
     Some(total)
 }
 
+/// The character positions in `text` that `score` matched `pattern`
+/// against (the same greedy left-to-right walk), for highlighting what
+/// the user typed. `None` when it doesn't match; empty for an empty pattern.
+pub fn positions(pattern: &str, text: &str) -> Option<Vec<usize>> {
+    let text_chars: Vec<char> = text.to_lowercase().chars().collect();
+    let mut at = 0;
+    let mut found = Vec::new();
+    for pc in pattern.to_lowercase().chars() {
+        let idx = (at..text_chars.len()).find(|&i| text_chars[i] == pc)?;
+        found.push(idx);
+        at = idx + 1;
+    }
+    Some(found)
+}
+
 /// The single best-scoring candidate, or `None` if nothing matches.
 pub fn best_match<'a>(pattern: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     candidates.filter_map(|c| score(pattern, c).map(|s| (s, c))).max_by_key(|(s, _)| *s).map(|(_, c)| c)
@@ -50,6 +65,14 @@ mod tests {
     #[test]
     fn empty_pattern_matches_everything() {
         assert_eq!(score("", "anything"), Some(0));
+    }
+
+    #[test]
+    fn positions_follow_the_same_greedy_walk_as_score() {
+        assert_eq!(positions("ns", "namespaces"), Some(vec![0, 4]));
+        assert_eq!(positions("", "abc"), Some(vec![]));
+        assert_eq!(positions("ba", "ab"), None);
+        assert_eq!(positions("POD", "my-pod"), Some(vec![3, 4, 5]));
     }
 
     #[test]
