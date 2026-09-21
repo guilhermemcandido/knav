@@ -2,11 +2,16 @@
 
 use super::*;
 
+/// Rows each suggestion takes: room for a 6x3 icon beside its name.
+const SUGGESTION_HEIGHT: u16 = 3;
+const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
+
 /// The `:` command line, k9s-style: a bar right under the header, above
 /// the list (which `draw` pushes down to make room), with the live
-/// autocomplete as a short dropdown hanging off it. The best match's
-/// remaining letters show dimmed after the cursor.
-pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[String], selected: usize) {
+/// autocomplete hanging off it — each match with its icon, on rows tall
+/// enough to read. The best match's remaining letters show dimmed after
+/// the cursor.
+pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     frame.render_widget(Clear, bar);
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
     let inner = block.inner(bar);
@@ -15,7 +20,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     // "namespaces (ns)": complete against the name, not the alias note.
     let ghost = suggestions
         .get(selected)
-        .and_then(|label| label.split(" (").next())
+        .and_then(|s| s.label.split(" (").next())
         .and_then(|name| name.strip_prefix(input))
         .unwrap_or("");
     let line = Line::from(vec![
@@ -23,32 +28,41 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         Span::styled(input.to_string(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled("▏", Style::default().fg(Color::Yellow)),
         Span::styled(ghost.to_string(), Style::default().fg(Color::DarkGray)),
+        Span::styled(if suggestions.is_empty() { "" } else { "   tab completes" }, Style::default().fg(MUTED_FG)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
 
     if suggestions.is_empty() {
         return;
     }
+    // As many rows as the screen has room for, scrolled to keep the selection in view.
     let below = frame.area().bottom().saturating_sub(bar.bottom());
-    let height = (suggestions.len() as u16 + 2).min(below);
-    if height < 3 {
+    let shown = suggestions.len().min(usize::from(below.saturating_sub(2) / SUGGESTION_HEIGHT));
+    if shown == 0 {
         return;
     }
-    let width = (suggestions.iter().map(|s| s.chars().count()).max().unwrap_or(0) as u16 + 4).max(24).min(bar.width);
-    let list = Rect { x: bar.x, y: bar.bottom(), width, height };
+    let start = (selected + 1).saturating_sub(shown).min(suggestions.len() - shown);
+    let width = (suggestions.iter().map(|s| s.label.chars().count()).max().unwrap_or(0) as u16 + SUGGESTION_ICON.width + 8).max(40).min(bar.width);
+    let list = Rect { x: bar.x, y: bar.bottom(), width, height: shown as u16 * SUGGESTION_HEIGHT + 2 };
     frame.render_widget(Clear, list);
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
     let inner = block.inner(list);
     frame.render_widget(block, list);
-    let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
-    for (i, label) in suggestions.iter().enumerate() {
-        let Some(row) = rows.get(i) else { break };
-        let style = if i == selected {
-            Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(ROW_FG)
-        };
-        frame.render_widget(Paragraph::new(Span::styled(format!(" {label:<w$}", w = row.width.saturating_sub(1) as usize), style)), *row);
+    for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
+        let row = Rect { x: inner.x, y: inner.y + (n - start) as u16 * SUGGESTION_HEIGHT, width: inner.width, height: SUGGESTION_HEIGHT };
+        let chosen = n == selected;
+        let style = if chosen { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) } else { Style::default().fg(ROW_FG) };
+        frame.render_widget(Block::default().style(style), row);
+        let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
+        match suggestion.icon {
+            SuggestionIcon::Kind(kind) => icons.draw(frame, icons.centered_square(icon_area), kind),
+            SuggestionIcon::Emoji(emoji) => {
+                let middle = Rect { y: icon_area.y + 1, height: 1, ..icon_area };
+                frame.render_widget(Paragraph::new(Line::raw(emoji)).centered(), middle);
+            }
+        }
+        let text = Rect { x: icon_area.right() + 1, y: row.y + 1, width: row.right().saturating_sub(icon_area.right() + 1), height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
     }
 }
 

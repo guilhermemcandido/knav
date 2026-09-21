@@ -103,7 +103,10 @@ impl Catalog {
     /// callers get one complete catalog instead of two partial ones.
     pub(crate) fn sections(&self, pod_count: usize, deployment_count: usize) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
         vec![
-            ("Cluster", vec![("Nodes", self.count(ResourceKind::Nodes)), ("Namespaces", self.count(ResourceKind::Namespaces))]),
+            (
+                "Cluster",
+                vec![("Nodes", self.count(ResourceKind::Nodes)), ("Namespaces", self.count(ResourceKind::Namespaces)), ("API Resources", self.apis.len())],
+            ),
             (
                 "Workloads",
                 vec![

@@ -545,13 +545,15 @@ mod overview_selection_tests {
         // +1 for the gap `columns_area` now puts between the top strip
         // and the columns, matching the Resources-to-Events gap.
         let top_h = top_area_height(&overview) + 1;
+        // The columns are centred, so ask the layout where the first one is.
+        let x0 = column_layout(columns_inner(columns_area(frame_area, &overview)), 1)[0].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events));
         // Row 0 of the columns area is the column box's top border (the
         // header); rows 1-3 are the first item card (border/content/border).
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h), Some(OverviewSelection::Header(0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 1), Some(OverviewSelection::Item(0, 0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, top_h + 4), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h), Some(OverviewSelection::Header(0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 1), Some(OverviewSelection::Item(0, 0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 4), Some(OverviewSelection::Item(0, 1)));
     }
 
     #[test]
@@ -559,14 +561,16 @@ mod overview_selection_tests {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0), ("a3", 0)]), ("B", vec![("b1", 0), ("b2", 0)])]);
         let frame_area = Rect { x: 0, y: 0, width: 80, height: 40 };
         let top_h = top_area_height(&overview) + 1;
+        let layout = column_layout(columns_inner(columns_area(frame_area, &overview)), 2);
+        let x0 = layout[0].x + 1;
         // Column 0 is active with item_scroll 1: its first visible card is
         // actually item index 1, not 0.
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, 1, top_h + 1), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, x0, top_h + 1), Some(OverviewSelection::Item(0, 1)));
         // Column 1 isn't active, so it always renders from item 0
         // regardless of the (irrelevant, for it) item_scroll value. The
         // columns area has a 1-cell left scroll-arrow gutter before the
         // first column box starts.
-        let col1_x = 1 + COLUMN_WIDTH + 1;
+        let col1_x = layout[1].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 1), Some(OverviewSelection::Item(1, 0)));
     }
 

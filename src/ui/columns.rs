@@ -118,6 +118,9 @@ pub fn visible_items_per_column(columns_area_height: u16, item_height: u16) -> u
 /// agree on exactly where each column's box sits, or clicks stop lining
 /// up with what's on screen.
 pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rect]> {
+    // The block of columns sits in the middle of the space, not against its left edge.
+    let used = (cols_visible as u16 * (COLUMN_WIDTH + 1)).saturating_sub(1).min(area.width);
+    let area = Rect { x: area.x + (area.width - used) / 2, width: used, ..area };
     let constraints: Vec<Constraint> = (0..cols_visible).map(|_| Constraint::Length(COLUMN_WIDTH)).collect();
     Layout::horizontal(constraints).spacing(1).split(area)
 }
@@ -522,5 +525,27 @@ mod column_detail_tests {
         let tiny = Rect { x: 0, y: 0, width: 1, height: 1 };
         assert!(column_detail_cols(tiny) >= 1);
         assert!(column_detail_visible_rows(tiny, &[("Pods", 1)]) >= 1);
+    }
+}
+
+#[cfg(test)]
+mod centring_tests {
+    use super::*;
+
+    #[test]
+    fn columns_sit_in_the_middle_of_the_space() {
+        let area = Rect { x: 1, y: 0, width: 200, height: 20 };
+        let columns = column_layout(area, 5);
+        let used = 5 * (COLUMN_WIDTH + 1) - 1;
+        let left = columns[0].x - area.x;
+        let right = area.x + area.width - (columns[4].x + columns[4].width);
+        assert_eq!(columns[4].x + columns[4].width - columns[0].x, used);
+        assert!(left.abs_diff(right) <= 1, "left {left} right {right}");
+    }
+
+    #[test]
+    fn a_full_row_of_columns_has_no_slack_to_split() {
+        let area = Rect { x: 0, y: 0, width: 3 * (COLUMN_WIDTH + 1) - 1, height: 10 };
+        assert_eq!(column_layout(area, 3)[0].x, 0);
     }
 }

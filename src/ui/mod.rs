@@ -107,7 +107,7 @@ pub enum Overlay<'a> {
     /// Up/Down has highlighted. Unlike `Search`, this one *does* dim the
     /// background — it's a real modal jump, not a live-narrowing filter
     /// you're meant to keep watching.
-    Command { input: &'a str, suggestions: &'a [String], selected: usize },
+    Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
     /// The kubeconfig context browser (`:ctx` / `C`) — a full-size
     /// table like the Events browser, one row per `(name, cluster,
     /// is_current)`, already filtered. `error` is why the last attempt
@@ -189,6 +189,20 @@ pub struct Hover {
     pub row_on_screen: u16,
 }
 
+/// What a command suggestion shows beside its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SuggestionIcon {
+    /// The resource kind's own icon, as in the menu.
+    Kind(crate::k8s::ResourceKind),
+    Emoji(&'static str),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuggestionView {
+    pub label: String,
+    pub icon: SuggestionIcon,
+}
+
 /// One breadcrumb segment — `kind` (e.g. "Node", "Pod") in one color,
 /// its bracketed `value` (e.g. "worker-1") in another, so the two read
 /// as visually distinct without either one shouting. `value` is `None`
@@ -236,12 +250,14 @@ pub fn draw(
     // Rows marked with Space, by `mark_key`.
     marked: &HashSet<String>,
 ) {
-    // Popups dim what's behind them. The `:` command line and `/` search
-    // are bars in the page, not popups, so the list stays in full colour.
+    // Popups dim what's behind them, and so does the `:` command line, so its
+    // suggestions stand out. The `/` search is a bar in the page: the list
+    // stays in full colour.
     let dimmed = background.is_some()
         || matches!(
             overlay,
-            Some(Overlay::Spec { .. })
+            Some(Overlay::Command { .. })
+                | Some(Overlay::Spec { .. })
                 | Some(Overlay::Containers { .. })
                 | Some(Overlay::Logs { .. })
                 | Some(Overlay::Menu { .. })
@@ -362,7 +378,7 @@ pub fn draw(
             // Normally the bar under the header; on a screen too short for
             // that it sits over the top of the list instead.
             let bar = command_bar.unwrap_or(Rect { height: COMMAND_BAR_HEIGHT.min(body.height), ..body });
-            draw_command_line(frame, bar, input, suggestions, selected);
+            draw_command_line(frame, bar, input, suggestions, selected, icons);
         }
         Some(overlay) => draw_overlay(frame, overlay, false, icons),
         None => {}

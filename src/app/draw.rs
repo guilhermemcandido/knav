@@ -48,7 +48,7 @@ pub(super) fn draw_mode(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions: Vec<String> = command_suggestions(input, crds, apis).into_iter().map(|s| s.label).collect();
+                    let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     ui::draw(frame, rows_view(), table_state, hovered, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);

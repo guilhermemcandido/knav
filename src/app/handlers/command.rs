@@ -10,6 +10,20 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     match (event, &mut st.mode) {
         (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+            // Tab completes the highlighted suggestion; on one already typed
+            // out in full it moves on to the next.
+            KeyCode::Tab => {
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
+                if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
+                    let name = chosen.primary_name();
+                    if *input == name {
+                        *selected = (*selected + 1) % suggestions.len();
+                    } else {
+                        *input = name;
+                        *selected = 0;
+                    }
+                }
+            }
             KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
                 let len = command_suggestions(input, &catalog.crds, &catalog.apis).len();

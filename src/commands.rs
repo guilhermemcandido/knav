@@ -99,6 +99,25 @@ pub(crate) struct Suggestion {
     pub(crate) label: String,
 }
 
+impl Suggestion {
+    /// What to show beside it: the kind's icon from the menu, or an emoji
+    /// for the commands that are not a resource.
+    pub(crate) fn icon(&self) -> ui::SuggestionIcon {
+        match self.cmd {
+            Cmd::Kind(kind) => ui::SuggestionIcon::Kind(kind),
+            Cmd::Api(index, plural, _) => ui::SuggestionIcon::Kind(ResourceKind::Api(index, plural)),
+            Cmd::Context => ui::SuggestionIcon::Emoji("🔀"),
+            Cmd::Events => ui::SuggestionIcon::Emoji("🔔"),
+            Cmd::Quit => ui::SuggestionIcon::Emoji("🚪"),
+        }
+    }
+
+    /// The name Tab completes to: the first of its names.
+    pub(crate) fn primary_name(&self) -> String {
+        self.cmd.names().into_iter().next().unwrap_or_default()
+    }
+}
+
 /// One entry in the `:` autocomplete — a resource view to switch to, the
 /// context switcher, the events browser, or quitting.
 #[derive(Clone, Copy)]
