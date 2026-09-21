@@ -236,6 +236,13 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
+            Mode::Slots { namespace, selected, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Slots { namespace, slots: &favorites.slots, selected: *selected };
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
+                })?;
+            }
             Mode::Notice { text, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
@@ -422,6 +429,30 @@ pub(crate) fn run(
             match (event::read()?, &mut mode) {
                 // Any key (or click) closes a notice — checked before the
                 // global keys below so they don't also fire on that press.
+                (Event::Key(key), Mode::Slots { namespace, selected, back }) => {
+                    let mut assign_to = None;
+                    let mut close = false;
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => close = true,
+                        KeyCode::Char('j') | KeyCode::Down => *selected = (*selected + 1).min(favorites::SLOTS - 1),
+                        KeyCode::Char('k') | KeyCode::Up => *selected = selected.saturating_sub(1),
+                        KeyCode::Char(c @ '1'..='9') => assign_to = c.to_digit(10).map(|d| d as usize),
+                        KeyCode::Enter => assign_to = Some(*selected + 1),
+                        KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+                            favorites.clear(*selected + 1);
+                            favorites.save(active_context);
+                        }
+                        _ => {}
+                    }
+                    if let Some(key_number) = assign_to {
+                        favorites.assign(key_number, namespace);
+                        favorites.save(active_context);
+                        close = true;
+                    }
+                    if close {
+                        mode = std::mem::replace(&mut **back, Mode::List);
+                    }
+                }
                 (Event::Key(_), Mode::Notice { back, .. }) => mode = std::mem::replace(&mut **back, Mode::List),
                 (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
                     mode = std::mem::replace(&mut **back, Mode::List)
@@ -709,19 +740,17 @@ pub(crate) fn run(
                             search.clear();
                         }
                     }
-                    // `s` on a namespace reserves it to the next free number
-                    // key (1-9), or frees it if it already has one.
+                    // `s` on a namespace opens the list of number keys 1-9 to
+                    // choose which one it goes on (0 is always "all").
                     KeyCode::Char('s') if current_kind == ResourceKind::Namespaces => {
                         if let Some(name) = table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
-                            let text = match favorites.toggle(&name) {
-                                Toggled::Pinned(slot) => Some((format!("{name} reserved on key {slot}"), false)),
-                                Toggled::Unpinned(slot) => Some((format!("{name} released from key {slot}"), false)),
-                                Toggled::Full => Some(("All 9 number keys are taken — press s on one of them to release it first.".to_string(), true)),
-                            };
-                            favorites.save(active_context);
-                            if let Some((text, error)) = text {
-                                mode = Mode::Notice { text, error, back: Box::new(Mode::List) };
-                            }
+                            // Start on the key it already has, else the first free one.
+                            let selected = favorites
+                                .key_of(&name)
+                                .map(|k| k - 1)
+                                .or_else(|| favorites.slots.iter().position(Option::is_none))
+                                .unwrap_or(0);
+                            mode = Mode::Slots { namespace: name, selected, back: Box::new(Mode::List) };
                         }
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(&mut table_state, row_count),

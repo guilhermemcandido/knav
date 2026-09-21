@@ -94,6 +94,51 @@ pub(super) fn draw_context_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
+/// The `s` popup: `0` (always "all", not assignable) and keys 1-9 with
+/// what each holds; the highlighted key is where Enter puts the namespace.
+pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Option<String>], selected: usize) {
+    let bar = centered_box(frame.area(), 2 + 1 + 9 + 1 + 1);
+    frame.render_widget(Clear, bar);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(format!(" Put '{namespace}' on which key? "));
+    let inner = block.inner(bar);
+    frame.render_widget(block, bar);
+
+    let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
+    let key_style = Style::default().fg(Color::Rgb(240, 160, 110));
+    let fixed = Style::default().fg(Color::DarkGray);
+
+    if let Some(row) = rows.first() {
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled("<0> ", fixed), Span::styled("all  (always)", fixed)])),
+            *row,
+        );
+    }
+    for (i, slot) in slots.iter().enumerate() {
+        let Some(row) = rows.get(i + 1) else { break };
+        let text = match slot.as_deref() {
+            Some(ns) if ns == namespace => format!("{ns}  (this one)"),
+            Some(ns) => ns.to_string(),
+            None => "—".to_string(),
+        };
+        let line = if i == selected {
+            let style = Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD);
+            Line::styled(format!("{:<width$}", format!("<{}> {text}", i + 1), width = row.width as usize), style)
+        } else {
+            Line::from(vec![Span::styled(format!("<{}> ", i + 1), key_style), Span::raw(text)])
+        };
+        frame.render_widget(Paragraph::new(line), *row);
+    }
+    if let Some(row) = rows.get(slots.len() + 2) {
+        frame.render_widget(
+            Paragraph::new(Line::styled("1-9 or enter: assign   d: clear key   esc: cancel", Style::default().fg(Color::DarkGray))),
+            *row,
+        );
+    }
+}
+
 /// A small centered message box — green-bordered for success, red for
 /// an error. Sized to the text so a one-liner doesn't get a huge box.
 pub(super) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {

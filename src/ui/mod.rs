@@ -121,6 +121,9 @@ pub enum Overlay<'a> {
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
     /// A short result message (e.g. after an edit) — any key closes it.
     Notice { text: &'a str, error: bool },
+    /// The `s` popup: keys 1-9 (and the fixed `0` = all) with what each
+    /// currently holds, for choosing where a namespace goes.
+    Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
     /// The `/`/`f` live-filter input bar — still doesn't dim the
     /// background, since you're meant to see the list narrowing as you
     /// type, unlike `Command`'s modal jump.
@@ -194,6 +197,7 @@ pub fn draw(
                 | Some(Overlay::Command { .. })
                 | Some(Overlay::Context { .. })
                 | Some(Overlay::Notice { .. })
+                | Some(Overlay::Slots { .. })
                 | Some(Overlay::Events { .. })
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
@@ -289,6 +293,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
 }

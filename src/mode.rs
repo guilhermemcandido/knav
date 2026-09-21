@@ -21,6 +21,9 @@ pub(crate) enum Mode {
     /// attempt failed. Esc returns to `back`.
     Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     Menu { selected: (usize, usize) },
+    /// The `s` popup on a namespace: pick which number key (1-9) it goes
+    /// on. `selected` is the highlighted key minus one. Esc cancels.
+    Slots { namespace: String, selected: usize, back: Box<Mode> },
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
@@ -109,7 +112,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Context { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -197,7 +200,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Slots { back, .. } => breadcrumb_path(back),
         Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
     }
 }
@@ -230,7 +233,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec")],
                 ResourceKind::Deployments => vec![("j/k", "move"), ("enter", "replicasets"), ("d", "spec")],
-                ResourceKind::Namespaces => vec![("j/k", "move"), ("enter", "pods"), ("s", "reserve on a number key"), ("d", "spec")],
+                ResourceKind::Namespaces => vec![("j/k", "move"), ("enter", "pods"), ("s", "assign a number key"), ("d", "spec")],
                 ResourceKind::CronJobs => vec![("j/k", "move"), ("enter", "jobs"), ("d", "spec")],
                 ResourceKind::ReplicaSets
                 | ResourceKind::StatefulSets
@@ -251,7 +254,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } => Vec::new(),
         Mode::Context { editing: true, .. } => Vec::new(),
         Mode::Context { .. } => vec![("j/k", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],

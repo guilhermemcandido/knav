@@ -9,13 +9,6 @@ use super::*;
 
 pub(crate) const SLOTS: usize = 9;
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Toggled {
-    Pinned(usize),
-    Unpinned(usize),
-    Full,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Favorites {
     /// Index 0 is key `1`.
@@ -32,20 +25,29 @@ impl Favorites {
         self.slots.get(key.checked_sub(1)?)?.as_deref()
     }
 
-    /// Pins `namespace` to the first free slot, or unpins it if it's
-    /// already pinned.
-    pub(crate) fn toggle(&mut self, namespace: &str) -> Toggled {
-        if let Some(i) = self.slots.iter().position(|s| s.as_deref() == Some(namespace)) {
-            self.slots[i] = None;
-            return Toggled::Unpinned(i + 1);
-        }
-        match self.slots.iter().position(Option::is_none) {
-            Some(i) => {
-                self.slots[i] = Some(namespace.to_string());
-                Toggled::Pinned(i + 1)
+    /// Puts `namespace` on number key `key` (1-9), replacing whatever
+    /// was there. A namespace only ever holds one key, so it leaves any
+    /// key it had before. Returns the namespace that was bumped off `key`.
+    pub(crate) fn assign(&mut self, key: usize, namespace: &str) -> Option<String> {
+        let index = key.checked_sub(1).filter(|i| *i < SLOTS)?;
+        for slot in &mut self.slots {
+            if slot.as_deref() == Some(namespace) {
+                *slot = None;
             }
-            None => Toggled::Full,
         }
+        self.slots[index].replace(namespace.to_string())
+    }
+
+    /// Frees number key `key` (1-9).
+    pub(crate) fn clear(&mut self, key: usize) {
+        if let Some(slot) = key.checked_sub(1).and_then(|i| self.slots.get_mut(i)) {
+            *slot = None;
+        }
+    }
+
+    /// The key (1-9) a namespace is on, if any.
+    pub(crate) fn key_of(&self, namespace: &str) -> Option<usize> {
+        self.slots.iter().position(|s| s.as_deref() == Some(namespace)).map(|i| i + 1)
     }
 
     fn path() -> PathBuf {
@@ -94,24 +96,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn toggle_pins_into_the_first_free_slot_and_unpins() {
+    fn assign_puts_a_namespace_on_the_chosen_key() {
         let mut f = Favorites::empty();
-        assert_eq!(f.toggle("default"), Toggled::Pinned(1));
-        assert_eq!(f.toggle("kube-system"), Toggled::Pinned(2));
-        assert_eq!(f.get(2), Some("kube-system"));
-        assert_eq!(f.toggle("default"), Toggled::Unpinned(1));
-        assert_eq!(f.get(1), None);
-        // The freed slot is reused.
-        assert_eq!(f.toggle("prod"), Toggled::Pinned(1));
+        assert_eq!(f.assign(3, "default"), None);
+        assert_eq!(f.get(3), Some("default"));
+        assert_eq!(f.key_of("default"), Some(3));
     }
 
     #[test]
-    fn full_when_all_nine_are_taken() {
+    fn assigning_replaces_the_occupant_and_moves_the_namespace() {
         let mut f = Favorites::empty();
-        for i in 0..SLOTS {
-            f.toggle(&format!("ns{i}"));
-        }
-        assert_eq!(f.toggle("one-more"), Toggled::Full);
+        f.assign(1, "default");
+        f.assign(2, "kube-system");
+        // kube-system moves from 2 to 1, bumping default off.
+        assert_eq!(f.assign(1, "kube-system"), Some("default".to_string()));
+        assert_eq!(f.get(1), Some("kube-system"));
+        assert_eq!(f.get(2), None);
+        assert_eq!(f.key_of("default"), None);
+    }
+
+    #[test]
+    fn clear_frees_a_key_and_out_of_range_keys_do_nothing() {
+        let mut f = Favorites::empty();
+        f.assign(4, "prod");
+        f.clear(4);
+        assert_eq!(f.get(4), None);
+        assert_eq!(f.assign(0, "x"), None);
+        assert_eq!(f.assign(10, "x"), None);
+        assert_eq!(f.key_of("x"), None);
+        f.clear(0);
+        f.clear(10);
     }
 
     #[test]
