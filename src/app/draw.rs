@@ -157,6 +157,14 @@ pub(super) fn draw_mode(
                     });
                 })?;
             }
+            Mode::Details { manifest, sections, scroll, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let title = crate::app::mode::object_title(manifest);
+                    let overlay = ui::Overlay::Details { title: &title, sections, scroll: *scroll };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                })?;
+            }
             Mode::Relations { target, graph, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

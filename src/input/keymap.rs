@@ -86,6 +86,7 @@ bindings! {
     ("pod_logs", "Pod logs", &[List], &["l"]),
     ("previous_logs", "Previous logs", &[List, Containers], &["p"]),
     ("owner", "Jump to the owner", &[List], &["O"]),
+    ("details", "Info about the object", &[List], &["i"]),
     ("related", "Related objects", &[List], &["R"]),
     ("mark", "Mark the row", &[List], &["space"]),
     ("open_browser", "Open in the browser", &[List], &["o"]),
@@ -239,7 +240,7 @@ pub fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<Screen> {
         Mode::Yaml { .. } => Yaml,
         Mode::Settings { editing: None, capture: None, .. } => Settings,
         Mode::ThemePicker { .. } => Themes,
-        Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::Relations { .. } => Other,
+        Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::Relations { .. } | Mode::Details { .. } => Other,
         _ => return None,
     })
 }

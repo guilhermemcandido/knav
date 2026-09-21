@@ -7,6 +7,7 @@ mod inspect;
 mod list;
 mod operate;
 mod overview_popups;
+mod details;
 mod pickers;
 mod related;
 mod settings;
@@ -130,6 +131,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
         Mode::Relations { .. } => related::handle(event, st, cx),
+        Mode::Details { .. } => details::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Shell { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
     }
 }

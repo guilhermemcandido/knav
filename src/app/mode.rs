@@ -50,6 +50,8 @@ pub(crate) enum Mode {
     Shell { title: String, session: Box<crate::ops::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
+    /// A readable summary of one object (name, labels, status, containers, ...).
+    Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, back: Box<Mode> },
     /// What the selected object is related to (owners, what it uses, what uses it, ...).
     Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
@@ -276,6 +278,11 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             path.push(segment("YAML", title.clone()));
             path
         }
+        Mode::Details { manifest, back, .. } => {
+            let mut path = mode_path(back);
+            path.push(segment("Info", object_title(manifest)));
+            path
+        }
         Mode::Relations { target, back, .. } => {
             let mut path = mode_path(back);
             path.push(segment("Related", object_title(target)));
@@ -381,6 +388,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
                 hints.push(("y", "yaml"));
+                hints.push(("i", "info"));
                 hints.push(("R", "related"));
                 hints.push(("Y", "copy name"));
                 hints.push(("O", "owner"));
@@ -405,6 +413,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),
         Mode::Settings { tab: ui::SettingsTab::Overview, .. } => vec![("↑↓/jk", "move"), ("1-9", "place"), ("J/K", "nudge"), ("space", "show/hide"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
+        Mode::Details { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("y", "yaml"), ("q/esc", "back")],
         Mode::Relations { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("space", "follow"), ("backspace", "back"), ("q/esc", "close")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),

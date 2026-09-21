@@ -373,6 +373,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
                 }
             }
+            // A readable summary of the selected object.
+            KeyCode::Char('i') => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
+                    let sections = k8s::details::details(&manifest, &cx.d.overview.events);
+                    let back = std::mem::replace(&mut st.mode, Mode::List);
+                    st.mode = Mode::Details { manifest, sections, scroll: 0, back: Box::new(back) };
+                }
+            }
             // What the selected object relates to.
             KeyCode::Char('R') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
