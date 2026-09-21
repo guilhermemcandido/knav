@@ -50,37 +50,75 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
 }
 
 /// Live autocomplete for the `:` command line — every switchable
-/// resource kind, fuzzy-scored against whatever's typed so far and
-/// sorted best-first, same scorer the search/filter and cluster picker
-/// already use. Empty input suggests nothing (an empty command bar with
-/// a giant list under it isn't "autocomplete," it's just the menu).
-pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Cmd> {
-    if input.trim().is_empty() {
+/// resource kind plus `context`, `events` and `quit`, matched against all
+/// of their names (`ns` finds namespaces, `dp` deployments, `q` quit) and
+/// sorted best-first. An exact alias always ranks first; otherwise the
+/// same fuzzy scorer the search/filter uses. Empty input suggests nothing
+/// (an empty command bar with a giant list under it isn't "autocomplete,"
+/// it's just the menu).
+pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Suggestion> {
+    let input = input.trim().to_lowercase();
+    if input.is_empty() {
         return Vec::new();
     }
-    let mut scored: Vec<(i64, Cmd)> = std::iter::once(Cmd::Context)
+    let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
+        .chain(std::iter::once(Cmd::Events))
+        .chain(std::iter::once(Cmd::Quit))
         .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
-        .filter_map(|cmd| fuzzy::score(input, &cmd.name()).map(|score| (score, cmd)))
+        .filter_map(|cmd| {
+            let names = cmd.names();
+            let (score, alias) = names
+                .iter()
+                .filter_map(|alias| {
+                    let mut score = fuzzy::score(&input, alias)?;
+                    if *alias == input {
+                        score += 1000;
+                    } else if alias.starts_with(&input) {
+                        score += 50;
+                    }
+                    Some((score, alias.clone()))
+                })
+                .max_by_key(|(score, _)| *score)?;
+            let primary = names[0].clone();
+            let label = if alias == primary { primary } else { format!("{primary} ({alias})") };
+            Some((score, Suggestion { cmd, label }))
+        })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, cmd)| cmd).take(8).collect()
+    scored.into_iter().map(|(_, suggestion)| suggestion).take(8).collect()
 }
 
-/// One entry in the `:` autocomplete — a resource view to switch to, or
-/// the context switcher.
+/// One line of the autocomplete: what it does, and how it's shown
+/// (`namespaces (ns)` when it was found through an alias).
+#[derive(Clone)]
+pub(crate) struct Suggestion {
+    pub(crate) cmd: Cmd,
+    pub(crate) label: String,
+}
+
+/// One entry in the `:` autocomplete — a resource view to switch to, the
+/// context switcher, the events browser, or quitting.
 #[derive(Clone, Copy)]
 pub(crate) enum Cmd {
     Kind(ResourceKind),
     Context,
+    Events,
+    Quit,
 }
 
 impl Cmd {
-    /// The lowercase name you'd type (`pods`, `configmaps`, `context`) —
-    /// what the autocomplete shows and matches against.
-    pub(crate) fn name(self) -> String {
+    /// Every lowercase name that runs this command, the one the
+    /// autocomplete shows first.
+    pub(crate) fn names(self) -> Vec<String> {
+        let fixed = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
         match self {
-            Cmd::Kind(k) => k.label().to_lowercase().replace(' ', ""),
-            Cmd::Context => "context".to_string(),
+            Cmd::Kind(k) => {
+                let aliases = k.aliases();
+                if aliases.is_empty() { vec![k.label().to_lowercase().replace(' ', "")] } else { fixed(aliases) }
+            }
+            Cmd::Context => fixed(&["context", "contexts", "ctx"]),
+            Cmd::Events => fixed(&["events", "event", "ev"]),
+            Cmd::Quit => fixed(&["quit", "q", "exit"]),
         }
     }
 }
@@ -146,6 +184,42 @@ pub(crate) fn menu_position_for(kind: ResourceKind, crds: &[k8s::CrdInfo]) -> (u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn top(input: &str) -> Suggestion {
+        command_suggestions(input, &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
+    }
+
+    #[test]
+    fn an_exact_alias_ranks_first_and_shows_the_full_name() {
+        let s = top("ns");
+        assert!(matches!(s.cmd, Cmd::Kind(ResourceKind::Namespaces)));
+        assert_eq!(s.label, "namespaces (ns)");
+        assert!(matches!(top("dp").cmd, Cmd::Kind(ResourceKind::Deployments)));
+        assert!(matches!(top("po").cmd, Cmd::Kind(ResourceKind::Pods)));
+        assert!(matches!(top("svc").cmd, Cmd::Kind(ResourceKind::Services)));
+        assert!(matches!(top("sa").cmd, Cmd::Kind(ResourceKind::ServiceAccounts)));
+    }
+
+    #[test]
+    fn the_full_name_shows_without_an_alias_suffix() {
+        assert_eq!(top("pods").label, "pods");
+        assert_eq!(top("namespaces").label, "namespaces");
+    }
+
+    #[test]
+    fn quit_context_and_events_are_commands_too() {
+        for input in ["q", "quit", "exit"] {
+            assert!(matches!(top(input).cmd, Cmd::Quit), "{input}");
+        }
+        assert!(matches!(top("ctx").cmd, Cmd::Context));
+        assert!(matches!(top("context").cmd, Cmd::Context));
+        assert!(matches!(top("ev").cmd, Cmd::Events));
+    }
+
+    #[test]
+    fn empty_input_suggests_nothing() {
+        assert!(command_suggestions("  ", &[]).is_empty());
+    }
 
     #[test]
     pub(crate) fn next_stops_at_bottom_instead_of_wrapping() {

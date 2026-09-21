@@ -176,43 +176,51 @@ impl ResourceKind {
     }
 
     /// Resolves a `:command` (already lowercased/trimmed by the caller)
-    /// to the kind it switches to — the full lowercase name (spaces
-    /// removed) always works, plus k9s-style short aliases for the ones
-    /// worth typing quickly. Returns `None` for anything unrecognized;
-    /// the caller just no-ops rather than erroring, same as an unknown
-    /// command in a shell alias you half-remember.
+    /// to the kind it switches to, through `COMMAND_ALIASES` — the full
+    /// name, the singular and the short k9s-style alias all work.
+    /// Returns `None` for anything unrecognized; the caller just no-ops.
     pub fn from_command(cmd: &str) -> Option<Self> {
-        match cmd {
-            "overview" | "home" => Some(ResourceKind::Overview),
-            "pods" | "pod" | "po" => Some(ResourceKind::Pods),
-            "deployments" | "deployment" | "deploy" | "dep" => Some(ResourceKind::Deployments),
-            "nodes" | "node" | "no" => Some(ResourceKind::Nodes),
-            "namespaces" | "namespace" | "ns" => Some(ResourceKind::Namespaces),
-            "replicasets" | "replicaset" | "rs" => Some(ResourceKind::ReplicaSets),
-            "statefulsets" | "statefulset" | "sts" => Some(ResourceKind::StatefulSets),
-            "daemonsets" | "daemonset" | "ds" => Some(ResourceKind::DaemonSets),
-            "jobs" | "job" => Some(ResourceKind::Jobs),
-            "cronjobs" | "cronjob" | "cj" => Some(ResourceKind::CronJobs),
-            "configmaps" | "configmap" | "cm" => Some(ResourceKind::ConfigMaps),
-            "secrets" | "secret" | "sec" => Some(ResourceKind::Secrets),
-            "hpas" | "hpa" => Some(ResourceKind::Hpas),
-            "services" | "service" | "svc" => Some(ResourceKind::Services),
-            "endpoints" | "endpoint" | "ep" => Some(ResourceKind::Endpoints),
-            "ingresses" | "ingress" | "ing" => Some(ResourceKind::Ingresses),
-            "networkpolicies" | "networkpolicy" | "netpol" => Some(ResourceKind::NetworkPolicies),
-            "pvcs" | "pvc" => Some(ResourceKind::Pvcs),
-            "pvs" | "pv" => Some(ResourceKind::Pvs),
-            "storageclasses" | "storageclass" | "sc" => Some(ResourceKind::StorageClasses),
-            "serviceaccounts" | "serviceaccount" | "sa" => Some(ResourceKind::ServiceAccounts),
-            "roles" | "role" => Some(ResourceKind::Roles),
-            "rolebindings" | "rolebinding" | "rb" => Some(ResourceKind::RoleBindings),
-            "clusterroles" | "clusterrole" | "cr" => Some(ResourceKind::ClusterRoles),
-            "clusterrolebindings" | "clusterrolebinding" | "crb" => Some(ResourceKind::ClusterRoleBindings),
-            "customresources" | "customresource" | "crds" | "crd" => Some(ResourceKind::CustomResourceList),
-            _ => None,
-        }
+        COMMAND_ALIASES.iter().find(|(_, names)| names.contains(&cmd)).map(|(kind, _)| *kind)
+    }
+
+    /// Every name `:` accepts for this kind, primary (plural) name first.
+    /// Empty for kinds with no fixed name (a CRD group or instance).
+    pub fn aliases(self) -> &'static [&'static str] {
+        COMMAND_ALIASES.iter().find(|(kind, _)| *kind == self).map(|(_, names)| *names).unwrap_or(&[])
     }
 }
+
+/// The names `:` accepts for each kind — the full plural first (it's what
+/// the autocomplete shows), then the singular and the k9s short aliases
+/// (`po`, `dp`, `ns`, `svc`, `cm`, `sa`, ...).
+pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
+    (ResourceKind::Overview, &["overview", "home"]),
+    (ResourceKind::Pods, &["pods", "pod", "po"]),
+    (ResourceKind::Deployments, &["deployments", "deployment", "deploy", "dp", "dep"]),
+    (ResourceKind::Nodes, &["nodes", "node", "no"]),
+    (ResourceKind::Namespaces, &["namespaces", "namespace", "ns"]),
+    (ResourceKind::ReplicaSets, &["replicasets", "replicaset", "rs"]),
+    (ResourceKind::StatefulSets, &["statefulsets", "statefulset", "sts"]),
+    (ResourceKind::DaemonSets, &["daemonsets", "daemonset", "ds"]),
+    (ResourceKind::Jobs, &["jobs", "job"]),
+    (ResourceKind::CronJobs, &["cronjobs", "cronjob", "cj"]),
+    (ResourceKind::ConfigMaps, &["configmaps", "configmap", "cm"]),
+    (ResourceKind::Secrets, &["secrets", "secret", "sec"]),
+    (ResourceKind::Hpas, &["hpas", "hpa"]),
+    (ResourceKind::Services, &["services", "service", "svc"]),
+    (ResourceKind::Endpoints, &["endpoints", "endpoint", "ep"]),
+    (ResourceKind::Ingresses, &["ingresses", "ingress", "ing"]),
+    (ResourceKind::NetworkPolicies, &["networkpolicies", "networkpolicy", "netpol"]),
+    (ResourceKind::Pvcs, &["pvcs", "pvc", "persistentvolumeclaims"]),
+    (ResourceKind::Pvs, &["pvs", "pv", "persistentvolumes"]),
+    (ResourceKind::StorageClasses, &["storageclasses", "storageclass", "sc"]),
+    (ResourceKind::ServiceAccounts, &["serviceaccounts", "serviceaccount", "sa"]),
+    (ResourceKind::Roles, &["roles", "role"]),
+    (ResourceKind::RoleBindings, &["rolebindings", "rolebinding", "rb"]),
+    (ResourceKind::ClusterRoles, &["clusterroles", "clusterrole", "cr"]),
+    (ResourceKind::ClusterRoleBindings, &["clusterrolebindings", "clusterrolebinding", "crb"]),
+    (ResourceKind::CustomResourceList, &["customresources", "customresource", "customresourcedefinitions", "crds", "crd"]),
+];
 
 pub struct PodRow {
     pub namespace: String,

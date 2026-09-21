@@ -221,7 +221,7 @@ pub(crate) fn run(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(Cmd::name).collect();
+                    let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(|s| s.label).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now);
@@ -876,16 +876,18 @@ pub(crate) fn run(
                     }
                     KeyCode::Enter => {
                         let cmd = input.trim().to_lowercase();
-                        if matches!(cmd.as_str(), "q" | "quit" | "exit") {
-                            return Ok(Outcome::Quit);
-                        }
                         // The highlighted autocomplete suggestion wins
                         // when there is one; `from_command` is only the
                         // fallback for an exact alias that didn't happen
                         // to fuzzy-score into the visible list.
                         let suggestions = command_suggestions(input, &catalog.crds);
-                        let highlighted = suggestions.get(*selected).copied();
-                        if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
+                        let highlighted = suggestions.get(*selected).map(|s| s.cmd);
+                        if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {
+                            return Ok(Outcome::Quit);
+                        }
+                        if matches!(highlighted, Some(Cmd::Events)) {
+                            mode = Mode::Events { filter: k8s::EventFilter::All, state: TableState::default().with_selected(0) };
+                        } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
                             let mut opened = std::mem::replace(&mut **back, Mode::List);
                             open_context_switcher(&mut opened, active_context);
                             mode = opened;
