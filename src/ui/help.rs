@@ -121,7 +121,7 @@ pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Opti
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(pill_title("Help", false, theme_border(false)));
+        .title(pill_title_centered("Help", false));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
