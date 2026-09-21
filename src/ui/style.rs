@@ -112,12 +112,21 @@ pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bo
 /// ` search: text▏ ` for the right end of a top border (`▏` is the cursor)
 /// while a search is being typed or applied; nothing when there isn't one.
 /// Every searchable screen shows it the same way.
+static TITLE_RESERVE: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+
+/// Cells at the right of a list's top border taken by the sorting, faults and wide
+/// badges, which the search text keeps clear of.
+pub fn set_title_reserve(cells: u16) {
+    TITLE_RESERVE.store(cells, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn search_title(text: &str, editing: bool, dimmed: bool) -> Option<Line<'static>> {
     if text.is_empty() && !editing {
         return None;
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
-    Some(Line::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style).right_aligned())
+    let reserve = usize::from(TITLE_RESERVE.load(std::sync::atomic::Ordering::Relaxed));
+    Some(Line::styled(format!(" search: {text}{} {}", if editing { "▏" } else { "" }, " ".repeat(reserve)), style).right_aligned())
 }
 
 /// `block` with the search, if any, on the right of its top border.

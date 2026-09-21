@@ -37,7 +37,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
-pub use self::style::set_list_focused;
+pub use self::style::{set_list_focused, set_title_reserve};
 pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
@@ -361,6 +361,14 @@ pub fn draw(
     // Terminals can't blur, so a modal fakes depth by muting the background to gray;
     // only what is in full colour reads as in focus.
     let full = frame.area();
+    // The search on a list's top border keeps clear of the badges in its corner.
+    set_title_reserve(if matches!(rows, Rows::Overview(..)) || dimmed {
+        0
+    } else {
+        let widths = [(sort.choosing, " sorting "), (header.faults_only, " faults "), (header.wide, " wide ")];
+        let badges: u16 = widths.iter().filter(|(on, _)| *on).map(|(_, text)| text.chars().count() as u16 + 1).sum();
+        if badges > 0 { badges + 2 } else { 0 }
+    });
     // The namespace-shortcut line is for the resource lists; the main
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
