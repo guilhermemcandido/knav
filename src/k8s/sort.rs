@@ -84,7 +84,7 @@ fn text(s: &str) -> Key {
 pub(crate) const POD_COLUMNS: usize = 10;
 const DEPLOYMENT_COLUMNS: usize = 6;
 const NODE_COLUMNS: usize = 9;
-const CRD_COLUMNS: usize = 3;
+const CRD_COLUMNS: usize = 4;
 
 /// How many sortable columns the list for `kind` has. `generic_columns` is
 /// the current generic table's width (namespace if any, name, the kind's
@@ -187,10 +187,11 @@ pub(crate) fn generic_key(row: &k8s::GenericRow, column: usize, has_namespace: b
     }
 }
 
-pub(crate) fn crd_key(crd: &k8s::CrdInfo, column: usize) -> Key {
+pub(crate) fn crd_key(crd: &k8s::CrdInfo, count: k8s::Count, column: usize) -> Key {
     match column {
         0 => text(crd.group),
         1 => text(crd.kind),
+        2 => Key::Num(count.sort_key()),
         _ => Key::Num(i64::from(crd.namespaced)),
     }
 }

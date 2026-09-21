@@ -25,6 +25,8 @@ pub(super) struct Derived {
     pub generic_columns: usize,
     pub generic_rows: Vec<k8s::GenericRow>,
     pub crd_rows: Vec<(usize, k8s::CrdInfo)>,
+    /// How many objects each CRD kind in `crd_rows` has.
+    pub crd_counts: Vec<k8s::Count>,
 }
 
 /// The filters/ordering applied to every list.
@@ -189,7 +191,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
         // The CRD picker, unfiltered or scoped to one API group. Each entry keeps its
         // real index into `catalog.crds`.
-        let mut crd_rows: Vec<(usize, k8s::CrdInfo)> = match current_kind {
+        let crd_rows: Vec<(usize, k8s::CrdInfo)> = match current_kind {
             ResourceKind::CustomResourceList => catalog
                 .crds
                 .iter()
@@ -206,9 +208,15 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 .collect(),
             _ => Vec::new(),
         };
-        apply(&mut crd_rows, sort, |(_, crd), column| crd_key(crd, column));
+        // Lists of types show how many objects each has; the counting starts when one is opened.
+        if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
+            catalog.count_instances(namespace.as_deref());
+        }
+        let mut with_counts: Vec<((usize, k8s::CrdInfo), k8s::Count)> = crd_rows.into_iter().map(|row| { let count = catalog.counts.get(row.1.group, &row.1.plural); (row, count) }).collect();
+        apply(&mut with_counts, sort, |((_, crd), count), column| crd_key(crd, *count, column));
+        let (crd_rows, crd_counts): (Vec<(usize, k8s::CrdInfo)>, Vec<k8s::Count>) = with_counts.into_iter().unzip();
 
-    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows }
+    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts }
 }
 
 /// The last derivation and what it was made from, so idle iterations (a mouse move,

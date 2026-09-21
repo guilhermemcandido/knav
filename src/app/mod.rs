@@ -53,7 +53,7 @@ pub(crate) fn run(
         let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort, faults: st.faults_only, wide: st.wide, layout: &st.config.overview };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();
-        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, .. } = derived;
+        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, .. } = derived;
 
         let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
@@ -87,7 +87,7 @@ pub(crate) fn run(
             ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
-            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, st.current_kind.label()),
+            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, crd_counts, st.current_kind.label()),
             _ => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
         };
 
@@ -106,6 +106,10 @@ pub(crate) fn run(
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {
+            // Custom resource groups show how many objects they hold, so those are counted while shown.
+            if !st.sidebar_folded.contains("Custom Resources") {
+                catalog.count_instances(st.namespace.as_deref());
+            }
             let all = sidebar::entries(st.current_kind, &st.sidebar_folded, catalog, overview);
             let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
             ui::set_sidebar(Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus }));

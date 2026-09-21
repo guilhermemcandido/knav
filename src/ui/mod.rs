@@ -81,7 +81,8 @@ pub enum Rows<'a> {
     Generic(&'a [GenericRow], &'static str, &'a [&'static str]),
     /// The Custom Resources picker: every discovered CRD kind, or one API group's. Each
     /// entry keeps its real index into `Catalog`'s list, next to a heading.
-    CrdList(&'a [(usize, CrdInfo)], &'a str),
+    /// Custom resource kinds, how many objects each has, and the list's heading.
+    CrdList(&'a [(usize, CrdInfo)], &'a [crate::k8s::Count], &'a str),
 }
 
 pub struct MenuSection<'a> {
@@ -422,7 +423,7 @@ pub fn draw(
             Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(SelectedItem::from_deployment),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
             Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(SelectedItem::from_generic),
-            Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
+            Rows::CrdList(crds, _, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
             Rows::Overview(..) => None,
         },
     };
@@ -436,7 +437,7 @@ pub fn draw(
         Rows::Deployments(r) if r.is_empty() => Some("deployments"),
         Rows::Nodes(r) if r.is_empty() => Some("nodes"),
         Rows::Generic(r, label, _) if r.is_empty() => Some(*label),
-        Rows::CrdList(r, heading) if r.is_empty() => Some(*heading),
+        Rows::CrdList(r, _, heading) if r.is_empty() => Some(*heading),
         _ => None,
     }
     .map(|label| empty_list_message(label, search.text, header.faults_only));
@@ -468,8 +469,8 @@ pub fn draw(
         Rows::Generic(rows, label, kind_headers) => {
             draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, header.wide, dimmed);
         }
-        Rows::CrdList(crds, heading) => {
-            draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, hscroll, dimmed);
+        Rows::CrdList(crds, counts, heading) => {
+            draw_crd_list_table(frame, body, crds, counts, heading, table_state, search, sort, hscroll, dimmed);
         }
     }
 

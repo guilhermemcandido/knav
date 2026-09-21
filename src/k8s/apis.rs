@@ -91,6 +91,8 @@ pub async fn discover_apis(client: &Client) -> Vec<ApiInfo> {
 /// The list of every resource type (`:api`); Enter on a row opens it.
 pub struct ApiList {
     pub apis: Vec<ApiInfo>,
+    /// How many objects each type has, filled in by the background counter.
+    pub counts: InstanceCounts,
 }
 
 impl CatalogKind for ApiList {
@@ -103,6 +105,7 @@ impl CatalogKind for ApiList {
             .iter()
             .map(|api| {
                 let col = |header, text: String| Col { header, text, tone: Tone::Plain, sort: None };
+                let count = self.counts.get(api.group, api.plural);
                 GenericRow {
                     namespace: "-".into(),
                     name: api.plural.to_string(),
@@ -112,6 +115,7 @@ impl CatalogKind for ApiList {
                         col("GROUP", if api.group.is_empty() { "core".into() } else { api.group.to_string() }),
                         col("VERSION", api.version.clone()),
                         col("KIND", api.kind.to_string()),
+                        Col { header: "COUNT", text: count.text(), tone: if count == Count::Known(0) { Tone::Muted } else { Tone::Plain }, sort: Some(count.sort_key()) },
                         col("NAMESPACED", api.namespaced.to_string()),
                         col("VERBS", api.verbs.join(",")),
                     ],
@@ -136,7 +140,7 @@ impl CatalogKind for ApiList {
     }
 
     fn headers(&self) -> Vec<&'static str> {
-        vec!["GROUP", "VERSION", "KIND", "NAMESPACED", "VERBS"]
+        vec!["GROUP", "VERSION", "KIND", "COUNT", "NAMESPACED", "VERBS"]
     }
 }
 

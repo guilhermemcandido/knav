@@ -104,6 +104,9 @@ pub(super) fn draw_sidebar(frame: &mut Frame, area: Rect, dimmed: bool) {
                 Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)
             } else if row.heading {
                 Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)
+            } else if row.count == Some(0) {
+                // Nothing in it: quiet, so what has objects stands out.
+                Style::default().fg(theme().muted)
             } else {
                 Style::default().fg(theme().row)
             };

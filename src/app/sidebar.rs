@@ -31,11 +31,34 @@ pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, cat
         if *title == "Network" {
             kinds.push(("Port-forwards", None, ResourceKind::PortForwards));
         }
+        // A custom resource group is listed with how many objects its kinds hold, once counted.
+        for (_, count, kind) in kinds.iter_mut() {
+            if let ResourceKind::CustomResourceGroup(group) = kind {
+                *count = object_total(catalog, |c| c.group == *group);
+            }
+        }
+        if *title == "Custom Resources"
+            && let Some(first) = kinds.iter_mut().find(|(_, _, k)| *k == ResourceKind::CustomResourceList)
+        {
+            first.1 = object_total(catalog, |_| true);
+        }
         for (label, count, kind) in kinds {
             out.push(Entry { row: ui::SidebarRow { label: label.to_string(), heading: false, collapsed: false, count, current: kind == current }, kind: Some(kind), section: title });
         }
     }
     out
+}
+
+/// The objects held by the custom resource kinds `keep` picks, when every one has been counted.
+fn object_total(catalog: &Catalog, keep: impl Fn(&k8s::CrdInfo) -> bool) -> Option<usize> {
+    let mut total = 0;
+    for crd in catalog.crds.iter().filter(|c| keep(c)) {
+        match catalog.counts.get(crd.group, &crd.plural) {
+            k8s::Count::Known(n) => total += n,
+            _ => return None,
+        }
+    }
+    Some(total)
 }
 
 /// The row of the list on screen, where the cursor rests when the sidebar has no focus.

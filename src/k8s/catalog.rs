@@ -28,6 +28,9 @@ pub(crate) struct Catalog {
     /// fetched (as a server-side Table) only once it is opened.
     pub(crate) apis: Vec<k8s::ApiInfo>,
     api_list: k8s::ApiList,
+    /// Object counts per type for the type lists, counted in the background once one is opened.
+    pub(crate) counts: k8s::InstanceCounts,
+    counter: Option<k8s::Counter>,
     api_tables: HashMap<usize, k8s::TableKind>,
 }
 
@@ -48,6 +51,7 @@ impl Catalog {
         // Namespaces feed the namespace picker, so they are always held in full.
         let mut namespaces = kind!(Namespaces, "Namespaces", Namespace);
         namespaces.full = Some((namespaces.start)(client));
+        let counts = k8s::InstanceCounts::default();
         Catalog {
             client: client.clone(),
             entries: vec![
@@ -76,10 +80,26 @@ impl Catalog {
             ],
             crds,
             crd_watches: HashMap::new(),
-            api_list: k8s::ApiList { apis: apis.clone() },
+            api_list: k8s::ApiList { apis: apis.clone(), counts: counts.clone() },
+            counts,
+            counter: None,
             apis,
             api_tables: HashMap::new(),
         }
+    }
+
+    /// Starts counting the objects of every type (once), and follows the namespace shown.
+    pub(crate) fn count_instances(&mut self, namespace: Option<&str>) {
+        let counter = self.counter.get_or_insert_with(|| {
+            // Custom resources by their own storage version, then every other type discovery lists
+            // (a CRD served only in an older version is missing from discovery's preferred one).
+            let mut types: Vec<k8s::ApiInfo> = self.crds.iter().map(k8s::ApiInfo::from).collect();
+            let known: HashSet<(&str, &str)> = types.iter().map(|t| (t.group, t.plural)).collect();
+            let rest: Vec<k8s::ApiInfo> = self.apis.iter().filter(|a| !known.contains(&(a.group, a.plural))).cloned().collect();
+            types.extend(rest);
+            k8s::Counter::start(self.client.clone(), types, self.counts.clone())
+        });
+        counter.set_namespace(&self.counts, namespace);
     }
 
     /// Starts the full watch of a built-in kind if it is not running.

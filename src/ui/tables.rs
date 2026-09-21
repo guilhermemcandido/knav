@@ -530,23 +530,29 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 /// The Custom Resources picker: every discovered CRD kind, sorted by GROUP so
 /// same-group kinds sit together. Enter starts watching the kind; nothing is
 /// live-watched until then.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let cell_style = theme_row(dimmed);
 
-    const HEADERS: [&str; 3] = ["GROUP", "KIND", "SCOPE"];
+    const HEADERS: [&str; 4] = ["GROUP", "KIND", "COUNT", "SCOPE"];
     let window = layout_table(
         &HEADERS,
-        crds.iter().map(|(_, c)| vec![cell_width(c.group), cell_width(c.kind), cell_width("Namespaced")]),
+        crds.iter().zip(counts).map(|((_, c), n)| vec![cell_width(c.group), cell_width(c.kind), cell_width(&n.text()), cell_width("Namespaced")]),
         area.width.saturating_sub(2),
         None,
         hscroll,
     );
     let header = header_row(&HEADERS, sort, dimmed, &window);
 
-    let rows = crds.iter().map(|(_, c)| {
+    let rows = crds.iter().zip(counts).map(|((_, c), n)| {
+        // Nothing of a type: dimmed, so the ones with objects stand out.
+        let count_style = match n {
+            crate::k8s::Count::Known(0) | crate::k8s::Count::Unknown | crate::k8s::Count::Loading => if dimmed { dim_style() } else { Style::default().fg(theme().muted) },
+            crate::k8s::Count::Known(_) => cell_style.add_modifier(Modifier::BOLD),
+        };
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(c.group, search.text, cell_style)),
             Cell::from(highlight_fuzzy(c.kind, search.text, cell_style)),
+            Cell::from(n.text()).style(count_style),
             Cell::from(if c.namespaced { "Namespaced" } else { "Cluster" }).style(cell_style),
         ]))
     });
