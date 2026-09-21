@@ -57,14 +57,13 @@ pub(super) fn shows_health(label: &str) -> bool {
     matches!(label, "Nodes" | "Namespaces" | "Pods" | "Deployments" | "ReplicaSets" | "StatefulSets" | "DaemonSets" | "Jobs" | "CronJobs" | "HPAs" | "Services" | "Endpoints" | "Ingresses" | "PVCs" | "PVs")
 }
 
-/// The opened-up category view draws bigger cards for kinds with a health readout.
+/// The opened-up category view draws bigger cards, with a health readout where a kind has one.
 pub(super) const DETAIL_WIDTH: u16 = 42;
 pub(super) const DETAIL_HEIGHT: u16 = 6;
 
-/// The card size for the opened-up category view: bigger when its kinds have
-/// health to show, else the compact size.
-pub(super) fn detail_card(items: &[(&str, usize)]) -> (u16, u16) {
-    if items.iter().any(|(label, _)| shows_health(label)) { (DETAIL_WIDTH, DETAIL_HEIGHT) } else { (COLUMN_WIDTH, item_height(items, COLUMN_WIDTH)) }
+/// The card size in the opened-up category view: the same for every kind.
+pub(super) fn detail_card(_items: &[(&str, usize)]) -> (u16, u16) {
+    (DETAIL_WIDTH, DETAIL_HEIGHT)
 }
 
 /// A bar `width` cells wide: green for what is fine, yellow for what needs a
@@ -525,7 +524,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         let col_areas = Layout::horizontal(col_constraints).spacing(1).split(*row_area);
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
-            draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label)), title, idx == selected, false, icons);
+            draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label) && *count > 0), title, idx == selected, false, icons);
         }
     }
 }
