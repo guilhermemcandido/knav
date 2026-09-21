@@ -91,7 +91,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         if current_kind == ResourceKind::Deployments {
             apply(&mut deployments, sort, |d, column| deployment_key(&k8s::row_for_deployment(d), column, wide));
         }
-        let dep_rows: Vec<k8s::DeploymentRow> = deployments.iter().map(|d| k8s::row_for_deployment(d)).collect();
+        let dep_rows: Vec<k8s::DeploymentRow> = k8s::par_map(&deployments, |d| k8s::row_for_deployment(d));
         let nodes = node_store.state();
         let events = event_store.state();
         let usage = node_metrics_rx.borrow().clone();
@@ -110,9 +110,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // Nodes have their own rows (CPU/Memory in the list). They are filtered here so
         // the handlers indexing into `sorted_nodes` match what is displayed.
         // Every pod counts toward its node's PODS, whatever the list is narrowed to.
-        let mut pods_per_node: HashMap<String, usize> = HashMap::new();
+        let mut pods_per_node: HashMap<&str, usize> = HashMap::new();
         for pod in &all_pods {
-            if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
+            if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.as_deref()) {
                 *pods_per_node.entry(node).or_default() += 1;
             }
         }
@@ -124,7 +124,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .map(|n| {
                 let name = n.metadata.name.clone().unwrap_or_default();
                 let node_usage = usage.as_ref().and_then(|u| u.for_node(&name));
-                let pod_count = pods_per_node.get(&name).copied().unwrap_or(0);
+                let pod_count = pods_per_node.get(name.as_str()).copied().unwrap_or(0);
                 let row = k8s::node_row(&n, node_usage, pod_count);
                 (n, row)
             })
@@ -225,6 +225,8 @@ pub(super) struct Cache {
     key: String,
     changes: u64,
     at: std::time::Instant,
+    /// How long making it took, so a big cluster is not recomputed faster than it can be.
+    took: std::time::Duration,
     derived: Derived,
 }
 
@@ -261,15 +263,17 @@ impl Cache {
         let changes = k8s::changes();
         if let Some(cache) = cache
             && cache.key == key
-            && cache.at.elapsed() < MAX_AGE
-            && (cache.changes == changes || cache.at.elapsed() < MIN_REFRESH)
+            && cache.at.elapsed() < MAX_AGE.max(cache.took * 4)
+            && (cache.changes == changes || cache.at.elapsed() < MIN_REFRESH.max(cache.took * 4))
         {
             return cache;
         }
         static DERIVATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         // The tables cache their column widths per derivation.
         ui::set_data_version(DERIVATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
-        Cache { key, changes, at: std::time::Instant::now(), derived: derive(src, catalog, mode, q) }
+        let started = std::time::Instant::now();
+        let derived = derive(src, catalog, mode, q);
+        Cache { key, changes, at: std::time::Instant::now(), took: started.elapsed(), derived }
     }
 
     pub(super) fn derived(&self) -> &Derived {
@@ -291,6 +295,27 @@ mod bench {
             "status": {"phase": "Running", "containerStatuses": [{"name": "a", "ready": true, "restartCount": 0, "image": "nginx", "imageID": "x", "state": {"running": {"startedAt": "2020-01-01T00:00:00Z"}}}]}
         }))
         .unwrap()
+    }
+
+    /// Generic rows for 100k ConfigMaps: building them, then the clone `derive` makes.
+    #[test]
+    #[ignore]
+    fn bench_generic_rows() {
+        use k8s_openapi::api::core::v1::ConfigMap;
+        let items: Vec<ConfigMap> = (0..100_000)
+            .map(|i| serde_json::from_value(serde_json::json!({"metadata": {"name": format!("cm-{i}"), "namespace": format!("ns-{}", i % 500), "creationTimestamp": "2020-01-01T00:00:00Z", "labels": {"app": "x", "tier": "y"}}, "data": {"a": "1", "b": "2"}})).unwrap())
+            .collect();
+        let t = Instant::now();
+        let rows: Vec<k8s::GenericRow> = items.iter().map(k8s::generic_row).collect();
+        println!("generic_row x100k (serial)   {:?}", t.elapsed());
+        let t = Instant::now();
+        let rows2: Vec<k8s::GenericRow> = k8s::par_map(&items, k8s::generic_row);
+        println!("generic_row x100k (parallel) {:?}", t.elapsed());
+        let t = Instant::now();
+        let visible: Vec<usize> = (0..rows.len()).collect();
+        let cloned: Vec<k8s::GenericRow> = visible.iter().map(|&i| rows[i].clone()).collect();
+        println!("clone of all rows            {:?}", t.elapsed());
+        assert_eq!(rows2.len() + cloned.len(), 200_000);
     }
 
     /// `cargo test --release bench_ -- --ignored --nocapture`

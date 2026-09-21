@@ -42,11 +42,11 @@ where
 /// pointing at the same object between refreshes (the store has no order of its own).
 pub fn sorted<K>(store: &reflector::Store<K>) -> Vec<Arc<K>>
 where
-    K: Resource + Clone,
+    K: Resource + Clone + Send + Sync,
     K::DynamicType: Eq + std::hash::Hash + Clone,
 {
     let mut items = store.state();
-    items.sort_by(|a, b| {
+    super::parallel::par_sort_by(&mut items, |a, b| {
         let (a, b) = (a.meta(), b.meta());
         (a.namespace.as_deref(), a.name.as_deref()).cmp(&(b.namespace.as_deref(), b.name.as_deref()))
     });

@@ -50,7 +50,7 @@ pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
     sorted: std::sync::Mutex<Option<(u64, Arc<Vec<Arc<K>>>)>>,
 }
 
-impl<K: Resource<DynamicType = ()> + Clone + 'static> WatchedKind<K> {
+impl<K: Resource<DynamicType = ()> + Clone + Send + Sync + 'static> WatchedKind<K> {
     pub fn from_store(store: reflector::Store<K>) -> Self {
         WatchedKind { store, sorted: std::sync::Mutex::new(None) }
     }
@@ -94,7 +94,7 @@ where
     }
 
     fn rows(&self) -> Vec<GenericRow> {
-        self.items().iter().map(|item| generic_row(item.as_ref())).collect()
+        par_map(&self.items(), |item| generic_row(item.as_ref()))
     }
 
     fn manifests(&self, namespace: Option<&str>) -> Vec<serde_yaml::Value> {

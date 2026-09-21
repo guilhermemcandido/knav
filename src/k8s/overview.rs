@@ -102,3 +102,29 @@ pub fn overview(
         report,
     }
 }
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use std::time::Instant;
+
+    fn event(i: usize) -> Arc<Event> {
+        Arc::new(serde_json::from_value(serde_json::json!({
+            "metadata": {"name": format!("e-{i}"), "namespace": "ns"},
+            "involvedObject": {"kind": "Pod", "name": format!("web-{i}"), "namespace": "ns"},
+            "reason": "Pulled", "message": "Container image already present on machine", "type": "Normal",
+            "lastTimestamp": "2026-09-22T10:00:00Z"
+        })).unwrap())
+    }
+
+    /// `cargo test --release bench_overview -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_overview_with_many_events() {
+        let events: Vec<Arc<Event>> = (0..100_000).map(event).collect();
+        let t = Instant::now();
+        let o = overview(&[], &events, None, Vec::new(), Default::default(), None);
+        println!("overview of {} events: {:?}", events.len(), t.elapsed());
+        assert!(o.events.len() <= 100_000);
+    }
+}
