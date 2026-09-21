@@ -36,7 +36,7 @@ pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, m
     let result = edit_loop(terminal, client, mouse_capture, &original);
     match result {
         Ok(Some(text)) => Outcome { text, error: false },
-        Ok(None) => Outcome { text: "No changes made.".into(), error: false },
+        Ok(None) => Outcome { text: "No changes".into(), error: false },
         Err(e) => Outcome { text: format!("{e:#}"), error: true },
     }
 }
@@ -57,14 +57,14 @@ fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, mouse_cap
         if edited.trim() == current.trim() {
             // Untouched — either nothing was changed, or a rejected edit
             // was saved as-is again. Both mean "give up".
-            break if current.trim() == original.trim() { None } else { bail!("{last_error}\n\n(edit cancelled — saved unchanged after the error)") };
+            break if current.trim() == original.trim() { None } else { bail!("{last_error}\n(cancelled)") };
         }
         current = edited;
         match apply(client, original, &current) {
             Ok(text) => break Some(text),
             Err(e) => {
                 last_error = format!("{e:#}");
-                header = format!("# Edit failed: {last_error}\n# Fix the problem and save, or save unchanged to cancel.\n#\n");
+                header = format!("# Edit failed: {last_error}\n# Save unchanged to cancel.\n#\n");
             }
         }
     };

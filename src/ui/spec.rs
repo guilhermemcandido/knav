@@ -36,7 +36,7 @@ pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &st
     let area = centered_rect(70, 50, frame.area());
     frame.render_widget(Clear, area);
 
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(format!("{label}  —  q/esc: back"));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(label.to_string());
     let paragraph = Paragraph::new(value.to_string()).wrap(Wrap { trim: false }).block(block);
     frame.render_widget(paragraph, area);
 }

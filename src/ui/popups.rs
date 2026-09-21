@@ -13,7 +13,7 @@ pub(super) fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
     frame.render_widget(block, bar);
     let line = Line::from(vec![
         Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  ({matches} match{})", if matches == 1 { "" } else { "es" }), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("  ({matches})"), Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
 }
@@ -173,7 +173,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     }
     if let Some(row) = rows.get(slots.len() + 2) {
         frame.render_widget(
-            Paragraph::new(Line::styled("1-9 or enter: assign   d: clear key   esc: cancel", Style::default().fg(Color::DarkGray))),
+            Paragraph::new(Line::styled("1-9 assign  d clear", Style::default().fg(Color::DarkGray))),
             *row,
         );
     }
@@ -383,29 +383,21 @@ pub(super) fn draw_events_popup(
         Constraint::Length(5),
     ];
 
-    // The title says what's being shown and how to change it, with the
-    // active severity highlighted: `showing warnings only  [a all · w
-    // warnings · n normal]`, plus the `/` search when there is one.
-    let plain = if dimmed { dim_style() } else { Style::default() };
+    // `Events (3/11)  (a) all  (w) warnings  (n) normal`, the active
+    // severity highlighted, and `/text` while a search is applied.
     let active = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
     let idle = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
     let key_style = |this: EventFilter| if filter == this { active } else { idle };
+    let count_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let mut title_spans = vec![
-        Span::styled(format!("Events ({}/{})", filtered.len(), events.len()), plain.add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  —  {}", filter.describe()), plain),
-        Span::styled("  [", idle),
-        Span::styled("a all", key_style(EventFilter::All)),
-        Span::styled(" · ", idle),
-        Span::styled("w warnings", key_style(EventFilter::Warnings)),
-        Span::styled(" · ", idle),
-        Span::styled("n normal", key_style(EventFilter::Normal)),
-        Span::styled("]", idle),
+        Span::styled(format!("Events ({}/{})", filtered.len(), events.len()), count_style),
+        Span::styled("  (a) all", key_style(EventFilter::All)),
+        Span::styled("  (w) warnings", key_style(EventFilter::Warnings)),
+        Span::styled("  (n) normal", key_style(EventFilter::Normal)),
     ];
     if editing || !search.is_empty() {
         let style = if dimmed { dim_style() } else { Style::default().fg(Color::Yellow) };
-        title_spans.push(Span::styled(format!("  —  search: {search}{}", if editing { "▏" } else { "" }), style));
-    } else if !dimmed {
-        title_spans.push(Span::styled("  —  / to search", idle));
+        title_spans.push(Span::styled(format!("  /{search}{}", if editing { "▏" } else { "" }), style));
     }
     let title = Line::from(title_spans);
 
@@ -672,11 +664,5 @@ mod events_popup_tests {
         assert_eq!(found(EventFilter::All, "pod"), 2); // kind, on both
         assert_eq!(found(EventFilter::All, "zzz"), 0);
         assert_eq!(found(EventFilter::Normal, "backoff"), 0); // severity filter still applies
-    }
-
-    #[test]
-    fn the_filter_describes_itself_in_words() {
-        assert_eq!(EventFilter::All.describe(), "showing all events");
-        assert_eq!(EventFilter::Warnings.describe(), "showing warnings only");
     }
 }

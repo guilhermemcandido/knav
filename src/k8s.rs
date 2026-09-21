@@ -296,10 +296,10 @@ pub async fn ensure_reachable(client: &Client, context: Option<&str>) -> Result<
     match tokio::time::timeout(std::time::Duration::from_secs(5), client.apiserver_version()).await {
         Ok(Ok(info)) => Ok(info.git_version),
         Ok(Err(e)) => anyhow::bail!(
-            "can't reach cluster '{label}': {e}\n\nIs it running? Try another context with `knav -c <name>`, or set `startup.mode = \"menu\"` to pick one at launch."
+            "can't reach cluster '{label}': {e}\nIs it running? Try `knav -c <context>`."
         ),
         Err(_) => anyhow::bail!(
-            "can't reach cluster '{label}': timed out after 5s\n\nIs it running? Try another context with `knav -c <name>`, or set `startup.mode = \"menu\"` to pick one at launch."
+            "can't reach cluster '{label}': timed out\nIs it running? Try `knav -c <context>`."
         ),
     }
 }
@@ -565,15 +565,6 @@ pub enum EventFilter {
 }
 
 impl EventFilter {
-    /// What the filter is doing, in words — shown in the Events title.
-    pub fn describe(self) -> &'static str {
-        match self {
-            EventFilter::All => "showing all events",
-            EventFilter::Warnings => "showing warnings only",
-            EventFilter::Normal => "showing normal events only",
-        }
-    }
-
     pub fn matches(self, entry: &EventEntry) -> bool {
         match self {
             EventFilter::All => true,

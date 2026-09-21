@@ -25,10 +25,10 @@ pub(super) fn draw_logs_popup(
     // Just the live state, not how to control it — the keybindings for
     // pausing/resuming/toggling timestamps live in the `?` commands
     // panel now instead of being spelled out here every time.
-    let follow_status = if follow { "following" } else { "scrolled back — G to follow" };
-    let filter_status = if filter.is_empty() { String::new() } else { format!(", {}/{} match \"{filter}\"", filtered.len(), lines.len()) };
+    let follow_status = if follow { "following" } else { "scrolled" };
+    let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines  /{filter}", filtered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
-    title_line.push_span(Span::raw(format!("  —  {follow_status}  ({} lines{filter_status})", lines.len())));
+    title_line.push_span(Span::raw(format!("  {follow_status}  {count}")));
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title_line);
 
     // When following, always show exactly the tail that fits the visible

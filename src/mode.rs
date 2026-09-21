@@ -243,9 +243,9 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
                 | ResourceKind::DaemonSets
                 | ResourceKind::Jobs
                 | ResourceKind::Services => vec![("j/k", "move"), ("enter", "pods"), ("d", "spec")],
-                ResourceKind::Nodes => vec![("j/k", "move"), ("enter", "what's running"), ("d", "spec")],
+                ResourceKind::Nodes => vec![("j/k", "move"), ("enter", "pods"), ("d", "spec")],
                 ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => vec![("j/k", "move"), ("enter", "open")],
-                _ => vec![("j/k", "move"), ("enter", "spec"), ("d", "spec")],
+                _ => vec![("j/k", "move"), ("enter/d", "spec")],
             };
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
@@ -253,8 +253,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));
             hints.push(("/", "search"));
-            hints.push(("m", "switch resource"));
-            hints.push(("C", "switch context"));
+            hints.push(("m", "resources"));
+            hints.push(("C", "contexts"));
             hints.push(("q/esc", "back"));
             hints
         }
@@ -264,17 +264,17 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Context { .. } => vec![("j/k", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
         Mode::Menu { .. } => vec![("arrows/hjkl", "move"), ("enter", "select"), ("esc", "cancel")],
         Mode::Spec { .. } => {
-            vec![("j/k", "move"), ("enter", "toggle"), ("v", "view full value"), ("a", "expand/collapse all"), ("q/esc", "back")]
+            vec![("j/k", "move"), ("enter", "toggle"), ("v", "value"), ("a", "expand all"), ("q/esc", "back")]
         }
         Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("q/esc", "back")],
         Mode::Events { editing: true, .. } => Vec::new(),
-        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "all/warnings/normal"), ("/", "search"), ("q/esc", "back")],
+        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("/", "search"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
         Mode::Containers { .. } => vec![("j/k", "move"), ("enter", "logs"), ("q/esc", "back")],
         Mode::Logs { .. } => {
-            vec![("j/k", "scroll"), ("G", "resume follow"), ("t", "toggle timestamp"), ("/", "filter"), ("q/esc", "back")]
+            vec![("j/k", "scroll"), ("G", "follow"), ("t", "timestamps"), ("/", "filter"), ("q/esc", "back")]
         }
     }
 }

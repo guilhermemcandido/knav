@@ -126,13 +126,13 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("No contexts match  —  esc/ctrl-c: quit");
-        let empty = Paragraph::new("No kubeconfig context matches this filter.").alignment(Alignment::Center).block(block);
+            .title("No matches");
+        let empty = Paragraph::new("No matching context").alignment(Alignment::Center).block(block);
         frame.render_widget(empty, chunks[1]);
         return;
     }
 
-    let title = format!("{} context(s)  —  ↑↓: move  enter: connect  esc/ctrl-c: quit", matches.len());
+    let title = format!("Contexts ({})", matches.len());
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
         .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))

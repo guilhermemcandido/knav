@@ -29,7 +29,7 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title("Switch resource");
+        .title("Resources");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 

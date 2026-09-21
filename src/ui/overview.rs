@@ -392,8 +392,7 @@ pub(super) fn draw_events_header(frame: &mut Frame, area: Rect, dimmed: bool) {
 
 pub(super) fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
     let ok_style = if dimmed { dim_style() } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
-    let sub_style = Style::default().fg(Color::DarkGray);
-    let text = vec![Line::styled("✓ No events yet", ok_style), Line::styled("Nothing has happened on the cluster", sub_style)];
+    let text = vec![Line::styled("✓ No events", ok_style)];
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
 
