@@ -100,13 +100,24 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     } else {
         (key, name, active)
     };
+    // The line is centred like the one above. When a scope is shown on the right, both sides keep
+    // that much room so the centred text never reaches it; namespaces that do not fit are left
+    // out (the active one never is) and a `…` says so.
+    let scope_text = (!info.scope.is_empty()).then(|| format!("Scope: {}", info.scope));
+    let scope_room = scope_text.as_ref().map_or(0, |t| cell_width(t) + 3);
+    let max_width = (area.width as usize).saturating_sub(2 * scope_room.max(1) + 2);
+    let entries = std::iter::once((0usize, "all".to_string())).chain(info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))));
     let mut shortcuts: Vec<Span> = vec![Span::styled("Namespace: ", label)];
-    let entries = std::iter::once((0usize, "all".to_string())).chain(
-        info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))),
-    );
+    let mut used = cell_width("Namespace: ");
+    let mut trimmed = false;
     for (n, ns) in entries {
         let is_active = if n == 0 { info.namespace == "all" } else { info.namespace == ns };
-        if shortcuts.len() > 1 {
+        let width = cell_width(&format!("({n}){ns}")) + 2;
+        if used + width + 2 > max_width && !is_active {
+            trimmed = true;
+            continue;
+        }
+        if used > cell_width("Namespace: ") {
             shortcuts.push(Span::raw("  "));
         }
         if is_active {
@@ -115,18 +126,18 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
             shortcuts.push(Span::styled(format!("({n})"), key));
             shortcuts.push(Span::styled(ns, name));
         }
+        used += width;
+    }
+    if trimmed {
+        shortcuts.push(Span::styled("  …", key));
     }
     let shortcut_area = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(1), height: 1 };
-    let shortcuts_width = Line::from(shortcuts.clone()).width() as u16;
-    frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
+    frame.render_widget(Paragraph::new(Line::from(shortcuts)).alignment(Alignment::Center), shortcut_area);
 
-    // What the list is drilled into (`Deployment/web`), right-aligned on
-    // the same row, only if it fits, so it never pushes the shortcuts or
-    // the fixed first line around.
-    if !info.scope.is_empty() {
-        let text = format!("Scope: {}", info.scope);
+    // What the list is drilled into (`Deployment/web`), right-aligned on the same row.
+    if let Some(text) = scope_text {
         let width = cell_width(&text) as u16;
-        if shortcuts_width + 3 + width <= shortcut_area.width {
+        if width <= shortcut_area.width {
             let scope_area = Rect { x: shortcut_area.x + shortcut_area.width - width, y: shortcut_area.y, width, height: 1 };
             frame.render_widget(Paragraph::new(Line::from(vec![Span::styled("Scope: ", label), Span::styled(info.scope.clone(), value)])), scope_area);
         }
