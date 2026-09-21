@@ -90,6 +90,14 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
+            Mode::Working { job, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let (done, total) = job.progress.get();
+                    let overlay = job.visible().then_some(ui::Overlay::Working { title: &job.title, elapsed: job.started.elapsed(), done, total, cancellable: true });
+                    ui::draw(frame, rows_view(), table_state, None, None, overlay, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                })?;
+            }
             Mode::Confirm { spec, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

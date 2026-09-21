@@ -126,6 +126,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
+    /// A background job: what it is doing, for how long, and how far it has got (`total` 0 when unknown).
+    Working { title: &'a str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool },
     /// A readable summary of one object.
     Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
     /// What an object relates to, one group at a time.
@@ -342,6 +344,7 @@ pub fn draw(
                 | Some(Overlay::Context { .. })
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Confirm { .. })
+                | Some(Overlay::Working { .. })
                 | Some(Overlay::Prompt { .. })
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
@@ -551,6 +554,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
         Overlay::Confirm { spec } => draw_confirm_popup(frame, spec),
+        Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Prompt { title, value, hint } => draw_prompt_popup(frame, title, value, hint),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

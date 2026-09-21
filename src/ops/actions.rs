@@ -10,6 +10,7 @@ use kube::{
     discovery::{Scope, pinned_kind},
 };
 use serde_json::json;
+use std::{collections::HashMap, sync::Arc};
 
 pub use crate::ops::edit::Outcome;
 
@@ -195,24 +196,87 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
     Some(ConfirmSpec { title, verb: verb.to_string(), danger, subjects, notes })
 }
 
-/// Runs one action on each target, reporting the successes as a count and
-/// the failures by name.
-pub fn run_many(client: &Client, targets: &[Target], action: Action) -> Outcome {
-    if let [one] = targets {
-        return run(client, one, action);
+/// How far a batch has got, read by the UI while it runs in the background.
+#[derive(Default)]
+pub struct Progress {
+    pub done: std::sync::atomic::AtomicUsize,
+    pub total: std::sync::atomic::AtomicUsize,
+}
+
+impl Progress {
+    pub fn get(&self) -> (usize, usize) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (self.done.load(Relaxed), self.total.load(Relaxed))
     }
-    let mut failures = Vec::new();
-    for target in targets {
-        let outcome = run(client, target, action);
-        if outcome.error {
-            failures.push(format!("{}: {}", target.label(), outcome.text));
+}
+
+/// How many requests a batch keeps in flight.
+const CONCURRENCY: usize = 8;
+
+/// What the API server said about a kind, looked up once per batch.
+type Resolved = HashMap<(String, String), std::result::Result<(ApiResource, Scope), String>>;
+
+/// Runs one action on each target at a time-saving pace, reporting the successes as a
+/// count and the failures by name.
+pub async fn run_many(client: Client, targets: Vec<Target>, action: Action, progress: Arc<Progress>) -> Outcome {
+    use futures::StreamExt;
+    use std::sync::atomic::Ordering::Relaxed;
+    progress.total.store(targets.len(), Relaxed);
+    let mut resolved: Resolved = HashMap::new();
+    for target in &targets {
+        let key = (target.api_version.clone(), target.kind.clone());
+        if !resolved.contains_key(&key) {
+            let found = resolve(&client, target).await.map_err(|e| format!("{e:#}"));
+            resolved.insert(key, found);
         }
     }
-    let done = targets.len() - failures.len();
+    let resolved = Arc::new(resolved);
+    let total = targets.len();
+    let results: Vec<(String, Result<String>)> = futures::stream::iter(targets)
+        .map(|target| {
+            let (client, resolved, progress) = (client.clone(), Arc::clone(&resolved), Arc::clone(&progress));
+            async move {
+                let outcome = match &resolved[&(target.api_version.clone(), target.kind.clone())] {
+                    Ok((resource, scope)) => perform(&client, &target, action, api_from(&client, &target, resource, scope)).await,
+                    Err(e) => Err(anyhow::anyhow!("{e}")),
+                };
+                progress.done.fetch_add(1, Relaxed);
+                (target.label(), outcome)
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .collect()
+        .await;
+    if let [(_, one)] = results.as_slice() {
+        return match one {
+            Ok(text) => Outcome { text: text.clone(), error: false },
+            Err(e) => Outcome { text: format!("{e:#}"), error: true },
+        };
+    }
+    let failures: Vec<String> = results.iter().filter_map(|(label, r)| r.as_ref().err().map(|e| format!("{label}: {e:#}"))).collect();
+    let done = total - failures.len();
     if failures.is_empty() {
-        Outcome { text: format!("{}: {done} of {}", action_name(action), targets.len()), error: false }
+        Outcome { text: format!("{}: {done} of {total}", action_name(action)), error: false }
     } else {
-        Outcome { text: format!("{}: {done} of {}\n{}", action_name(action), targets.len(), failures.join("\n")), error: true }
+        Outcome { text: format!("{}: {done} of {total}\n{}", action_name(action), failures.join("\n")), error: true }
+    }
+}
+
+/// `Deleting Pod shop/web-1`, or `Deleting 12 objects`.
+pub fn working_title(action: Action, targets: &[Target]) -> String {
+    let verb = match action {
+        Action::Delete => "Deleting",
+        Action::Scale(_) => "Scaling",
+        Action::Restart => "Restarting",
+        Action::Cordon(true) => "Cordoning",
+        Action::Cordon(false) => "Uncordoning",
+        Action::Trigger => "Starting a job from",
+        Action::Suspend(true) => "Suspending",
+        Action::Suspend(false) => "Resuming",
+    };
+    match targets {
+        [one] => format!("{verb} {}", one.label()),
+        many => format!("{verb} {} objects", many.len()),
     }
 }
 
@@ -227,29 +291,21 @@ fn action_name(action: Action) -> &'static str {
     }
 }
 
-pub fn run(client: &Client, target: &Target, action: Action) -> Outcome {
-    match block(perform(client, target, action)) {
-        Ok(text) => Outcome { text, error: false },
-        Err(e) => Outcome { text: format!("{e:#}"), error: true },
-    }
-}
-
-fn block<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
-}
-
-async fn api_for(client: &Client, target: &Target) -> Result<Api<DynamicObject>> {
+async fn resolve(client: &Client, target: &Target) -> Result<(ApiResource, Scope)> {
     let type_meta = kube::api::TypeMeta { api_version: target.api_version.clone(), kind: target.kind.clone() };
     let gvk = GroupVersionKind::try_from(&type_meta)?;
     let (resource, caps) = pinned_kind(client, &gvk).await?;
-    Ok(match (caps.scope, target.namespace.as_deref()) {
-        (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
-        _ => Api::all_with(client.clone(), &resource),
-    })
+    Ok((resource, caps.scope))
 }
 
-async fn perform(client: &Client, target: &Target, action: Action) -> Result<String> {
-    let api = api_for(client, target).await?;
+fn api_from(client: &Client, target: &Target, resource: &ApiResource, scope: &Scope) -> Api<DynamicObject> {
+    match (scope, target.namespace.as_deref()) {
+        (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, resource),
+        _ => Api::all_with(client.clone(), resource),
+    }
+}
+
+async fn perform(client: &Client, target: &Target, action: Action, api: Api<DynamicObject>) -> Result<String> {
     let name = target.name.as_str();
     let merge = |body: serde_json::Value| Patch::Merge(body);
     let params = PatchParams::default();

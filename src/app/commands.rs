@@ -175,25 +175,6 @@ pub(crate) fn open_context_switcher(mode: &mut Mode, active_context: &str) {
     *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
 }
 
-/// Whether choosing `name` should reconnect: `Ok(false)` if it is already connected,
-/// `Err` (a one-line reason) if it can't be reached. Checked before the session
-/// is torn down, so a dead cluster leaves you where you were.
-pub(crate) fn switch_target(name: &str, active_context: &str) -> std::result::Result<bool, String> {
-    if name == active_context {
-        return Ok(false);
-    }
-    let check = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let client = k8s::connect_to_context(Some(name)).await?;
-            k8s::ensure_reachable(&client, Some(name)).await
-        })
-    });
-    match check {
-        Ok(_) => Ok(true),
-        Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
-    }
-}
-
 /// The key picker for `namespace`, starting on the key it already has, or
 /// else the first free one. Its `back` is the plain list; callers that came
 /// from somewhere else replace it.

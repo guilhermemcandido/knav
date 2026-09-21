@@ -475,8 +475,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         if let Some(spec) = actions::confirm_spec(action, &targets) {
                             st.mode = Mode::Confirm { spec, targets, action, back: Box::new(Mode::List) };
                         } else {
-                            let outcome = actions::run(client, &target, action);
-                            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                            crate::app::jobs::run_action(st, client, targets, action, Box::new(Mode::List));
                         }
                     }
                 }

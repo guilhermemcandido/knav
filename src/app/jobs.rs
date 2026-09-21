@@ -1,0 +1,132 @@
+//! Work that talks to the cluster runs in the background, so the screen keeps
+//! redrawing and Esc can cancel it. The UI shows it as a small "working" popup.
+
+use std::{sync::Arc, time::{Duration, Instant}};
+
+use super::mode::AbortOnDrop;
+use crate::ops::{actions, portforward};
+
+/// What a finished job hands back.
+pub(crate) enum Done {
+    Action(actions::Outcome),
+    /// The context that was checked, or why it can't be reached.
+    Connect(Result<String, String>),
+    Forward(Result<portforward::Forward, String>),
+}
+
+pub(crate) struct Job {
+    pub title: String,
+    pub started: Instant,
+    pub progress: Arc<actions::Progress>,
+    /// What Esc says, when there is something worth saying.
+    pub cancel_note: Option<&'static str>,
+    rx: tokio::sync::oneshot::Receiver<Done>,
+    _task: AbortOnDrop,
+}
+
+/// Quick jobs finish before this, so they never flash a popup.
+const SHOW_AFTER: Duration = Duration::from_millis(250);
+
+impl Job {
+    pub(crate) fn spawn(title: impl Into<String>, progress: Arc<actions::Progress>, cancel_note: Option<&'static str>, work: impl std::future::Future<Output = Done> + Send + 'static) -> Job {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _ = tx.send(work.await);
+        });
+        Job { title: title.into(), started: Instant::now(), progress, cancel_note, rx, _task: AbortOnDrop(task) }
+    }
+
+    /// The result, once there is one.
+    pub(crate) fn poll(&mut self) -> Option<Done> {
+        match self.rx.try_recv() {
+            Ok(done) => Some(done),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
+            Err(_) => Some(Done::Action(actions::Outcome { text: "The task stopped unexpectedly".into(), error: true })),
+        }
+    }
+
+    /// Whether it has run long enough to be worth showing.
+    pub(crate) fn visible(&self) -> bool {
+        self.started.elapsed() >= SHOW_AFTER
+    }
+}
+
+use super::{mode::Mode, state::State};
+use crate::ops::actions::{Action, Target};
+
+/// Runs `action` on `targets` in the background, over `back`.
+pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Target>, action: Action, back: Box<Mode>) {
+    let progress = Arc::new(actions::Progress::default());
+    let title = actions::working_title(action, &targets);
+    let note = (targets.len() > 1).then_some("Cancelled. What was already done stays done.");
+    let work = {
+        let (client, progress) = (client.clone(), Arc::clone(&progress));
+        async move { Done::Action(actions::run_many(client, targets, action, progress).await) }
+    };
+    st.mode = Mode::Working { job: Job::spawn(title, progress, note, work), back };
+}
+
+/// Checks in the background that `name` can be reached before the session moves to it.
+pub(super) fn check_context(st: &mut State, name: String) {
+    let title = format!("Connecting to {name}");
+    let work = async move {
+        let check = async {
+            let client = crate::k8s::connect_to_context(Some(&name)).await?;
+            crate::k8s::ensure_reachable(&client, Some(&name)).await
+        };
+        Done::Connect(match check.await {
+            Ok(_) => Ok(name),
+            Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
+        })
+    };
+    let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
+    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
+}
+
+/// Starts a port-forward in the background.
+pub(super) fn start_forward(st: &mut State, context: &str, namespace: &str, resource: &str, address: &str, local: u16, remote: u16, back: Box<Mode>) {
+    let title = format!("Starting a forward to {resource}");
+    let work = portforward::start_in_background(context.into(), namespace.into(), resource.into(), address.into(), local, remote);
+    let work = async move { Done::Forward(work.await.map_err(|e| format!("{e:#}"))) };
+    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
+}
+
+/// Moves a finished job's result into the screen. `Some` when the session should
+/// reconnect to another context.
+pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
+    let Mode::Working { job, .. } = &mut st.mode else { return None };
+    let done = job.poll()?;
+    let Mode::Working { back, .. } = std::mem::replace(&mut st.mode, Mode::List) else { return None };
+    match done {
+        Done::Action(outcome) => {
+            if !outcome.error {
+                st.marked.clear();
+            }
+            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+        }
+        Done::Connect(Ok(name)) => return Some(crate::Outcome::SwitchContext(name)),
+        Done::Connect(Err(reason)) => {
+            let mut back = *back;
+            if let Mode::Context { error, .. } = &mut back {
+                *error = Some(reason);
+            }
+            st.mode = back;
+        }
+        Done::Forward(Ok(forward)) => {
+            let mut text = format!("Forwarding {} (:pf to stop)", forward.label());
+            let url = forward.url();
+            st.forwards.push(forward);
+            st.mode = if st.config.portforward.open_browser {
+                if let Err(e) = portforward::open_in_browser(&url) {
+                    text.push_str(&format!("\n{e:#}"));
+                }
+                Mode::Notice { text, error: false, back }
+            } else {
+                text.push_str(&format!("\nOpen {url} in the browser?"));
+                Mode::OpenUrl { text, url, back }
+            };
+        }
+        Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, error: true, back },
+    }
+    None
+}

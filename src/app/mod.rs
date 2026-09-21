@@ -4,6 +4,7 @@ mod derive;
 pub mod commands;
 mod draw;
 mod handlers;
+pub(crate) mod jobs;
 mod hints;
 pub mod mode;
 mod nav;
@@ -36,6 +37,9 @@ pub(crate) fn run(
 
     let mut cache: Option<derive::Cache> = None;
     loop {
+        if let Some(outcome) = jobs::finish(&mut st) {
+            return Ok(outcome);
+        }
         st.record_view();
         // A forward that kubectl dropped (the pod went away) leaves the list.
         st.forwards.retain_mut(|f| f.alive());
@@ -149,7 +153,7 @@ pub(crate) fn run(
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
         // A shell's output arrives on its own, so redraw quickly while one is open.
-        let wait = if matches!(st.mode, Mode::Shell { .. }) { crate::config::tunables::tunables().shell_redraw_ms } else { crate::config::tunables::tunables().idle_redraw_ms };
+        let wait = if matches!(st.mode, Mode::Working { .. }) { 50 } else if matches!(st.mode, Mode::Shell { .. }) { crate::config::tunables::tunables().shell_redraw_ms } else { crate::config::tunables::tunables().idle_redraw_ms };
         if !event::poll(Duration::from_millis(wait))? {
             cache = Some(fresh);
             continue;

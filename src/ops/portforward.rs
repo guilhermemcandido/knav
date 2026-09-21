@@ -188,6 +188,11 @@ pub fn suggested_local(remote: u16) -> u16 {
     if remote >= 1024 { remote } else { remote + 8000 }
 }
 
+/// `start` off the UI thread, since it waits a moment to see whether kubectl fails.
+pub async fn start_in_background(context: String, namespace: String, resource: String, address: String, local: u16, remote: u16) -> Result<Forward> {
+    tokio::task::spawn_blocking(move || start(&context, &namespace, &resource, &address, local, remote)).await?
+}
+
 pub fn start(context: &str, namespace: &str, resource: &str, address: &str, local: u16, remote: u16) -> Result<Forward> {
     let mut child = Command::new("kubectl")
         .args(["--context", context, "-n", namespace, "port-forward", "--address", address, resource, &format!("{local}:{remote}")])

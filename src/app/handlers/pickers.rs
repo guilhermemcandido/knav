@@ -142,10 +142,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter => {
                 let name = state.selected().and_then(|i| filtered_contexts(contexts, filter, *sort).get(i).map(|c| c.name.clone()));
                 if let Some(name) = name {
-                    match switch_target(&name, active_context) {
-                        Ok(true) => return Ok(Some(Outcome::SwitchContext(name))),
-                        Ok(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
-                        Err(msg) => *error = Some(msg),
+                    if name == active_context {
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
+                    } else {
+                        *error = None;
+                        crate::app::jobs::check_context(st, name);
                     }
                 }
             }
@@ -159,10 +160,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
                 state.select(Some(idx));
                 let name = matches[idx].name.clone();
-                match switch_target(&name, active_context) {
-                    Ok(true) => return Ok(Some(Outcome::SwitchContext(name))),
-                    Ok(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
-                    Err(msg) => *error = Some(msg),
+                if name == active_context {
+                    st.mode = std::mem::replace(&mut **back, Mode::List);
+                } else {
+                    *error = None;
+                    crate::app::jobs::check_context(st, name);
                 }
             }
         }

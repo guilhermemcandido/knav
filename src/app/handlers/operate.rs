@@ -10,16 +10,23 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         Mode::Confirm { spec, targets, action, back } => match key.code {
             // A destructive action needs an explicit `y`; Enter only confirms the mild ones.
             KeyCode::Char('y') | KeyCode::Enter if key.code == KeyCode::Char('y') || !spec.danger => {
-                let outcome = actions::run_many(cx.client, targets, *action);
-                if !outcome.error {
-                    st.marked.clear();
-                }
+                let (targets, action) = (std::mem::take(targets), *action);
                 let back = std::mem::replace(back, Box::new(Mode::List));
-                st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+                crate::app::jobs::run_action(st, cx.client, targets, action, back);
             }
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             _ => {}
         },
+        Mode::Working { job, back } => {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+                let note = job.cancel_note;
+                let back = std::mem::replace(back, Box::new(Mode::List));
+                st.mode = match note {
+                    Some(text) => Mode::Notice { text: text.into(), error: false, back },
+                    None => *back,
+                };
+            }
+        }
         Mode::OpenUrl { url, back, .. } => match key.code {
             KeyCode::Char('y') | KeyCode::Enter => {
                 let result = portforward::open_in_browser(url);
@@ -40,12 +47,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char(c) if c.is_ascii_digit() && input.len() < 5 => input.push(c),
             KeyCode::Enter => {
                 if let Ok(replicas) = input.parse::<i32>() {
-                    let outcome = actions::run_many(cx.client, targets, Action::Scale(replicas));
-                    if !outcome.error {
-                        st.marked.clear();
-                    }
+                    let targets = std::mem::take(targets);
                     let back = std::mem::replace(back, Box::new(Mode::List));
-                    st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+                    crate::app::jobs::run_action(st, cx.client, targets, Action::Scale(replicas), back);
                 }
             }
             _ => {}
@@ -78,26 +82,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     Ok((local, remote, address)) => {
                         let resource = target.forward_resource().expect("only forwardable kinds open this dialog");
                         let namespace = target.namespace.as_deref().unwrap_or("default");
-                        let result = portforward::start(cx.active_context, namespace, &resource, &address, local, remote);
-                        let back = std::mem::replace(back, Box::new(Mode::List));
-                        st.mode = match result {
-                            Ok(forward) => {
-                                let mut text = format!("Forwarding {} (:pf to stop)", forward.label());
-                                let url = forward.url();
-                                st.forwards.push(forward);
-                                if !cx.config.portforward.open_browser {
-                                    // Not opening by itself: ask.
-                                    text.push_str(&format!("\nOpen {url} in the browser?"));
-                                    Mode::OpenUrl { text, url, back }
-                                } else {
-                                    if let Err(e) = portforward::open_in_browser(&url) {
-                                        text.push_str(&format!("\n{e:#}"));
-                                    }
-                                    Mode::Notice { text, error: false, back }
-                                }
-                            }
-                            Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back },
-                        };
+                        let (context, namespace, resource, back) = (cx.active_context.to_string(), namespace.to_string(), resource, std::mem::replace(back, Box::new(Mode::List)));
+                        crate::app::jobs::start_forward(st, &context, &namespace, &resource, &address, local, remote, back);
                     }
                 }
             }

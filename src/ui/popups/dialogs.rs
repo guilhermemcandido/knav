@@ -144,3 +144,23 @@ pub(in crate::ui) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &s
     }
     small_popup(frame, title, theme().namespace, body);
 }
+
+/// "Working" box for a background job: a spinner, what it is doing, a progress bar when the
+/// total is known, and how to cancel.
+pub(in crate::ui) fn draw_working_popup(frame: &mut Frame, title: &str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool) {
+    const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinner = SPINNER[(elapsed.as_millis() / 80) as usize % SPINNER.len()];
+    let muted = Style::default().fg(theme().muted);
+    let mut body = vec![Line::raw(""), Line::from(vec![Span::styled(format!("  {spinner} "), Style::default().fg(theme().accent)), Span::styled(title.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)), Span::styled(format!("   {:.1}s", elapsed.as_secs_f32()), muted)])];
+    if total > 1 {
+        let full = frame.area();
+        let bar = usize::from((full.width * 3 / 5).clamp(44, 72)).saturating_sub(16);
+        let filled = (done * bar / total).min(bar);
+        body.push(Line::from(vec![Span::raw("    "), Span::styled("█".repeat(filled), Style::default().fg(theme().ok)), Span::styled("░".repeat(bar - filled), muted), Span::styled(format!("  {done}/{total}"), muted)]));
+    }
+    if cancellable {
+        body.push(Line::raw(""));
+        body.push(Line::styled("  esc  cancel", muted));
+    }
+    small_popup(frame, "Working", theme().accent, body);
+}
