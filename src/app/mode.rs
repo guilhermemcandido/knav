@@ -50,6 +50,8 @@ pub(crate) enum Mode {
     Shell { title: String, session: Box<crate::ops::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
+    /// What the selected object is related to (owners, what it uses, what uses it, ...).
+    Relations { title: String, groups: Vec<k8s::RelationGroup>, selected: usize, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
@@ -260,6 +262,11 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             path.push(segment("YAML", title.clone()));
             path
         }
+        Mode::Relations { title, back, .. } => {
+            let mut path = mode_path(back);
+            path.push(segment("Related", title.clone()));
+            path
+        }
         Mode::EventDetail { back, .. } => {
             let mut path = mode_path(back);
             path.push(plain_segment("Event"));
@@ -360,6 +367,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
                 hints.push(("y", "yaml"));
+                hints.push(("R", "related"));
                 hints.push(("Y", "copy name"));
                 hints.push(("O", "owner"));
                 hints.extend(action_hints(current_kind));
@@ -383,6 +391,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),
         Mode::Settings { tab: ui::SettingsTab::Overview, .. } => vec![("↑↓/jk", "move"), ("1-9", "place"), ("J/K", "nudge"), ("space", "show/hide"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
+        Mode::Relations { .. } => vec![("↑↓/jk", "move"), ("enter", "open"), ("q/esc", "back")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],

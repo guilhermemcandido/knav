@@ -353,15 +353,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 });
                 match owner {
                     Some((kind, name)) => match ResourceKind::from_owner_kind(&kind) {
-                        Some(target) => {
-                            let selected = st.table_state.selected().unwrap_or(0);
-                            st.nav_stack.push((st.current_kind, st.scope.take(), selected));
-                            st.current_kind = target;
-                            st.sort = None;
-                            st.hscroll = 0;
-                            st.table_state.select(Some(0));
-                            st.search = name;
-                        }
+                        Some(target) => st.jump_to(target, name),
                         None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), error: false, back: Box::new(Mode::List) },
                     },
                     None => st.mode = Mode::Notice { text: "No owner".into(), error: false, back: Box::new(Mode::List) },
@@ -376,6 +368,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let text = serde_yaml::to_string(&manifest).unwrap_or_default();
                     let back = std::mem::replace(&mut st.mode, Mode::List);
                     st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
+                }
+            }
+            // What the selected object relates to.
+            KeyCode::Char('R') => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
+                    let title = format!("{}/{}", manifest.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).unwrap_or("-"), manifest.get("metadata").and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or(""));
+                    let title = format!("{} {title}", manifest.get("kind").and_then(|k| k.as_str()).unwrap_or(""));
+                    let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
+                    let groups = k8s::relations::relations(&manifest, &all);
+                    let back = std::mem::replace(&mut st.mode, Mode::List);
+                    st.mode = Mode::Relations { title, groups, selected: 0, back: Box::new(back) };
                 }
             }
             // Copy the row's name (`namespace/name`) to the clipboard.
@@ -532,6 +535,41 @@ fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Cl
             catalog.resolve(kind, client).and_then(|k| k.spec_at(real))
         }
     }
+}
+
+/// The manifests around `target` (its namespace, plus everything cluster-wide it may
+/// point at), with ConfigMap and Secret payloads dropped.
+fn surrounding_manifests(pod_store: &Store<Pod>, dep_store: &Store<Deployment>, catalog: &mut Catalog, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
+    use kube::ResourceExt;
+    let kind = target.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+    let namespace = target.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).map(String::from);
+    // A cluster-scoped target (a Node, a PV) can be used from any namespace.
+    let filter = if matches!(kind, "Node" | "PersistentVolume" | "StorageClass") { None } else { namespace.as_deref() };
+    let mut all: Vec<serde_yaml::Value> = Vec::new();
+    all.extend(k8s::snapshot(pod_store).iter().filter(|p| filter.is_none() || p.namespace().as_deref() == filter).map(|p| k8s::manifest_value(p.as_ref())));
+    all.extend(k8s::snapshot_generic(dep_store).iter().filter(|d| filter.is_none() || d.namespace().as_deref() == filter).map(|d| k8s::manifest_value(d.as_ref())));
+    for kind in [
+        ResourceKind::Nodes,
+        ResourceKind::ReplicaSets,
+        ResourceKind::StatefulSets,
+        ResourceKind::DaemonSets,
+        ResourceKind::Jobs,
+        ResourceKind::CronJobs,
+        ResourceKind::ConfigMaps,
+        ResourceKind::Secrets,
+        ResourceKind::Hpas,
+        ResourceKind::Services,
+        ResourceKind::Ingresses,
+        ResourceKind::Pvcs,
+        ResourceKind::Pvs,
+        ResourceKind::StorageClasses,
+        ResourceKind::ServiceAccounts,
+    ] {
+        if let Some(k) = catalog.get(kind) {
+            all.extend(k.manifests(filter));
+        }
+    }
+    all.into_iter().map(k8s::relations::slim).collect()
 }
 
 /// What to do with a pod's container.

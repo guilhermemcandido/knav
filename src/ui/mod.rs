@@ -121,6 +121,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
+    /// What an object relates to, one group at a time.
+    Relations { title: &'a str, groups: &'a [crate::k8s::RelationGroup], selected: usize },
     /// The settings screen.
     Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
@@ -520,6 +522,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::Relations { title, groups, selected } => draw_relations(frame, title, groups, selected),
         Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, tab, rows, layout, state, error, capture.as_ref()),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),

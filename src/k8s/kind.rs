@@ -158,6 +158,15 @@ impl ResourceKind {
             "CronJob" => ResourceKind::CronJobs,
             "Node" => ResourceKind::Nodes,
             "Service" => ResourceKind::Services,
+            "Pod" => ResourceKind::Pods,
+            "ConfigMap" => ResourceKind::ConfigMaps,
+            "Secret" => ResourceKind::Secrets,
+            "HorizontalPodAutoscaler" => ResourceKind::Hpas,
+            "Ingress" => ResourceKind::Ingresses,
+            "PersistentVolumeClaim" => ResourceKind::Pvcs,
+            "PersistentVolume" => ResourceKind::Pvs,
+            "StorageClass" => ResourceKind::StorageClasses,
+            "ServiceAccount" => ResourceKind::ServiceAccounts,
             _ => return None,
         })
     }

@@ -5,6 +5,7 @@
 pub mod catalog;
 pub mod describe;
 pub mod layout;
+pub mod relations;
 pub mod metrics;
 pub mod scope;
 pub mod sort;
@@ -31,3 +32,4 @@ pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
 pub use watched::*;
+pub use relations::Group as RelationGroup;

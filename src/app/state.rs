@@ -180,6 +180,17 @@ impl State {
 
     /// Switches to another resource kind with a clean slate: no drill-down,
     /// sort, scroll or search carried over.
+    /// Goes to `kind` filtered to `search`, remembering where it came from so Esc returns.
+    pub fn jump_to(&mut self, kind: ResourceKind, search: String) {
+        let selected = self.table_state.selected().unwrap_or(0);
+        self.nav_stack.push((self.current_kind, self.scope.take(), selected));
+        self.current_kind = kind;
+        self.sort = None;
+        self.hscroll = 0;
+        self.table_state.select(Some(0));
+        self.search = search;
+    }
+
     pub fn switch_kind(&mut self, kind: ResourceKind) {
         self.current_kind = kind;
         self.scope = None;

@@ -8,6 +8,7 @@ mod list;
 mod operate;
 mod overview_popups;
 mod pickers;
+mod related;
 mod settings;
 mod themes;
 
@@ -18,6 +19,8 @@ use super::*;
 pub(super) struct Cx<'a> {
     pub terminal: &'a mut ratatui::DefaultTerminal,
     pub catalog: &'a mut Catalog,
+    pub pod_store: &'a Store<Pod>,
+    pub dep_store: &'a Store<Deployment>,
     pub client: &'a Client,
     pub config: &'a Config,
     pub active_context: &'a str,
@@ -126,6 +129,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Confirm { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
+        Mode::Relations { .. } => related::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Shell { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
     }
 }

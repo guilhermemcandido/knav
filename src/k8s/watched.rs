@@ -19,6 +19,12 @@ pub trait CatalogKind: Send + Sync {
     fn headers(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    /// Every object's manifest, in `namespace` (cluster-scoped objects always), for
+    /// the relations view.
+    fn manifests(&self, namespace: Option<&str>) -> Vec<serde_yaml::Value> {
+        let _ = namespace;
+        (0..self.count()).filter_map(|i| self.spec_at(i)).collect()
+    }
     /// How the kind's objects are doing, for kinds that have a notion of it.
     fn health(&self) -> Option<Health> {
         None
@@ -51,6 +57,11 @@ where
 
     fn rows(&self) -> Vec<GenericRow> {
         snapshot_generic(&self.store).iter().map(|item| generic_row(item.as_ref())).collect()
+    }
+
+    fn manifests(&self, namespace: Option<&str>) -> Vec<serde_yaml::Value> {
+        use kube::ResourceExt;
+        snapshot_generic(&self.store).iter().filter(|item| namespace.is_none() || item.namespace().is_none() || item.namespace().as_deref() == namespace).map(|item| manifest_value(item.as_ref())).collect()
     }
 
     fn health(&self) -> Option<Health> {

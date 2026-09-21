@@ -122,7 +122,7 @@ pub(crate) fn run(
         loop {
             let event = event::read()?;
             let config_now = st.config.clone();
-            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, client: &client, config: &config_now, active_context, frame_area, row_count, d: &derived })? {
+            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: &derived })? {
                 return Ok(outcome);
             }
             if !event::poll(Duration::from_millis(0))? {
