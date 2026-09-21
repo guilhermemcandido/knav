@@ -159,7 +159,7 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
         .border_set(border_set())
         .border_style(if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) })
         .title(Line::styled(format!(" {} ", panel.title), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
-        .title_bottom(Line::styled(if panel.focused { " ↑↓←→ scroll   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(if panel.focused { " ↑↓←→ scroll   enter full screen   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };

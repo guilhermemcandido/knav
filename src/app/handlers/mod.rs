@@ -117,6 +117,14 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
                     st.info_focus = false;
                     true
                 }
+                // Enter opens the same summary full screen, where it was.
+                KeyCode::Enter => {
+                    if let Some(manifest) = selected_manifest(st, cx.d, &mut *cx.catalog, cx.client) {
+                        let sections = k8s::details::details(&manifest, &cx.d.overview.events);
+                        st.mode = Mode::Details { manifest, sections, scroll: st.info_scroll, hscroll: st.info_hscroll, back: Box::new(Mode::List) };
+                    }
+                    true
+                }
                 KeyCode::Left | KeyCode::Char('h') => {
                     st.info_hscroll = st.info_hscroll.saturating_sub(6);
                     true
