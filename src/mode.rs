@@ -233,17 +233,22 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
     }
 }
 
-/// Where you are, for the bar at the bottom of every screen: the list you're
-/// on (through any drill-downs — `Deployments>>ReplicaSets[Deployment/web]`),
-/// then whatever popup is open on top of it (`>>Pod[...]>>Logs[...]`).
+/// Where you are, for the bar at the bottom of every screen: what you
+/// drilled through to get here, then the list itself —
+/// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`. Each level says what it is
+/// once (kind and name) rather than repeating the list it came from.
 pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::BreadcrumbSegment> {
-    let level = |kind: ResourceKind, scope: Option<&Scope>| match scope {
-        Some(s) => segment(kind.label(), s.label()),
-        None => plain_segment(kind.label()),
-    };
-    // Each stacked level's scope is the one it was drilled into with.
-    let mut segments: Vec<ui::BreadcrumbSegment> = trail.iter().map(|(kind, sc, _)| level(*kind, sc.as_ref())).collect();
-    segments.push(level(current_kind, scope));
+    // Every level's scope names the thing it's inside; together they are the path.
+    let mut segments: Vec<ui::BreadcrumbSegment> = trail
+        .iter()
+        .filter_map(|(_, sc, _)| sc.as_ref())
+        .chain(scope)
+        .map(|sc| {
+            let (kind, name) = sc.parts();
+            segment(kind, name)
+        })
+        .collect();
+    segments.push(plain_segment(current_kind.label()));
     segments
 }
 

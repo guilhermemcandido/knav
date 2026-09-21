@@ -19,6 +19,14 @@ pub(crate) enum Scope {
 }
 
 impl Scope {
+    /// `("Deployment", "web")` — the kind and name this list is inside.
+    pub(crate) fn parts(&self) -> (&str, &str) {
+        match self {
+            Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => (kind, name),
+            Scope::Namespace { name } => ("Namespace", name),
+        }
+    }
+
     /// `Deployment/web` — shown in the header.
     pub(crate) fn label(&self) -> String {
         match self {

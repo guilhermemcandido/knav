@@ -19,6 +19,7 @@ use crate::k8s::{
     ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, EventEntry, EventFilter, GenericRow, NodeRow, Overview, PodRow, ResourceKind,
 };
 
+mod breadcrumb;
 mod columns;
 mod header;
 mod layout;
@@ -34,6 +35,8 @@ pub use self::columns::*;
 pub use self::header::*;
 pub use self::layout::configure_columns;
 use self::layout::*;
+pub use self::breadcrumb::BreadcrumbPod;
+use self::breadcrumb::*;
 pub use self::logs::*;
 pub use self::menu::*;
 pub use self::overview::*;
@@ -262,8 +265,8 @@ pub fn draw(
     draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
     // The keyboard-selected pod, shown at the end of the breadcrumb bar
     // (only while nothing is open on top of the list).
-    let selected_pod: Option<Vec<Span<'static>>> = match &rows {
-        Rows::Pods(pods) if !dimmed => table_state.selected().and_then(|i| pods.get(i)).map(pod_selection_spans),
+    let selected_pod: Option<BreadcrumbPod> = match &rows {
+        Rows::Pods(pods) if !dimmed => table_state.selected().and_then(|i| pods.get(i)).map(BreadcrumbPod::from_row),
         _ => None,
     };
     match rows {
@@ -351,43 +354,6 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
-}
-
-/// The bottom-row navigation path, e.g. "Nodes>>Node[worker-1]>>
-/// Pod[default/web-1]>>Logs[nginx]" — drawn on top of everything
-/// (including a dimmed background layer), so "where am I and how did I
-/// get here" is always answerable at a glance. Each segment's kind and
-/// value get their own color (kind in the app's cyan accent, value in a
-/// calmer gray) so they read as visually distinct without either one
-/// shouting; `>>` between segments is muted so it doesn't compete with
-/// either.
-pub(super) fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment], selection: Option<Vec<Span<'static>>>) {
-    let area = frame.area();
-    let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
-    frame.render_widget(Clear, bar);
-
-    let kind_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let value_style = Style::default().fg(Color::Gray);
-    let punct_style = Style::default().fg(Color::DarkGray);
-
-    let mut spans = vec![Span::raw(" ")];
-    for (i, segment) in segments.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::styled(">>", punct_style));
-        }
-        spans.push(Span::styled(segment.kind.clone(), kind_style));
-        if let Some(value) = &segment.value {
-            spans.push(Span::styled("[", punct_style));
-            spans.push(Span::styled(value.clone(), value_style));
-            spans.push(Span::styled("]", punct_style));
-        }
-    }
-    // What's selected in the list, last: `Pods>>kube-system/web-1 [● web]`.
-    if let Some(selection) = selection {
-        spans.push(Span::styled(">>", punct_style));
-        spans.extend(selection);
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }
 
 /// The current screen's keybinding hints — kept out of the way until
