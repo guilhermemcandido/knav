@@ -78,12 +78,12 @@ impl Fitted {
     /// `rows` yields each row's text width per column. `flex` names the one
     /// column allowed to take the leftover room (an event message).
     pub(super) fn new(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>, available: u16, flex: Option<usize>) -> Self {
-        let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count() + SORT_RESERVE).collect();
-        for row in rows {
-            for (width, cell) in widths.iter_mut().zip(row) {
-                *width = (*width).max(cell);
-            }
-        }
+        Self::from_natural(headers, natural_widths(headers, rows), available, flex)
+    }
+
+    /// The fit for columns whose natural widths are already known.
+    fn from_natural(headers: &[&str], natural: Vec<usize>, available: u16, flex: Option<usize>) -> Self {
+        let mut widths = natural;
         // A column is never asked to be wider than it needs to be.
         let mins: Vec<usize> = headers.iter().zip(&widths).map(|(h, natural)| configured_min(h).min(*natural)).collect();
         if let Some(f) = flex {
@@ -131,6 +131,28 @@ impl Fitted {
     }
 }
 
+/// Each column's widest cell or header.
+fn natural_widths(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>) -> Vec<usize> {
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count() + SORT_RESERVE).collect();
+    for row in rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell);
+        }
+    }
+    widths
+}
+
+/// Bumped whenever the lists are recomputed, which is what makes cached widths stale.
+static DATA_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn set_data_version(version: u64) {
+    DATA_VERSION.store(version, std::sync::atomic::Ordering::Relaxed);
+}
+
+type WidthKey = (u64, usize, usize, String);
+
+static WIDTHS: std::sync::Mutex<Vec<(WidthKey, Vec<usize>)>> = std::sync::Mutex::new(Vec::new());
+
 /// Width of a cell's text, in terminal cells.
 pub(super) fn cell_width(text: &str) -> usize {
     text.chars().count()
@@ -146,6 +168,34 @@ pub(super) fn layout_table(
     hscroll: &mut usize,
 ) -> Window {
     let window = Fitted::new(headers, rows, available, flex).window(*hscroll, available);
+    *hscroll = window.offset;
+    window
+}
+
+/// `layout_table` for the lists on screen: the widest-cell scan over every row runs once per
+/// recomputation of the data (`data` is the rows' address and count), not once per frame.
+pub(super) fn layout_list(
+    headers: &[&str],
+    data: (usize, usize),
+    rows: impl Iterator<Item = Vec<usize>>,
+    available: u16,
+    flex: Option<usize>,
+    hscroll: &mut usize,
+) -> Window {
+    let key: WidthKey = (DATA_VERSION.load(std::sync::atomic::Ordering::Relaxed), data.0, data.1, headers.join("|"));
+    let cached = WIDTHS.lock().ok().and_then(|cache| cache.iter().find(|(k, _)| *k == key).map(|(_, w)| w.clone()));
+    let natural = cached.unwrap_or_else(|| {
+        let natural = natural_widths(headers, rows);
+        if let Ok(mut cache) = WIDTHS.lock() {
+            cache.retain(|(k, _)| k.0 == key.0);
+            cache.push((key, natural.clone()));
+            if cache.len() > 8 {
+                cache.remove(0);
+            }
+        }
+        natural
+    });
+    let window = Fitted::from_natural(headers, natural, available, flex).window(*hscroll, available);
     *hscroll = window.offset;
     window
 }

@@ -69,13 +69,48 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
+/// The rows on screen out of a table of many, so only those get built.
+struct Visible {
+    start: usize,
+    end: usize,
+}
+
+impl Visible {
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
+}
+
+/// Settles the scroll offset so the selection is on screen, and names the rows to build.
+fn visible(state: &mut TableState, total: usize, area: Rect) -> Visible {
+    let height = usize::from(area.height.saturating_sub(3)).max(1);
+    let mut offset = state.offset().min(total.saturating_sub(1));
+    if let Some(selected) = state.selected() {
+        if selected < offset {
+            offset = selected;
+        } else if selected >= offset + height {
+            offset = selected + 1 - height;
+        }
+    }
+    *state.offset_mut() = offset;
+    Visible { start: offset, end: (offset + height).min(total) }
+}
+
+/// Draws a table built from only the visible rows, keeping `state` in whole-list terms.
+fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut TableState, vis: &Visible) {
+    let selected = state.selected().filter(|s| vis.range().contains(s)).map(|s| s - vis.start);
+    let mut local = TableState::default().with_selected(selected);
+    frame.render_stateful_widget(table, area, &mut local);
+}
+
 pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
     let border_style = list_border(dimmed);
 
     let window = pod_window(pods, area.width, hscroll, wide);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
+    let vis = visible(table_state, pods.len(), area);
 
-    let rows = pods.iter().map(|p| {
+    let rows = pods[vis.range()].iter().map(|p| {
         // The whole row wears its state: red when broken, orange while
         // starting, grey when finished.
         let tone = crate::k8s::status_tone(&p.phase);
@@ -101,7 +136,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         Row::new(window.slice(cells))
     });
 
-    let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
+    let flags: Vec<bool> = pods[vis.range()].iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| pods.get(i)).map(|p| crate::k8s::status_tone(&p.phase)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Pods", pods.len(), &window, dimmed);
 
@@ -113,7 +148,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
-    frame.render_stateful_widget(table, area, table_state);
+    render_windowed(frame, area, table, table_state, &vis);
 }
 
 /// The pods table's headers; the wide view adds IP and IMAGES before
@@ -149,7 +184,7 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool
         widths.push(p.containers.len() * 2);
         widths
     });
-    layout_table(&pod_headers(wide), rows, table_width.saturating_sub(2), None, hscroll)
+    layout_list(&pod_headers(wide), (pods.as_ptr() as usize, pods.len()), rows, table_width.saturating_sub(2), None, hscroll)
 }
 
 /// Which data row of a bordered table a screen row falls on, given its scroll `offset`.
@@ -240,8 +275,9 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     if wide {
         headers.push("IMAGES");
     }
-    let window = layout_table(
+    let window = layout_list(
         &headers,
+        (deployments.as_ptr() as usize, deployments.len()),
         deployments.iter().map(|d| {
             let mut widths = vec![cell_width(&d.namespace), cell_width(&d.name), cell_width(&d.ready), d.up_to_date.to_string().len(), d.available.to_string().len(), cell_width(&d.age)];
             if wide {
@@ -254,8 +290,9 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         hscroll,
     );
     let header = header_row(&headers, sort, dimmed, &window);
+    let vis = visible(table_state, deployments.len(), area);
 
-    let rows = deployments.iter().map(|d| {
+    let rows = deployments[vis.range()].iter().map(|d| {
         // A deployment short of its replicas turns orange (red with none available).
         let cell_style = row_tone_style(ready_tone(&d.ready), dimmed);
         let mut cells = vec![
@@ -272,7 +309,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         Row::new(window.slice(cells))
     });
 
-    let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
+    let flags: Vec<bool> = deployments[vis.range()].iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Deployments", deployments.len(), &window, dimmed);
 
@@ -284,7 +321,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
-    frame.render_stateful_widget(table, area, table_state);
+    render_windowed(frame, area, table, table_state, &vis);
 }
 
 /// A compact usage bar for a table cell: `▓▓▓░░░░░ 34%`, or gray `n/a` when
@@ -358,8 +395,9 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     }
     // `[▓▓▓▓▓▓▓▓▓▓] 100%`, the usage bars are a fixed width.
     const BAR_WIDTH: usize = 17;
-    let window = layout_table(
+    let window = layout_list(
         &headers,
+        (nodes.as_ptr() as usize, nodes.len()),
         nodes.iter().map(|n| {
             let mut widths = vec![
                 cell_width(&n.name),
@@ -382,8 +420,9 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         hscroll,
     );
     let header = header_row(&headers, sort, dimmed, &window);
+    let vis = visible(table_state, nodes.len(), area);
 
-    let rows = nodes.iter().map(|n| {
+    let rows = nodes[vis.range()].iter().map(|n| {
         let tone = node_tone(n);
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
@@ -407,7 +446,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         Row::new(window.slice(cells))
     });
 
-    let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
+    let flags: Vec<bool> = nodes[vis.range()].iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| nodes.get(i)).map(node_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Nodes", nodes.len(), &window, dimmed);
 
@@ -419,7 +458,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
-    frame.render_stateful_widget(table, area, table_state);
+    render_windowed(frame, area, table, table_state, &vis);
 }
 
 /// Whether any row has a namespace. Cluster-scoped kinds show `-` everywhere, so
@@ -445,8 +484,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         headers.push("LABELS");
     }
 
-    let window = layout_table(
+    let window = layout_list(
         &headers,
+        (rows.as_ptr() as usize, rows.len()),
         rows.iter().map(|r| {
             let mut widths = Vec::with_capacity(headers.len());
             if show_namespace {
@@ -465,8 +505,9 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         hscroll,
     );
     let header = header_row(&headers, sort, dimmed, &window);
+    let vis = visible(table_state, rows.len(), area);
 
-    let table_rows = rows.iter().map(|r| {
+    let table_rows = rows[vis.range()].iter().map(|r| {
         use crate::k8s::describe::Tone;
         let row_tone = generic_row_tone(r);
         let cell_style = row_tone_style(row_tone, dimmed);
@@ -483,7 +524,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         Row::new(window.slice(cells))
     });
 
-    let flags: Vec<bool> = rows.iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
+    let flags: Vec<bool> = rows[vis.range()].iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(generic_row_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title(label, rows.len(), &window, dimmed);
 
@@ -495,7 +536,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
-    frame.render_stateful_widget(table, area, table_state);
+    render_windowed(frame, area, table, table_state, &vis);
 }
 
 /// The Custom Resources picker: every discovered CRD kind, sorted by GROUP so

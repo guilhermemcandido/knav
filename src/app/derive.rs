@@ -251,6 +251,9 @@ impl Cache {
         {
             return cache;
         }
+        static DERIVATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        // The tables cache their column widths per derivation.
+        ui::set_data_version(DERIVATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
         Cache { key, changes, at: std::time::Instant::now(), derived: derive(src, catalog, mode, q) }
     }
 

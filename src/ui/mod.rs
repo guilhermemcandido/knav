@@ -42,7 +42,7 @@ pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, li
 pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
 use self::help::draw_help;
-pub use self::layout::configure_columns;
+pub use self::layout::{configure_columns, set_data_version};
 use self::layout::*;
 pub use self::path_bar::SelectedItem;
 use self::path_bar::*;
