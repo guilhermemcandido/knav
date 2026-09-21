@@ -137,7 +137,11 @@ impl Extras for DaemonSet {
 impl Extras for Job {
     fn extras(&self) -> (Vec<Col>, Note) {
         let status = self.status.as_ref();
-        let wanted = i64::from(self.spec.as_ref().and_then(|s| s.completions).unwrap_or(1));
+        let spec = self.spec.as_ref();
+        // A work-queue Job (no `completions`, some `parallelism`) finishes when its pods say so.
+        let queue = spec.is_some_and(|s| s.completions.is_none() && s.parallelism.is_some());
+        let wanted = i64::from(spec.and_then(|s| s.completions).unwrap_or(1));
+        let suspended = spec.and_then(|s| s.suspend).unwrap_or(false);
         let done = i64::from(status.and_then(|s| s.succeeded).unwrap_or(0));
         let active = status.and_then(|s| s.active).unwrap_or(0);
         let has = |kind: &str| status.and_then(|s| s.conditions.as_ref()).is_some_and(|c| c.iter().any(|c| c.type_ == kind && c.status == "True"));
@@ -145,16 +149,19 @@ impl Extras for Job {
             ("Failed", Tone::Bad)
         } else if has("Complete") {
             ("Complete", Tone::Good)
+        } else if suspended {
+            ("Suspended", Tone::Warn)
         } else if active > 0 {
-            ("Running", Tone::Warn)
+            ("Running", Tone::Plain)
         } else {
             ("Pending", Tone::Warn)
         };
+        let total = if queue { "-".to_string() } else { wanted.to_string() };
         let cols = vec![
-            Col { header: "COMPLETIONS", text: format!("{done}/{wanted}"), tone: Tone::Plain, sort: Some(done) },
+            Col { header: "COMPLETIONS", text: format!("{done}/{total}"), tone: Tone::Plain, sort: Some(done) },
             Col::toned("STATUS", state, tone),
         ];
-        (cols, Some((tone, format!("{done}/{wanted} {state}"))))
+        (cols, Some((tone, format!("{done}/{total} {state}"))))
     }
 }
 
@@ -235,13 +242,24 @@ impl Extras for Endpoints {
                 });
             }
         }
-        let text = match addresses.len() {
+        let not_ready: usize = self.subsets.iter().flatten().map(|s| s.not_ready_addresses.as_ref().map_or(0, Vec::len)).sum();
+        let mut text = match addresses.len() {
             0 => "<none>".to_string(),
             1..=2 => addresses.join(","),
             n => format!("{},{}, +{}", addresses[0], addresses[1], n - 2),
         };
-        let note = if addresses.is_empty() { (Tone::Warn, "No endpoints".to_string()) } else { (Tone::Good, format!("{} endpoints", addresses.len())) };
-        (vec![Col::toned("ENDPOINTS", text, if addresses.is_empty() { Tone::Warn } else { Tone::Plain })], Some(note))
+        if not_ready > 0 {
+            text.push_str(&format!("  ({not_ready} not ready)"));
+        }
+        let note = if addresses.is_empty() {
+            (Tone::Warn, if not_ready > 0 { format!("No ready endpoints, {not_ready} not ready") } else { "No endpoints".to_string() })
+        } else if not_ready > 0 {
+            (Tone::Warn, format!("{} endpoints, {not_ready} not ready", addresses.len()))
+        } else {
+            (Tone::Good, format!("{} endpoints", addresses.len()))
+        };
+        let tone = if addresses.is_empty() || not_ready > 0 { Tone::Warn } else { Tone::Plain };
+        (vec![Col::toned("ENDPOINTS", text, tone)], Some(note))
     }
 }
 
@@ -454,5 +472,30 @@ mod tests {
         assert_eq!(phase_tone("Bound"), Tone::Good);
         assert_eq!(phase_tone("Pending"), Tone::Warn);
         assert_eq!(phase_tone("Lost"), Tone::Bad);
+    }
+}
+
+#[cfg(test)]
+mod job_and_endpoint_tests {
+    use super::*;
+
+    fn job(value: serde_json::Value) -> Job {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn a_suspended_job_says_so_and_a_work_queue_has_no_fixed_total() {
+        let (cols, _) = job(serde_json::json!({"metadata": {"name": "j"}, "spec": {"suspend": true, "template": {"spec": {"containers": []}}}})).extras();
+        assert_eq!(cols[1].text, "Suspended");
+        let (cols, _) = job(serde_json::json!({"metadata": {"name": "j"}, "spec": {"parallelism": 3, "template": {"spec": {"containers": []}}}})).extras();
+        assert_eq!(cols[0].text, "0/-");
+    }
+
+    #[test]
+    fn endpoints_count_addresses_that_are_not_ready() {
+        let endpoints: Endpoints = serde_json::from_value(serde_json::json!({"metadata": {"name": "e"}, "subsets": [{"addresses": [{"ip": "10.0.0.1"}], "notReadyAddresses": [{"ip": "10.0.0.2"}]}]})).unwrap();
+        let (cols, note) = endpoints.extras();
+        assert!(cols[0].text.contains("1 not ready"));
+        assert_eq!(note.map(|n| n.0), Some(Tone::Warn));
     }
 }
