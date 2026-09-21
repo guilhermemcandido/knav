@@ -1,5 +1,28 @@
 # knav — TODO
 
+## Review follow-ups (worked through in this order)
+
+Correctness and robustness
+- [ ] Logs: wrapped lines break follow mode (newest lines fall below the screen, cannot scroll to the end); make scrolling count wrapped rows.
+- [ ] Logs: search highlighting can slice inside a character on some non-ASCII text; match by character.
+- [ ] Wide characters: column and box widths count characters, not terminal cells (CJK, emoji misalign).
+- [ ] Config: a broken `config.toml` warning is wiped by the screen clearing; show it inside the app.
+- [ ] Blocking: `e` edit apply, clipboard copy (`xclip` / `wl-copy`), port-forward stderr never drained.
+- [ ] Details: suspended Jobs show as Pending; work-queue Jobs read `0/1`; Endpoints ignore not-ready addresses.
+- [ ] Lists: EndpointSlice, IngressClass, PodDisruptionBudget, ResourceQuota, LimitRange and Lease have info views but no list.
+- [ ] Sorted pod snapshot is not cached (about 27 ms per refresh at 100k pods).
+
+Structure
+- [ ] Split `handlers/list.rs` (`handle` is about 540 lines), `relations.rs`, `actions.rs`, `columns.rs`, `overview.rs`.
+- [ ] Share the table tail (about 10 copies), the text-entry handlers (7 copies) and the 15-argument draw call in `draw.rs` (25 copies).
+- [ ] Trim comments longer than 1 to 3 lines and fix doc comments sitting above the wrong item.
+
+Smaller
+- [ ] Secret reveal/hide toggle in the info view.
+- [ ] Reuse the connection when switching context (it connects twice now).
+- [ ] Mermaid export of the relations graph.
+- [ ] Click support in the relations diagram.
+
 ## Prior art (checked 2026-09-16 — re-verify star counts/activity before assuming these are current)
 
 Direct competitors — k8s browsing/management TUIs:
