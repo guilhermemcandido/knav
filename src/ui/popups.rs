@@ -8,11 +8,11 @@ use super::*;
 const SUGGESTION_HEIGHT: u16 = 3;
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
-/// The `:` command line, k9s-style: one box with the input on top and the live
+/// The `:` command line, k9s-style: one full-width box with the input on top and the live
 /// autocomplete listed under it, each match with its icon. The best match's
 /// remaining letters show dimmed after the cursor.
 pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
-    let width = (suggestions.iter().map(|s| s.label.chars().count()).max().unwrap_or(0) as u16 + SUGGESTION_ICON.width + 8).max(60).min(bar.width);
+    let width = bar.width;
     // As many rows as the screen has room for, scrolled to keep the selection in view.
     let below = frame.area().bottom().saturating_sub(bar.y);
     let shown = suggestions.len().min(usize::from(below.saturating_sub(4) / SUGGESTION_HEIGHT));
