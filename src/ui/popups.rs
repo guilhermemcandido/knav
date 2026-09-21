@@ -425,7 +425,7 @@ pub(super) fn draw_relations(frame: &mut Frame, title: &str, graph: &crate::k8s:
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(Line::styled(format!(" Related to {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
-        .title_bottom(Line::styled(" ←↑↓→ move   enter open   space follow   backspace back   esc close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(" ←↑↓→ move   enter info   o open list   space follow   backspace back   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if graph.nodes.len() <= 1 {

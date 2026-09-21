@@ -5,6 +5,7 @@ use super::Cx;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let mut to_yaml = false;
+    let mut open: Option<(ResourceKind, Option<String>, String)> = None;
     if let Mode::Details { sections, scroll, hscroll, back, .. } = &mut st.mode {
         let (last, widest) = ui::details_max_scroll(sections, cx.frame_area);
         let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
@@ -24,6 +25,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(6),
                     KeyCode::Right | KeyCode::Char('l') => *hscroll = (*hscroll + 6).min(widest),
                     KeyCode::Char('y') => to_yaml = true,
+                    // Enter goes to the object's own list.
+                    KeyCode::Enter => {
+                        if let Mode::Details { manifest, .. } = &st.mode {
+                            let text = |path: &[&str]| path.iter().try_fold(manifest, |v, key| v.get(*key)).and_then(|v| v.as_str()).map(String::from);
+                            if let (Some(kind), Some(name)) = (text(&["kind"]).and_then(|k| ResourceKind::from_owner_kind(&k)), text(&["metadata", "name"])) {
+                                open = Some((kind, text(&["metadata", "namespace"]), name));
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -34,6 +44,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             },
             _ => {}
         }
+    }
+    if let Some((kind, namespace, name)) = open {
+        st.mode = Mode::List;
+        st.jump_to_object(kind, namespace.as_deref(), &name);
     }
     if to_yaml && let Mode::Details { manifest, .. } = &st.mode {
         let title = crate::app::mode::object_title(manifest);

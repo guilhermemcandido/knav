@@ -5,6 +5,7 @@ use super::Cx;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let mut open: Option<(ResourceKind, Option<String>, String)> = None;
+    let mut info: Option<serde_yaml::Value> = None;
     if let Mode::Relations { target, all, graph, selected, previous, back } = &mut st.mode {
         let layout = ui::graph_layout(graph);
         let go = |direction: ui::Move, selected: &mut usize| {
@@ -29,8 +30,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
                 KeyCode::Backspace => restore = true,
-                // Enter goes to the object's own list, like everywhere else in knav.
-                KeyCode::Enter | KeyCode::Char('o') => {
+                // Enter shows the object's info over the diagram; Enter there goes to its list.
+                KeyCode::Enter => {
+                    if let Some(node) = graph.nodes.get(*selected) {
+                        info = if *selected == 0 { Some(target.clone()) } else { k8s::relations::find_manifest(all, &node.kind, node.namespace.as_deref(), &node.name) };
+                    }
+                }
+                // `o` goes straight to the object's list.
+                KeyCode::Char('o') => {
                     if let Some(node) = graph.nodes.get(*selected)
                         && let Some(kind) = ResourceKind::from_owner_kind(&node.kind)
                     {
@@ -57,7 +64,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             st.mode = back;
         }
     }
-    let _ = cx;
+    if let Some(manifest) = info {
+        let sections = k8s::details::details(&manifest, &cx.d.overview.events);
+        let back = std::mem::replace(&mut st.mode, Mode::List);
+        st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
+    }
     if let Some((kind, namespace, name)) = open {
         // Back at the list the way the owner jump does, so Esc returns to where this began.
         st.mode = Mode::List;

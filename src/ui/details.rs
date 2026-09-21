@@ -92,7 +92,7 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
-        .title_bottom(Line::styled(" ↑↓←→ scroll   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(" ↑↓←→ scroll   enter open list   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
