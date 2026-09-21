@@ -93,13 +93,20 @@ impl Catalog {
         let counter = self.counter.get_or_insert_with(|| {
             // Custom resources by their own storage version, then every other type discovery lists
             // (a CRD served only in an older version is missing from discovery's preferred one).
-            let mut types: Vec<k8s::ApiInfo> = self.crds.iter().map(k8s::ApiInfo::from).collect();
-            let known: HashSet<(&str, &str)> = types.iter().map(|t| (t.group, t.plural)).collect();
-            let rest: Vec<k8s::ApiInfo> = self.apis.iter().filter(|a| !known.contains(&(a.group, a.plural))).cloned().collect();
-            types.extend(rest);
+            let mut types: HashMap<String, k8s::ApiInfo> = self.crds.iter().map(k8s::ApiInfo::from).map(|t| (k8s::count_key(t.group, t.plural), t)).collect();
+            for api in &self.apis {
+                types.entry(k8s::count_key(api.group, api.plural)).or_insert_with(|| api.clone());
+            }
             k8s::Counter::start(self.client.clone(), types, self.counts.clone())
         });
         counter.set_namespace(&self.counts, namespace);
+    }
+
+    /// Names the types on screen, the only ones counted.
+    pub(crate) fn want_counts(&mut self, keys: Vec<String>) {
+        if let Some(counter) = &self.counter {
+            counter.want(keys);
+        }
     }
 
     /// Starts the full watch of a built-in kind if it is not running.

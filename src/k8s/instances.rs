@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use kube::Client;
@@ -44,23 +44,29 @@ impl Count {
 /// The counts found so far, shared with the lists that show them.
 #[derive(Clone, Default)]
 pub struct InstanceCounts {
-    map: Arc<Mutex<HashMap<String, Count>>>,
+    map: Arc<Mutex<HashMap<String, (Count, Instant)>>>,
 }
 
-fn key(group: &str, plural: &str) -> String {
+pub fn count_key(group: &str, plural: &str) -> String {
     format!("{group}/{plural}")
 }
 
 impl InstanceCounts {
     pub fn get(&self, group: &str, plural: &str) -> Count {
-        self.map.lock().ok().and_then(|m| m.get(&key(group, plural)).copied()).unwrap_or(Count::Loading)
+        self.map.lock().ok().and_then(|m| m.get(&count_key(group, plural)).map(|(c, _)| *c)).unwrap_or(Count::Loading)
+    }
+
+    fn stale(&self, key: &str) -> bool {
+        self.map.lock().ok().and_then(|m| m.get(key).map(|(_, at)| at.elapsed() > FRESH)).unwrap_or(true)
     }
 }
 
-/// The background counting: every listable type, again every minute and whenever the
-/// namespace changes.
+/// Counting on demand: only the types on screen (and one screen more) are asked about, a few at a
+/// time, and each answer is trusted for a minute. Clusters with thousands of custom resource
+/// types are never asked about all at once.
 pub struct Counter {
     scope: Arc<Mutex<Option<String>>>,
+    wanted: Arc<Mutex<Vec<String>>>,
     changed: Arc<Notify>,
     task: JoinHandle<()>,
 }
@@ -72,40 +78,62 @@ impl Drop for Counter {
 }
 
 /// How many types are asked about at once.
-const CONCURRENCY: usize = 8;
-const REFRESH: Duration = Duration::from_secs(60);
+const CONCURRENCY: usize = 4;
+/// How long a count is trusted before it is asked for again.
+const FRESH: Duration = Duration::from_secs(60);
+/// How often the wanted types are looked at again when nothing changed.
+const TICK: Duration = Duration::from_secs(5);
 
 impl Counter {
-    pub fn start(client: Client, apis: Vec<ApiInfo>, counts: InstanceCounts) -> Self {
+    /// `types` is every type that can be counted, by `count_key`.
+    pub fn start(client: Client, types: HashMap<String, ApiInfo>, counts: InstanceCounts) -> Self {
         let scope = Arc::new(Mutex::new(None::<String>));
+        let wanted = Arc::new(Mutex::new(Vec::<String>::new()));
         let changed = Arc::new(Notify::new());
         let task = {
-            let (scope, changed) = (Arc::clone(&scope), Arc::clone(&changed));
+            let (scope, wanted, changed) = (Arc::clone(&scope), Arc::clone(&wanted), Arc::clone(&changed));
             tokio::spawn(async move {
                 loop {
                     let namespace = scope.lock().ok().and_then(|s| s.clone());
-                    let round = futures::stream::iter(apis.iter().filter(|a| a.verbs.is_empty() || a.verbs.iter().any(|v| v == "list"))).for_each_concurrent(CONCURRENCY, |api| {
+                    let due: Vec<&ApiInfo> = wanted
+                        .lock()
+                        .map(|w| w.iter().filter(|k| counts.stale(k)).filter_map(|k| types.get(k)).filter(|a| a.verbs.is_empty() || a.verbs.iter().any(|v| v == "list")).collect())
+                        .unwrap_or_default();
+                    if due.is_empty() {
+                        tokio::select! {
+                            _ = tokio::time::sleep(TICK) => {}
+                            _ = changed.notified() => {}
+                        }
+                        continue;
+                    }
+                    let round = futures::stream::iter(due).for_each_concurrent(CONCURRENCY, |api| {
                         let (client, counts, namespace) = (client.clone(), counts.clone(), namespace.clone());
                         async move {
                             let found = fetch_count(&client, api, namespace.as_deref()).await;
                             if let Ok(mut map) = counts.map.lock() {
-                                map.insert(key(api.group, api.plural), found);
+                                map.insert(count_key(api.group, api.plural), (found, Instant::now()));
                             }
                         }
                     });
-                    // A change of namespace drops the round in flight and starts over.
+                    // A change of what is wanted or of the namespace drops the round and starts over.
                     tokio::select! {
                         _ = round => {}
-                        _ = changed.notified() => continue,
-                    }
-                    tokio::select! {
-                        _ = tokio::time::sleep(REFRESH) => {}
                         _ = changed.notified() => {}
                     }
                 }
             })
         };
-        Counter { scope, changed, task }
+        Counter { scope, wanted, changed, task }
+    }
+
+    /// The types to count now (the ones on screen); a different set starts a new round.
+    pub fn want(&self, keys: Vec<String>) {
+        if let Ok(mut wanted) = self.wanted.lock()
+            && *wanted != keys
+        {
+            *wanted = keys;
+            self.changed.notify_one();
+        }
     }
 
     /// Counts objects of this namespace only (`None`: all of them); namespaced types only.

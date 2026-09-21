@@ -36,7 +36,7 @@ pub use events::*;
 pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
-pub use instances::{Count, Counter, InstanceCounts};
+pub use instances::{Count, Counter, InstanceCounts, count_key};
 pub use parallel::par_map;
 pub use watch::{changes, watch_count, watch_store};
 pub use watched::*;

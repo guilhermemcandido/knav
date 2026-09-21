@@ -63,6 +63,17 @@ pub(crate) fn run(
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
             _ => generic_rows.len(),
         };
+        // Only the object counts of the types on screen (and one screen further) are fetched.
+        if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
+            let reach = usize::from(terminal.size().map(|s| s.height).unwrap_or(40)) * 2;
+            let from = st.table_state.offset();
+            let keys: Vec<String> = if st.current_kind == ResourceKind::ApiResources {
+                generic_rows.iter().skip(from).take(reach).map(|r| k8s::count_key(r.extras.first().map_or("", |g| if g.text == "core" { "" } else { g.text.as_str() }), &r.name)).collect()
+            } else {
+                crd_rows.iter().skip(from).take(reach).map(|(_, c)| k8s::count_key(c.group, &c.plural)).collect()
+            };
+            catalog.want_counts(keys);
+        }
         // Selection can't outrun the list as rows come and go. The Overview has no
         // selectable row, so this only matters for lists.
         if st.current_kind != ResourceKind::Overview && row_count > 0 {
@@ -106,10 +117,6 @@ pub(crate) fn run(
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {
-            // Custom resource groups show how many objects they hold, so those are counted while shown.
-            if !st.sidebar_folded.contains("Custom Resources") {
-                catalog.count_instances(st.namespace.as_deref());
-            }
             let all = sidebar::entries(st.current_kind, &st.sidebar_folded, catalog, overview);
             let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
             ui::set_sidebar(Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus }));
