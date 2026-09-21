@@ -28,12 +28,12 @@ pub struct Outcome {
 /// every failure ends up as an `Outcome` for the UI to show, since by the
 /// time something goes wrong the terminal has already been handed
 /// around and must be restored regardless.
-pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, mouse_capture: bool, manifest: &serde_yaml::Value) -> Outcome {
+pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, manifest: &serde_yaml::Value) -> Outcome {
     let original = match serde_yaml::to_string(manifest) {
         Ok(y) => y,
         Err(e) => return Outcome { text: format!("can't render the manifest: {e}"), error: true },
     };
-    let result = edit_loop(terminal, client, mouse_capture, &original);
+    let result = edit_loop(terminal, client, &original);
     match result {
         Ok(Some(text)) => Outcome { text, error: false },
         Ok(None) => Outcome { text: "No changes".into(), error: false },
@@ -41,14 +41,14 @@ pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, m
     }
 }
 
-fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, mouse_capture: bool, original: &str) -> Result<Option<String>> {
+fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original: &str) -> Result<Option<String>> {
     let path = std::env::temp_dir().join(format!("knav-edit-{}.yaml", std::process::id()));
     let mut current = original.to_string();
     let mut header = String::new();
     let mut last_error = String::new();
     let outcome = loop {
         std::fs::write(&path, format!("{header}{current}")).context("writing the temp file")?;
-        if !run_editor(terminal, mouse_capture, &path)? {
+        if !run_editor(terminal, &path)? {
             // The editor quit with a non-zero status (`:q!`/`:cq` in vi) —
             // that's how you say "abort", so drop the edit quietly.
             break None;
@@ -82,7 +82,7 @@ fn strip_comment_header(text: &str) -> String {
 /// takes it back afterwards. `Ok(false)` means it exited non-zero (an
 /// abort). Run through `sh -c` so editors configured
 /// with arguments (`code --wait`) work.
-fn run_editor(terminal: &mut ratatui::DefaultTerminal, mouse_capture: bool, path: &std::path::Path) -> Result<bool> {
+fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -> Result<bool> {
     let editor = ["VISUAL", "EDITOR"]
         .iter()
         .filter_map(|var| std::env::var(var).ok())
@@ -92,9 +92,7 @@ fn run_editor(terminal: &mut ratatui::DefaultTerminal, mouse_capture: bool, path
     ratatui::restore();
     let status = Command::new("sh").arg("-c").arg(format!("{editor} '{}'", path.display())).status();
     *terminal = ratatui::init();
-    if mouse_capture {
-        execute!(stdout(), EnableMouseCapture)?;
-    }
+    execute!(stdout(), EnableMouseCapture)?;
     let status = status.with_context(|| format!("couldn't launch the editor '{editor}'"))?;
     // 126/127 are the shell's "can't run it" / "not found" — a real
     // failure to launch, unlike an editor deliberately exiting non-zero.

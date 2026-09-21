@@ -208,7 +208,7 @@ fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json::Value> {
 /// Opens an interactive shell in a container by handing the terminal to
 /// `kubectl exec` (bash if the image has it, else sh), and takes it back
 /// when the shell exits.
-pub fn shell(terminal: &mut ratatui::DefaultTerminal, mouse_capture: bool, context: &str, namespace: &str, pod: &str, container: &str) -> Option<Outcome> {
+pub fn shell(terminal: &mut ratatui::DefaultTerminal, context: &str, namespace: &str, pod: &str, container: &str) -> Option<Outcome> {
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
     println!("kubectl exec -it {namespace}/{pod} -c {container}");
@@ -226,9 +226,7 @@ pub fn shell(terminal: &mut ratatui::DefaultTerminal, mouse_capture: bool, conte
         let _ = std::io::stdin().read_line(&mut String::new());
     }
     *terminal = ratatui::init();
-    if mouse_capture {
-        let _ = execute!(stdout(), EnableMouseCapture);
-    }
+    let _ = execute!(stdout(), EnableMouseCapture);
     // A shell that ends normally needs no notice; a launch failure gets one.
     status.err().map(|e| Outcome { text: format!("couldn't run kubectl: {e}"), error: true })
 }

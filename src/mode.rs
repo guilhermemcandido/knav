@@ -294,7 +294,7 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
         ResourceKind::Deployments | ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
         ResourceKind::ReplicaSets => vec![("S", "scale")],
         ResourceKind::DaemonSets => vec![("r", "restart")],
-        ResourceKind::Nodes => vec![("o", "cordon")],
+        ResourceKind::Nodes => vec![("c", "cordon")],
         ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],
         _ => Vec::new(),
     };

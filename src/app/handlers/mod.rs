@@ -49,25 +49,13 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     }
 }
 
-/// Keys that work on every screen except while typing: `c` mouse capture,
-/// `?` the commands panel, `:` the command line, `C` the context switcher.
+/// Keys that work on every screen except while typing: `?` the commands panel, `:` the command line, `C` the context switcher.
 /// True when the key was one of them.
 fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<bool> {
     if is_typing(&st.mode) {
         return Ok(false);
     }
     match code {
-        // Toggling mouse reporting off hands click-drag text selection (and
-        // therefore copy) back to the terminal — the only thing enabling it
-        // took away.
-        KeyCode::Char('c') => {
-            st.mouse_capture_enabled = !st.mouse_capture_enabled;
-            if st.mouse_capture_enabled {
-                execute!(stdout(), EnableMouseCapture)?;
-            } else {
-                execute!(stdout(), DisableMouseCapture)?;
-            }
-        }
         KeyCode::Char('?') => st.show_hints_panel = !st.show_hints_panel,
         // Remembers whatever mode was active as `back`, so Esc returns to
         // exactly where the command line was opened from.
@@ -120,5 +108,16 @@ mod tests {
     fn other_keys_are_not_global() {
         let mut st = state();
         assert!(!global_key(KeyCode::Char('x'), &mut st, "ctx").unwrap());
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn c_is_left_to_the_screens_that_use_it() {
+        let mut st = State::new(icons::IconCache::halfblocks(), Favorites::default());
+        assert!(!global_key(KeyCode::Char('c'), &mut st, "ctx").unwrap());
     }
 }

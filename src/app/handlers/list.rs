@@ -284,17 +284,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // a selectable row.
             KeyCode::Char('e') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let outcome = edit::edit_resource(cx.terminal, &client, st.mouse_capture_enabled, &manifest);
+                    let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
                 }
             }
             // Actions on the selected object (see `actions`).
-            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'o' | 'u' | 't')) => {
+            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let action = match c {
                         'D' => Some(Action::Delete),
                         'r' if target.restartable() => Some(Action::Restart),
-                        'o' => target.cordon_action(),
+                        'c' => target.cordon_action(),
                         'u' => target.suspend_action(),
                         't' if target.kind == "CronJob" => Some(Action::Trigger),
                         _ => None,
@@ -421,7 +421,7 @@ fn open_shell(st: &mut State, cx: &mut Cx, target: &Target) {
 }
 
 pub(super) fn run_shell(st: &mut State, cx: &mut Cx, namespace: &str, pod: &str, container: &str) {
-    if let Some(outcome) = actions::shell(cx.terminal, st.mouse_capture_enabled, cx.active_context, namespace, pod, container) {
+    if let Some(outcome) = actions::shell(cx.terminal, cx.active_context, namespace, pod, container) {
         st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
     }
 }

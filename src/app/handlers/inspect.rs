@@ -75,7 +75,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('S') => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
-                    failed_shell = actions::shell(cx.terminal, st.mouse_capture_enabled, cx.active_context, namespace, pod, &container.name);
+                    failed_shell = actions::shell(cx.terminal, cx.active_context, namespace, pod, &container.name);
                 }
             }
             KeyCode::Enter => {
@@ -148,7 +148,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         editing: false,
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     });
-                    let outcome = edit::edit_resource(cx.terminal, &client, st.mouse_capture_enabled, &manifest);
+                    let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
                 }
             }

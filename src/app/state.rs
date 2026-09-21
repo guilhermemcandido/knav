@@ -31,9 +31,6 @@ pub(super) struct State {
     /// The active `/` filter — empty means "show everything". Cleared
     /// whenever the resource kind changes.
     pub search: String,
-    /// Mouse reporting makes hover/click work but stops the terminal's own
-    /// text selection, so `c` toggles it.
-    pub mouse_capture_enabled: bool,
     /// Whether the commands panel (`?`) is open.
     pub show_hints_panel: bool,
     pub icons: icons::IconCache,
@@ -62,7 +59,6 @@ impl State {
             hscroll: 0,
             favorites,
             search: String::new(),
-            mouse_capture_enabled: true,
             show_hints_panel: false,
             icons,
             overview_selection: ui::OverviewSelection::Resources,

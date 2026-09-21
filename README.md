@@ -56,13 +56,12 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `D` | Delete the selected object (asks first) |
 | `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container |
 | `r` | Restart a Deployment, StatefulSet or DaemonSet (asks first) |
-| `o` | Cordon or uncordon a node |
+| `c` | Cordon or uncordon a node |
 | `t` / `u` | Trigger a CronJob now / suspend or resume it (both ask first) |
 | `C` | Switch context |
-| `c` | Toggle mouse capture (off lets the terminal select text) |
 | `:q` | Quit (a stray `q` never does) |
 
-The mouse works too: the wheel moves the selection in every list and popup, a click
+The mouse works too (hold Shift, or Option in iTerm2, to select text with the terminal): the wheel moves the selection in every list and popup, a click
 selects a row, a double-click opens it, and clicking a tile on the overview selects it.
 
 The bottom bar shows where you are (`Deployment[web]>>ReplicaSets>>...`) and

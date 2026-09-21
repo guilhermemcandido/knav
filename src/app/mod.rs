@@ -74,9 +74,8 @@ pub(crate) fn run(
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing };
         let breadcrumb_segments = breadcrumb(&st.mode, location(st.current_kind, &st.nav_stack, st.scope.as_ref()));
-        let mut hints = hints_for(&st.mode, st.current_kind);
+        let hints = hints_for(&st.mode, st.current_kind);
         if !hints.is_empty() {
-            hints.push(("c", if st.mouse_capture_enabled { "mouse off" } else { "mouse on" }));
         }
         let view = draw::View {
             rows: &rows_view,
