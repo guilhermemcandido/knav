@@ -33,7 +33,6 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         Span::styled(input.to_string(), Style::default().fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
         Span::styled("▏", Style::default().fg(COMMAND_FG)),
         Span::styled(ghost.to_string(), Style::default().fg(MUTED_FG)),
-        Span::styled(if suggestions.is_empty() { "" } else { "   tab completes" }, Style::default().fg(MUTED_FG)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
 
