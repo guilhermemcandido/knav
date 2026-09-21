@@ -124,8 +124,15 @@ impl CatalogKind for ApiList {
             .collect()
     }
 
-    fn spec_at(&self, _index: usize) -> Option<serde_yaml::Value> {
-        None
+    /// The resource described as an object, so info and YAML can show it.
+    fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
+        let api = self.apis.get(index)?;
+        Some(serde_yaml::to_value(serde_json::json!({
+            "apiVersion": "meta.k8s.io/v1",
+            "kind": "APIResource",
+            "metadata": {"name": api.plural},
+            "spec": {"group": api.group, "version": api.version, "kind": api.kind, "plural": api.plural, "namespaced": api.namespaced, "verbs": api.verbs},
+        })).ok()?)
     }
 
     fn headers(&self) -> Vec<&'static str> {

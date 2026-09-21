@@ -462,9 +462,32 @@ fn events_section(manifest: &Value, events: &[EventEntry]) -> Option<Section> {
     Some(Section { title: "Events".into(), lines })
 }
 
+/// A kind the API server offers, from discovery.
+fn api_resource_sections(manifest: &Value) -> Vec<Section> {
+    let spec = |key: &str| text(manifest, &["spec", key]).unwrap_or("").to_string();
+    let group = spec("group");
+    let mut lines = vec![
+        field_styled("Resource", spec("plural"), Style::Strong),
+        field("Kind", spec("kind")),
+        field("Group", if group.is_empty() { "core".to_string() } else { group.clone() }),
+        field("Version", spec("version")),
+        field("Scope", if at(manifest, &["spec", "namespaced"]).and_then(Value::as_bool).unwrap_or(false) { "namespaced" } else { "cluster-wide" }),
+    ];
+    let api_version = if group.is_empty() { spec("version") } else { format!("{group}/{}", spec("version")) };
+    lines.push(field("apiVersion", api_version));
+    let verbs: Vec<Chunk> = items(manifest, &["spec", "verbs"]).iter().filter_map(Value::as_str).map(|v| chunk(v, Style::Chip)).collect();
+    if !verbs.is_empty() {
+        lines.push(Line::Field("Verbs".into(), verbs));
+    }
+    vec![Section { title: "API resource".into(), lines }]
+}
+
 /// The sections that describe `manifest`, with the events that mention it.
 pub fn details(manifest: &Value, events: &[EventEntry]) -> Vec<Section> {
     let kind = text(manifest, &["kind"]).unwrap_or("");
+    if kind == "APIResource" {
+        return api_resource_sections(manifest);
+    }
     let mut sections = vec![properties(manifest)];
     let specific = match kind {
         "Pod" => pod_sections(manifest),

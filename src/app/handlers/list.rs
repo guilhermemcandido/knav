@@ -455,7 +455,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 } else {
                     selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest).into_iter().collect()
                 };
-                if let Some(target) = targets.first().cloned() {
+                // An API resource is a kind, not an object: nothing here acts on it.
+                if let Some(target) = targets.first().cloned().filter(|t| t.kind != "APIResource") {
                     let action = match c {
                         'D' => Some(Action::Delete),
                         'r' if target.restartable() => Some(Action::Restart),
