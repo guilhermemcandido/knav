@@ -3,8 +3,8 @@
 ## Review follow-ups (worked through in this order)
 
 Correctness and robustness
-- [ ] Logs: wrapped lines break follow mode (newest lines fall below the screen, cannot scroll to the end); make scrolling count wrapped rows.
-- [ ] Logs: search highlighting can slice inside a character on some non-ASCII text; match by character.
+- [x] Logs: wrapped lines break follow mode (fixed: scrolling counts wrapped rows, no 65k limit).
+- [x] Logs: search highlighting matches by character.
 - [ ] Wide characters: column and box widths count characters, not terminal cells (CJK, emoji misalign).
 - [ ] Config: a broken `config.toml` warning is wiped by the screen clearing; show it inside the app.
 - [ ] Blocking: `e` edit apply, clipboard copy (`xclip` / `wl-copy`), port-forward stderr never drained.

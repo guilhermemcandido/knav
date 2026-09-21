@@ -83,7 +83,7 @@ pub struct MenuSection<'a> {
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
-    Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
+    Logs { title: &'a str, lines: &'a [String], scroll: usize, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
     /// A node's CPU/Memory/Pods gauges plus the pods scheduled on it. The usage values
     /// are `None` without metrics-server.

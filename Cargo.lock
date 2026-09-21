@@ -1676,6 +1676,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "tui-tree-widget",
+ "unicode-width",
  "vt100",
 ]
 

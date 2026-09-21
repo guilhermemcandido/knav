@@ -2,12 +2,85 @@
 
 use super::*;
 
+/// Log lines matching the filter (a plain, case-insensitive substring: log lines are prose to
+/// scan, not identifiers to narrow), in the order they are read.
+fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str> {
+    let needle = filter.to_lowercase();
+    let mut out: Vec<&str> = lines.iter().map(String::as_str).filter(|l| needle.is_empty() || contains_ci(l, &needle)).collect();
+    if order == LogOrder::NewestFirst {
+        out.reverse();
+    }
+    out
+}
+
+/// Case-insensitive `contains` for an already lowercased `needle`, without copying the line
+/// when both are ASCII.
+fn contains_ci(hay: &str, needle: &str) -> bool {
+    if hay.is_ascii() && needle.is_ascii() {
+        let (h, n) = (hay.as_bytes(), needle.as_bytes());
+        return n.is_empty() || h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n));
+    }
+    hay.to_lowercase().contains(needle)
+}
+
+/// One log line as the screen rows it takes at `width` cells: coloured, then cut at the edge
+/// (logs are read as they come, so a hard wrap beats waiting on word breaks).
+fn rows_of(raw: &str, format: TimestampFormat, filter: &str, width: usize) -> Vec<Line<'static>> {
+    let line = colorize_log_line(raw, format, filter);
+    let width = width.max(1);
+    if line.width() <= width {
+        return vec![line];
+    }
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    let (mut spans, mut used): (Vec<Span<'static>>, usize) = (Vec::new(), 0);
+    for span in line.spans {
+        let (mut piece, mut piece_w) = (String::new(), 0);
+        for ch in span.content.chars() {
+            let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if used + piece_w + w > width {
+                if !piece.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut piece), span.style));
+                }
+                rows.push(Line::from(std::mem::take(&mut spans)));
+                (used, piece_w) = (0, 0);
+            }
+            piece.push(ch);
+            piece_w += w;
+        }
+        if !piece.is_empty() {
+            spans.push(Span::styled(piece, span.style));
+        }
+        used += piece_w;
+    }
+    rows.push(Line::from(spans));
+    rows
+}
+
+/// The inside of the logs popup, where rows are wrapped.
+fn text_area(frame_area: Rect) -> Rect {
+    let area = centered_rect(90, 90, frame_area);
+    Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) }
+}
+
+/// How many of the last lines of `ordered` fit on `height` rows.
+fn lines_fitting_at_end(ordered: &[&str], format: TimestampFormat, filter: &str, width: usize, height: usize) -> usize {
+    let (mut rows, mut count) = (0, 0);
+    for raw in ordered.iter().rev() {
+        rows += rows_of(raw, format, filter, width).len();
+        if rows > height && count > 0 {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_logs_popup(
     frame: &mut Frame,
     title: &str,
     lines: &[String],
-    scroll: u16,
+    scroll: usize,
     follow: bool,
     timestamp_format: TimestampFormat,
     order: LogOrder,
@@ -16,63 +89,60 @@ pub(super) fn draw_logs_popup(
 ) {
     let area = centered_rect(90, 90, frame.area());
     frame.render_widget(Clear, area);
+    let ordered = shown(lines, filter, order);
 
-    // A plain substring match, not the fuzzy scorer the rest of the app
-    // uses, log lines are prose to scan, not identifiers to narrow.
-    let needle = filter.to_lowercase();
-    let mut filtered: Vec<&str> =
-        if filter.is_empty() { lines.iter().map(String::as_str).collect() } else { lines.iter().map(String::as_str).filter(|l| l.to_lowercase().contains(&needle)).collect() };
-
-    // Just the live state, not how to control it, the keybindings for
-    // pausing/resuming/toggling timestamps live in the `?` commands
-    // panel now instead of being spelled out here every time.
+    // Just the live state; the keys for pausing and toggling live in the `?` panel.
     let follow_status = if follow { "following" } else { "scrolled" };
-    let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", filtered.len(), lines.len()) };
+    let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", ordered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
     title_line.push_span(Span::raw(format!("  {follow_status}  {count}")));
     let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title_line), filter, filter_editing, false);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    // Newest-first is the same log read from the other end.
-    if order == LogOrder::NewestFirst {
-        filtered.reverse();
-    }
-
-    // When following, show exactly the newest lines that fit: the tail when
-    // oldest-first, the head when newest-first.
-    let (text, effective_scroll): (Vec<Line>, u16) = if follow {
-        let visible = area.height.saturating_sub(2) as usize; // minus borders
-        let shown = match order {
-            LogOrder::OldestFirst => &filtered[filtered.len().saturating_sub(visible)..],
-            LogOrder::NewestFirst => &filtered[..filtered.len().min(visible)],
-        };
-        (shown.iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), 0)
+    // Only the rows on screen are built. Following shows the tail when oldest-first and the
+    // head when newest-first; scrolled, the view starts at line `scroll`.
+    let (width, height) = (usize::from(inner.width), usize::from(inner.height));
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    if follow && order == LogOrder::OldestFirst {
+        for raw in ordered.iter().rev() {
+            let mut own = rows_of(raw, timestamp_format, filter, width);
+            own.append(&mut rows);
+            rows = own;
+            if rows.len() >= height {
+                break;
+            }
+        }
+        rows.drain(..rows.len().saturating_sub(height));
     } else {
-        (filtered.iter().copied().map(|l| colorize_log_line(l, timestamp_format, filter)).collect(), scroll)
-    };
-
-    let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false }).scroll((effective_scroll, 0));
-
-    frame.render_widget(paragraph, area);
-
+        let start = if follow { 0 } else { scroll.min(ordered.len().saturating_sub(1)) };
+        for raw in ordered.iter().skip(start) {
+            rows.extend(rows_of(raw, timestamp_format, filter, width));
+            if rows.len() >= height {
+                break;
+            }
+        }
+        rows.truncate(height);
+    }
+    frame.render_widget(Paragraph::new(rows), inner);
 }
 
-/// The furthest a non-following view can scroll: everything past the
-/// last screenful. Also where scrolling down hands back to following.
-fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str) -> u16 {
-    let needle = filter.to_lowercase();
-    let shown = if filter.is_empty() { lines.len() } else { lines.iter().filter(|l| l.to_lowercase().contains(&needle)).count() };
-    let visible = centered_rect(90, 90, frame_area).height.saturating_sub(2) as usize;
-    shown.saturating_sub(visible).min(u16::MAX as usize) as u16
+/// The furthest a non-following view can scroll: the first line for which everything after it
+/// still fits on screen. Also where scrolling down hands back to following.
+fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder) -> usize {
+    let inner = text_area(frame_area);
+    let ordered = shown(lines, filter, order);
+    ordered.len().saturating_sub(lines_fitting_at_end(&ordered, format, filter, usize::from(inner.width), usize::from(inner.height)))
 }
 
 /// Moves the view one line up. Oldest-first, up goes to older lines and leaves
 /// following from where the tail was. Newest-first, up goes toward the newest line
 /// and resumes following at the top.
-pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
+pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder, follow: &mut bool, scroll: &mut usize) {
     match order {
         LogOrder::OldestFirst => {
             if *follow {
-                *scroll = logs_max_scroll(frame_area, lines, filter);
+                *scroll = logs_max_scroll(frame_area, lines, filter, format, order);
                 *follow = false;
             }
             *scroll = scroll.saturating_sub(1);
@@ -91,14 +161,14 @@ pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, order: L
 
 /// The opposite move. Oldest-first, down goes toward the newest line and resumes
 /// following at the end, like `tail -f`. Newest-first, down leaves following.
-pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, order: LogOrder, follow: &mut bool, scroll: &mut u16) {
+pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder, follow: &mut bool, scroll: &mut usize) {
     match order {
         LogOrder::OldestFirst => {
             if *follow {
                 return;
             }
             *scroll = scroll.saturating_add(1);
-            if *scroll >= logs_max_scroll(frame_area, lines, filter) {
+            if *scroll >= logs_max_scroll(frame_area, lines, filter, format, order) {
                 *follow = true;
             }
         }
@@ -107,7 +177,7 @@ pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, order:
                 *scroll = 0;
                 *follow = false;
             }
-            *scroll = scroll.saturating_add(1).min(logs_max_scroll(frame_area, lines, filter));
+            *scroll = scroll.saturating_add(1).min(logs_max_scroll(frame_area, lines, filter, format, order));
         }
     }
 }
@@ -143,34 +213,38 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
 }
 
 /// Splits `text` around each case-insensitive match of `needle` and highlights it.
-/// An empty `needle` means no filter, so the text keeps `base_style`.
+/// An empty `needle` means no filter, so the text keeps `base_style`. Matching goes by
+/// character, so text whose lowercase form changes length is still cut on boundaries.
 pub(super) fn highlight_matches(text: &str, needle: &str, base_style: Style) -> Vec<Span<'static>> {
+    let needle: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
     if needle.is_empty() {
         return vec![Span::styled(text.to_string(), base_style)];
     }
-    let highlight_style = match_style();
-    let lower_text = text.to_lowercase();
-    let lower_needle = needle.to_lowercase();
-    // Lowercasing can change byte lengths for some Unicode; byte offsets
-    // wouldn't line up with `text`, so skip highlighting rather than panic.
-    if lower_text.len() != text.len() || lower_needle.len() != needle.len() {
-        return vec![Span::styled(text.to_string(), base_style)];
-    }
+    // Each character with its lowercase form; a match is a run of whole characters.
+    let chars: Vec<(usize, char, Vec<char>)> = text.char_indices().map(|(i, c)| (i, c, c.to_lowercase().collect())).collect();
     let mut spans = Vec::new();
-    let mut rest = text;
-    let mut rest_lower = lower_text.as_str();
-    let mut consumed = 0;
-    while let Some(pos) = rest_lower.find(&lower_needle) {
-        if pos > 0 {
-            spans.push(Span::styled(rest[..pos].to_string(), base_style));
+    let (mut at, mut plain_from) = (0, 0);
+    while at < chars.len() {
+        // Try to consume `needle` from `at`, character by character.
+        let (mut n, mut end) = (0, at);
+        while end < chars.len() && n < needle.len() && chars[end].2.iter().enumerate().all(|(k, c)| needle.get(n + k) == Some(c)) {
+            n += chars[end].2.len();
+            end += 1;
         }
-        spans.push(Span::styled(rest[pos..pos + needle.len()].to_string(), highlight_style));
-        consumed += pos + needle.len();
-        rest = &text[consumed..];
-        rest_lower = &lower_text[consumed..];
+        if n == needle.len() {
+            let (from, to) = (chars[at].0, chars.get(end).map_or(text.len(), |c| c.0));
+            if from > plain_from {
+                spans.push(Span::styled(text[plain_from..from].to_string(), base_style));
+            }
+            spans.push(Span::styled(text[from..to].to_string(), match_style()));
+            plain_from = to;
+            at = end;
+        } else {
+            at += 1;
+        }
     }
-    if !rest.is_empty() {
-        spans.push(Span::styled(rest.to_string(), base_style));
+    if plain_from < text.len() {
+        spans.push(Span::styled(text[plain_from..].to_string(), base_style));
     }
     if spans.is_empty() {
         spans.push(Span::styled(text.to_string(), base_style));
@@ -252,53 +326,88 @@ mod scroll_tests {
         (0..n).map(|i| format!("line {i}")).collect()
     }
 
+    const FMT: TimestampFormat = TimestampFormat::Short;
     const AREA: Rect = Rect { x: 0, y: 0, width: 100, height: 30 };
 
     #[test]
     fn scrolling_down_while_following_keeps_following() {
-        let (mut follow, mut scroll) = (true, 0);
-        logs_scroll_down(AREA, &lines(500), "", LogOrder::OldestFirst, &mut follow, &mut scroll);
+        let (mut follow, mut scroll) = (true, 0usize);
+        logs_scroll_down(AREA, &lines(500), "", FMT, LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(follow);
     }
 
     #[test]
     fn scrolling_up_leaves_follow_from_the_tail_not_the_top() {
-        let (mut follow, mut scroll) = (true, 0);
+        let (mut follow, mut scroll) = (true, 0usize);
         let l = lines(500);
-        logs_scroll_up(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", FMT, LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(!follow);
-        assert_eq!(scroll, logs_max_scroll(AREA, &l, "") - 1);
+        assert_eq!(scroll, logs_max_scroll(AREA, &l, "", FMT, LogOrder::OldestFirst) - 1);
     }
 
     #[test]
     fn scrolling_back_to_the_end_resumes_following() {
-        let (mut follow, mut scroll) = (true, 0);
+        let (mut follow, mut scroll) = (true, 0usize);
         let l = lines(500);
-        logs_scroll_up(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
-        logs_scroll_down(AREA, &l, "", LogOrder::OldestFirst, &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", FMT, LogOrder::OldestFirst, &mut follow, &mut scroll);
+        logs_scroll_down(AREA, &l, "", FMT, LogOrder::OldestFirst, &mut follow, &mut scroll);
         assert!(follow);
     }
 
     #[test]
     fn newest_first_scrolling_down_leaves_follow_and_up_at_the_top_resumes_it() {
-        let (mut follow, mut scroll) = (true, 0);
+        let (mut follow, mut scroll) = (true, 0usize);
         let l = lines(500);
-        logs_scroll_up(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", FMT, LogOrder::NewestFirst, &mut follow, &mut scroll);
         assert!(follow, "up while at the newest line does nothing");
-        logs_scroll_down(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        logs_scroll_down(AREA, &l, "", FMT, LogOrder::NewestFirst, &mut follow, &mut scroll);
         assert!(!follow);
         assert_eq!(scroll, 1);
-        logs_scroll_up(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+        logs_scroll_up(AREA, &l, "", FMT, LogOrder::NewestFirst, &mut follow, &mut scroll);
         assert!(follow, "back at the top: following again");
     }
 
     #[test]
     fn newest_first_scrolling_stops_at_the_oldest_line() {
-        let (mut follow, mut scroll) = (true, 0);
+        let (mut follow, mut scroll) = (true, 0usize);
         let l = lines(100);
         for _ in 0..1000 {
-            logs_scroll_down(AREA, &l, "", LogOrder::NewestFirst, &mut follow, &mut scroll);
+            logs_scroll_down(AREA, &l, "", FMT, LogOrder::NewestFirst, &mut follow, &mut scroll);
         }
-        assert_eq!(scroll, logs_max_scroll(AREA, &l, ""));
+        assert_eq!(scroll, logs_max_scroll(AREA, &l, "", FMT, LogOrder::OldestFirst));
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::*;
+
+    #[test]
+    fn a_long_line_becomes_rows_no_wider_than_the_screen() {
+        let rows = rows_of(&"x".repeat(25), TimestampFormat::Short, "", 10);
+        assert_eq!(rows.iter().map(Line::width).collect::<Vec<_>>(), [10, 10, 5]);
+    }
+
+    #[test]
+    fn wide_characters_count_two_cells() {
+        let rows = rows_of("日本語日本語", TimestampFormat::Short, "", 6);
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.width() <= 6));
+    }
+
+    #[test]
+    fn the_last_lines_that_fit_count_their_wrapped_rows() {
+        let long = "y".repeat(30);
+        let ordered = vec!["a", "b", long.as_str(), "c"];
+        // Width 10: "c" takes 1 row, the long line 3, so 4 rows fit "c" and the long line, not "b".
+        assert_eq!(lines_fitting_at_end(&ordered, TimestampFormat::Short, "", 10, 4), 2);
+    }
+
+    #[test]
+    fn highlighting_survives_text_whose_lowercase_form_is_longer() {
+        let spans = highlight_matches("İstanbul ERROR here", "error", Style::default());
+        let hit: Vec<_> = spans.iter().filter(|s| s.style == match_style()).map(|s| s.content.to_string()).collect();
+        assert_eq!(hit, ["ERROR"]);
+        assert_eq!(spans.iter().map(|s| s.content.to_string()).collect::<String>(), "İstanbul ERROR here");
     }
 }

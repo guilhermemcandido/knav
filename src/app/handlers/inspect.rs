@@ -232,8 +232,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('q') | KeyCode::Esc => {
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
-            KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
-            KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
+            KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
+            KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
             KeyCode::Char('G') => *follow = true,
             KeyCode::Char('/') => *filter_editing = true,
             KeyCode::Char('t') => {
@@ -251,9 +251,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Mouse(mouse), Mode::NodeDetail { state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
             wheel_select(mouse.kind, state, node_detail_rows.len());
         }
-        (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, order, .. }) => match mouse.kind {
-            MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
-            MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
+        (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, order, timestamp_format, .. }) => match mouse.kind {
+            MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
+            MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
             _ => {}
         },
         _ => {}

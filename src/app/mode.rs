@@ -123,7 +123,7 @@ pub(crate) enum Mode {
     Logs {
         title: String,
         lines: Vec<String>,
-        scroll: u16,
+        scroll: usize,
         follow: bool,
         timestamp_format: TimestampFormat,
         order: LogOrder,
