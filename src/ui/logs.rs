@@ -30,10 +30,7 @@ pub(super) fn draw_logs_popup(
     let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", filtered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
     title_line.push_span(Span::raw(format!("  {follow_status}  {count}")));
-    if let Some(span) = search_span(filter, filter_editing, false) {
-        title_line.push_span(span);
-    }
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(title_line);
+    let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title_line), filter, filter_editing, false);
 
     // Newest-first is the same log read from the other end.
     if order == LogOrder::NewestFirst {

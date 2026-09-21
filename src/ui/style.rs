@@ -81,7 +81,7 @@ pub(super) fn theme_border(dimmed: bool) -> Style {
 }
 
 /// k9s-style table title: the kind as a filled pill, the count in orange.
-pub(super) fn table_title(label: &str, count: usize, search: Search, window: &Window, dimmed: bool) -> Line<'static> {
+pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bool) -> Line<'static> {
     if dimmed {
         return Line::styled(format!(" {label} ({count}) "), dim_style());
     }
@@ -89,7 +89,6 @@ pub(super) fn table_title(label: &str, count: usize, search: Search, window: &Wi
         Span::styled(format!(" {label} "), Style::default().bg(theme().pill_bg).fg(theme().text_strong).add_modifier(Modifier::BOLD)),
         Span::styled(format!("({count})"), Style::default().fg(theme().warm).add_modifier(Modifier::BOLD)),
     ];
-    spans.extend(search_span(search.text, search.editing, false));
     // `‹ ›` when columns are scrolled out of view on that side.
     if window.can_left || window.can_right {
         let hint = Style::default().fg(theme().warm);
@@ -98,15 +97,23 @@ pub(super) fn table_title(label: &str, count: usize, search: Search, window: &Wi
     Line::from(spans)
 }
 
-/// `  search: text▏` for a title while a search is being typed (`▏` is the
-/// cursor) or applied; nothing when there isn't one. Every searchable
-/// screen shows it the same way.
-pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Span<'static>> {
+/// ` search: text▏ ` for the right end of a top border (`▏` is the cursor)
+/// while a search is being typed or applied; nothing when there isn't one.
+/// Every searchable screen shows it the same way.
+fn search_title(text: &str, editing: bool, dimmed: bool) -> Option<Line<'static>> {
     if text.is_empty() && !editing {
         return None;
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
-    Some(Span::styled(format!("  search: {text}{}", if editing { "▏" } else { "" }), style))
+    Some(Line::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style).right_aligned())
+}
+
+/// `block` with the search, if any, on the right of its top border.
+pub(super) fn with_search<'a>(block: Block<'a>, text: &str, editing: bool, dimmed: bool) -> Block<'a> {
+    match search_title(text, editing, dimmed) {
+        Some(line) => block.title_top(line),
+        None => block,
+    }
 }
 
 /// Shared namespace/name colouring: namespace in the cyan accent, name bold, `/`

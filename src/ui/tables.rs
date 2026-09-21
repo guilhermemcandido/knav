@@ -103,13 +103,13 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
 
     let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| pods.get(i)).map(|p| crate::k8s::status_tone(&p.phase)).unwrap_or(crate::k8s::describe::Tone::Plain);
-    let title = table_title("Pods", pods.len(), search, &window, dimmed);
+    let title = table_title("Pods", pods.len(), &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search.text, search.editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -261,13 +261,13 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 
     let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
-    let title = table_title("Deployments", deployments.len(), search, &window, dimmed);
+    let title = table_title("Deployments", deployments.len(), &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search.text, search.editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -396,13 +396,13 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
 
     let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| nodes.get(i)).map(node_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
-    let title = table_title("Nodes", nodes.len(), search, &window, dimmed);
+    let title = table_title("Nodes", nodes.len(), &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search.text, search.editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -472,13 +472,13 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 
     let flags: Vec<bool> = rows.iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
     let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(generic_row_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
-    let title = table_title(label, rows.len(), search, &window, dimmed);
+    let title = table_title(label, rows.len(), &window, dimmed);
 
     let table = Table::new(mark_rows(table_rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search.text, search.editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(selected_tone, dimmed));
 
@@ -510,13 +510,13 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
         ]))
     });
 
-    let title = table_title(heading, crds.len(), search, &window, dimmed);
+    let title = table_title(heading, crds.len(), &window, dimmed);
 
     let table = Table::new(mark_rows(rows, &[], dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search.text, search.editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
 

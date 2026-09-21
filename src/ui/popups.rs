@@ -99,9 +99,6 @@ pub(super) fn draw_context_popup(
     });
 
     let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
-    if let Some(span) = search_span(filter, editing, false) {
-        title.push_span(span);
-    }
     if let Some(err) = error {
         title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(theme().bad)));
     }
@@ -110,7 +107,7 @@ pub(super) fn draw_context_popup(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title), filter, editing, false))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
 
@@ -162,10 +159,7 @@ pub(super) fn draw_namespace_picker(
         ]))
     });
 
-    let mut title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
-    if let Some(span) = search_span(filter, editing, false) {
-        title.push_span(span);
-    }
+    let title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
 
     // The number chips: each key, lit when the highlighted namespace has it,
     // orange when another namespace does.
@@ -188,7 +182,7 @@ pub(super) fn draw_namespace_picker(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).title(title).title_bottom(Line::from(chips)))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title).title_bottom(Line::from(chips)), filter, editing, false))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
 
@@ -778,13 +772,12 @@ pub(super) fn draw_events_popup(
     let idle = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
     let key_style = |this: EventFilter| if filter == this { active } else { idle };
     let count_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
-    let mut title_spans = vec![
+    let title_spans = vec![
         Span::styled(format!("Events ({}/{})", filtered.len(), events.len()), count_style),
         Span::styled("  (a) all", key_style(EventFilter::All)),
         Span::styled("  (w) warnings", key_style(EventFilter::Warnings)),
         Span::styled("  (n) normal", key_style(EventFilter::Normal)),
     ];
-    title_spans.extend(search_span(search, editing, dimmed));
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
@@ -792,7 +785,7 @@ pub(super) fn draw_events_popup(
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title))
+        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title), search, editing, dimmed))
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
 
