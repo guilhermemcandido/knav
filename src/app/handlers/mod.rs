@@ -8,6 +8,7 @@ mod list;
 mod operate;
 mod overview_popups;
 mod details;
+pub(crate) use list::selected_manifest;
 mod pickers;
 mod related;
 mod settings;

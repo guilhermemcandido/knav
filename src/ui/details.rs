@@ -92,3 +92,57 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
     let scroll = scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), padded);
 }
+
+/// What the side panel next to a list shows.
+pub struct SidePanel {
+    pub title: String,
+    pub sections: Vec<Section>,
+    pub scroll: usize,
+}
+
+static PANEL: std::sync::RwLock<Option<SidePanel>> = std::sync::RwLock::new(None);
+
+/// Sets (or clears) the panel drawn beside the list.
+pub fn set_side_panel(panel: Option<SidePanel>) {
+    if let Ok(mut slot) = PANEL.write() {
+        *slot = panel;
+    }
+}
+
+/// Terminals narrower than this show the info full screen instead of beside the list.
+pub const SIDE_PANEL_MIN_WIDTH: u16 = 100;
+
+/// How wide the panel is at `full_width` columns; 0 when there is none.
+pub fn side_panel_width(full_width: u16) -> u16 {
+    if full_width >= SIDE_PANEL_MIN_WIDTH && PANEL.read().is_ok_and(|p| p.is_some()) { (full_width * 2 / 5).max(44) } else { 0 }
+}
+
+/// The part of the body a list uses: all of it, or what is left of the panel.
+pub fn list_body(frame_area: Rect) -> Rect {
+    let body = body_area(frame_area, true);
+    Rect { width: body.width - side_panel_width(frame_area.width).min(body.width), ..body }
+}
+
+/// Draws the panel, if there is one, in the right of `body`.
+pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
+    let width = side_panel_width(frame.area().width).min(body.width);
+    if width == 0 {
+        return;
+    }
+    let Ok(panel) = PANEL.read() else { return };
+    let Some(panel) = panel.as_ref() else { return };
+    let area = Rect { x: body.x + body.width - width, width, ..body };
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(Line::styled(format!(" {} ", panel.title), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
+        .title_bottom(Line::styled(" ctrl-d/u scroll   i close ", Style::default().fg(theme().muted)).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+    let lines = details_lines(&panel.sections, usize::from(padded.width));
+    let scroll = panel.scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), padded);
+}

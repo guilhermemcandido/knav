@@ -26,6 +26,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.wide = !st.wide;
                 st.hscroll = 0;
             }
+            // Scroll the info panel.
+            KeyCode::Char('d') if st.info_panel => st.info_scroll += 8,
+            KeyCode::Char('u') if st.info_panel => st.info_scroll = st.info_scroll.saturating_sub(8),
             _ => {}
         },
         // Sort mode (`s`): headers show column numbers and a digit sorts by that column.
@@ -75,7 +78,16 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 keep_overview_selection_visible(st, overview, frame_area);
             } else {
-                let table = ui::body_area(frame_area, true);
+                let table = ui::list_body(frame_area);
+                // The wheel over the info panel scrolls it.
+                if st.info_panel && mouse.column >= table.x + table.width && matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) {
+                    if mouse.kind == MouseEventKind::ScrollDown {
+                        st.info_scroll += 3;
+                    } else {
+                        st.info_scroll = st.info_scroll.saturating_sub(3);
+                    }
+                    return Ok(None);
+                }
                 match mouse.kind {
                     MouseEventKind::Moved => {
                         st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
@@ -374,6 +386,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             // A readable summary of the selected object.
+            KeyCode::Char('i') if frame_area.width >= ui::SIDE_PANEL_MIN_WIDTH => {
+                st.info_panel = !st.info_panel;
+                st.info_scroll = 0;
+            }
             KeyCode::Char('i') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     let sections = k8s::details::details(&manifest, &cx.d.overview.events);
@@ -532,7 +548,7 @@ fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Overview, fra
 }
 
 /// The manifest of the row the cursor is on, for every kind with rows.
-fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Option<serde_yaml::Value> {
+pub(crate) fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Option<serde_yaml::Value> {
     let selected = st.table_state.selected()?;
     match st.current_kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,

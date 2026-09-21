@@ -13,6 +13,10 @@ use state::State;
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
+fn ui_title(manifest: &serde_yaml::Value) -> String {
+    mode::object_title(manifest)
+}
+
 pub(crate) fn run(
     terminal: &mut ratatui::DefaultTerminal,
     pod_store: &Store<Pod>,
@@ -84,6 +88,24 @@ pub(crate) fn run(
         let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         if !hints.is_empty() {
+        }
+        // The info panel beside the list follows the selected row.
+        let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
+        if st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {
+            match handlers::selected_manifest(&st, &derived, catalog, &client) {
+                Some(manifest) => {
+                    let key = format!("{:?}{}", st.current_kind, ui_title(&manifest));
+                    if key != st.info_key {
+                        st.info_key = key;
+                        st.info_scroll = 0;
+                    }
+                    let sections = k8s::details::details(&manifest, &overview.events);
+                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll }));
+                }
+                None => ui::set_side_panel(None),
+            }
+        } else {
+            ui::set_side_panel(None);
         }
         // Marks belong to the list they were made in.
         if st.marked_kind != st.current_kind {

@@ -37,7 +37,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
-pub use self::details::details_line_count;
+pub use self::details::{SidePanel, details_line_count, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
 use self::help::draw_help;
@@ -293,6 +293,11 @@ pub struct PathSegment {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Whether the rows are a resource list (not the Overview).
+fn is_list_kind(rows: &Rows) -> bool {
+    !matches!(rows, Rows::Overview(..))
+}
+
 pub fn draw(
     frame: &mut Frame,
     rows: Rows,
@@ -359,6 +364,9 @@ pub fn draw(
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
     let body = body_area(full, shortcuts_line);
+    // A panel beside the list (`i`) takes the right of the body.
+    let full_body = body;
+    let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width).min(body.width), ..body } } else { body };
     // The `:` command line takes a bar under the header and pushes the
     // list down, k9s-style.
     let (command_bar, body) = match &overlay {
@@ -390,6 +398,9 @@ pub fn draw(
         },
     };
     let is_overview = matches!(rows, Rows::Overview(..));
+    if is_list_kind(&rows) && overlay.is_none() {
+        details::draw_side_panel(frame, full_body);
+    }
     // What to say in the middle of a list with nothing in it.
     let empty_message = match &rows {
         Rows::Pods(r) if r.is_empty() => Some("pods"),

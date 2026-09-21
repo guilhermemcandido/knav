@@ -22,6 +22,11 @@ pub(super) struct State {
     pub hovered: Option<ui::Hover>,
     /// When and where the last click landed, to recognise a double-click.
     pub last_click: Option<(std::time::Instant, usize)>,
+    /// The info panel beside the list (`i`), and how far it is scrolled.
+    pub info_panel: bool,
+    pub info_scroll: usize,
+    /// The object the panel showed last, to restart its scroll when the selection moves.
+    pub info_key: String,
     pub current_kind: ResourceKind,
     /// The namespace every namespaced list is narrowed to (`Enter` on a
     /// namespace sets it, `0` clears it), sticks across kind switches.
@@ -86,6 +91,9 @@ impl State {
             mode: Mode::List,
             hovered: None,
             last_click: None,
+            info_panel: false,
+            info_scroll: 0,
+            info_key: String::new(),
             current_kind: ResourceKind::Overview,
             namespace: None,
             scope: None,
