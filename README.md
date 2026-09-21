@@ -194,7 +194,7 @@ Reserved namespaces are saved in `~/.config/knav/namespaces`.
 
 ## Layout of the code
 
-- `src/k8s/`: talking to the API and shaping objects into rows (one module per concern)
+- `src/k8s/`: talking to the API and shaping objects into rows (one module per concern; `kept` keeps each watched kind sorted with its rows, updated per watch event)
 - `src/describe.rs`: the per-kind columns and their colours
 - `src/app/`: the event loop: `state` (what's on screen), `derive` (rows per frame), `draw`, `handlers/` (input per screen)
 - `src/ui/`: rendering: `layout` (column widths and scrolling), `tables`, popups, header, breadcrumb

@@ -26,16 +26,77 @@ pub fn watch_store<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
 {
+    let (store, _, handle) = watch_live(client);
+    (store, handle)
+}
+
+/// As `watch_store`, plus the queue of which objects changed since it was last taken.
+pub fn watch_live<K>(client: Client) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
     let api: Api<K> = Api::all(client);
     let (reader, writer) = reflector::store();
-    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
+    let feed = Arc::new(Feed::default());
+    let noted = Arc::clone(&feed);
+    // After the reflector, so a queued key always finds its object in the store.
+    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).inspect(move |event| {
+        if let Ok(event) = event {
+            noted.note(event);
+        }
+    });
     let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
+        let mut stream = stream.applied_objects().boxed();
         while stream.next().await.is_some() {
             CHANGES.fetch_add(1, Ordering::Relaxed);
         }
     });
-    (reader, handle)
+    (reader, feed, handle)
+}
+
+/// An object's place in the sort order: its namespace and name.
+pub type Key = (Option<String>, String);
+
+/// Which objects a watch touched since the last `take`, so a kept list can follow
+/// them one by one. A relist, or more changes than are worth tracking, says "everything".
+pub struct Feed {
+    /// (everything may have changed, the keys touched otherwise)
+    pending: std::sync::Mutex<(bool, std::collections::HashSet<Key>)>,
+}
+
+/// Past this many pending keys a full rebuild is cheaper than replaying them.
+const MAX_PENDING: usize = 4096;
+
+impl Default for Feed {
+    fn default() -> Self {
+        Feed { pending: std::sync::Mutex::new((true, Default::default())) }
+    }
+}
+
+impl Feed {
+    pub(crate) fn note<K: Resource>(&self, event: &watcher::Event<K>) {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        match event {
+            watcher::Event::Apply(object) | watcher::Event::Delete(object) => {
+                if !pending.0 {
+                    let meta = object.meta();
+                    pending.1.insert((meta.namespace.clone(), meta.name.clone().unwrap_or_default()));
+                    if pending.1.len() > MAX_PENDING {
+                        *pending = (true, Default::default());
+                    }
+                }
+            }
+            // A list in progress or finished replaces the store's contents wholesale.
+            _ => *pending = (true, Default::default()),
+        }
+    }
+
+    /// What changed since the last call: `None` when everything may have.
+    pub fn take(&self) -> Option<Vec<Key>> {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        let (all, keys) = std::mem::take(&mut *pending);
+        (!all).then(|| keys.into_iter().collect())
+    }
 }
 
 /// Everything in the store ordered by namespace then name, so a selected row keeps

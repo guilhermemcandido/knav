@@ -35,7 +35,7 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, crds: Vec<k8s::CrdInfo>, apis: Vec<k8s::ApiInfo>) -> Self {
+    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, node_feed: Arc<k8s::Feed>, crds: Vec<k8s::CrdInfo>, apis: Vec<k8s::ApiInfo>) -> Self {
         macro_rules! kind {
             ($variant:ident, $label:literal, $ty:ty) => {
                 Entry {
@@ -47,7 +47,7 @@ impl Catalog {
                 }
             };
         }
-        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", count: Arc::default(), start: Box::new(|_| unreachable!("nodes are watched from the start")), full: Some(Box::new(k8s::WatchedKind::from_store(node_store))) };
+        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", count: Arc::default(), start: Box::new(|_| unreachable!("nodes are watched from the start")), full: Some(Box::new(k8s::WatchedKind::new(node_store, node_feed))) };
         // Namespaces feed the namespace picker, so they are always held in full.
         let mut namespaces = kind!(Namespaces, "Namespaces", Namespace);
         namespaces.full = Some((namespaces.start)(client));

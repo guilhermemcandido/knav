@@ -47,7 +47,7 @@ impl Health {
 
 /// Pods: running and ready or finished are fine, pending or short of ready
 /// need a look, crashing or erroring are broken.
-pub fn pods_health(rows: &[PodRow]) -> Health {
+pub fn pods_health(rows: &[std::sync::Arc<PodRow>]) -> Health {
     use crate::k8s::describe::Tone;
     let mut health = Health::default();
     for row in rows {
@@ -61,7 +61,7 @@ pub fn pods_health(rows: &[PodRow]) -> Health {
 }
 
 /// Deployments: fine when every wanted replica is ready.
-pub fn deployments_health(rows: &[DeploymentRow]) -> Health {
+pub fn deployments_health(rows: &[std::sync::Arc<DeploymentRow>]) -> Health {
     use crate::k8s::describe::Tone;
     let mut health = Health::default();
     for row in rows {

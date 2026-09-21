@@ -53,15 +53,15 @@ pub(super) const RELATED_KINDS: [ResourceKind; 15] = [
 
 /// The manifests around `target` (its namespace, plus everything cluster-wide it may
 /// point at), with ConfigMap and Secret payloads dropped.
-pub(super) fn surrounding_manifests(pod_store: &Store<Pod>, dep_store: &Store<Deployment>, catalog: &mut Catalog, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
+pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, catalog: &mut Catalog, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
     use kube::ResourceExt;
     let kind = target.get("kind").and_then(|k| k.as_str()).unwrap_or("");
     let namespace = target.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).map(String::from);
     // A cluster-scoped target (a Node, a PV) can be used from any namespace.
     let filter = if matches!(kind, "Node" | "PersistentVolume" | "StorageClass") { None } else { namespace.as_deref() };
     let mut all: Vec<serde_yaml::Value> = Vec::new();
-    all.extend(k8s::snapshot(pod_store).iter().filter(|p| filter.is_none() || p.namespace().as_deref() == filter).map(|p| k8s::manifest_value(p.as_ref())));
-    all.extend(k8s::snapshot_generic(dep_store).iter().filter(|d| filter.is_none() || d.namespace().as_deref() == filter).map(|d| k8s::manifest_value(d.as_ref())));
+    all.extend(pod_store.objects().iter().filter(|p| filter.is_none() || p.namespace().as_deref() == filter).map(|p| k8s::manifest_value(p.as_ref())));
+    all.extend(dep_store.objects().iter().filter(|d| filter.is_none() || d.namespace().as_deref() == filter).map(|d| k8s::manifest_value(d.as_ref())));
     for kind in RELATED_KINDS {
         if let Some(k) = catalog.get(kind) {
             all.extend(k.manifests(filter));

@@ -55,4 +55,13 @@ pub fn generic_row<K: kube::Resource + crate::k8s::describe::Extras>(item: &K) -
     GenericRow { namespace, name, age, age_secs, extras, status, uid, owners, labels }
 }
 
+impl AgeRow for GenericRow {
+    fn age_secs(&self) -> i64 {
+        self.age_secs
+    }
+    fn set_age(&mut self, age: String, secs: i64) {
+        (self.age, self.age_secs) = (age, secs);
+    }
+}
+
 pub use super::watch::sorted as snapshot_generic;

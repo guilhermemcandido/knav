@@ -1,16 +1,14 @@
-use std::sync::Arc;
-
 use futures::{AsyncBufReadExt, StreamExt};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     Client,
     api::{Api, LogParams},
-    runtime::reflector,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::*;
 
+#[derive(Clone)]
 pub struct PodRow {
     pub namespace: String,
     pub name: String,
@@ -180,19 +178,13 @@ pub fn row_for(pod: &Pod) -> PodRow {
     PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs }
 }
 
-pub fn snapshot(store: &reflector::Store<Pod>) -> Vec<Arc<Pod>> {
-    // Sorting tens of thousands of pods is worth doing once per change, not once per keystroke.
-    static LAST: std::sync::Mutex<Option<(u64, usize, Vec<Arc<Pod>>)>> = std::sync::Mutex::new(None);
-    let (version, len) = (super::watch::changes(), store.len());
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((v, n, pods)) = last.as_ref()
-        && (*v, *n) == (version, len)
-    {
-        return pods.clone();
+impl AgeRow for PodRow {
+    fn age_secs(&self) -> i64 {
+        self.age_secs
     }
-    let pods = super::watch::sorted(store);
-    *last = Some((version, len, pods.clone()));
-    pods
+    fn set_age(&mut self, age: String, secs: i64) {
+        (self.age, self.age_secs) = (age, secs);
+    }
 }
 
 /// Streams one container's log over an unbounded channel. The caller must abort

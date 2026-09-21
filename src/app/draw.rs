@@ -10,7 +10,7 @@ pub(super) struct View<'a> {
     pub overview: &'a k8s::Overview,
     pub nodes: &'a [std::sync::Arc<Node>],
     pub usage: Option<&'a metrics::ClusterUsage>,
-    pub node_detail_rows: &'a [k8s::PodRow],
+    pub node_detail_rows: &'a [std::sync::Arc<k8s::PodRow>],
     pub node_rows: &'a [k8s::NodeRow],
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],

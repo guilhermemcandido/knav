@@ -103,19 +103,21 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         faults_only: false,
         wide: false,
     };
-    let (pod_store, _pod_watch_handle) = k8s::watch_store::<Pod>(client.clone());
-    let (dep_store, _dep_watch_handle) = k8s::watch_store::<Deployment>(client.clone());
-    let (node_store, _node_watch_handle) = k8s::watch_store::<Node>(client.clone());
+    let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
+    let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());
+    let (node_store, node_feed, _node_watch_handle) = k8s::watch_live::<Node>(client.clone());
+    let pod_store = k8s::PodKept::new(pod_reader, pod_feed, k8s::row_for);
+    let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
     let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
     let crds = k8s::discover_crds(&client).await;
     let apis = k8s::discover_apis(&client).await;
-    let mut catalog = Catalog::spawn(&client, node_store.clone(), crds, apis);
+    let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed, crds, apis);
 
     // Block until each reflector's initial list-and-watch has populated
     // its store at least once, so the first frame isn't just empty.
-    pod_store.wait_until_ready().await?;
-    dep_store.wait_until_ready().await?;
+    pod_store.store.wait_until_ready().await?;
+    dep_store.store.wait_until_ready().await?;
     node_store.wait_until_ready().await?;
     event_store.wait_until_ready().await?;
 

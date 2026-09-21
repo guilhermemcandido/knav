@@ -69,8 +69,8 @@ pub enum Rows<'a> {
     /// vertical item scroll offset (within whichever column is currently
     /// selected).
     Overview(&'a Overview, OverviewSelection, usize, usize),
-    Pods(&'a [PodRow]),
-    Deployments(&'a [DeploymentRow]),
+    Pods(&'a [std::sync::Arc<PodRow>]),
+    Deployments(&'a [std::sync::Arc<DeploymentRow>]),
     /// Nodes get their own specialized columns (CPU/Memory usage right
     /// in the list, not just after drilling into one) instead of the
     /// generic Namespace/Name/Age table every other kind uses.
@@ -78,7 +78,7 @@ pub enum Rows<'a> {
     /// Every other resource kind, a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
     /// Rows, the kind's label, and its extra column headers (for when there are no rows yet).
-    Generic(&'a [GenericRow], &'static str, &'a [&'static str]),
+    Generic(&'a [std::sync::Arc<GenericRow>], &'static str, &'a [&'static str]),
     /// The Custom Resources picker: every discovered CRD kind, or one API group's. Each
     /// entry keeps its real index into `Catalog`'s list, next to a heading.
     /// Custom resource kinds, how many objects each has, and the list's heading.
@@ -107,7 +107,7 @@ pub enum Overlay<'a> {
         /// `None` only in the brief window where the node has vanished
         /// from the store between frames (e.g. right after deletion).
         info: Option<&'a crate::k8s::NodeDetailInfo>,
-        pods: &'a [PodRow],
+        pods: &'a [std::sync::Arc<PodRow>],
         state: &'a mut TableState,
         sort: SortState,
         search: Search<'a>,
@@ -415,14 +415,14 @@ pub fn draw(
     let selected_pod: Option<SelectedItem> = match &overlay {
         // A node's own view: the pod highlighted in its pods table.
         Some(Overlay::NodeDetail { pods, state, .. }) if background.is_none() => {
-            state.selected().and_then(|i| pods.get(i)).map(SelectedItem::from_pod)
+            state.selected().and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r))
         }
         _ if dimmed => None,
         _ => match &rows {
-            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(SelectedItem::from_pod),
-            Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(SelectedItem::from_deployment),
+            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r)),
+            Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(|r| SelectedItem::from_deployment(r)),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
-            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(SelectedItem::from_generic),
+            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(|r| SelectedItem::from_generic(r)),
             Rows::CrdList(crds, _, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
             Rows::Overview(..) => None,
         },

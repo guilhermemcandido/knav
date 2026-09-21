@@ -43,8 +43,8 @@ pub(super) fn edit_line(code: KeyCode, text: &mut String, editing: &mut bool) ->
 pub(super) struct Cx<'a> {
     pub terminal: &'a mut ratatui::DefaultTerminal,
     pub catalog: &'a mut Catalog,
-    pub pod_store: &'a Store<Pod>,
-    pub dep_store: &'a Store<Deployment>,
+    pub pod_store: &'a k8s::PodKept,
+    pub dep_store: &'a k8s::DeploymentKept,
     pub client: &'a Client,
     pub config: &'a Config,
     pub active_context: &'a str,

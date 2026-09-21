@@ -100,7 +100,7 @@ impl CatalogKind for ApiList {
         self.apis.len()
     }
 
-    fn rows(&self) -> Vec<GenericRow> {
+    fn rows(&self) -> Vec<Arc<GenericRow>> {
         self.apis
             .iter()
             .map(|api| {
@@ -125,6 +125,7 @@ impl CatalogKind for ApiList {
                     labels: String::new(),
                 }
             })
+            .map(Arc::new)
             .collect()
     }
 
@@ -412,7 +413,7 @@ impl CatalogKind for TableKind {
         self.data.lock().map(|d| d.columns.iter().filter(|c| self.shows(c)).map(|c| c.name).collect()).unwrap_or_default()
     }
 
-    fn rows(&self) -> Vec<GenericRow> {
+    fn rows(&self) -> Vec<Arc<GenericRow>> {
         let Ok(data) = self.data.lock() else { return Vec::new() };
         let shown: Vec<usize> = (0..data.columns.len()).filter(|&i| self.shows(&data.columns[i])).collect();
         if data.rows.is_empty()
@@ -420,7 +421,7 @@ impl CatalogKind for TableKind {
         {
             // A resource we can't list (forbidden, gone): say so in the list itself.
             let extras = shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect();
-            return vec![GenericRow {
+            return vec![Arc::new(GenericRow {
                 namespace: "-".into(),
                 name: format!("⚠ {error}"),
                 age: "-".into(),
@@ -430,10 +431,11 @@ impl CatalogKind for TableKind {
                 uid: String::new(),
                 owners: Vec::new(),
                 labels: String::new(),
-            }];
+            })];
         }
         let status_column = data.columns.iter().position(|c| matches!(c.name, "STATUS" | "PHASE" | "STATE"));
         let mut rows = crate::k8s::par_map(&data.rows, |row| {
+            Arc::new({
                 let extras = shown
                     .iter()
                     .map(|&i| {
@@ -454,9 +456,10 @@ impl CatalogKind for TableKind {
                     owners: row.owners.clone(),
                     labels: row.labels.clone(),
                 }
+            })
             });
         if data.loading {
-            rows.push(GenericRow { namespace: "-".into(), name: format!("… loading more ({} so far)", data.rows.len()), age: "-".into(), age_secs: i64::MAX, extras: shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect(), status: Some((Tone::Muted, "loading".into())), uid: String::new(), owners: Vec::new(), labels: String::new() });
+            rows.push(Arc::new(GenericRow { namespace: "-".into(), name: format!("… loading more ({} so far)", data.rows.len()), age: "-".into(), age_secs: i64::MAX, extras: shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect(), status: Some((Tone::Muted, "loading".into())), uid: String::new(), owners: Vec::new(), labels: String::new() }));
         }
         rows
     }

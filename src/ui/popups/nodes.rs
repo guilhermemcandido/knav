@@ -14,7 +14,7 @@ pub(in crate::ui) fn draw_node_detail_popup(
     memory_capacity: i64,
     pod_capacity: i64,
     info: Option<&crate::k8s::NodeDetailInfo>,
-    pods: &[PodRow],
+    pods: &[std::sync::Arc<PodRow>],
     state: &mut TableState,
     sort: SortState,
     search: Search,

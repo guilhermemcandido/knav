@@ -116,7 +116,7 @@ fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut Tabl
     frame.render_stateful_widget(table, area, &mut local);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
 
     let window = pod_window(pods, area.width, hscroll, wide, sort.cursor);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
@@ -170,7 +170,7 @@ fn pod_headers(wide: bool) -> Vec<&'static str> {
 
 /// The pods table's visible columns, shared by drawing and by hover
 /// hit-testing so they can't disagree about where CONTAINERS is.
-fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
+fn pod_window(pods: &[std::sync::Arc<PodRow>], table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
     let rows = pods.iter().map(|p| {
         let mut widths = vec![
             cell_width(&p.namespace),
@@ -205,7 +205,7 @@ pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) 
 }
 
 /// Whether a terminal column is over the pods table's CONTROLLER column.
-pub fn controller_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, column: u16) -> bool {
+pub fn controller_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, column: u16) -> bool {
     const CONTROLLER: usize = 5;
     let inner = Rect { x: frame_area.x.saturating_add(1), y: frame_area.y.saturating_add(2), width: frame_area.width.saturating_sub(2), height: frame_area.height.saturating_sub(3) };
     let window = pod_window(pods, frame_area.width, &mut { hscroll }, wide, None);
@@ -219,7 +219,7 @@ pub fn controller_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usi
 
 /// Which pod row is under a terminal position, only over the CONTAINERS column so
 /// the popup fires on the dots. It solves the table's `Layout` to match its widths.
-pub fn row_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
+pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area = frame_area;
 
     let inner = Rect {
@@ -274,7 +274,7 @@ pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
     }
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[std::sync::Arc<DeploymentRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
 
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
     if wide {
@@ -457,11 +457,11 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
 
 /// Whether any row has a namespace. Cluster-scoped kinds show `-` everywhere, so
 /// `draw_generic_table` drops that column when this is false.
-pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
+pub(super) fn any_row_has_namespace(rows: &[std::sync::Arc<GenericRow>]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::sync::Arc<GenericRow>], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
 
     let show_namespace = any_row_has_namespace(rows);
 
@@ -519,7 +519,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     });
 
     let flags: Vec<bool> = rows[vis.range()].iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(generic_row_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(|r| generic_row_tone(r)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title(label, rows.len(), &window, dimmed);
 
     let table = list_table(mark_rows(table_rows, &flags, dimmed), &window, header, title, search, selected_tone, dimmed);
@@ -603,12 +603,12 @@ mod generic_table_tests {
 
     #[test]
     fn namespace_column_hidden_when_every_row_is_cluster_scoped() {
-        assert!(!any_row_has_namespace(&[row("-"), row("-")]));
+        assert!(!any_row_has_namespace(&[row("-").into(), row("-").into()]));
     }
 
     #[test]
     fn namespace_column_shown_when_any_row_has_a_real_namespace() {
-        assert!(any_row_has_namespace(&[row("-"), row("default")]));
+        assert!(any_row_has_namespace(&[row("-").into(), row("default").into()]));
         assert!(!any_row_has_namespace(&[]));
     }
 }

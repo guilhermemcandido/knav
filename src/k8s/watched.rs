@@ -22,7 +22,7 @@ pub trait CatalogKind: Send + Sync {
     fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
         Box::pin(std::future::ready(()))
     }
-    fn rows(&self) -> Vec<GenericRow>;
+    fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
     /// The kind's extra column headers (see `describe`), even with no rows.
     fn headers(&self) -> Vec<&'static str> {
@@ -45,27 +45,17 @@ pub trait CatalogKind: Send + Sync {
 }
 
 pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
-    store: reflector::Store<K>,
-    /// The sorted objects as of a change count, so asking again costs nothing until a watch reports.
-    sorted: std::sync::Mutex<Option<(u64, Arc<Vec<Arc<K>>>)>>,
+    /// The sorted objects with their rows, following the watch one change at a time.
+    kept: Kept<K, GenericRow>,
 }
 
-impl<K: Resource<DynamicType = ()> + Clone + Send + Sync + 'static> WatchedKind<K> {
-    pub fn from_store(store: reflector::Store<K>) -> Self {
-        WatchedKind { store, sorted: std::sync::Mutex::new(None) }
+impl<K: Resource<DynamicType = ()> + Clone + Send + Sync + crate::k8s::describe::Extras + 'static> WatchedKind<K> {
+    pub fn new(store: reflector::Store<K>, feed: Arc<Feed>) -> Self {
+        WatchedKind { kept: Kept::new(store, feed, generic_row::<K>) }
     }
 
-    fn items(&self) -> Arc<Vec<Arc<K>>> {
-        let version = crate::k8s::changes();
-        let mut slot = self.sorted.lock().unwrap_or_else(|e| e.into_inner());
-        match slot.as_ref() {
-            Some((seen, items)) if *seen == version => Arc::clone(items),
-            _ => {
-                let items = Arc::new(snapshot_generic(&self.store));
-                *slot = Some((version, Arc::clone(&items)));
-                items
-            }
-        }
+    fn items(&self) -> Arc<Vec<Item<K, GenericRow>>> {
+        self.kept.items()
     }
 }
 
@@ -74,16 +64,16 @@ where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::k8s::describe::Extras + Default + 'static,
 {
     fn count(&self) -> usize {
-        self.store.len()
+        self.kept.store.len()
     }
 
     fn ready(&self) -> bool {
         use futures::FutureExt;
-        self.store.wait_until_ready().now_or_never().is_some_and(|r| r.is_ok())
+        self.kept.store.wait_until_ready().now_or_never().is_some_and(|r| r.is_ok())
     }
 
     fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
-        let store = self.store.clone();
+        let store = self.kept.store.clone();
         Box::pin(async move {
             let _ = store.wait_until_ready().await;
         })
@@ -93,19 +83,19 @@ where
         K::headers()
     }
 
-    fn rows(&self) -> Vec<GenericRow> {
-        par_map(&self.items(), |item| generic_row(item.as_ref()))
+    fn rows(&self) -> Vec<Arc<GenericRow>> {
+        self.items().iter().map(|(_, row)| Arc::clone(row)).collect()
     }
 
     fn manifests(&self, namespace: Option<&str>) -> Vec<serde_yaml::Value> {
         use kube::ResourceExt;
-        self.items().iter().filter(|item| namespace.is_none() || item.namespace().is_none() || item.namespace().as_deref() == namespace).map(|item| manifest_value(item.as_ref())).collect()
+        self.items().iter().map(|(item, _)| item).filter(|item| namespace.is_none() || item.namespace().is_none() || item.namespace().as_deref() == namespace).map(|item| manifest_value(item.as_ref())).collect()
     }
 
     fn health(&self) -> Option<Health> {
         let mut health = Health::default();
         let mut any = false;
-        for item in self.items().iter() {
+        for (item, _) in self.items().iter() {
             if let Some(tone) = item.tone() {
                 any = true;
                 health.add(tone);
@@ -115,7 +105,7 @@ where
     }
 
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
-        self.items().get(index).map(|item| manifest_value(item.as_ref()))
+        self.items().get(index).map(|(item, _)| manifest_value(item.as_ref()))
     }
 }
 
@@ -125,8 +115,8 @@ pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::k8s::describe::Extras + Default + 'static,
 {
-    let (store, handle) = super::watch::watch_store::<K>(client);
-    (Box::new(WatchedKind::from_store(store)), handle)
+    let (store, feed, handle) = super::watch::watch_live::<K>(client);
+    (Box::new(WatchedKind::new(store, feed)), handle)
 }
 
 /// A discovered CRD kind: enough to build an `ApiResource` and list it. Found once

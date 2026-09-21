@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::runtime::reflector;
 
 use super::*;
 
+#[derive(Clone)]
 pub struct DeploymentRow {
     pub namespace: String,
     pub name: String,
@@ -50,8 +48,13 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
     DeploymentRow { namespace, name, ready, up_to_date, available, images, age, age_secs }
 }
 
-pub fn snapshot_deployments(store: &reflector::Store<Deployment>) -> Vec<Arc<Deployment>> {
-    super::watch::sorted(store)
+impl AgeRow for DeploymentRow {
+    fn age_secs(&self) -> i64 {
+        self.age_secs
+    }
+    fn set_age(&mut self, age: String, secs: i64) {
+        (self.age, self.age_secs) = (age, secs);
+    }
 }
 
 #[cfg(test)]

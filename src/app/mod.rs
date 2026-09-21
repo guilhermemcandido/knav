@@ -23,8 +23,8 @@ const MAX_LOG_LINES: usize = 100_000;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     terminal: &mut ratatui::DefaultTerminal,
-    pod_store: &Store<Pod>,
-    dep_store: &Store<Deployment>,
+    pod_store: &k8s::PodKept,
+    dep_store: &k8s::DeploymentKept,
     node_store: &Store<Node>,
     event_store: &Store<k8s_openapi::api::core::v1::Event>,
     node_metrics_rx: &watch::Receiver<Option<metrics::ClusterUsage>>,
