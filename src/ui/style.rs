@@ -126,7 +126,9 @@ fn search_title(text: &str, editing: bool, dimmed: bool) -> Option<Line<'static>
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
     let reserve = usize::from(TITLE_RESERVE.load(std::sync::atomic::Ordering::Relaxed));
-    Some(Line::styled(format!(" search: {text}{} {}", if editing { "▏" } else { "" }, " ".repeat(reserve)), style).right_aligned())
+    // The room kept for the badges is filled with the border's own line, not blanks.
+    let filler = border_set().horizontal_top.repeat(reserve);
+    Some(Line::from(vec![Span::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style), Span::styled(filler, theme_border(dimmed))]).right_aligned())
 }
 
 /// `block` with the search, if any, on the right of its top border.
