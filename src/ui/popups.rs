@@ -2,33 +2,53 @@
 
 use super::*;
 
-/// The `:` command line — a floating box centered on the screen, same
-/// as the search box, on top of whatever's there.
-/// The `:` command line plus its live autocomplete list — one suggestion
-/// per matching resource kind, best match first, growing the box
-/// downward (and, since it's centered, rising upward too) as you type.
-pub(super) fn draw_command_bar(frame: &mut Frame, input: &str, suggestions: &[String], selected: usize) {
-    let box_height = 3 + suggestions.len() as u16;
-    let bar = centered_box(frame.area(), box_height);
+/// The `:` command line, k9s-style: a bar right under the header, above
+/// the list (which `draw` pushes down to make room), with the live
+/// autocomplete as a short dropdown hanging off it. The best match's
+/// remaining letters show dimmed after the cursor.
+pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[String], selected: usize) {
     frame.render_widget(Clear, bar);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Command");
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
-    let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
-    let line = Line::styled(format!(":{input}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-    frame.render_widget(Paragraph::new(line), rows[0]);
+    // "namespaces (ns)": complete against the name, not the alias note.
+    let ghost = suggestions
+        .get(selected)
+        .and_then(|label| label.split(" (").next())
+        .and_then(|name| name.strip_prefix(input))
+        .unwrap_or("");
+    let line = Line::from(vec![
+        Span::styled(":", Style::default().fg(Color::Yellow)),
+        Span::styled(input.to_string(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("▏", Style::default().fg(Color::Yellow)),
+        Span::styled(ghost.to_string(), Style::default().fg(Color::DarkGray)),
+    ]);
+    frame.render_widget(Paragraph::new(line), inner);
 
-    for (i, kind) in suggestions.iter().enumerate() {
-        let Some(row) = rows.get(i + 1) else { break };
-        let is_selected = i == selected;
-        let style = if is_selected {
-            Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD)
+    if suggestions.is_empty() {
+        return;
+    }
+    let below = frame.area().bottom().saturating_sub(bar.bottom());
+    let height = (suggestions.len() as u16 + 2).min(below);
+    if height < 3 {
+        return;
+    }
+    let width = (suggestions.iter().map(|s| s.chars().count()).max().unwrap_or(0) as u16 + 4).max(24).min(bar.width);
+    let list = Rect { x: bar.x, y: bar.bottom(), width, height };
+    frame.render_widget(Clear, list);
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(list);
+    frame.render_widget(block, list);
+    let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
+    for (i, label) in suggestions.iter().enumerate() {
+        let Some(row) = rows.get(i) else { break };
+        let style = if i == selected {
+            Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
+            Style::default().fg(ROW_FG)
         };
-        let text = format!("{:width$}", kind, width = row.width as usize);
-        frame.render_widget(Paragraph::new(Span::styled(text, style)), *row);
+        frame.render_widget(Paragraph::new(Span::styled(format!(" {label:<w$}", w = row.width.saturating_sub(1) as usize), style)), *row);
     }
 }
 

@@ -143,6 +143,9 @@ pub struct Search<'a> {
     pub editing: bool,
 }
 
+/// Height of the `:` command bar (border, input line, border).
+const COMMAND_BAR_HEIGHT: u16 = 3;
+
 /// How the main list is sorted: which column (0-based) and direction, and
 /// whether the next digit chooses a column (`s` pressed).
 #[derive(Clone, Copy, Default)]
@@ -213,9 +216,8 @@ pub fn draw(
     // what its columns actually allow.
     hscroll: &mut usize,
 ) {
-    // `Command` is a real modal jump now, so it dims like everything
-    // else; `Search` stays undimmed — you're meant to see (and read) the
-    // list actually narrowing as you type.
+    // Popups dim what's behind them. The `:` command line and `/` search
+    // are bars in the page, not popups, so the list stays in full colour.
     let dimmed = background.is_some()
         || matches!(
             overlay,
@@ -224,7 +226,6 @@ pub fn draw(
                 | Some(Overlay::Logs { .. })
                 | Some(Overlay::Menu { .. })
                 | Some(Overlay::NodeDetail { .. })
-                | Some(Overlay::Command { .. })
                 | Some(Overlay::Context { .. })
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Slots { .. })
@@ -246,6 +247,15 @@ pub fn draw(
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
     let body = body_area(full, shortcuts_line);
+    // The `:` command line takes a bar under the header and pushes the
+    // list down, k9s-style.
+    let (command_bar, body) = match &overlay {
+        Some(Overlay::Command { .. }) if body.height > COMMAND_BAR_HEIGHT + 4 => (
+            Some(Rect { height: COMMAND_BAR_HEIGHT, ..body }),
+            Rect { y: body.y + COMMAND_BAR_HEIGHT, height: body.height - COMMAND_BAR_HEIGHT, ..body },
+        ),
+        _ => (None, body),
+    };
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
     draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
@@ -290,8 +300,15 @@ pub fn draw(
     if let Some(bg) = background {
         draw_overlay(frame, bg, true, icons);
     }
-    if let Some(overlay) = overlay {
-        draw_overlay(frame, overlay, false, icons);
+    match overlay {
+        Some(Overlay::Command { input, suggestions, selected }) => {
+            // Normally the bar under the header; on a screen too short for
+            // that it sits over the top of the list instead.
+            let bar = command_bar.unwrap_or(Rect { height: COMMAND_BAR_HEIGHT.min(body.height), ..body });
+            draw_command_line(frame, bar, input, suggestions, selected);
+        }
+        Some(overlay) => draw_overlay(frame, overlay, false, icons),
+        None => {}
     }
     if !suppress_hints && !hints.is_empty() {
         draw_hints(frame, hints, show_hints_panel);
@@ -319,7 +336,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort } => {
             draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, dimmed)
         }
-        Overlay::Command { input, suggestions, selected } => draw_command_bar(frame, input, suggestions, selected),
+        // Drawn by `draw` itself, in its own bar.
+        Overlay::Command { .. } => {}
         Overlay::Context { items, total, filter, editing, state, error, sort } => draw_context_popup(frame, items, total, filter, editing, state, error, sort),
         Overlay::Events { events, filter, search, editing, state, sort } => draw_events_popup(frame, events, filter, search, editing, state, sort, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
