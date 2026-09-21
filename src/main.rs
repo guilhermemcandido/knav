@@ -113,7 +113,8 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
     let (event_store, _event_watch_handle) = k8s::watch_events(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
     let crds = k8s::discover_crds(&client).await;
-    let mut catalog = Catalog::spawn(&client, node_store.clone(), crds);
+    let apis = k8s::discover_apis(&client).await;
+    let mut catalog = Catalog::spawn(&client, node_store.clone(), crds, apis);
 
     // Block until each reflector's initial list-and-watch has populated
     // its store at least once, so the first frame isn't just empty.

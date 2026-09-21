@@ -42,6 +42,11 @@ pub enum ResourceKind {
     /// since it's a runtime string, not one of this enum's compile-time
     /// variants like every other kind's `label()`.
     CustomResource(usize, &'static str),
+    /// Every resource type the API server lists (`:api`); Enter opens one.
+    ApiResources,
+    /// One discovered resource type shown through the server's Table view —
+    /// `usize` indexes the catalog's discovered list, the label is its plural.
+    Api(usize, &'static str),
 }
 
 impl ResourceKind {
@@ -75,7 +80,8 @@ impl ResourceKind {
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
             ResourceKind::CustomResourceList => "Custom Resources",
             ResourceKind::CustomResourceGroup(group) => group,
-            ResourceKind::CustomResource(_, label) => label,
+            ResourceKind::CustomResource(_, label) | ResourceKind::Api(_, label) => label,
+            ResourceKind::ApiResources => "API Resources",
         }
     }
 
@@ -109,6 +115,7 @@ impl ResourceKind {
                     | ResourceKind::Nodes
                     | ResourceKind::CustomResourceList
                     | ResourceKind::CustomResourceGroup(_)
+                    | ResourceKind::ApiResources
             )
     }
 
@@ -144,6 +151,7 @@ impl ResourceKind {
             "ClusterRoles" => Some(ResourceKind::ClusterRoles),
             "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
             "Port-forwards" => Some(ResourceKind::PortForwards),
+            "API Resources" => Some(ResourceKind::ApiResources),
             "Custom Resources" => Some(ResourceKind::CustomResourceList),
             _ => None,
         }
@@ -210,6 +218,7 @@ pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
     (ResourceKind::ClusterRoles, &["clusterroles", "clusterrole", "cr"]),
     (ResourceKind::ClusterRoleBindings, &["clusterrolebindings", "clusterrolebinding", "crb"]),
     (ResourceKind::PortForwards, &["portforwards", "portforward", "pf"]),
+    (ResourceKind::ApiResources, &["apiresources", "api", "apis", "aliases"]),
     (ResourceKind::CustomResourceList, &["customresources", "customresource", "customresourcedefinitions", "crds", "crd"]),
 ];
 

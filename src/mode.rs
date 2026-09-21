@@ -329,6 +329,9 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         // commands panel only exists once you've actually entered some
         // resource view.
         Mode::List if current_kind == ResourceKind::Overview => Vec::new(),
+        Mode::List if current_kind == ResourceKind::ApiResources => {
+            vec![("↑↓/jk", "move"), ("enter", "open"), ("s", "sort"), ("/", "search"), ("q/esc", "back")]
+        }
         Mode::List if current_kind == ResourceKind::PortForwards => {
             vec![("↑↓/jk", "move"), ("enter/o", "open in browser"), ("D", "stop"), ("s", "sort"), ("/", "search"), ("q/esc", "back")]
         }

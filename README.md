@@ -44,7 +44,8 @@ Press `?` on any screen for the keys that apply there. The common ones:
 
 | Key | Does |
 | --- | --- |
-| `:` | Command line (`> `): a kind (`pods`, `rs`, `svc`, ...), `ctx`, `events`, `q` |
+| `:` | Command line (`> `): any resource the cluster serves (`pods`, `rs`, `svc`, `flowschemas`, `leases`, a custom resource, ...), `api`, `ctx`, `events`, `q` |
+| `:api` | Every resource type the API server lists; `Enter` opens one with the server's own columns (what `kubectl get` prints) |
 | `m` | Menu of every resource kind, including CRDs |
 | `n` | Namespace picker; `Enter` picks one and asks which number key (1-9) to keep it on |
 | `0`-`9` | Switch namespace: `0` is all, `1`-`9` the ones you reserved (kept per context) |

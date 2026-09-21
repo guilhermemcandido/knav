@@ -1,9 +1,8 @@
 
-use futures::StreamExt;
 use kube::{
     Client, Resource,
-    api::{Api, ApiResource, DynamicObject},
-    runtime::{WatchStreamExt, reflector, watcher},
+    api::Api,
+    runtime::reflector,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::task::JoinHandle;
@@ -23,6 +22,8 @@ pub trait CatalogKind: Send + Sync {
     fn headers(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    /// Whether wide-only columns are wanted (only table-backed kinds have any).
+    fn set_wide(&self, _wide: bool) {}
 }
 
 pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
@@ -117,55 +118,4 @@ pub async fn discover_crds(client: &Client) -> Vec<CrdInfo> {
 
     infos.sort_by(|a, b| (a.group, a.kind).cmp(&(b.group, b.kind)));
     infos
-}
-
-/// `CatalogKind` for a CRD's instances — a `DynamicObject` watch instead
-/// of a typed one, since the schema isn't known at compile time. Separate
-/// from `WatchedKind<K>` because `Api::all` (used for every typed kind)
-/// requires `DynamicType = ()`; a dynamic resource's `Api` instead needs
-/// an explicit `ApiResource` built from the CRD's group/version/kind.
-pub struct WatchedDynamicKind {
-    store: reflector::Store<DynamicObject>,
-}
-
-impl CatalogKind for WatchedDynamicKind {
-    fn count(&self) -> usize {
-        self.store.state().len()
-    }
-
-    fn rows(&self) -> Vec<GenericRow> {
-        snapshot_generic(&self.store).iter().map(|item| generic_row(item.as_ref())).collect()
-    }
-
-    fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
-        snapshot_generic(&self.store).get(index).map(|item| manifest_value(item.as_ref()))
-    }
-}
-
-/// Starts watching one CRD's instances cluster-wide — called lazily, the
-/// first time the user actually opens that kind, not for every installed
-/// CRD up front (a cluster with Flux/cert-manager/Prometheus Operator
-/// etc. installed can easily have 50+ CRDs; eagerly watching all of them
-/// just for tile counts nobody's looking at isn't worth the open
-/// connections).
-pub fn watch_crd(client: Client, crd: &CrdInfo) -> (Box<dyn CatalogKind>, JoinHandle<()>) {
-    let resource = ApiResource {
-        group: crd.group.to_string(),
-        version: crd.version.clone(),
-        api_version: if crd.group.is_empty() { crd.version.clone() } else { format!("{}/{}", crd.group, crd.version) },
-        kind: crd.kind.to_string(),
-        plural: crd.plural.clone(),
-    };
-    let api: Api<DynamicObject> = Api::all_with(client, &resource);
-    // `reflector::store()` requires `K::DynamicType: Default`, which
-    // `ApiResource` doesn't implement (unlike `()` for every typed kind) —
-    // `Writer::new` takes the dynamic type directly instead.
-    let writer = reflector::store::Writer::new(resource);
-    let reader = writer.as_reader();
-    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
-    let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
-        while stream.next().await.is_some() {}
-    });
-    (Box::new(WatchedDynamicKind { store: reader }), handle)
 }

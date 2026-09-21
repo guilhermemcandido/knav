@@ -12,7 +12,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
-                let len = command_suggestions(input, &catalog.crds).len();
+                let len = command_suggestions(input, &catalog.crds, &catalog.apis).len();
                 *selected = (*selected + 1).min(len.saturating_sub(1));
             }
             KeyCode::Enter => {
@@ -21,7 +21,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 // when there is one; `from_command` is only the
                 // fallback for an exact alias that didn't happen
                 // to fuzzy-score into the visible list.
-                let suggestions = command_suggestions(input, &catalog.crds);
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
                 let highlighted = suggestions.get(*selected).map(|s| s.cmd);
                 if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {
                     return Ok(Some(Outcome::Quit));
@@ -34,6 +34,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = opened;
                 } else if let Some(kind) = match highlighted {
                     Some(Cmd::Kind(k)) => Some(k),
+                    Some(Cmd::Api(index, plural, _)) => Some(ResourceKind::Api(index, plural)),
                     _ => k8s::ResourceKind::from_command(&cmd),
                 } {
                     st.switch_kind(kind);

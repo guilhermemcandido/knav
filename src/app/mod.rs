@@ -95,6 +95,7 @@ pub(crate) fn run(
             usage: usage.as_ref(),
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,
+            apis: &catalog.apis,
             favorites: &st.favorites,
             hints: &hints,
             show_hints_panel: st.show_hints_panel,

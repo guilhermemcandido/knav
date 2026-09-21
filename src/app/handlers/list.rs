@@ -200,6 +200,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         .get(index)
                         .map(|c| ResourceKind::CustomResourceGroup(c.group))
                         .unwrap_or(ResourceKind::CustomResourceList),
+                    ResourceKind::Api(..) => ResourceKind::ApiResources,
                     _ => ResourceKind::Overview,
                 };
                 st.table_state.select(Some(0));
@@ -433,6 +434,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         st.marked.insert(key);
                     }
                     select_next(&mut st.table_state, row_count);
+                }
+            }
+            // Open the resource type under the cursor as a list of its own.
+            KeyCode::Enter if st.current_kind == ResourceKind::ApiResources => {
+                let api = st.table_state.selected().and_then(|i| generic_visible.get(i).copied()).and_then(|real| catalog.apis.get(real).map(|a| (real, a.plural)));
+                if let Some((index, plural)) = api {
+                    st.switch_kind(ResourceKind::Api(index, plural));
                 }
             }
             KeyCode::Enter if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {

@@ -12,10 +12,15 @@ pub(crate) struct Catalog {
     /// (see `resolve`) only once the user actually opens one.
     pub(crate) crds: Vec<k8s::CrdInfo>,
     crd_watches: HashMap<usize, Box<dyn k8s::CatalogKind>>,
+    /// Every resource type the API server lists, from discovery; each is
+    /// fetched (as a server-side Table) only once it is opened.
+    pub(crate) apis: Vec<k8s::ApiInfo>,
+    api_list: k8s::ApiList,
+    api_tables: HashMap<usize, k8s::TableKind>,
 }
 
 impl Catalog {
-    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, crds: Vec<k8s::CrdInfo>) -> Self {
+    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, crds: Vec<k8s::CrdInfo>, apis: Vec<k8s::ApiInfo>) -> Self {
         macro_rules! kind {
             ($variant:ident, $label:literal, $ty:ty) => {{
                 let (boxed, _handle) = k8s::watch_kind::<$ty>(client.clone());
@@ -49,6 +54,9 @@ impl Catalog {
             ],
             crds,
             crd_watches: HashMap::new(),
+            api_list: k8s::ApiList { apis: apis.clone() },
+            apis,
+            api_tables: HashMap::new(),
         }
     }
 
@@ -71,13 +79,21 @@ impl Catalog {
     /// whatever `current_kind` actually is.
     pub(crate) fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn k8s::CatalogKind> {
         match kind {
+            // A custom resource's instances, with the printer columns its CRD defines.
             ResourceKind::CustomResource(index, _) => {
                 if !self.crd_watches.contains_key(&index) {
-                    let crd = self.crds.get(index)?.clone();
-                    let (boxed, _handle) = k8s::watch_crd(client.clone(), &crd);
-                    self.crd_watches.insert(index, boxed);
+                    let api = k8s::ApiInfo::from(self.crds.get(index)?);
+                    self.crd_watches.insert(index, Box::new(k8s::TableKind::start(client.clone(), &api)));
                 }
                 self.crd_watches.get(&index).map(|b| b.as_ref())
+            }
+            ResourceKind::ApiResources => Some(&self.api_list),
+            ResourceKind::Api(index, _) => {
+                if !self.api_tables.contains_key(&index) {
+                    let api = self.apis.get(index)?.clone();
+                    self.api_tables.insert(index, k8s::TableKind::start(client.clone(), &api));
+                }
+                self.api_tables.get(&index).map(|t| t as &dyn k8s::CatalogKind)
             }
             _ => self.get(kind),
         }

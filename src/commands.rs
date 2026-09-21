@@ -16,7 +16,7 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
         }
     }
     vec![
-        ui::MenuSection { title: "Cluster", tiles: vec![ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces] },
+        ui::MenuSection { title: "Cluster", tiles: vec![ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces, ResourceKind::ApiResources] },
         ui::MenuSection {
             title: "Workloads",
             tiles: vec![
@@ -56,7 +56,7 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
 /// same fuzzy scorer the search/filter uses. Empty input suggests nothing
 /// (an empty command bar with a giant list under it isn't "autocomplete,"
 /// it's just the menu).
-pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Suggestion> {
+pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo]) -> Vec<Suggestion> {
     let input = input.trim().to_lowercase();
     if input.is_empty() {
         return Vec::new();
@@ -65,6 +65,9 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Sug
         .chain(std::iter::once(Cmd::Events))
         .chain(std::iter::once(Cmd::Quit))
         .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
+        // Every other resource the server lists, by plural or kind (`:flowschemas`),
+        // unless a built-in kind already answers to that name.
+        .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none()).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
         .filter_map(|cmd| {
             let names = cmd.names();
             let (score, alias) = names
@@ -101,6 +104,8 @@ pub(crate) struct Suggestion {
 #[derive(Clone, Copy)]
 pub(crate) enum Cmd {
     Kind(ResourceKind),
+    /// A discovered resource: its index in the catalog, plural and kind.
+    Api(usize, &'static str, &'static str),
     Context,
     Events,
     Quit,
@@ -115,6 +120,13 @@ impl Cmd {
             Cmd::Kind(k) => {
                 let aliases = k.aliases();
                 if aliases.is_empty() { vec![k.label().to_lowercase().replace(' ', "")] } else { fixed(aliases) }
+            }
+            Cmd::Api(_, plural, kind) => {
+                let mut names = vec![plural.to_string()];
+                if !kind.eq_ignore_ascii_case(plural) {
+                    names.push(kind.to_lowercase());
+                }
+                names
             }
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
@@ -211,7 +223,7 @@ mod tests {
     use super::*;
 
     fn top(input: &str) -> Suggestion {
-        command_suggestions(input, &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
+        command_suggestions(input, &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
     }
 
     #[test]
@@ -251,7 +263,7 @@ mod tests {
 
     #[test]
     fn empty_input_suggests_nothing() {
-        assert!(command_suggestions("  ", &[]).is_empty());
+        assert!(command_suggestions("  ", &[], &[]).is_empty());
     }
 
     #[test]
@@ -318,6 +330,7 @@ mod tests {
             ResourceKind::ClusterRoles,
             ResourceKind::ClusterRoleBindings,
             ResourceKind::PortForwards,
+            ResourceKind::ApiResources,
             ResourceKind::CustomResourceList,
         ];
         let sections = menu_sections(&[]);

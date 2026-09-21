@@ -48,7 +48,7 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         ResourceKind::RoleBindings => ("rb", include_bytes!("../assets/icons/rb.svg")),
         ResourceKind::ClusterRoles => ("c-role", include_bytes!("../assets/icons/c-role.svg")),
         ResourceKind::ClusterRoleBindings => ("crb", include_bytes!("../assets/icons/crb.svg")),
-        ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::CustomResource(_, _) => {
+        ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::CustomResource(_, _) | ResourceKind::ApiResources | ResourceKind::Api(_, _) => {
             ("crd", include_bytes!("../assets/icons/crd.svg"))
         }
         // Overview's tile isn't drawn with an icon at all (see `IconCache::draw`'s

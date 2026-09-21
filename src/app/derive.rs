@@ -150,7 +150,11 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // real index in `generic_rows_full`/the catalog's own live
         // snapshot — needed because `CatalogKind::spec_at` (the 'd' key)
         // takes that real index, not the display one.
-        let generic_headers: Vec<&'static str> = if current_kind == ResourceKind::PortForwards {
+        // Table-backed kinds (API resources, custom resources) show wide-only columns when asked.
+    if let Some(kind) = catalog.resolve(current_kind, client) {
+        kind.set_wide(wide);
+    }
+    let generic_headers: Vec<&'static str> = if current_kind == ResourceKind::PortForwards {
         portforward::HEADERS.to_vec()
     } else {
         catalog.resolve(current_kind, client).map(|k| k.headers()).unwrap_or_default()

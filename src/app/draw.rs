@@ -12,6 +12,7 @@ pub(super) struct View<'a> {
     pub usage: Option<&'a metrics::ClusterUsage>,
     pub node_detail_rows: &'a [k8s::PodRow],
     pub crds: &'a [k8s::CrdInfo],
+    pub apis: &'a [k8s::ApiInfo],
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'static str, &'static str)],
     pub show_hints_panel: bool,
@@ -33,7 +34,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, crds, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -47,7 +48,7 @@ pub(super) fn draw_mode(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions: Vec<String> = command_suggestions(input, crds).into_iter().map(|s| s.label).collect();
+                    let suggestions: Vec<String> = command_suggestions(input, crds, apis).into_iter().map(|s| s.label).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     ui::draw(frame, rows_view(), table_state, hovered, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
