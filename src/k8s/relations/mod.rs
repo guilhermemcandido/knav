@@ -6,6 +6,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_yaml::Value;
 
+mod graph;
+mod uses;
+
+pub use graph::{Graph, graph};
+#[cfg(test)]
+pub use graph::GraphNode;
+use uses::uses;
+
 /// Drops what relations never need and secrets should not sit around in memory for:
 /// the payload of ConfigMaps and Secrets.
 pub fn slim(mut manifest: Value) -> Value {
@@ -96,108 +104,6 @@ fn pod_labels(o: &Obj) -> BTreeMap<String, String> {
         .and_then(Value::as_mapping)
         .map(|m| m.iter().filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string()))).collect())
         .unwrap_or_default()
-}
-
-/// What an object refers to: (kind, namespace, name, why).
-type Use = (String, Option<String>, String, &'static str);
-
-fn uses(o: &Obj) -> Vec<Use> {
-    let ns = o.namespace.map(String::from);
-    let mut out: Vec<Use> = Vec::new();
-    let mut add = |kind: &str, namespace: Option<String>, name: &str, why: &'static str| {
-        if !name.is_empty() {
-            out.push((kind.to_string(), if cluster_scoped(kind) { None } else { namespace }, name.to_string(), why));
-        }
-    };
-    if let Some(spec) = pod_spec(o) {
-        for volume in items(spec, &["volumes"]) {
-            if let Some(name) = text(volume, &["configMap", "name"]) {
-                add("ConfigMap", ns.clone(), name, "volume");
-            }
-            if let Some(name) = text(volume, &["secret", "secretName"]) {
-                add("Secret", ns.clone(), name, "volume");
-            }
-            if let Some(name) = text(volume, &["persistentVolumeClaim", "claimName"]) {
-                add("PersistentVolumeClaim", ns.clone(), name, "volume");
-            }
-            for source in items(volume, &["projected", "sources"]) {
-                if let Some(name) = text(source, &["configMap", "name"]) {
-                    add("ConfigMap", ns.clone(), name, "volume");
-                }
-                if let Some(name) = text(source, &["secret", "name"]) {
-                    add("Secret", ns.clone(), name, "volume");
-                }
-            }
-        }
-        for container in items(spec, &["containers"]).iter().chain(items(spec, &["initContainers"])) {
-            for var in items(container, &["env"]) {
-                if let Some(name) = text(var, &["valueFrom", "configMapKeyRef", "name"]) {
-                    add("ConfigMap", ns.clone(), name, "env");
-                }
-                if let Some(name) = text(var, &["valueFrom", "secretKeyRef", "name"]) {
-                    add("Secret", ns.clone(), name, "env");
-                }
-            }
-            for source in items(container, &["envFrom"]) {
-                if let Some(name) = text(source, &["configMapRef", "name"]) {
-                    add("ConfigMap", ns.clone(), name, "env");
-                }
-                if let Some(name) = text(source, &["secretRef", "name"]) {
-                    add("Secret", ns.clone(), name, "env");
-                }
-            }
-        }
-        for secret in items(spec, &["imagePullSecrets"]) {
-            if let Some(name) = text(secret, &["name"]) {
-                add("Secret", ns.clone(), name, "image pull");
-            }
-        }
-        if let Some(name) = text(spec, &["serviceAccountName"]) {
-            add("ServiceAccount", ns.clone(), name, "service account");
-        }
-        if o.kind == "Pod"
-            && let Some(node) = text(spec, &["nodeName"])
-        {
-            add("Node", None, node, "runs on");
-        }
-    }
-    match o.kind {
-        "Ingress" => {
-            let mut backends: Vec<&str> = items(o.manifest, &["spec", "rules"]).iter().flat_map(|r| items(r, &["http", "paths"])).filter_map(|p| text(p, &["backend", "service", "name"])).collect();
-            backends.extend(text(o.manifest, &["spec", "defaultBackend", "service", "name"]));
-            for name in backends {
-                add("Service", ns.clone(), name, "backend");
-            }
-            for tls in items(o.manifest, &["spec", "tls"]) {
-                if let Some(name) = text(tls, &["secretName"]) {
-                    add("Secret", ns.clone(), name, "tls");
-                }
-            }
-        }
-        "HorizontalPodAutoscaler" => {
-            if let (Some(kind), Some(name)) = (text(o.manifest, &["spec", "scaleTargetRef", "kind"]), text(o.manifest, &["spec", "scaleTargetRef", "name"])) {
-                add(kind, ns.clone(), name, "scales");
-            }
-        }
-        "PersistentVolumeClaim" => {
-            if let Some(name) = text(o.manifest, &["spec", "volumeName"]) {
-                add("PersistentVolume", None, name, "bound to");
-            }
-            if let Some(name) = text(o.manifest, &["spec", "storageClassName"]) {
-                add("StorageClass", None, name, "class");
-            }
-        }
-        "PersistentVolume" => {
-            if let (Some(name), Some(claim_ns)) = (text(o.manifest, &["spec", "claimRef", "name"]), text(o.manifest, &["spec", "claimRef", "namespace"])) {
-                add("PersistentVolumeClaim", Some(claim_ns.to_string()), name, "claimed by");
-            }
-            if let Some(name) = text(o.manifest, &["spec", "storageClassName"]) {
-                add("StorageClass", None, name, "class");
-            }
-        }
-        _ => {}
-    }
-    out
 }
 
 /// The owner references of an object: (kind, name, uid, controller).
@@ -375,83 +281,6 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     }
     groups
 }
-
-/// One box of the diagram.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GraphNode {
-    pub kind: String,
-    pub namespace: Option<String>,
-    pub name: String,
-    pub detail: String,
-    /// Columns left (negative) and right (positive) of the object in the middle.
-    pub layer: i32,
-    pub openable: bool,
-}
-
-/// The relations as boxes and arrows (from, to). Node 0 is the object itself.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Graph {
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<(usize, usize)>,
-}
-
-/// Lays `groups` out as a flow from left to right, arrows pointing from what provides
-/// to what depends: callers, owners and what the object uses on the left, the object
-/// in the middle, what it owns, selects or what uses it on the right.
-pub fn graph(target: &Value, groups: &[Group]) -> Graph {
-    let mut g = Graph::default();
-    let Some(t) = obj(target) else { return g };
-    g.nodes.push(GraphNode { kind: t.kind.to_string(), namespace: t.namespace.map(String::from), name: t.name.to_string(), detail: String::new(), layer: 0, openable: true });
-    fn node(g: &mut Graph, e: &Entry, layer: i32) -> usize {
-        if e.openable
-            && let Some(at) = g.nodes.iter().position(|n| n.openable && n.kind == e.kind && n.name == e.name && n.namespace == e.namespace)
-        {
-            return at;
-        }
-        g.nodes.push(GraphNode { kind: e.kind.clone(), namespace: e.namespace.clone(), name: e.name.clone(), detail: e.detail.clone(), layer, openable: e.openable });
-        g.nodes.len() - 1
-    }
-    for group in groups {
-        match group.title {
-            "Owned by" => {
-                let mut previous = 0;
-                for e in &group.entries {
-                    let at = node(&mut g, e, -(e.depth as i32) - 1);
-                    g.edges.push((at, previous));
-                    previous = at;
-                }
-            }
-            // Arrows run from what provides to what depends: a Node, ConfigMap or
-            // Secret points at the pod that uses it.
-            "Uses" => {
-                for e in &group.entries {
-                    let at = node(&mut g, e, -1);
-                    g.edges.push((at, 0));
-                }
-            }
-            "Exposed by" => {
-                let mut service = 0;
-                for e in &group.entries {
-                    if e.depth == 0 {
-                        service = node(&mut g, e, -1);
-                        g.edges.push((service, 0));
-                    } else {
-                        let ingress = node(&mut g, e, -2);
-                        g.edges.push((ingress, service));
-                    }
-                }
-            }
-            _ => {
-                for e in &group.entries {
-                    let at = node(&mut g, e, 1);
-                    g.edges.push((0, at));
-                }
-            }
-        }
-    }
-    g
-}
-
 /// The manifest of `kind`/`name` among `all`.
 pub fn find_manifest(all: &[Value], kind: &str, namespace: Option<&str>, name: &str) -> Option<Value> {
     Index::new(all).find(kind, namespace, name).map(|o| o.manifest.clone())
