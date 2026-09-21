@@ -128,13 +128,10 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
 
     let title = table_title("Pods", pods.len(), search, dimmed);
 
-    let highlight_style = theme_highlight(dimmed);
-
-    let table = Table::new(rows, pod_table_widths())
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), pod_table_widths())
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
@@ -214,13 +211,10 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 
     let title = table_title("Deployments", deployments.len(), search, dimmed);
 
-    let highlight_style = theme_highlight(dimmed);
-
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
@@ -310,13 +304,10 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
 
     let title = table_title("Nodes", nodes.len(), search, dimmed);
 
-    let highlight_style = theme_highlight(dimmed);
-
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
@@ -357,13 +348,10 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 
     let title = table_title(label, rows.len(), search, dimmed);
 
-    let highlight_style = theme_highlight(dimmed);
-
-    let table = Table::new(table_rows, widths)
+    let table = Table::new(select_rows(table_rows, table_state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);
@@ -394,13 +382,10 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
     let title = table_title(heading, crds.len(), search, dimmed);
 
-    let highlight_style = theme_highlight(dimmed);
-
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, table_state);

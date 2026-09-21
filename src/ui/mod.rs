@@ -242,7 +242,7 @@ pub fn draw(
     let body = body_area(full, shortcuts_line);
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
-    draw_header(frame, full, header, shortcuts_line, dimmed);
+    draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
     match rows {
         Rows::Pods(pods) => {
             // A persistent status line below the table for the

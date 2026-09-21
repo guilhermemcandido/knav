@@ -42,7 +42,7 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
     Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height }
 }
 
-pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shortcuts_line: bool, dimmed: bool) {
+pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shortcuts_line: bool, sort_mode: bool, dimmed: bool) {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
     }
@@ -86,6 +86,14 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     let key = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)) };
     let name = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(143, 191, 208)) };
     let active = if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) };
+    // In sort mode the digits pick columns, not namespaces — grey the line
+    // out so it reads as unavailable.
+    let (key, name, active) = if sort_mode && !dimmed {
+        let muted = Style::default().fg(Color::Rgb(78, 88, 104));
+        (muted, muted, muted)
+    } else {
+        (key, name, active)
+    };
     let mut shortcuts: Vec<Span> = vec![Span::styled("Namespace: ", label)];
     let entries = std::iter::once((0usize, "all".to_string())).chain(
         info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))),

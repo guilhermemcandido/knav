@@ -27,8 +27,15 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(HEADER_FG) }
 }
 
-pub(super) fn theme_highlight(dimmed: bool) -> Style {
-    if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) }
+/// The selected row's bar: a background fill only, applied *underneath*
+/// the row's cells (`Row::style`), so each cell keeps its own colours — the
+/// container dots, status colours and the yellow search match all stay
+/// visible on the selected row instead of being painted over.
+const SELECTED_ROW_BG: Color = Color::Rgb(58, 74, 96);
+
+pub(super) fn select_rows<'a>(rows: impl Iterator<Item = Row<'a>>, selected: Option<usize>, dimmed: bool) -> Vec<Row<'a>> {
+    let bar = if dimmed { dim_style() } else { Style::default().bg(SELECTED_ROW_BG).add_modifier(Modifier::BOLD) };
+    rows.enumerate().map(|(i, row)| if Some(i) == selected { row.style(bar) } else { row }).collect()
 }
 
 pub(super) fn theme_border(dimmed: bool) -> Style {

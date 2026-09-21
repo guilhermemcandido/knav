@@ -66,11 +66,10 @@ pub(super) fn draw_context_popup(
         title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
     }
 
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, state.selected(), false), widths)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .row_highlight_style(theme_highlight(false))
         .highlight_symbol("");
 
     if let Some(selected) = state.selected() {
@@ -108,11 +107,10 @@ pub(super) fn draw_namespace_picker(
         title.push_span(span);
     }
 
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, state.selected(), false), widths)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .row_highlight_style(theme_highlight(false))
         .highlight_symbol("");
 
     if let Some(selected) = state.selected() {
@@ -386,12 +384,10 @@ pub(super) fn draw_events_popup(
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
-    let highlight_style = theme_highlight(dimmed);
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     if let Some(selected) = state.selected() {
@@ -554,8 +550,7 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
     ];
 
     let border_style = theme_border(dimmed);
-    let highlight_style = theme_highlight(dimmed);
-    let table = Table::new(rows, widths)
+    let table = Table::new(select_rows(rows, state.selected(), dimmed), widths)
         .style(theme_row(dimmed))
         .header(header)
         .block(
@@ -565,7 +560,6 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
                 .border_style(border_style)
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
-        .row_highlight_style(highlight_style)
         .highlight_symbol("");
 
     frame.render_stateful_widget(table, area, state);
