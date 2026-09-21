@@ -1,5 +1,7 @@
 //! The interactive loop: draws the current `Mode` and handles keyboard/mouse input.
 
+mod draw;
+
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -244,237 +246,26 @@ pub(crate) fn run(
         };
         let sort_view = ui::SortState { column: sort.map(|s| s.column), descending: sort.is_some_and(|s| s.descending), choosing: sort_choosing };
         let breadcrumb_segments = breadcrumb(&mode, location(current_kind, &nav_stack, scope.as_ref()));
-        let breadcrumb_text = Some(breadcrumb_segments);
         let mut hints = hints_for(&mode, current_kind);
         if !hints.is_empty() {
             hints.push(("c", if mouse_capture_enabled { "mouse off" } else { "mouse on" }));
         }
-        let mut frame_area = Rect::default();
-        match &mut mode {
-            Mode::List => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Command { input, selected, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(|s| s.label).collect();
-                    let selected = (*selected).min(suggestions.len().saturating_sub(1));
-                    let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let items: Vec<(String, String, bool)> =
-                        filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
-                    let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::NamespacePick { names, filter, editing, state, sort: popup_sort, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let items: Vec<(String, Option<usize>)> =
-                        filtered_names(names, filter, *popup_sort, &favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
-                    let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Slots { namespace, selected, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let overlay = ui::Overlay::Slots { namespace, slots: &favorites.slots, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Notice { text, error, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let overlay = ui::Overlay::Notice { text, error: *error };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Search => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: true }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Menu { selected } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let sections = menu_sections(&catalog.crds);
-                    let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Spec { title, items, state, viewing, back, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    // Hoisted out of the `if let` below so these live for
-                    // the rest of the closure, not just that block — the
-                    // background `Overlay` borrows from them.
-                    let back_node_name: Option<String> = match &**back {
-                        Mode::NodeDetail { name, .. } => Some(name.clone()),
-                        _ => None,
-                    };
-                    let back_found_node = back_node_name.as_deref().and_then(|n| nodes.iter().find(|node| node.metadata.name.as_deref() == Some(n)));
-                    let back_capacity = back_found_node.map(|n| k8s::node_capacity(n));
-                    let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
-                    let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
-                    let node_background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
-                        Some(ui::Overlay::NodeDetail {
-                            name: back_node_name.as_deref().unwrap_or(""),
-                            cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
-                            cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
-                            memory_usage: back_node_usage.map(|u| u.memory_bytes),
-                            memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
-                            pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
-                            info: back_detail_info.as_ref(),
-                            pods: &node_detail_rows,
-                            state: nd_state,
-                            sort: ui::SortState::default(),
-                            search: ui::Search::default(),
-                        })
-                    } else {
-                        None
-                    };
-                    // While viewing a leaf's full value, the Spec tree
-                    // itself becomes the (dimmed) background instead of
-                    // the focused overlay — the NodeDetail-behind-Spec
-                    // case above doesn't apply two layers deep at once.
-                    let (background, overlay) = match viewing {
-                        Some((label, value)) => {
-                            (Some(ui::Overlay::Spec { title, items, state }), ui::Overlay::ValueDetail { label, value })
-                        }
-                        None => (node_background, ui::Overlay::Spec { title, items, state }),
-                    };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Containers { title, containers, state, sort: popup_sort, back, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let back_node_name: Option<String> = match &**back {
-                        Mode::NodeDetail { name, .. } => Some(name.clone()),
-                        _ => None,
-                    };
-                    let back_found_node = back_node_name.as_deref().and_then(|n| nodes.iter().find(|node| node.metadata.name.as_deref() == Some(n)));
-                    let back_capacity = back_found_node.map(|n| k8s::node_capacity(n));
-                    let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
-                    let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
-                    let background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
-                        Some(ui::Overlay::NodeDetail {
-                            name: back_node_name.as_deref().unwrap_or(""),
-                            cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
-                            cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
-                            memory_usage: back_node_usage.map(|u| u.memory_bytes),
-                            memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
-                            pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
-                            info: back_detail_info.as_ref(),
-                            pods: &node_detail_rows,
-                            state: nd_state,
-                            sort: ui::SortState::default(),
-                            search: ui::Search::default(),
-                        })
-                    } else {
-                        None
-                    };
-                    let shown = sorted_containers(containers, *popup_sort);
-                    let overlay = ui::Overlay::Containers { title, containers: &shown, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::NodeDetail { name, state, sort: popup_sort, search: nd_search, editing: nd_editing, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
-                    let capacity = found_node.map(|n| k8s::node_capacity(n));
-                    let detail_info = found_node.map(|n| k8s::node_detail_info(n));
-                    let node_usage = usage.as_ref().and_then(|u| u.for_node(name));
-                    let overlay = ui::Overlay::NodeDetail {
-                        name: name.as_str(),
-                        cpu_usage: node_usage.map(|u| u.cpu_millicores),
-                        cpu_capacity: capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
-                        memory_usage: node_usage.map(|u| u.memory_bytes),
-                        memory_capacity: capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
-                        pod_capacity: capacity.as_ref().map(|c| c.pods).unwrap_or(0),
-                        info: detail_info.as_ref(),
-                        pods: &node_detail_rows,
-                        state,
-                        sort: popup_sort.view(),
-                        search: ui::Search { text: nd_search, editing: *nd_editing },
-                    };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::Events { filter, search, editing, state, sort: popup_sort } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::EventDetail { entry, back } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let background = match &mut **back {
-                        Mode::Events { filter, search, editing, state, sort: popup_sort } => {
-                            Some(ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() })
-                        }
-                        _ => None,
-                    };
-                    let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::ResourcesDetail => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-            Mode::ColumnDetail { col, selected, row_scroll } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    if let Some((title, items)) = overview.catalog.get(*col) {
-                        let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                    } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                    }
-                })?;
-            }
-            Mode::Logs { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing, back, .. } => {
-                terminal.draw(|frame| {
-                    frame_area = frame.area();
-                    let shown_containers;
-                    let background = match &mut **back {
-                        Mode::Containers { title, containers, state, sort: popup_sort, .. } => {
-                            shown_containers = sorted_containers(containers, *popup_sort);
-                            Some(ui::Overlay::Containers { title, containers: &shown_containers, state, sort: popup_sort.view() })
-                        }
-                        _ => None,
-                    };
-                    let overlay = ui::Overlay::Logs {
-                        title,
-                        lines,
-                        scroll: *scroll,
-                        follow: *follow,
-                        timestamp_format: *timestamp_format,
-                        order: *order,
-                        filter,
-                        filter_editing: *filter_editing,
-                    };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
-                })?;
-            }
-        }
+        let view = draw::View {
+            rows: &rows_view,
+            overview: &overview,
+            nodes: &nodes,
+            usage: usage.as_ref(),
+            node_detail_rows: &node_detail_rows,
+            crds: &catalog.crds,
+            favorites: &favorites,
+            hints: &hints,
+            show_hints_panel,
+            breadcrumb: &breadcrumb_segments,
+            header_now: &header_now,
+            search: &search,
+            sort_view,
+        };
+        let frame_area = draw::draw_mode(terminal, &mut mode, &view, &mut table_state, hovered, &mut icons, &mut hscroll)?;
 
         if !event::poll(Duration::from_millis(200))? {
             continue;
