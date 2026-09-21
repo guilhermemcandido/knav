@@ -140,6 +140,7 @@ impl CatalogKind for ApiList {
     }
 }
 
+#[derive(Clone)]
 struct TableColumn {
     name: &'static str,
     /// 0 is shown always; higher is wide-only (`kubectl get -o wide`).
@@ -162,6 +163,8 @@ struct TableData {
     columns: Vec<TableColumn>,
     rows: Vec<TableRow>,
     error: Option<String>,
+    /// More pages of the first load are still coming.
+    loading: bool,
 }
 
 /// One resource type shown through the server's Table view, refreshed every
@@ -189,14 +192,11 @@ impl TableKind {
             let (client, resource, data) = (client.clone(), resource.clone(), Arc::clone(&data));
             tokio::spawn(async move {
                 loop {
-                    let result = fetch_table(&client, &resource).await;
-                    if let Ok(mut data) = data.lock() {
-                        match result {
-                            Ok((columns, rows)) => *data = TableData { columns, rows, error: None },
-                            Err(e) => data.error = Some(format!("{e:#}")),
-                        }
-                    }
-                    tokio::time::sleep(Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1))).await;
+                    let started = std::time::Instant::now();
+                    refresh_table(&client, &resource, &data).await;
+                    // A big list takes long to fetch, so wait in proportion and never hammer the server.
+                    let pause = Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1)).max(started.elapsed() * 3);
+                    tokio::time::sleep(pause).await;
                 }
             })
         };
@@ -209,11 +209,67 @@ impl TableKind {
     }
 }
 
-async fn fetch_table(client: &Client, resource: &ApiResource) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>)> {
-    let path = if resource.group.is_empty() { format!("/api/{}/{}", resource.version, resource.plural) } else { format!("/apis/{}/{}/{}", resource.group, resource.version, resource.plural) };
+/// Rows asked for per request; the server hands the rest over with a continue token.
+const PAGE: usize = 500;
+
+/// One page of the Table view of `resource`, and the token for the next page if there is one.
+async fn fetch_page(client: &Client, resource: &ApiResource, token: Option<&str>) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>, Option<String>)> {
+    let base = if resource.group.is_empty() { format!("/api/{}/{}", resource.version, resource.plural) } else { format!("/apis/{}/{}/{}", resource.group, resource.version, resource.plural) };
+    let path = match token {
+        Some(token) => format!("{base}?limit={PAGE}&continue={}", percent_encode(token)),
+        None => format!("{base}?limit={PAGE}"),
+    };
     let request = http::Request::get(path).header(http::header::ACCEPT, "application/json;as=Table;g=meta.k8s.io;v=v1").body(Vec::new())?;
-    let text = client.request_text(request).await?;
-    parse_table(&serde_json::from_str(&text)?)
+    let table: Value = serde_json::from_str(&client.request_text(request).await?)?;
+    let next = table.get("metadata").and_then(|m| m.get("continue")).and_then(|c| c.as_str()).filter(|c| !c.is_empty()).map(str::to_string);
+    let (columns, rows) = parse_table(&table)?;
+    Ok((columns, rows, next))
+}
+
+fn percent_encode(text: &str) -> String {
+    text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+/// Reads every page. The first time, rows show up as pages arrive so a long list appears at once;
+/// later refreshes gather the whole snapshot and swap it in, so rows never jump around mid-fetch.
+async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>) {
+    let first = data.lock().map(|d| d.columns.is_empty()).unwrap_or(true);
+    let (mut columns, mut rows, mut token) = (Vec::new(), Vec::new(), None::<String>);
+    loop {
+        match fetch_page(client, resource, token.as_deref()).await {
+            Ok((page_columns, page_rows, next)) => {
+                if first {
+                    if let Ok(mut data) = data.lock() {
+                        if data.columns.is_empty() {
+                            data.columns = page_columns;
+                        }
+                        data.rows.extend(page_rows);
+                        data.error = None;
+                        data.loading = next.is_some();
+                    }
+                } else {
+                    if columns.is_empty() {
+                        columns = page_columns;
+                    }
+                    rows.extend(page_rows);
+                }
+                token = next;
+                if token.is_none() {
+                    break;
+                }
+            }
+            Err(e) => {
+                if let Ok(mut data) = data.lock() {
+                    data.error = Some(format!("{e:#}"));
+                    data.loading = false;
+                }
+                return;
+            }
+        }
+    }
+    if !first && let Ok(mut data) = data.lock() {
+        *data = TableData { columns, rows, error: None, loading: false };
+    }
 }
 
 fn cell_text(cell: &Value) -> String {
@@ -313,9 +369,7 @@ impl CatalogKind for TableKind {
             }];
         }
         let status_column = data.columns.iter().position(|c| matches!(c.name, "STATUS" | "PHASE" | "STATE"));
-        data.rows
-            .iter()
-            .map(|row| {
+        let mut rows = crate::k8s::par_map(&data.rows, |row| {
                 let extras = shown
                     .iter()
                     .map(|&i| {
@@ -336,8 +390,11 @@ impl CatalogKind for TableKind {
                     owners: row.owners.clone(),
                     labels: row.labels.clone(),
                 }
-            })
-            .collect()
+            });
+        if data.loading {
+            rows.push(GenericRow { namespace: "-".into(), name: format!("… loading more ({} so far)", data.rows.len()), age: "-".into(), age_secs: i64::MAX, extras: shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect(), status: Some((Tone::Muted, "loading".into())), uid: String::new(), owners: Vec::new(), labels: String::new() });
+        }
+        rows
     }
 
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
@@ -406,7 +463,7 @@ mod tests {
     #[test]
     fn name_and_age_are_left_to_the_list_and_wide_columns_wait_for_wide() {
         let (columns, rows) = parse_table(&table()).unwrap();
-        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None });
+        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None, loading: false });
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE"]);
         kind.set_wide(true);
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE", "SELECTOR"]);
@@ -417,7 +474,7 @@ mod tests {
 
     #[test]
     fn a_resource_that_cannot_be_listed_says_why() {
-        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()) });
+        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()), loading: false });
         let rows = kind.rows();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].name.contains("forbidden"));
