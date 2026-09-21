@@ -39,29 +39,60 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         let setting = state.selected().and_then(|i| settings.get(i)).cloned();
         let current = setting.as_ref().map(|s| settings::current(cx.config, &current_theme, s)).unwrap_or_default();
         match event {
-            // Picking a key: the first key pressed is the candidate, then it is
-            // confirmed, added to the current keys, re-picked or dropped.
+            // The key popup: a menu of what to do with the keys, then (to add or
+            // replace) the key itself, which is confirmed before anything is saved.
             Event::Key(key) if capture.is_some() => {
                 let picking = capture.as_mut().expect("checked above");
-                match picking.pressed.clone() {
-                    None => picking.pressed = Some(crate::input::keymap::format_key(crate::input::keymap::KeySpec::of(&key))),
-                    Some(pressed) => match key.code {
-                        KeyCode::Esc | KeyCode::Char('n') => *capture = None,
-                        KeyCode::Backspace => *picking = KeyCapture::default(),
-                        KeyCode::Enter | KeyCode::Char('y' | 'a') => {
-                            let new = if pressed == "," { "comma".to_string() } else { pressed };
-                            let text = if key.code == KeyCode::Char('a') && !current.split(", ").any(|k| k == new) { format!("{current}, {new}") } else { new };
-                            match setting.as_ref().map(|s| (s, settings::typed_value(cx.config, s, &text))) {
-                                Some((s, Ok(_))) => {
-                                    change = Some(Change::Set(s.path.clone(), text));
-                                    *capture = None;
+                let keys: Vec<String> = current.split(", ").map(String::from).collect();
+                let mut new_text: Option<String> = None;
+                let mut close_capture = false;
+                picking.problem = None;
+                match (picking.step, picking.pressed.clone()) {
+                    (CaptureStep::Menu, _) => match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => close_capture = true,
+                        KeyCode::Char('a') => picking.step = CaptureStep::Pick { replace: false },
+                        KeyCode::Char('r') => picking.step = CaptureStep::Pick { replace: true },
+                        KeyCode::Char('d') => {
+                            if let Some(s) = &setting {
+                                change = Some(Change::Reset(s.path.clone()));
+                            }
+                            close_capture = true;
+                        }
+                        KeyCode::Char(c @ '1'..='9') => {
+                            let at = c as usize - '1' as usize;
+                            if at < keys.len() {
+                                if keys.len() == 1 {
+                                    picking.problem = Some("An action needs at least one key; add another first or use d for the default".into());
+                                } else {
+                                    new_text = Some(keys.iter().enumerate().filter(|(i, _)| *i != at).map(|(_, k)| k.as_str()).collect::<Vec<_>>().join(", "));
                                 }
-                                Some((_, Err(e))) => picking.problem = Some(format!("{e:#}")),
-                                None => {}
                             }
                         }
                         _ => {}
                     },
+                    (CaptureStep::Pick { .. }, None) => picking.pressed = Some(crate::input::keymap::format_key(crate::input::keymap::KeySpec::of(&key))),
+                    (CaptureStep::Pick { replace }, Some(pressed)) => match key.code {
+                        KeyCode::Esc | KeyCode::Char('n') => *picking = KeyCapture::default(),
+                        KeyCode::Backspace => picking.pressed = None,
+                        KeyCode::Enter | KeyCode::Char('y') => {
+                            let new = if pressed == "," { "comma".to_string() } else { pressed };
+                            new_text = Some(if replace || keys.contains(&new) { new } else { format!("{current}, {new}") });
+                        }
+                        _ => {}
+                    },
+                }
+                if let Some(text) = new_text {
+                    match setting.as_ref().map(|s| (s, settings::typed_value(cx.config, s, &text))) {
+                        Some((s, Ok(_))) => {
+                            change = Some(Change::Set(s.path.clone(), text));
+                            close_capture = true;
+                        }
+                        Some((_, Err(e))) => picking.problem = Some(format!("{e:#}")),
+                        None => {}
+                    }
+                }
+                if close_capture {
+                    *capture = None;
                 }
             }
             Event::Mouse(_) if capture.is_some() => {}

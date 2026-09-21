@@ -2,10 +2,21 @@
 
 use crate::*;
 
-/// A key being picked on the settings screen: the key pressed so far, and why
-/// it can't be used, if it can't.
+/// Where the key popup on the settings screen is.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(crate) enum CaptureStep {
+    /// Choosing what to do with the action's keys.
+    #[default]
+    Menu,
+    /// Waiting for a key; `replace` drops the current keys instead of adding.
+    Pick { replace: bool },
+}
+
+/// The key popup on the settings screen: its step, the key pressed so far,
+/// and why it can't be used, if it can't.
 #[derive(Default)]
 pub(crate) struct KeyCapture {
+    pub step: CaptureStep,
     pub pressed: Option<String>,
     pub problem: Option<String>,
 }

@@ -212,9 +212,17 @@ pub struct SettingView {
 /// The "press a key" popup on the settings screen.
 pub struct CaptureView {
     pub label: String,
-    pub current: String,
-    pub pressed: Option<String>,
+    pub keys: Vec<String>,
+    pub stage: CaptureStage,
     pub problem: Option<String>,
+}
+
+pub enum CaptureStage {
+    Menu,
+    /// Waiting for a key.
+    Waiting,
+    /// A key was pressed: `key`, to replace the others or be added to them.
+    Confirm { key: String, replace: bool },
 }
 
 /// What a command suggestion shows beside its name.

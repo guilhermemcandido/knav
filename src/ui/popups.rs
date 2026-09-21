@@ -340,32 +340,27 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
         .title_bottom(Line::styled(" enter keeps  ·  esc cancels ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    // The first two colours are the theme's background and text, which the live
+    // preview already shows; the swatch is the accents. The selected row is
+    // shaded through the row style so its dots keep their own colours.
+    let selected = state.selected();
     let rows: Vec<Row> = entries
         .iter()
-        .map(|entry| {
-            let mut swatch = Vec::new();
-            for color in &entry.swatch {
-                // Each colour sits on its own black or white chip, so it shows
-                // whatever theme is being previewed behind it. "Reset" is the
-                // terminal's own background: a hollow dot.
-                if *color == Color::Reset {
-                    swatch.push(Span::styled(" ○ ", Style::default().fg(theme().muted)));
-                } else {
-                    swatch.push(Span::styled(" ● ", Style::default().fg(*color).bg(crate::theme::on(*color))));
-                }
-            }
+        .enumerate()
+        .map(|(i, entry)| {
+            let swatch: Vec<Span> = entry.swatch.iter().skip(2).map(|color| Span::styled("● ", Style::default().fg(*color))).collect();
             let mark = if entry.name == saved { "✔ in use" } else { "" };
-            Row::new(vec![
+            let row = Row::new(vec![
                 Cell::from(Span::styled(entry.name.clone(), Style::default().add_modifier(Modifier::BOLD))),
                 Cell::from(Line::from(swatch)),
                 Cell::from(Span::styled(mark, Style::default().fg(theme().ok))),
-            ])
+            ]);
+            if selected == Some(i) { row.style(selection_style(crate::k8s::describe::Tone::Plain, false)) } else { row }
         })
         .collect();
-    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(24), Constraint::Min(8)])
+    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(16), Constraint::Min(8)])
         .column_spacing(2)
-        .style(theme_row(false))
-        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+        .style(theme_row(false));
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(entries.len().saturating_sub(1))));
     }
@@ -437,10 +432,46 @@ pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut
     }
 }
 
-/// The popup for picking a key by pressing it, then confirming.
+/// The popup for changing an action's keys: what to do with them, then the
+/// key itself, pressed and confirmed.
 fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
-    let area = centered_rect(60, 40, frame.area());
-    let area = Rect { height: area.height.clamp(9, 12).min(frame.area().height), ..area };
+    let muted = Style::default().fg(theme().muted);
+    let strong = Style::default().fg(theme().text_strong);
+    let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
+    let choice = |key: &str, what: &str| Line::from(vec![Span::styled(format!("{key:<10}"), key_style), Span::styled(what.to_string(), muted)]);
+    let mut lines: Vec<Line> = Vec::new();
+    match &capture.stage {
+        CaptureStage::Menu => {
+            lines.push(Line::styled("Keys now", strong));
+            for (i, key) in capture.keys.iter().enumerate() {
+                lines.push(Line::from(vec![Span::styled(format!("  {}  ", i + 1), muted), Span::styled(key.clone(), key_style)]));
+            }
+            lines.push(Line::raw(""));
+            lines.push(choice("a", "add another key"));
+            lines.push(choice("r", "replace them all with one key"));
+            lines.push(choice("1-9", "remove that key"));
+            lines.push(choice("d", "go back to the default keys"));
+            lines.push(choice("esc", "close"));
+        }
+        CaptureStage::Waiting => {
+            lines.push(Line::styled("Press the key you want to use.", strong));
+            lines.push(Line::styled("Any key works, Enter and Esc included. Nothing is saved until you confirm.", muted));
+        }
+        CaptureStage::Confirm { key, replace } => {
+            lines.push(Line::from(vec![Span::styled("You pressed  ", strong), Span::styled(format!("<{key}>"), key_style)]));
+            lines.push(Line::raw(""));
+            lines.push(choice("enter", if *replace { "use it instead of the current keys" } else { "add it to the current keys" }));
+            lines.push(choice("backspace", "pick a different key"));
+            lines.push(choice("esc", "cancel"));
+        }
+    }
+    if let Some(problem) = &capture.problem {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(problem.clone(), Style::default().fg(theme().bad)));
+    }
+    let height = (lines.len() as u16 + 2).min(frame.area().height);
+    let area = centered_rect(60, 100, frame.area());
+    let area = Rect { y: frame.area().y + frame.area().height.saturating_sub(height) / 2, height, ..area };
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -449,25 +480,6 @@ fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
         .title(Line::styled(format!(" {} ", capture.label), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let muted = Style::default().fg(theme().muted);
-    let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
-    let mut lines = vec![Line::styled(format!("Now: {}", capture.current), muted), Line::raw("")];
-    match &capture.pressed {
-        None => {
-            lines.push(Line::styled("Press the key you want to use.", Style::default().fg(theme().text_strong)));
-            lines.push(Line::styled("Enter and Esc can be picked too; you confirm next.", muted));
-        }
-        Some(key) => {
-            lines.push(Line::from(vec![Span::styled("You pressed  ", Style::default().fg(theme().text_strong)), Span::styled(format!("<{key}>"), key_style)]));
-            lines.push(Line::raw(""));
-            lines.push(Line::from(vec![Span::styled("enter", key_style), Span::styled("  use only this key", muted)]));
-            lines.push(Line::from(vec![Span::styled("a    ", key_style), Span::styled("  add it to the current keys", muted)]));
-            lines.push(Line::from(vec![Span::styled("bksp ", key_style), Span::styled("  pick again", muted), Span::styled("     esc", key_style), Span::styled("  cancel", muted)]));
-        }
-    }
-    if let Some(problem) = &capture.problem {
-        lines.push(Line::styled(problem.clone(), Style::default().fg(theme().bad)));
-    }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
