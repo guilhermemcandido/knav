@@ -1,7 +1,7 @@
 //! Input on the main list (and the overview): sorting, namespaces, drill-down, opening details.
 
 use super::super::*;
-use super::Cx;
+use super::{Cx, logs_mode};
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
@@ -218,8 +218,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             // ←/→ (or h/l) scroll a table sideways when its columns don't
             // all fit; the title shows `‹ ›` for what's out of view.
-            KeyCode::Left | KeyCode::Char('h') => st.hscroll = st.hscroll.saturating_sub(1),
-            KeyCode::Right | KeyCode::Char('l') => st.hscroll += 1,
+            KeyCode::Left => st.hscroll = st.hscroll.saturating_sub(1),
+            KeyCode::Right => st.hscroll += 1,
             // `s` sorts: the column numbers in the header light up and the
             // next digit picks one.
             KeyCode::Char('s') if column_count(st.current_kind, *generic_columns) > 0 => st.sort_choosing = true,
@@ -289,6 +289,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             // Actions on the selected object (see `actions`).
+            // Logs of a pod's container (`p`: the previous run's).
+            KeyCode::Char(c @ ('l' | 'p')) if st.current_kind == ResourceKind::Pods => {
+                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
+                    open_pod(st, cx, &target, PodView::Logs { previous: c == 'p' });
+                }
+            }
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let action = match c {
@@ -303,7 +309,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     if c == 'S' && target.scalable() {
                         st.mode = Mode::Scale { input: target.replicas().to_string(), target, back: Box::new(Mode::List) };
                     } else if c == 'S' && target.kind == "Pod" {
-                        open_shell(st, cx, &target);
+                        open_pod(st, cx, &target, PodView::Shell);
                     } else if let Some(action) = action {
                         if let Some(text) = action.confirmation(&target) {
                             st.mode = Mode::Confirm { text, target, action, back: Box::new(Mode::List) };
@@ -392,19 +398,25 @@ fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Cl
     }
 }
 
-/// `S` on a pod: a shell in its container, or the container list when
-/// there is more than one to choose from.
-fn open_shell(st: &mut State, cx: &mut Cx, target: &Target) {
-    let pod: k8s_openapi::api::core::v1::Pod = match serde_yaml::from_value(target.manifest.clone()) {
-        Ok(pod) => pod,
-        Err(_) => return,
-    };
+/// What to do with a pod's container.
+enum PodView {
+    Shell,
+    Logs { previous: bool },
+}
+
+/// Opens a shell or the logs in a pod's container: straight away when the
+/// pod has just one, else the container list to choose from.
+fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodView) {
+    let Ok(pod) = serde_yaml::from_value::<k8s_openapi::api::core::v1::Pod>(target.manifest.clone()) else { return };
     let containers = k8s::containers_for(&pod);
     let namespace = target.namespace.clone().unwrap_or_default();
-    match containers.as_slice() {
-        [only] => {
+    match (containers.as_slice(), view) {
+        ([only], PodView::Shell) => {
             let name = only.name.clone();
             run_shell(st, cx, &namespace, &target.name, &name);
+        }
+        ([only], PodView::Logs { previous }) => {
+            st.mode = logs_mode(cx, &namespace, &target.name, &only.name, previous, Mode::List);
         }
         _ => {
             st.mode = Mode::Containers {

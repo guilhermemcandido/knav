@@ -144,12 +144,14 @@ pub fn snapshot(store: &reflector::Store<Pod>) -> Vec<Arc<Pod>> {
 /// back over an unbounded channel as they arrive. Caller is responsible
 /// for aborting the returned handle when done (e.g. when the log view is
 /// closed) — otherwise the stream just keeps running against the API
-/// server in the background.
+/// server in the background. `previous` reads the last terminated
+/// container's log instead (nothing to follow there).
 pub fn stream_logs(
     client: Client,
     namespace: String,
     pod: String,
     container: String,
+    previous: bool,
 ) -> (mpsc::UnboundedReceiver<String>, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
 
@@ -157,7 +159,8 @@ pub fn stream_logs(
         let api: Api<Pod> = Api::namespaced(client, &namespace);
         let lp = LogParams {
             container: Some(container),
-            follow: true,
+            follow: !previous,
+            previous,
             // Timestamps come from the API server itself, not the app —
             // more trustworthy than "when did knav happen to read this
             // line," and it's the actual diagnostic detail ("when did

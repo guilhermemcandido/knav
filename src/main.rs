@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use config::{Config, LogOrder, StartupMode, TimestampFormat};
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
 use crossterm::execute;
 use k8s::ResourceKind;
 use k8s_openapi::api::{

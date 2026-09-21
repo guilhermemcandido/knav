@@ -290,7 +290,7 @@ pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> V
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
-        ResourceKind::Pods => vec![("S", "shell")],
+        ResourceKind::Pods => vec![("l", "logs"), ("p", "previous logs"), ("S", "shell")],
         ResourceKind::Deployments | ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
         ResourceKind::ReplicaSets => vec![("S", "scale")],
         ResourceKind::DaemonSets => vec![("r", "restart")],
@@ -327,6 +327,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
                 hints.push(("e", "edit"));
                 hints.extend(action_hints(current_kind));
             }
+            hints.push(("g/G", "top/bottom"));
             hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));
             hints.push(("s", "sort"));
@@ -351,7 +352,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
-        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("S", "shell"), ("s", "sort"), ("q/esc", "back")],
+        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter/l", "logs"), ("p", "previous"), ("S", "shell"), ("s", "sort"), ("q/esc", "back")],
         Mode::Logs { .. } => {
             vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("o", "order"), ("/", "filter"), ("q/esc", "back")]
         }
@@ -402,6 +403,27 @@ pub(crate) fn select_prev(state: &mut TableState, len: usize) {
     }
     let prev = state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
     state.select(Some(prev));
+}
+
+/// `g`/`G`/Home/End jump to the top or bottom of a table, `Ctrl-f`/`Ctrl-b`
+/// and PageDown/PageUp move a page. False for any other key.
+pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, page: usize) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let current = state.selected().unwrap_or(0);
+    let last = len.saturating_sub(1);
+    let target = match key.code {
+        KeyCode::Char('g') | KeyCode::Home if !ctrl => 0,
+        KeyCode::Char('G') | KeyCode::End if !ctrl => last,
+        KeyCode::Char('f') if ctrl => (current + page).min(last),
+        KeyCode::PageDown => (current + page).min(last),
+        KeyCode::Char('b') if ctrl => current.saturating_sub(page),
+        KeyCode::PageUp => current.saturating_sub(page),
+        _ => return false,
+    };
+    if len > 0 {
+        state.select(Some(target));
+    }
+    true
 }
 
 /// Rows the selection moves per wheel notch.
@@ -507,5 +529,51 @@ mod wheel_tests {
         let mut state = TableState::default().with_selected(2);
         assert!(!wheel_select(MouseEventKind::Moved, &mut state, 10));
         assert_eq!(state.selected(), Some(2));
+    }
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn g_and_capital_g_go_to_the_ends() {
+        let mut state = TableState::default().with_selected(4);
+        assert!(jump_select(&key(KeyCode::Char('G'), KeyModifiers::SHIFT), &mut state, 20, 5));
+        assert_eq!(state.selected(), Some(19));
+        assert!(jump_select(&key(KeyCode::Char('g'), KeyModifiers::NONE), &mut state, 20, 5));
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn ctrl_f_and_ctrl_b_move_a_page_and_stop_at_the_ends() {
+        let mut state = TableState::default().with_selected(3);
+        jump_select(&key(KeyCode::Char('f'), KeyModifiers::CONTROL), &mut state, 20, 10);
+        assert_eq!(state.selected(), Some(13));
+        jump_select(&key(KeyCode::PageDown, KeyModifiers::NONE), &mut state, 20, 10);
+        assert_eq!(state.selected(), Some(19));
+        jump_select(&key(KeyCode::Char('b'), KeyModifiers::CONTROL), &mut state, 20, 10);
+        assert_eq!(state.selected(), Some(9));
+        jump_select(&key(KeyCode::PageUp, KeyModifiers::NONE), &mut state, 20, 10);
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn plain_f_and_b_are_not_jumps() {
+        let mut state = TableState::default().with_selected(3);
+        assert!(!jump_select(&key(KeyCode::Char('f'), KeyModifiers::NONE), &mut state, 20, 10));
+        assert!(!jump_select(&key(KeyCode::Char('b'), KeyModifiers::NONE), &mut state, 20, 10));
+        assert_eq!(state.selected(), Some(3));
+    }
+
+    #[test]
+    fn an_empty_table_stays_unselected() {
+        let mut state = TableState::default();
+        assert!(jump_select(&key(KeyCode::Char('G'), KeyModifiers::NONE), &mut state, 0, 5));
+        assert_eq!(state.selected(), None);
     }
 }

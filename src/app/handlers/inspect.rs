@@ -1,7 +1,7 @@
 //! Looking inside one object: spec tree, containers, node detail, logs.
 
 use super::super::*;
-use super::Cx;
+use super::{Cx, logs_mode};
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
@@ -78,13 +78,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     failed_shell = actions::shell(cx.terminal, cx.active_context, namespace, pod, &container.name);
                 }
             }
-            KeyCode::Enter => {
+            // Logs of the selected container; `p` reads the previous run's.
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Char('p') => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
-                    let log_title = format!("{namespace}/{pod}/{}", container.name);
-                    let (rx, handle) =
-                        k8s::stream_logs(client.clone(), namespace.clone(), pod.clone(), container.name.clone());
-                    let containers_snapshot = Mode::Containers {
+                    let snapshot = Mode::Containers {
                         title: title.clone(),
                         namespace: namespace.clone(),
                         pod: pod.clone(),
@@ -93,19 +91,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         sort: *sort,
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     };
-                    st.mode = Mode::Logs {
-                        title: log_title,
-                        lines: Vec::new(),
-                        scroll: 0,
-                        follow: true,
-                        timestamp_format: config.logs.timestamp_format,
-                        order: config.logs.order,
-                        rx,
-                        handle,
-                        filter: String::new(),
-                        filter_editing: false,
-                        back: Box::new(containers_snapshot),
-                    };
+                    st.mode = logs_mode(cx, namespace, pod, &container.name, key.code == KeyCode::Char('p'), snapshot);
                 }
             }
             _ => {}

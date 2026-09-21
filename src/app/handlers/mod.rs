@@ -25,10 +25,40 @@ pub(super) struct Cx<'a> {
     pub d: &'a Derived,
 }
 
+/// The log view of one container, opened over `back`.
+pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, previous: bool, back: Mode) -> Mode {
+    let (rx, handle) = k8s::stream_logs(cx.client.clone(), namespace.to_string(), pod.to_string(), container.to_string(), previous);
+    let suffix = if previous { " (previous)" } else { "" };
+    Mode::Logs {
+        title: format!("{namespace}/{pod}/{container}{suffix}"),
+        lines: Vec::new(),
+        scroll: 0,
+        follow: true,
+        timestamp_format: cx.config.logs.timestamp_format,
+        order: cx.config.logs.order,
+        rx,
+        handle,
+        filter: String::new(),
+        filter_editing: false,
+        back: Box::new(back),
+    }
+}
+
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     // `s` and the digits sort a popup's table when one has focus.
     if matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code)) {
         return Ok(None);
+    }
+    // g/G/Home/End and paging, in whichever table has focus.
+    if let Event::Key(key) = &event
+        && !is_typing(&st.mode)
+    {
+        let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
+        if let Some((state, len)) = focused_table(st, cx)
+            && jump_select(key, state, len, page)
+        {
+            return Ok(None);
+        }
     }
     // These take every key, so the global keys below never fire in them.
     if matches!(st.mode, Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. }) {
@@ -46,6 +76,29 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Scale { .. } => operate::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
+    }
+}
+
+/// The table the keyboard is on, with its row count, for the screens that
+/// have one.
+fn focused_table<'a>(st: &'a mut State, cx: &Cx) -> Option<(&'a mut TableState, usize)> {
+    match &mut st.mode {
+        Mode::List if st.current_kind != ResourceKind::Overview => Some((&mut st.table_state, cx.row_count)),
+        Mode::Events { filter, search, state, sort, .. } => {
+            let len = k8s::filter_events(&cx.d.overview.events, *filter, search, sort.spec).len();
+            Some((state, len))
+        }
+        Mode::NamespacePick { names, filter, state, sort, .. } => {
+            let len = filtered_names(names, filter, *sort, &st.favorites).len();
+            Some((state, len))
+        }
+        Mode::Context { contexts, filter, state, sort, .. } => {
+            let len = filtered_contexts(contexts, filter, *sort).len();
+            Some((state, len))
+        }
+        Mode::Containers { containers, state, .. } => Some((state, containers.len())),
+        Mode::NodeDetail { state, .. } => Some((state, cx.d.node_detail_rows.len())),
+        _ => None,
     }
 }
 
