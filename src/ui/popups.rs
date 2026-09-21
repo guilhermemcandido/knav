@@ -117,7 +117,7 @@ pub(super) fn draw_namespace_picker(
     });
     let widths = [Constraint::Fill(1), Constraint::Length(5)];
 
-    let mut title = colored_slash_title(&format!("Give which namespace a key? ({}/{total})", items.len()));
+    let mut title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
     if editing || !filter.is_empty() {
         title.push_span(Span::styled(format!("  —  /{filter}{}", if editing { "▏" } else { "" }), Style::default().fg(Color::Yellow)));
     }
@@ -143,7 +143,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(format!(" Put '{namespace}' on which key? "));
+        .title(format!(" Choose the key for '{namespace}' "));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
@@ -333,11 +333,19 @@ pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::
 /// `Normal`/`Warning` as event types, so that's the full set of filters;
 /// there's no separate "Errors" bucket to add since the API doesn't have
 /// one.
-pub(super) fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter: EventFilter, state: &mut TableState, dimmed: bool) {
+pub(super) fn draw_events_popup(
+    frame: &mut Frame,
+    events: &[EventEntry],
+    filter: EventFilter,
+    search: &str,
+    editing: bool,
+    state: &mut TableState,
+    dimmed: bool,
+) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let filtered: Vec<&EventEntry> = events.iter().filter(|e| filter.matches(e)).collect();
+    let filtered = crate::k8s::filter_events(events, filter, search);
 
     let header_style = theme_header(dimmed);
     let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(header_style);
@@ -375,12 +383,31 @@ pub(super) fn draw_events_popup(frame: &mut Frame, events: &[EventEntry], filter
         Constraint::Length(5),
     ];
 
-    let title = format!(
-        "Events ({}/{})  —  filter: {}",
-        filtered.len(),
-        events.len(),
-        filter.label()
-    );
+    // The title says what's being shown and how to change it, with the
+    // active severity highlighted: `showing warnings only  [a all · w
+    // warnings · n normal]`, plus the `/` search when there is one.
+    let plain = if dimmed { dim_style() } else { Style::default() };
+    let active = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
+    let idle = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
+    let key_style = |this: EventFilter| if filter == this { active } else { idle };
+    let mut title_spans = vec![
+        Span::styled(format!("Events ({}/{})", filtered.len(), events.len()), plain.add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  —  {}", filter.describe()), plain),
+        Span::styled("  [", idle),
+        Span::styled("a all", key_style(EventFilter::All)),
+        Span::styled(" · ", idle),
+        Span::styled("w warnings", key_style(EventFilter::Warnings)),
+        Span::styled(" · ", idle),
+        Span::styled("n normal", key_style(EventFilter::Normal)),
+        Span::styled("]", idle),
+    ];
+    if editing || !search.is_empty() {
+        let style = if dimmed { dim_style() } else { Style::default().fg(Color::Yellow) };
+        title_spans.push(Span::styled(format!("  —  search: {search}{}", if editing { "▏" } else { "" }), style));
+    } else if !dimmed {
+        title_spans.push(Span::styled("  —  / to search", idle));
+    }
+    let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
     let highlight_style = theme_highlight(dimmed);
@@ -627,5 +654,29 @@ mod events_popup_tests {
         assert!(EventFilter::All.matches(&normal) && EventFilter::All.matches(&warning));
         assert!(EventFilter::Warnings.matches(&warning) && !EventFilter::Warnings.matches(&normal));
         assert!(EventFilter::Normal.matches(&normal) && !EventFilter::Normal.matches(&warning));
+    }
+
+    #[test]
+    fn events_search_matches_reason_object_kind_and_message_case_insensitively() {
+        let mut crash = entry(crate::k8s::EventSeverity::Warning);
+        crash.reason = "BackOff".into();
+        crash.message = "Back-off restarting failed container".into();
+        crash.object = "web-1".into();
+        let ok = entry(crate::k8s::EventSeverity::Normal);
+        let events = vec![crash, ok];
+        let found = |filter, search: &str| crate::k8s::filter_events(&events, filter, search).len();
+        assert_eq!(found(EventFilter::All, ""), 2);
+        assert_eq!(found(EventFilter::All, "backoff"), 1); // reason
+        assert_eq!(found(EventFilter::All, "WEB-1"), 1); // object
+        assert_eq!(found(EventFilter::All, "restarting"), 1); // message
+        assert_eq!(found(EventFilter::All, "pod"), 2); // kind, on both
+        assert_eq!(found(EventFilter::All, "zzz"), 0);
+        assert_eq!(found(EventFilter::Normal, "backoff"), 0); // severity filter still applies
+    }
+
+    #[test]
+    fn the_filter_describes_itself_in_words() {
+        assert_eq!(EventFilter::All.describe(), "showing all events");
+        assert_eq!(EventFilter::Warnings.describe(), "showing warnings only");
     }
 }

@@ -565,11 +565,12 @@ pub enum EventFilter {
 }
 
 impl EventFilter {
-    pub fn label(self) -> &'static str {
+    /// What the filter is doing, in words — shown in the Events title.
+    pub fn describe(self) -> &'static str {
         match self {
-            EventFilter::All => "all",
-            EventFilter::Warnings => "warnings",
-            EventFilter::Normal => "normal",
+            EventFilter::All => "showing all events",
+            EventFilter::Warnings => "showing warnings only",
+            EventFilter::Normal => "showing normal events only",
         }
     }
 
@@ -580,6 +581,21 @@ impl EventFilter {
             EventFilter::Normal => entry.severity == EventSeverity::Normal,
         }
     }
+}
+
+/// The events the browser shows: the severity filter, then the `/` text
+/// search — a case-insensitive substring of the reason, object, kind or
+/// message (prose, so substring rather than fuzzy).
+pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str) -> Vec<&'a EventEntry> {
+    let needle = search.to_lowercase();
+    events
+        .iter()
+        .filter(|e| filter.matches(e))
+        .filter(|e| {
+            needle.is_empty()
+                || [&e.reason, &e.object, &e.kind, &e.message].iter().any(|field| field.to_lowercase().contains(&needle))
+        })
+        .collect()
 }
 
 /// One row in the Events feed: every cluster Event in chronological

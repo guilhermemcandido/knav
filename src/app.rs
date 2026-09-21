@@ -367,10 +367,10 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
-            Mode::Events { filter, state } => {
+            Mode::Events { filter, search, editing, state } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, state };
+                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now);
                 })?;
             }
@@ -378,7 +378,9 @@ pub(crate) fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let background = match &mut **back {
-                        Mode::Events { filter, state } => Some(ui::Overlay::Events { events: &overview.events, filter: *filter, state }),
+                        Mode::Events { filter, search, editing, state } => {
+                            Some(ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state })
+                        }
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
@@ -629,6 +631,8 @@ pub(crate) fn run(
                             ui::OverviewSelection::Events => {
                                 mode = Mode::Events {
                                     filter: k8s::EventFilter::default(),
+                                    search: String::new(),
+                                    editing: false,
                                     state: TableState::default().with_selected(if overview.events.is_empty() { None } else { Some(0) }),
                                 };
                             }
@@ -660,33 +664,48 @@ pub(crate) fn run(
                         overview_item_scroll = ui::scroll_columns_to_show(overview_item_scroll, items_visible, target_item);
                     }
                 }
-                (Event::Key(key), Mode::Events { filter, state }) => match key.code {
+                (Event::Key(key), Mode::Events { search, editing: editing @ true, state, .. }) => match key.code {
+                    // Esc clears the search and leaves typing; Enter keeps
+                    // it applied and goes back to browsing the matches.
+                    KeyCode::Esc => {
+                        search.clear();
+                        *editing = false;
+                    }
+                    KeyCode::Enter => *editing = false,
+                    KeyCode::Backspace => {
+                        search.pop();
+                        state.select(Some(0));
+                    }
+                    KeyCode::Char(c) => {
+                        search.push(c);
+                        state.select(Some(0));
+                    }
+                    _ => {}
+                },
+                (Event::Key(key), Mode::Events { filter, search, editing, state }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
+                    KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                     KeyCode::Char('a') => *filter = k8s::EventFilter::All,
                     KeyCode::Char('w') => *filter = k8s::EventFilter::Warnings,
                     KeyCode::Char('n') => *filter = k8s::EventFilter::Normal,
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
-                        select_next(state, filtered_len);
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        let filtered_len = overview.events.iter().filter(|e| filter.matches(e)).count();
-                        select_prev(state, filtered_len);
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => select_next(state, k8s::filter_events(&overview.events, *filter, search).len()),
+                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, k8s::filter_events(&overview.events, *filter, search).len()),
                     KeyCode::Enter => {
-                        if let Some(entry) = state.selected().and_then(|i| overview.events.iter().filter(|e| filter.matches(e)).nth(i)) {
-                            let back = Box::new(Mode::Events { filter: *filter, state: *state });
-                            mode = Mode::EventDetail { entry: entry.clone(), back };
+                        let entry = state.selected().and_then(|i| k8s::filter_events(&overview.events, *filter, search).get(i).map(|e| (*e).clone()));
+                        if let Some(entry) = entry {
+                            let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state });
+                            mode = Mode::EventDetail { entry, back };
                         }
                     }
                     _ => {}
                 },
-                (Event::Mouse(mouse), Mode::Events { filter, state }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    let filtered: Vec<&k8s::EventEntry> = overview.events.iter().filter(|e| filter.matches(e)).collect();
+                (Event::Mouse(mouse), Mode::Events { filter, search, state, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let filtered = k8s::filter_events(&overview.events, *filter, search);
                     if let Some(idx) = ui::event_row_at(frame_area, filtered.len(), state.offset(), mouse.row) {
                         state.select(Some(idx));
-                        let back = Box::new(Mode::Events { filter: *filter, state: *state });
-                        mode = Mode::EventDetail { entry: filtered[idx].clone(), back };
+                        let entry = filtered[idx].clone();
+                        let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state });
+                        mode = Mode::EventDetail { entry, back };
                     }
                 }
                 (Event::Key(key), Mode::EventDetail { back, .. }) => match key.code {
@@ -941,7 +960,7 @@ pub(crate) fn run(
                             return Ok(Outcome::Quit);
                         }
                         if matches!(highlighted, Some(Cmd::Events)) {
-                            mode = Mode::Events { filter: k8s::EventFilter::All, state: TableState::default().with_selected(0) };
+                            mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0) };
                         } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
                             let mut opened = std::mem::replace(&mut **back, Mode::List);
                             open_context_switcher(&mut opened, active_context);

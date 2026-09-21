@@ -104,7 +104,7 @@ pub enum Overlay<'a> {
     /// The dedicated Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
-    Events { events: &'a [EventEntry], filter: EventFilter, state: &'a mut TableState },
+    Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState },
     /// One event's full detail — opened by pressing Enter or clicking a
     /// row in the Events browser, since the browser's own MESSAGE column
     /// clips long messages to fit the table.
@@ -293,7 +293,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Command { input, suggestions, selected } => draw_command_bar(frame, input, suggestions, selected),
         Overlay::Context { items, total, filter, editing, state, error } => draw_context_popup(frame, items, total, filter, editing, state, error),
-        Overlay::Events { events, filter, state } => draw_events_popup(frame, events, filter, state, dimmed),
+        Overlay::Events { events, filter, search, editing, state } => draw_events_popup(frame, events, filter, search, editing, state, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
         Overlay::ColumnDetail { title, items, selected, row_scroll } => {

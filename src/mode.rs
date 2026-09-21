@@ -65,7 +65,7 @@ pub(crate) enum Mode {
     },
     /// The full Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event, filterable by severity.
-    Events { filter: k8s::EventFilter, state: TableState },
+    Events { filter: k8s::EventFilter, search: String, editing: bool, state: TableState },
     /// One event's full, untruncated detail — opened from within the
     /// Events browser. `back` restores that browser's filter/scroll
     /// position exactly, same pattern as `Containers`/`Logs`.
@@ -115,7 +115,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -250,7 +250,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
             }
-            hints.push(("n", "namespace key"));
+            hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));
             hints.push(("/", "search"));
             hints.push(("m", "switch resource"));
@@ -267,7 +267,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             vec![("j/k", "move"), ("enter", "toggle"), ("v", "view full value"), ("a", "expand/collapse all"), ("q/esc", "back")]
         }
         Mode::NodeDetail { .. } => vec![("j/k", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("q/esc", "back")],
-        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("q/esc", "back")],
+        Mode::Events { editing: true, .. } => Vec::new(),
+        Mode::Events { .. } => vec![("j/k", "move"), ("enter", "detail"), ("a/w/n", "all/warnings/normal"), ("/", "search"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("arrows/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
