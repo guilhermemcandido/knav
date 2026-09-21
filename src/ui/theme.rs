@@ -147,20 +147,18 @@ mod highlight_tests {
     }
 }
 
-/// A table header where every column carries its number, `(1)NAME`, and
-/// the sorted column an arrow, `(2)AGE ▲` (ascending) / `▼` (descending).
-/// The numbers light up while the sort key is being chosen (`s`).
+/// A table header. In sort mode (`s`) every column carries its number,
+/// `(1)NAME`; the sorted column always carries an arrow, `AGE ▲`
+/// (ascending) or `AGE ▼` (descending).
 pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool) -> Row<'static> {
     let text = theme_header(dimmed);
-    let number = if dimmed {
-        dim_style()
-    } else if sort.choosing {
-        Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Rgb(96, 125, 139))
-    };
+    let number = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
     let cells = names.iter().enumerate().map(|(i, name)| {
-        let mut spans = vec![Span::styled(format!("({})", i + 1), number), Span::styled((*name).to_string(), text)];
+        let mut spans = Vec::new();
+        if sort.choosing {
+            spans.push(Span::styled(format!("({})", i + 1), number));
+        }
+        spans.push(Span::styled((*name).to_string(), text));
         if sort.column == Some(i) {
             spans.push(Span::styled(if sort.descending { " ▼" } else { " ▲" }, text));
         }

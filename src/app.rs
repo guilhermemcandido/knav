@@ -457,17 +457,23 @@ pub(crate) fn run(
         // whole backlog instead of being handled almost immediately.
         loop {
             match (event::read()?, &mut mode) {
-                // After `s`, the next key picks the sort column by its number —
-                // the same column again cycles ascending, descending, off.
-                // Anything else just cancels.
-                (Event::Key(key), Mode::List) if sort_choosing => {
-                    sort_choosing = false;
-                    if let KeyCode::Char(c @ '1'..='9') = key.code {
-                        let column = c as usize - '1' as usize;
-                        if column < column_count(current_kind, generic_has_namespace) {
-                            sort = SortSpec::pressed(sort, column);
-                            table_state.select(Some(0));
+                // Sort mode (`s`): the headers show their column numbers and a
+                // digit sorts by that column — the same one again flips
+                // ascending, descending, off. It stays on until `s`, Esc or
+                // `q`; every other key still works as usual meanwhile.
+                (Event::Key(key), Mode::List)
+                    if sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
+                {
+                    match key.code {
+                        KeyCode::Char(c @ '1'..='9') => {
+                            let column = c as usize - '1' as usize;
+                            if column < column_count(current_kind, generic_has_namespace) {
+                                sort = SortSpec::pressed(sort, column);
+                                table_state.select(Some(0));
+                            }
                         }
+                        KeyCode::Char('0') => {}
+                        _ => sort_choosing = false,
                     }
                 }
                 // Any key (or click) closes a notice — checked before the
