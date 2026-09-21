@@ -18,6 +18,8 @@ pub struct Report {
     pub phases: Vec<(&'static str, usize)>,
     /// The namespaces with the most pods, biggest first.
     pub namespaces: Vec<(String, usize)>,
+    /// How many namespaces have pods at all.
+    pub namespace_count: usize,
 }
 
 /// What one pod asks for: the sum over its containers.
@@ -55,9 +57,10 @@ pub fn report(pods: &[Arc<Pod>]) -> Report {
         slot.1 += memory;
     }
     report.phases = ["Running", "Pending", "Succeeded", "Failed", "Unknown"].into_iter().filter_map(|p| phases.get(p).map(|n| (p, *n))).collect();
+    report.namespace_count = namespaces.len();
     let mut namespaces: Vec<(String, usize)> = namespaces.into_iter().collect();
     namespaces.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    namespaces.truncate(6);
+    namespaces.truncate(5);
     report.namespaces = namespaces;
     report
 }

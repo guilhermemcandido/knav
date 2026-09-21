@@ -947,92 +947,149 @@ pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// The Resources view: usage and requests against what the nodes offer, each
-/// node, how the pods are doing and where they are.
+/// A bar `width` cells wide filled to `ratio`.
+fn fill_bar(ratio: f64, width: usize, color: Color, dimmed: bool) -> Line<'static> {
+    let filled = ((ratio.clamp(0.0, 1.0) * width as f64).round() as usize).min(width);
+    let (on, off) = if dimmed { (dim_style(), dim_style()) } else { (Style::default().fg(color), Style::default().fg(theme().muted)) };
+    Line::from(vec![Span::styled("█".repeat(filled), on), Span::styled("░".repeat(width - filled), off)])
+}
+
+/// One card of the Resources view: what is used, and what the pods ask for.
+fn resource_card(frame: &mut Frame, area: Rect, title: &str, used: Option<f64>, asked: Option<f64>, capacity: f64, show: &dyn Fn(f64) -> String, dimmed: bool) {
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+    let width = usize::from(inner.width);
+    let muted = Style::default().fg(theme().muted);
+    let ratio = |v: f64| if capacity > 0.0 { v / capacity } else { 0.0 };
+    let percent = |label: &str, value: Option<f64>| match value {
+        Some(v) => Line::from(vec![Span::styled(format!("{:.0}%", ratio(v) * 100.0), if dimmed { dim_style() } else { Style::default().fg(usage_color(ratio(v), false)).add_modifier(Modifier::BOLD) }), Span::styled(format!("  {label}"), muted)]),
+        None => Line::from(vec![Span::styled("n/a", muted), Span::styled(format!("  {label} (no metrics-server)"), muted)]),
+    };
+    let amount = |value: Option<f64>| Line::styled(value.map(|v| format!("{} / {}", show(v), show(capacity))).unwrap_or_default(), muted);
+    let mut lines = vec![percent("in use", used), fill_bar(used.map_or(0.0, ratio), width, usage_color(used.map_or(0.0, ratio), dimmed), dimmed), amount(used)];
+    if let Some(asked) = asked {
+        lines.push(percent("asked by pods", Some(asked)));
+        lines.push(fill_bar(ratio(asked), width, theme().accent, dimmed));
+        lines.push(amount(Some(asked)));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The Resources view: usage and requests against what the nodes offer, the
+/// busiest nodes, how the pods are doing and where they are. Long lists are cut to
+/// what fits, with a count of the rest.
 pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[crate::k8s::NodeRow], dimmed: bool) {
     let area = body_area(frame.area(), false);
     frame.render_widget(Clear, area);
-    let border_style = if dimmed { dim_style() } else { theme_border(false) };
-    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(Line::styled(" Resources ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(" Resources ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
     let report = overview.report.as_ref();
-    let heading = |text: &str| Line::styled(text.to_string(), if dimmed { dim_style() } else { Style::default().fg(theme().heading).add_modifier(Modifier::BOLD) });
+    let muted = Style::default().fg(theme().muted);
 
-    // Usage and requests against allocatable.
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(5), Constraint::Length(1), Constraint::Min(3), Constraint::Length(1), Constraint::Length(9)]).split(inner);
-    frame.render_widget(Paragraph::new(heading("Cluster")), rows[0]);
-    let meters = Layout::vertical([Constraint::Length(1); 5]).split(rows[1]);
+    let rows = Layout::vertical([Constraint::Length(8), Constraint::Min(6)]).split(inner);
+    let cards = Layout::horizontal([Constraint::Ratio(1, 3); 3]).spacing(1).split(rows[0]);
     let cores = |v: f64| format!("{:.2} cores", v / 1000.0);
-    if overview.metrics_available {
-        draw_meter(frame, meters[0], "CPU", overview.cpu_usage_millicores as f64, overview.cpu_capacity_millicores as f64, cores, dimmed);
-        draw_meter(frame, meters[2], "Memory", overview.memory_usage_bytes as f64, overview.memory_capacity_bytes as f64, format_bytes, dimmed);
-    } else {
-        for (row, label) in [(0, "CPU"), (2, "Memory")] {
-            frame.render_widget(Paragraph::new(Line::from(vec![Span::styled(format!("{label:<8}"), Style::default().add_modifier(Modifier::BOLD)), Span::styled("usage unavailable (no metrics-server)", Style::default().fg(theme().muted))])), meters[row]);
-        }
-    }
-    if let Some(report) = report {
-        draw_meter(frame, meters[1], "  asked", report.cpu_requests_millicores as f64, overview.cpu_capacity_millicores as f64, cores, dimmed);
-        draw_meter(frame, meters[3], "  asked", report.memory_requests_bytes as f64, overview.memory_capacity_bytes as f64, format_bytes, dimmed);
-    }
-    draw_meter(frame, meters[4], "Pods", workloads_pod_count(overview) as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
+    let usage = overview.metrics_available;
+    resource_card(frame, cards[0], "CPU", usage.then_some(overview.cpu_usage_millicores as f64), report.map(|r| r.cpu_requests_millicores as f64), overview.cpu_capacity_millicores as f64, &cores, dimmed);
+    resource_card(frame, cards[1], "Memory", usage.then_some(overview.memory_usage_bytes as f64), report.map(|r| r.memory_requests_bytes as f64), overview.memory_capacity_bytes as f64, &format_bytes, dimmed);
+    resource_card(frame, cards[2], "Pods", Some(workloads_pod_count(overview) as f64), None, overview.pod_capacity as f64, &|v| format!("{v:.0}"), dimmed);
 
-    // Every node.
-    frame.render_widget(Paragraph::new(heading(&format!("Nodes ({})", nodes.len()))), rows[2]);
-    let table_rows: Vec<Row> = nodes
+    let halves = Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)]).spacing(1).split(rows[1]);
+
+    // The busiest nodes first, so a big cluster shows what needs attention.
+    let pressure = |n: &crate::k8s::NodeRow| {
+        let ratio = |used: Option<i64>, cap: i64| if cap > 0 { used.unwrap_or(0) as f64 / cap as f64 } else { 0.0 };
+        ratio(n.cpu_millicores, n.cpu_capacity).max(ratio(n.memory_bytes, n.memory_capacity))
+    };
+    let mut ordered: Vec<&crate::k8s::NodeRow> = nodes.iter().collect();
+    ordered.sort_by(|a, b| (a.ready, a.schedulable).cmp(&(b.ready, b.schedulable)).then(pressure(b).total_cmp(&pressure(a))).then_with(|| a.name.cmp(&b.name)));
+    let (not_ready, cordoned) = (nodes.iter().filter(|n| !n.ready).count(), nodes.iter().filter(|n| n.ready && !n.schedulable).count());
+    let summary = format!("{} ready", nodes.len() - not_ready - cordoned);
+    let mut title = vec![Span::styled(format!(" Nodes ({}) ", nodes.len()), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)), Span::styled(summary, Style::default().fg(theme().ok))];
+    if cordoned > 0 {
+        title.push(Span::styled(format!(" · {cordoned} cordoned"), Style::default().fg(theme().warn)));
+    }
+    if not_ready > 0 {
+        title.push(Span::styled(format!(" · {not_ready} not ready"), Style::default().fg(theme().bad)));
+    }
+    title.push(Span::raw(" "));
+    let nodes_block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::from(title));
+    let nodes_inner = nodes_block.inner(halves[0]);
+    frame.render_widget(nodes_block, halves[0]);
+    let nodes_inner = Rect { x: nodes_inner.x + 1, width: nodes_inner.width.saturating_sub(2), ..nodes_inner };
+    let room = usize::from(nodes_inner.height).saturating_sub(1);
+    let shown = if ordered.len() > room { room.saturating_sub(1) } else { ordered.len() };
+    let mut table_rows: Vec<Row> = ordered
         .iter()
+        .take(shown)
         .map(|n| {
             let (cpu_req, mem_req) = report.and_then(|r| r.node_requests.get(&n.name).copied()).unzip();
             let status = if !n.ready { ("NotReady", theme().bad) } else if !n.schedulable { ("Cordoned", theme().warn) } else { ("Ready", theme().ok) };
-            let status_style = if dimmed { dim_style() } else { Style::default().fg(status.1) };
+            let asked = |req: Option<i64>, cap: i64| match (report, cap > 0) {
+                (Some(_), true) => format!("{:.0}%", req.unwrap_or(0) as f64 / cap as f64 * 100.0),
+                _ => "-".to_string(),
+            };
             Row::new(vec![
-                Cell::from(n.name.clone()),
-                Cell::from(Span::styled(status.0, status_style)),
+                Cell::from(truncate(&n.name, 30)),
+                Cell::from(Span::styled(status.0, if dimmed { dim_style() } else { Style::default().fg(status.1) })),
                 Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
                 Cell::from(usage_bar(n.memory_bytes, n.memory_capacity, dimmed)),
-                Cell::from(usage_bar(cpu_req.or(report.map(|_| 0)), n.cpu_capacity, dimmed)),
-                Cell::from(usage_bar(mem_req.or(report.map(|_| 0)), n.memory_capacity, dimmed)),
+                Cell::from(format!("{}/{}", asked(cpu_req, n.cpu_capacity), asked(mem_req, n.memory_capacity))),
                 Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)),
             ])
         })
         .collect();
-    let header = Row::new(["NAME", "STATUS", "CPU", "MEMORY", "CPU ASKED", "MEM ASKED", "PODS"]).style(Style::default().fg(theme().header).add_modifier(Modifier::BOLD));
-    let table = Table::new(table_rows, [Constraint::Min(16), Constraint::Length(9), Constraint::Length(16), Constraint::Length(16), Constraint::Length(16), Constraint::Length(16), Constraint::Length(9)]).header(header).column_spacing(2).style(theme_row(dimmed));
-    frame.render_widget(table, rows[3]);
+    if shown < ordered.len() {
+        table_rows.push(Row::new(vec![Cell::from(Span::styled(format!("+{} more, busiest first", ordered.len() - shown), muted))]));
+    }
+    let header = Row::new(["NAME", "STATUS", "CPU", "MEMORY", "ASKED", "PODS"]).style(Style::default().fg(theme().header).add_modifier(Modifier::BOLD));
+    let table = Table::new(table_rows, [Constraint::Min(20), Constraint::Length(9), Constraint::Length(16), Constraint::Length(16), Constraint::Length(10), Constraint::Length(8)]).header(header).column_spacing(2).style(theme_row(dimmed));
+    frame.render_widget(table, nodes_inner);
 
-    // How the pods are doing and where they are.
-    frame.render_widget(Paragraph::new(heading("Pods")), rows[4]);
+    // How the pods are doing, and which namespaces hold the most.
+    let pods_block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(Line::styled(" Pods ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
+    let pods_inner = pods_block.inner(halves[1]);
+    frame.render_widget(pods_block, halves[1]);
+    let pods_inner = Rect { x: pods_inner.x + 1, width: pods_inner.width.saturating_sub(2), ..pods_inner };
     let Some(report) = report else { return };
-    let halves = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).spacing(2).split(rows[5]);
     let phase_color = |phase: &str| match phase {
         "Running" => theme().ok,
         "Pending" | "Unknown" => theme().warn,
         "Failed" => theme().bad,
         _ => theme().muted,
     };
-    let phase_lines: Vec<Line> = report
-        .phases
-        .iter()
-        .map(|(phase, n)| Line::from(vec![Span::styled("● ", if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }), Span::styled(format!("{phase:<11}"), Style::default()), Span::styled(n.to_string(), Style::default().add_modifier(Modifier::BOLD))]))
-        .collect();
-    frame.render_widget(Paragraph::new(phase_lines), halves[0]);
+    let total: usize = report.phases.iter().map(|(_, n)| n).sum::<usize>().max(1);
+    let width = usize::from(pods_inner.width);
+    let mut lines: Vec<Line> = Vec::new();
+    // One bar for all pods, a colour per phase.
+    let mut used = 0;
+    let mut segments: Vec<Span> = Vec::new();
+    for (i, (phase, n)) in report.phases.iter().enumerate() {
+        let cells = if i + 1 == report.phases.len() { width - used } else { (n * width / total).max(1).min(width - used) };
+        used += cells;
+        segments.push(Span::styled("█".repeat(cells), if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }));
+    }
+    lines.push(Line::from(segments));
+    for (phase, n) in &report.phases {
+        lines.push(Line::from(vec![Span::styled("● ", if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }), Span::raw(format!("{phase:<11}")), Span::styled(n.to_string(), Style::default().add_modifier(Modifier::BOLD))]));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::styled(format!("Busiest namespaces (top {} of {})", report.namespaces.len(), report.namespace_count), Style::default().fg(theme().heading).add_modifier(Modifier::BOLD)));
     let biggest = report.namespaces.first().map_or(1, |(_, n)| *n).max(1);
-    let bar_room = usize::from(halves[1].width).saturating_sub(26).clamp(4, 40);
-    let namespace_lines: Vec<Line> = report
-        .namespaces
-        .iter()
-        .map(|(name, n)| {
-            let cells = (n * bar_room / biggest).max(1);
-            Line::from(vec![
-                Span::styled(format!("{:<20}", truncate(name, 20)), Style::default()),
-                Span::styled("█".repeat(cells), if dimmed { dim_style() } else { Style::default().fg(theme().namespace) }),
-                Span::styled(format!(" {n}"), Style::default().add_modifier(Modifier::BOLD)),
-            ])
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(namespace_lines), halves[1]);
+    let name_room = 18.min(width / 2);
+    let bar_room = width.saturating_sub(name_room + 6).max(2);
+    for (name, n) in &report.namespaces {
+        let cells = (n * bar_room / biggest).max(1);
+        lines.push(Line::from(vec![Span::raw(format!("{:<w$}", truncate(name, name_room), w = name_room + 1)), Span::styled("█".repeat(cells), if dimmed { dim_style() } else { Style::default().fg(theme().namespace) }), Span::styled(format!(" {n}"), Style::default().add_modifier(Modifier::BOLD))]));
+    }
+    if report.namespace_count > report.namespaces.len() {
+        lines.push(Line::styled(format!("+{} more namespaces", report.namespace_count - report.namespaces.len()), muted));
+    }
+    frame.render_widget(Paragraph::new(lines), pods_inner);
 }
 
 pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, sort: SortState, dimmed: bool) {
