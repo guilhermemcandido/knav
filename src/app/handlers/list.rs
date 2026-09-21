@@ -265,6 +265,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             .and_then(|&real| catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real)));
                         generic_rows.get(selected).zip(manifest).map(|(row, manifest)| Scope::Selector {
                             labels: service_selector(&manifest),
+                            namespace: (!row.namespace.is_empty()).then(|| row.namespace.clone()),
                             kind: "Service".into(),
                             name: row.name.clone(),
                         })

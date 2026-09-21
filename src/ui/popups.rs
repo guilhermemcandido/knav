@@ -1118,7 +1118,7 @@ pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview
     let mut used = 0;
     let mut segments: Vec<Span> = Vec::new();
     for (i, (phase, n)) in report.phases.iter().enumerate() {
-        let cells = if i + 1 == report.phases.len() { width - used } else { (n * width / total).max(1).min(width - used) };
+        let cells = if i + 1 == report.phases.len() { width.saturating_sub(used) } else { (n * width / total).max(1).min(width.saturating_sub(used)) };
         used += cells;
         segments.push(Span::styled("█".repeat(cells), if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }));
     }

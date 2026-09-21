@@ -85,13 +85,18 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::Search) => match key.code {
             KeyCode::Esc => {
                 st.search.clear();
+                st.table_state.select(Some(0));
                 st.mode = Mode::List;
             }
             KeyCode::Enter => st.mode = Mode::List,
             KeyCode::Backspace => {
                 st.search.pop();
+                st.table_state.select(Some(0));
             }
-            KeyCode::Char(c) => st.search.push(c),
+            KeyCode::Char(c) => {
+                st.search.push(c);
+                st.table_state.select(Some(0));
+            }
             _ => {}
         },
         _ => {}

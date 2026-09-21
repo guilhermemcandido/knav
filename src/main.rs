@@ -70,6 +70,8 @@ fn main() -> Result<()> {
     // log-stream task spawned against the old cluster, which switching
     // context would otherwise leave running in the background forever.
     loop {
+        // Reloaded so a switch keeps what was saved in Settings meanwhile.
+        let config = Config::load();
         let runtime = tokio::runtime::Runtime::new()?;
         let outcome = runtime.block_on(session(&config, context.as_deref()));
         runtime.shutdown_background();
@@ -121,7 +123,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
     event_store.wait_until_ready().await?;
 
     let mut terminal = ratatui::init();
-    execute!(stdout(), EnableMouseCapture)?;
+    let _ = execute!(stdout(), EnableMouseCapture);
 
     let result = run(
         &mut terminal,
@@ -137,7 +139,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         &header,
     );
 
-    execute!(stdout(), DisableMouseCapture)?;
+    let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }

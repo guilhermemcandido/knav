@@ -44,7 +44,7 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
         timestamp_format: cx.config.logs.timestamp_format,
         order: cx.config.logs.order,
         rx,
-        handle,
+        handle: crate::mode::AbortOnDrop(handle),
         filter: String::new(),
         filter_editing: false,
         back: Box::new(back),
@@ -82,7 +82,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     if let Event::Key(key) = &event
         && key.code == KeyCode::Char('Q')
         && !key.modifiers.contains(KeyModifiers::CONTROL)
-        && !is_typing(&st.mode)
+        && !owns_keys(&st.mode)
     {
         return Ok(Some(Outcome::Quit));
     }
@@ -98,6 +98,8 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     // The info panel beside the list: Shift-Right hands it the keys, Shift-Left takes them back.
     if st.info_panel
         && matches!(st.mode, Mode::List)
+        && st.current_kind != ResourceKind::Overview
+        && cx.frame_area.width >= crate::ui::SIDE_PANEL_MIN_WIDTH
         && let Event::Key(key) = &event
     {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
@@ -178,13 +180,17 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
             }
         }
     }
+    // Outside the list, Ctrl combinations are not their plain letters.
+    if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List | Mode::Settings { capture: Some(_), .. }) {
+        return Ok(None);
+    }
     // `s` and the digits sort a popup's table when one has focus.
     if matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code)) {
         return Ok(None);
     }
     // g/G/Home/End and paging, in whichever table has focus.
     if let Event::Key(key) = &event
-        && !is_typing(&st.mode)
+        && !owns_keys(&st.mode)
     {
         let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
         if let Some((state, len)) = focused_table(st, cx)
@@ -192,10 +198,6 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         {
             return Ok(None);
         }
-    }
-    // Outside the list, Ctrl combinations are not their plain letters.
-    if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List | Mode::Settings { capture: Some(_), .. }) {
-        return Ok(None);
     }
     // These take every key, so the global keys below never fire in them.
     if matches!(st.mode, Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. }) {
@@ -246,7 +248,7 @@ fn focused_table<'a>(st: &'a mut State, cx: &Cx) -> Option<(&'a mut TableState, 
 /// Keys that work on every screen except while typing: `?` the commands panel, `:` the command line, `C` the context switcher.
 /// True when the key was one of them.
 fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<bool> {
-    if is_typing(&st.mode) {
+    if owns_keys(&st.mode) {
         return Ok(false);
     }
     match code {

@@ -272,8 +272,6 @@ pub fn overrides_from_config(keys: &BTreeMap<String, Vec<String>>) -> (Overrides
         match parsed {
             Ok(list) if list.is_empty() => problems.push(format!("keys.{}: no keys given", binding.id)),
             Ok(list) => {
-                let mut unique = list.clone();
-                unique.dedup();
                 if let Some(twice) = list.iter().enumerate().find(|(i, k)| list[..*i].contains(k)).map(|(_, k)| *k) {
                     problems.push(format!("keys.{}: '{}' is listed twice", binding.id, format_key(twice)));
                 } else {

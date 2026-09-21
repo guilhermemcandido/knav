@@ -12,11 +12,10 @@ use state::State;
 
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
-fn ui_title(manifest: &serde_yaml::Value) -> String {
-    mode::object_title(manifest)
-}
+/// The most log lines held for one stream.
+const MAX_LOG_LINES: usize = 100_000;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     terminal: &mut ratatui::DefaultTerminal,
     pod_store: &Store<Pod>,
@@ -63,6 +62,10 @@ pub(crate) fn run(
             while let Ok(line) = rx.try_recv() {
                 lines.push(line);
             }
+            // Keep a long follow from growing without end.
+            if lines.len() > MAX_LOG_LINES {
+                lines.drain(..lines.len() - MAX_LOG_LINES);
+            }
         }
 
         let rows_view = || match st.current_kind {
@@ -87,14 +90,12 @@ pub(crate) fn run(
         let screen = crate::input::keymap::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
         let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
-        if !hints.is_empty() {
-        }
         // The info panel beside the list follows the selected row.
         let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
         if st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {
             match handlers::selected_manifest(&st, &derived, catalog, &client) {
                 Some(manifest) => {
-                    let key = format!("{:?}{}", st.current_kind, ui_title(&manifest));
+                    let key = format!("{:?}{}", st.current_kind, mode::object_title(&manifest));
                     if key != st.info_key {
                         st.info_key = key;
                         st.info_scroll = 0;
@@ -106,7 +107,7 @@ pub(crate) fn run(
                         st.info_scroll = st.info_scroll.min(down);
                         st.info_hscroll = st.info_hscroll.min(right);
                     }
-                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus }));
+                    ui::set_side_panel(Some(ui::SidePanel { title: mode::object_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus }));
                 }
                 None => ui::set_side_panel(None),
             }

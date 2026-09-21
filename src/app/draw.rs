@@ -158,11 +158,11 @@ pub(super) fn draw_mode(
                     });
                 })?;
             }
-            Mode::Details { manifest, sections, scroll, hscroll, .. } => {
+            Mode::Details { manifest, sections, scroll, hscroll: details_hscroll, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let title = crate::app::mode::object_title(manifest);
-                    let overlay = ui::Overlay::Details { title: &title, sections, scroll: *scroll, hscroll: *hscroll };
+                    let overlay = ui::Overlay::Details { title: &title, sections, scroll: *scroll, hscroll: *details_hscroll };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
@@ -322,10 +322,10 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::Events { filter, search, editing, state, sort: popup_sort } => {
+            Mode::Events { filter, search: event_search, editing, state, sort: popup_sort } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() };
+                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search: event_search, editing: *editing, state, sort: popup_sort.view() };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

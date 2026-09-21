@@ -17,6 +17,9 @@ pub struct GraphLayout {
     pub height: u16,
 }
 
+/// Most boxes stacked in one column, so the canvas size stays in range.
+const MAX_PER_LAYER: usize = 1000;
+
 pub fn layout(graph: &Graph) -> GraphLayout {
     let layers: Vec<i32> = {
         let mut l: Vec<i32> = graph.nodes.iter().map(|n| n.layer).collect();
@@ -26,17 +29,17 @@ pub fn layout(graph: &Graph) -> GraphLayout {
     };
     let column_of = |layer: i32| layers.iter().position(|l| *l == layer).unwrap_or(0) as u16;
     let members = |layer: i32| graph.nodes.iter().enumerate().filter(move |(_, n)| n.layer == layer).map(|(i, _)| i);
-    let height = layers.iter().map(|l| members(*l).count() as u16 * (BOX_H + ROW_GAP)).max().unwrap_or(BOX_H).saturating_sub(ROW_GAP).max(BOX_H);
+    let height = layers.iter().map(|l| (members(*l).count().min(MAX_PER_LAYER) as u16) * (BOX_H + ROW_GAP)).max().unwrap_or(BOX_H).saturating_sub(ROW_GAP).max(BOX_H);
     let mut pos = vec![(0, 0); graph.nodes.len()];
     for layer in &layers {
         let indices: Vec<usize> = members(*layer).collect();
-        let column_height = (indices.len() as u16 * (BOX_H + ROW_GAP)).saturating_sub(ROW_GAP);
-        let top = (height - column_height) / 2;
+        let column_height = ((indices.len().min(MAX_PER_LAYER) as u16) * (BOX_H + ROW_GAP)).saturating_sub(ROW_GAP);
+        let top = height.saturating_sub(column_height) / 2;
         for (row, i) in indices.into_iter().enumerate() {
-            pos[i] = (column_of(*layer) * (BOX_W + GAP), top + row as u16 * (BOX_H + ROW_GAP));
+            pos[i] = (column_of(*layer) * (BOX_W + GAP), top + (row.min(MAX_PER_LAYER) as u16) * (BOX_H + ROW_GAP));
         }
     }
-    GraphLayout { pos, width: layers.len() as u16 * (BOX_W + GAP) - GAP, height }
+    GraphLayout { pos, width: (layers.len() as u16 * (BOX_W + GAP)).saturating_sub(GAP), height }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

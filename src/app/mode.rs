@@ -124,7 +124,9 @@ pub(crate) enum Mode {
         timestamp_format: TimestampFormat,
         order: LogOrder,
         rx: mpsc::UnboundedReceiver<String>,
-        handle: tokio::task::JoinHandle<()>,
+        // Held so the stream stops with the view.
+        #[allow(dead_code)]
+        handle: AbortOnDrop,
         // `/` filters the log lines by substring (log lines are prose, not identifiers).
         // `filter_editing` is true only while typing; Enter keeps the filter, Esc clears it.
         filter: String,
@@ -136,10 +138,36 @@ pub(crate) enum Mode {
     },
 }
 
-/// Whether `c`, `?` and `:` should be typed as characters instead of acting as
-/// global keys: `Command` and `Search` always, `Logs` while its filter is edited.
-pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } | Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+/// Whether the mode takes every key itself (text entry, dialogs, the shell), so
+/// the global keys such as `c`, `?` and `:` must not fire.
+pub(crate) fn owns_keys(mode: &Mode) -> bool {
+    matches!(
+        mode,
+        Mode::Settings { editing: Some(_), .. }
+            | Mode::Settings { capture: Some(_), .. }
+            | Mode::Command { .. }
+            | Mode::Search
+            | Mode::Slots { .. }
+            | Mode::Scale { .. }
+            | Mode::Ports { .. }
+            | Mode::Shell { .. }
+            | Mode::Confirm { .. }
+            | Mode::OpenUrl { .. }
+            | Mode::Context { editing: true, .. }
+            | Mode::NamespacePick { editing: true, .. }
+            | Mode::Events { editing: true, .. }
+            | Mode::NodeDetail { editing: true, .. }
+            | Mode::Logs { filter_editing: true, .. }
+    )
+}
+
+/// A background task that stops when the mode holding it is dropped.
+pub(crate) struct AbortOnDrop(pub tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -572,7 +600,7 @@ mod path_tests {
             order: Default::default(),
             filter: String::new(),
             filter_editing: false,
-            handle: runtime.spawn(async {}),
+            handle: AbortOnDrop(runtime.spawn(async {})),
             back: Box::new(containers_mode(1)),
         };
         assert_eq!(text(&mode_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);

@@ -386,8 +386,10 @@ pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry,
 }
 
 pub(super) fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() > max {
-        format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>())
+    if max == 0 {
+        String::new()
+    } else if s.chars().count() > max {
+        format!("{}…", s.chars().take(max - 1).collect::<String>())
     } else {
         s.to_string()
     }

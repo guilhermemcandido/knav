@@ -228,9 +228,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char(c) => filter.push(c),
             _ => {}
         },
-        (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, handle, filter_editing, back, .. }) => match key.code {
+        (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, filter_editing, back, .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
-                handle.abort();
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
             KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),

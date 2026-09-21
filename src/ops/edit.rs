@@ -36,12 +36,14 @@ pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, m
 }
 
 fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original: &str) -> Result<Option<String>> {
-    let path = std::env::temp_dir().join(format!("knav-edit-{}.yaml", std::process::id()));
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+    let file = TempFile(std::env::temp_dir().join(format!("knav-edit-{}-{nanos}.yaml", std::process::id())));
+    let path = file.0.clone();
     let mut current = original.to_string();
     let mut header = String::new();
     let mut last_error = String::new();
     let outcome = loop {
-        std::fs::write(&path, format!("{header}{current}")).context("writing the temp file")?;
+        write_private(&path, &format!("{header}{current}")).context("writing the temp file")?;
         if !run_editor(terminal, &path)? {
             // The editor quit with a non-zero status (`:q!`/`:cq` in vi),
             // that's how you say "abort", so drop the edit quietly.
@@ -49,8 +51,7 @@ fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original:
         }
         let edited = strip_comment_header(&std::fs::read_to_string(&path).context("reading the temp file back")?);
         if edited.trim() == current.trim() {
-            // Untouched, either nothing was changed, or a rejected edit
-            // was saved as-is again. Both mean "give up".
+            // Nothing changed, or a rejected edit was saved as-is: give up.
             break if current.trim() == original.trim() { None } else { bail!("{last_error}\n(cancelled)") };
         }
         current = edited;
@@ -62,8 +63,26 @@ fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original:
             }
         }
     };
-    let _ = std::fs::remove_file(&path);
     Ok(outcome)
+}
+
+/// The edit buffer on disk, removed however the edit ends.
+struct TempFile(std::path::PathBuf);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Writes a file only its owner can read: an edited Secret sits in it.
+fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(text.as_bytes())
 }
 
 /// Drops the leading `#` lines a previous failure left (the editor may

@@ -61,9 +61,11 @@ pub(super) fn children_of(value: &serde_yaml::Value, path: &str, leaf_values: &m
     match value {
         serde_yaml::Value::Mapping(map) => map
             .iter()
-            .map(|(k, v)| {
+            .enumerate()
+            .map(|(i, (k, v))| {
                 let label = scalar_to_string(k);
-                node(&format!("{path}/{label}"), &label, v, leaf_values)
+                // The index keeps ids unique when keys such as `1` and "1" print alike.
+                node(&format!("{path}/{i}:{label}"), &label, v, leaf_values)
             })
             .collect(),
         serde_yaml::Value::Sequence(seq) => seq
