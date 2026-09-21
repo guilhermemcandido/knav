@@ -27,6 +27,7 @@ pub(crate) fn run(
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context));
 
     loop {
+        st.record_view();
         // A forward that kubectl dropped (the pod went away) leaves the list.
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();

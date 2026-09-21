@@ -149,6 +149,22 @@ impl ResourceKind {
         }
     }
 
+    /// The list an owner reference's `kind` belongs to (a pod's ReplicaSet,
+    /// a ReplicaSet's Deployment, ...); `None` for kinds knav has no list for.
+    pub fn from_owner_kind(kind: &str) -> Option<Self> {
+        Some(match kind {
+            "Deployment" => ResourceKind::Deployments,
+            "ReplicaSet" => ResourceKind::ReplicaSets,
+            "StatefulSet" => ResourceKind::StatefulSets,
+            "DaemonSet" => ResourceKind::DaemonSets,
+            "Job" => ResourceKind::Jobs,
+            "CronJob" => ResourceKind::CronJobs,
+            "Node" => ResourceKind::Nodes,
+            "Service" => ResourceKind::Services,
+            _ => return None,
+        })
+    }
+
     /// Resolves a `:command` (already lowercased/trimmed by the caller)
     /// to the kind it switches to, through `COMMAND_ALIASES` — the full
     /// name, the singular and the short k9s-style alias all work.
@@ -200,6 +216,13 @@ pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
 #[cfg(test)]
 mod resource_kind_tests {
     use super::*;
+
+    #[test]
+    fn owners_map_to_their_lists() {
+        assert_eq!(ResourceKind::from_owner_kind("ReplicaSet"), Some(ResourceKind::ReplicaSets));
+        assert_eq!(ResourceKind::from_owner_kind("Deployment"), Some(ResourceKind::Deployments));
+        assert_eq!(ResourceKind::from_owner_kind("Widget"), None);
+    }
 
     #[test]
     fn enter_opens_the_spec_except_where_it_drills_elsewhere() {

@@ -3,6 +3,15 @@
 
 use super::*;
 
+/// A place in the app: which list, drilled into what.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct View {
+    pub kind: ResourceKind,
+    pub scope: Option<Scope>,
+}
+
+const HISTORY_LIMIT: usize = 50;
+
 pub(super) struct State {
     pub table_state: TableState,
     pub mode: Mode,
@@ -41,6 +50,12 @@ pub(super) struct State {
     /// list changes.
     pub marked: std::collections::HashSet<String>,
     pub marked_kind: ResourceKind,
+    /// The views visited, oldest first, and where in that trail we are
+    /// (`[` and `]` move along it).
+    pub history: Vec<View>,
+    pub history_pos: usize,
+    /// The view before this one, for `-`.
+    pub last_view: Option<View>,
     pub overview_selection: ui::OverviewSelection,
     /// Horizontal scroll into the Overview's category columns.
     pub overview_col_scroll: usize,
@@ -71,10 +86,74 @@ impl State {
             forwards: Vec::new(),
             marked: Default::default(),
             marked_kind: ResourceKind::Overview,
+            history: vec![View { kind: ResourceKind::Overview, scope: None }],
+            history_pos: 0,
+            last_view: None,
             overview_selection: ui::OverviewSelection::Resources,
             overview_col_scroll: 0,
             overview_item_scroll: 0,
         }
+    }
+
+    fn here(&self) -> View {
+        View { kind: self.current_kind, scope: self.scope.clone() }
+    }
+
+    /// Notes the current view in the history when it changed since last
+    /// looked (a new view drops whatever was ahead of it).
+    pub fn record_view(&mut self) {
+        let here = self.here();
+        if self.history.get(self.history_pos) == Some(&here) {
+            return;
+        }
+        self.last_view = self.history.get(self.history_pos).cloned();
+        self.history.truncate(self.history_pos + 1);
+        self.history.push(here);
+        if self.history.len() > HISTORY_LIMIT {
+            self.history.remove(0);
+        }
+        self.history_pos = self.history.len() - 1;
+    }
+
+    /// Goes to `view` with a clean slate, without adding to the history.
+    fn show(&mut self, view: View) {
+        self.last_view = Some(self.here());
+        self.current_kind = view.kind;
+        self.scope = view.scope;
+        self.nav_stack.clear();
+        self.sort = None;
+        self.hscroll = 0;
+        self.table_state.select(Some(0));
+        self.search.clear();
+    }
+
+    /// `[`: the view before this one.
+    pub fn history_back(&mut self) {
+        if self.history_pos > 0 {
+            self.history_pos -= 1;
+            self.show(self.history[self.history_pos].clone());
+        }
+    }
+
+    /// `]`: the view after this one, when we have gone back.
+    pub fn history_forward(&mut self) {
+        if self.history_pos + 1 < self.history.len() {
+            self.history_pos += 1;
+            self.show(self.history[self.history_pos].clone());
+        }
+    }
+
+    /// `-`: the view we were just in, and back again.
+    pub fn toggle_last_view(&mut self) {
+        if let Some(view) = self.last_view.clone() {
+            self.switch_to(view);
+        }
+    }
+
+    fn switch_to(&mut self, view: View) {
+        // `show` notes where we were, so `-` again comes back.
+        self.show(view);
+        self.record_view();
     }
 
     /// Switches to another resource kind with a clean slate: no drill-down,
@@ -121,5 +200,68 @@ mod tests {
         st.namespace = Some("kube-system".into());
         st.switch_kind(ResourceKind::Pods);
         assert_eq!(st.namespace.as_deref(), Some("kube-system"));
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    fn state() -> State {
+        State::new(icons::IconCache::halfblocks(), Favorites::default())
+    }
+
+    fn visit(st: &mut State, kind: ResourceKind) {
+        st.switch_kind(kind);
+        st.record_view();
+    }
+
+    #[test]
+    fn back_and_forward_walk_the_views_visited() {
+        let mut st = state();
+        visit(&mut st, ResourceKind::Pods);
+        visit(&mut st, ResourceKind::Services);
+        st.history_back();
+        assert_eq!(st.current_kind, ResourceKind::Pods);
+        st.history_back();
+        assert_eq!(st.current_kind, ResourceKind::Overview);
+        st.history_back();
+        assert_eq!(st.current_kind, ResourceKind::Overview, "nothing before the first view");
+        st.history_forward();
+        st.history_forward();
+        assert_eq!(st.current_kind, ResourceKind::Services);
+        st.history_forward();
+        assert_eq!(st.current_kind, ResourceKind::Services);
+    }
+
+    #[test]
+    fn going_back_does_not_add_to_the_history() {
+        let mut st = state();
+        visit(&mut st, ResourceKind::Pods);
+        st.history_back();
+        st.record_view();
+        assert_eq!(st.history.len(), 2);
+    }
+
+    #[test]
+    fn a_new_view_after_going_back_drops_what_was_ahead() {
+        let mut st = state();
+        visit(&mut st, ResourceKind::Pods);
+        visit(&mut st, ResourceKind::Services);
+        st.history_back();
+        visit(&mut st, ResourceKind::Jobs);
+        let kinds: Vec<_> = st.history.iter().map(|v| v.kind).collect();
+        assert_eq!(kinds, [ResourceKind::Overview, ResourceKind::Pods, ResourceKind::Jobs]);
+    }
+
+    #[test]
+    fn dash_toggles_between_the_last_two_views() {
+        let mut st = state();
+        visit(&mut st, ResourceKind::Pods);
+        visit(&mut st, ResourceKind::Services);
+        st.toggle_last_view();
+        assert_eq!(st.current_kind, ResourceKind::Pods);
+        st.toggle_last_view();
+        assert_eq!(st.current_kind, ResourceKind::Services);
     }
 }

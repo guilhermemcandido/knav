@@ -312,6 +312,33 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
                 }
             }
+            // History: back, forward, and the view before this one.
+            KeyCode::Char('[') => st.history_back(),
+            KeyCode::Char(']') => st.history_forward(),
+            KeyCode::Char('-') => st.toggle_last_view(),
+            // Jump to what owns the selected object (a pod's ReplicaSet, a
+            // ReplicaSet's Deployment); Esc comes back.
+            KeyCode::Char('J') => {
+                let owner = selected_manifest(st, cx.d, catalog, client).and_then(|m| {
+                    let first = m.get("metadata")?.get("ownerReferences")?.as_sequence()?.first()?.clone();
+                    Some((first.get("kind")?.as_str()?.to_string(), first.get("name")?.as_str()?.to_string()))
+                });
+                match owner {
+                    Some((kind, name)) => match ResourceKind::from_owner_kind(&kind) {
+                        Some(target) => {
+                            let selected = st.table_state.selected().unwrap_or(0);
+                            st.nav_stack.push((st.current_kind, st.scope.take(), selected));
+                            st.current_kind = target;
+                            st.sort = None;
+                            st.hscroll = 0;
+                            st.table_state.select(Some(0));
+                            st.search = name;
+                        }
+                        None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), error: false, back: Box::new(Mode::List) },
+                    },
+                    None => st.mode = Mode::Notice { text: "No owner".into(), error: false, back: Box::new(Mode::List) },
+                }
+            }
             // The manifest as plain YAML text.
             KeyCode::Char('y') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
