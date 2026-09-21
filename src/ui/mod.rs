@@ -362,13 +362,8 @@ pub fn draw(
     // only what is in full colour reads as in focus.
     let full = frame.area();
     // The search on a list's top border keeps clear of the badges in its corner.
-    set_title_reserve(if matches!(rows, Rows::Overview(..)) || dimmed {
-        0
-    } else {
-        let widths = [(sort.choosing, " sorting "), (header.faults_only, " faults "), (header.wide, " wide ")];
-        let badges: u16 = widths.iter().filter(|(on, _)| *on).map(|(_, text)| text.chars().count() as u16 + 1).sum();
-        if badges > 0 { badges + 2 } else { 0 }
-    });
+    // Room for all three, so the search stays put as they come and go.
+    set_title_reserve(if matches!(rows, Rows::Overview(..)) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 });
     // The namespace-shortcut line is for the resource lists; the main
     // Overview keeps just the info line.
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
