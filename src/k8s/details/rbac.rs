@@ -37,7 +37,7 @@ pub(super) fn role_sections(manifest: &Value, kind: &str) -> Vec<Section> {
         for resource in &resources {
             let group = if groups.len() == 1 { api_group(groups[0]).to_string() } else { groups.iter().map(|g| api_group(g)).collect::<Vec<_>>().join("|") };
             let sensitive = resource.contains('/') && ["exec", "attach", "portforward", "proxy"].iter().any(|s| resource.ends_with(s)) || *resource == "secrets" || *resource == "*";
-            targets.push(chunk(format!("{group}/{resource}"), if sensitive { Style::Warn } else { Style::Chip }));
+            targets.push(chunk(format!("{group}/{resource}"), if sensitive { Style::WarnChip } else { Style::Chip }));
         }
         targets.extend(urls.iter().map(|u| chunk(*u, Style::Chip)));
         lines.push(Line::Field("Resources".into(), targets));
@@ -45,7 +45,7 @@ pub(super) fn role_sections(manifest: &Value, kind: &str) -> Vec<Section> {
         if !names.is_empty() {
             lines.push(Line::Field("Names".into(), names.into_iter().map(|n| chunk(n, Style::Chip)).collect()));
         }
-        lines.push(Line::Field("Verbs".into(), strings(rule, &["verbs"]).into_iter().map(|v| chunk(v, if risky_verb(v) { Style::Warn } else { Style::Chip })).collect()));
+        lines.push(Line::Field("Verbs".into(), strings(rule, &["verbs"]).into_iter().map(|v| chunk(v, if risky_verb(v) { Style::WarnChip } else { Style::Chip })).collect()));
     }
     if !lines.is_empty() {
         sections.push(Section { title: "Rules".into(), lines });

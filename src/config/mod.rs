@@ -253,9 +253,8 @@ impl Config {
     /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`), the config file
     /// and knav's small saved state live here.
     pub fn dir() -> PathBuf {
-        let base = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config"));
+        let set = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty()).map(PathBuf::from);
+        let base = set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config"))).unwrap_or_else(std::env::temp_dir);
         base.join("knav")
     }
 }

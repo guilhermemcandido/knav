@@ -14,6 +14,7 @@ fn style_of(style: DStyle) -> Style {
         DStyle::Warn => Style::default().fg(theme().warn),
         DStyle::Bad => Style::default().fg(theme().bad),
         DStyle::Chip => Style::default().fg(theme().text_strong).bg(theme().pill_bg),
+        DStyle::WarnChip => Style::default().fg(theme().warn).bg(theme().pill_bg),
     }
 }
 
@@ -24,7 +25,7 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
     let mut used = indent;
     let mut previous_chip = false;
     for chunk in chunks {
-        let chip = chunk.style == DStyle::Chip;
+        let chip = chunk.style.is_chip();
         let text = if chip { format!(" {} ", chunk.text) } else { chunk.text.clone() };
         let gap = usize::from(chip && previous_chip);
         let w = text.chars().count();

@@ -85,7 +85,11 @@ impl Favorites {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(path, out.join("\n") + "\n");
+        // Written beside the file and renamed over it, so a crash never leaves half a file.
+        let temp = path.with_extension("tmp");
+        if std::fs::write(&temp, out.join("\n") + "\n").is_ok() {
+            let _ = std::fs::rename(temp, path);
+        }
     }
 }
 

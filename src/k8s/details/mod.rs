@@ -26,6 +26,8 @@ pub enum Style {
     Bad,
     /// A label or key, drawn as a small pill.
     Chip,
+    /// A pill worth a second look.
+    WarnChip,
 }
 
 impl From<Tone> for Style {
@@ -37,6 +39,12 @@ impl From<Tone> for Style {
             Tone::Muted => Style::Muted,
             Tone::Plain => Style::Plain,
         }
+    }
+}
+
+impl Style {
+    pub fn is_chip(self) -> bool {
+        matches!(self, Style::Chip | Style::WarnChip)
     }
 }
 
