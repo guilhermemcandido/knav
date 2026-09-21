@@ -128,15 +128,15 @@ pub enum Overlay<'a> {
     /// The key picker: keys 1-9 (and the fixed `0` = all) with what each
     /// currently holds, for choosing where a namespace goes.
     Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
-    /// The `/`/`f` live-filter input bar — still doesn't dim the
-    /// background, since you're meant to see the list narrowing as you
-    /// type, unlike `Command`'s modal jump.
-    Search { query: &'a str, matches: usize },
-    /// A tree leaf's full, untruncated value — `v` in `Mode::Spec`,
-    /// since a long value (a cert blob, a long annotation) just gets
-    /// silently clipped by the box's width otherwise, with no way to
-    /// see the rest of it.
     ValueDetail { label: &'a str, value: &'a str },
+}
+
+/// The `/` search on the main list: what's typed, and whether it's still
+/// being typed (which shows the cursor).
+#[derive(Clone, Copy, Default)]
+pub struct Search<'a> {
+    pub text: &'a str,
+    pub editing: bool,
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -186,9 +186,9 @@ pub fn draw(
     breadcrumb: Option<&[BreadcrumbSegment]>,
     icons: &mut IconCache,
     header: &HeaderInfo,
-    // The active `/` filter on the main list, so what it matched can be
-    // highlighted in the rows.
-    search: &str,
+    // The `/` search on the main list: shown in its title and highlighted
+    // in the rows.
+    search: Search,
 ) {
     // `Command` is a real modal jump now, so it dims like everything
     // else; `Search` stays undimmed — you're meant to see (and read) the
@@ -212,7 +212,7 @@ pub fn draw(
                 | Some(Overlay::ColumnDetail { .. })
                 | Some(Overlay::ValueDetail { .. })
         );
-    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }) | Some(Overlay::Search { .. }));
+    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }));
 
     // Terminals can't literally blur, so a modal "recedes" the usual way
     // these things fake depth in a TUI: mute every color in the
@@ -224,7 +224,7 @@ pub fn draw(
     let shortcuts_line = !matches!(rows, Rows::Overview(..));
     let body = body_area(full, shortcuts_line);
     // Only the focused list highlights matches; behind a popup it's dimmed.
-    let search = if dimmed { "" } else { search };
+    let search = if dimmed { Search::default() } else { search };
     draw_header(frame, full, header, shortcuts_line, dimmed);
     match rows {
         Rows::Pods(pods) => {
@@ -304,7 +304,6 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::ColumnDetail { title, items, selected, row_scroll } => {
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
-        Overlay::Search { query, matches } => draw_search_bar(frame, query, matches),
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state } => draw_namespace_picker(frame, items, total, filter, editing, state),
@@ -395,16 +394,8 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool) 
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// A small floating input box, horizontally centered and sitting a
-/// quarter of the way down the screen — Spotlight/command-palette style,
-/// nearer the top than the middle so it doesn't cover what you're
-/// filtering — used for the `/` filter and `:` command line.
-pub(super) fn centered_input_box(area: Rect) -> Rect {
-    centered_box(area, 3)
-}
-
-/// Same placement as `centered_input_box`, but for a box that grows —
-/// the `:` command line's autocomplete list. The top edge stays pinned
+/// A floating box, horizontally centered with its top edge a quarter of the
+/// way down the screen — the `:` command line and its autocomplete list. The top edge stays pinned
 /// at the quarter-mark (so the input line doesn't jump as suggestions
 /// come and go) and the box grows downward.
 pub(super) fn centered_box(area: Rect, height: u16) -> Rect {

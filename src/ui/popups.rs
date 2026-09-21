@@ -2,22 +2,6 @@
 
 use super::*;
 
-/// The `/`/`f` live-filter box — no dimming, since the point is
-/// watching the list narrow (right underneath, in the same spot) while
-/// you type.
-pub(super) fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
-    let bar = centered_input_box(frame.area());
-    frame.render_widget(Clear, bar);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Search");
-    let inner = block.inner(bar);
-    frame.render_widget(block, bar);
-    let line = Line::from(vec![
-        Span::styled(format!("/{query}▏"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  ({matches})"), Style::default().fg(Color::DarkGray)),
-    ]);
-    frame.render_widget(Paragraph::new(line), inner);
-}
-
 /// The `:` command line — a floating box centered on the screen, same
 /// as the search box, on top of whatever's there.
 /// The `:` command line plus its live autocomplete list — one suggestion
@@ -74,8 +58,8 @@ pub(super) fn draw_context_popup(
     let widths = [Constraint::Fill(2), Constraint::Fill(2), Constraint::Length(9)];
 
     let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
-    if editing || !filter.is_empty() {
-        title.push_span(Span::styled(format!("  —  /{filter}{}", if editing { "▏" } else { "" }), Style::default().fg(Color::Yellow)));
+    if let Some(span) = search_span(filter, editing, false) {
+        title.push_span(span);
     }
     if let Some(err) = error {
         title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
@@ -118,8 +102,8 @@ pub(super) fn draw_namespace_picker(
     let widths = [Constraint::Fill(1), Constraint::Length(5)];
 
     let mut title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
-    if editing || !filter.is_empty() {
-        title.push_span(Span::styled(format!("  —  /{filter}{}", if editing { "▏" } else { "" }), Style::default().fg(Color::Yellow)));
+    if let Some(span) = search_span(filter, editing, false) {
+        title.push_span(span);
     }
 
     let table = Table::new(rows, widths)
@@ -254,7 +238,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, "", dimmed);
+    draw_table(frame, chunks[2], pods, state, Search::default(), dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
@@ -395,10 +379,7 @@ pub(super) fn draw_events_popup(
         Span::styled("  (w) warnings", key_style(EventFilter::Warnings)),
         Span::styled("  (n) normal", key_style(EventFilter::Normal)),
     ];
-    if editing || !search.is_empty() {
-        let style = if dimmed { dim_style() } else { Style::default().fg(Color::Yellow) };
-        title_spans.push(Span::styled(format!("  /{search}{}", if editing { "▏" } else { "" }), style));
-    }
+    title_spans.extend(search_span(search, editing, dimmed));
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);

@@ -95,7 +95,7 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: &str, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, dimmed: bool) {
     let muted = dim_style();
     let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
@@ -117,8 +117,8 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         };
         let cell_style = theme_row(dimmed);
         Row::new(vec![
-            Cell::from(highlight_fuzzy(&p.namespace, search, cell_style)),
-            Cell::from(highlight_fuzzy(&p.name, search, cell_style)),
+            Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
+            Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
             Cell::from(p.ready.clone()).style(cell_style),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
@@ -128,7 +128,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         ])
     });
 
-    let title = table_title("Pods", pods.len(), dimmed);
+    let title = table_title("Pods", pods.len(), search, dimmed);
 
     let highlight_style = theme_highlight(dimmed);
 
@@ -188,7 +188,7 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
     (index < row_count).then_some(index)
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: &str, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, dimmed: bool) {
     let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
@@ -198,8 +198,8 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 
     let rows = deployments.iter().map(|d| {
         Row::new(vec![
-            Cell::from(highlight_fuzzy(&d.namespace, search, cell_style)),
-            Cell::from(highlight_fuzzy(&d.name, search, cell_style)),
+            Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
+            Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
             Cell::from(d.ready.clone()).style(cell_style),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
@@ -216,7 +216,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         Constraint::Length(5),
     ];
 
-    let title = table_title("Deployments", deployments.len(), dimmed);
+    let title = table_title("Deployments", deployments.len(), search, dimmed);
 
     let highlight_style = theme_highlight(dimmed);
 
@@ -264,7 +264,7 @@ pub(super) fn usage_color(ratio: f64, dimmed: bool) -> Color {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: &str, dimmed: bool) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, dimmed: bool) {
     let muted = dim_style();
     let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
@@ -291,7 +291,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
             (false, false) => "NotReady,SchedulingDisabled".to_string(),
         };
         Row::new(vec![
-            Cell::from(highlight_fuzzy(&n.name, search, cell_style)),
+            Cell::from(highlight_fuzzy(&n.name, search.text, cell_style)),
             Cell::from(status).style(status_style),
             Cell::from(n.roles.clone()).style(cell_style),
             Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
@@ -313,7 +313,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         Constraint::Length(12),
     ];
 
-    let title = table_title("Nodes", nodes.len(), dimmed);
+    let title = table_title("Nodes", nodes.len(), search, dimmed);
 
     let highlight_style = theme_highlight(dimmed);
 
@@ -338,7 +338,7 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: &str, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, dimmed: bool) {
     let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
@@ -355,14 +355,14 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     let table_rows = rows.iter().map(|r| {
         let mut cells = Vec::with_capacity(3);
         if show_namespace {
-            cells.push(Cell::from(highlight_fuzzy(&r.namespace, search, cell_style)));
+            cells.push(Cell::from(highlight_fuzzy(&r.namespace, search.text, cell_style)));
         }
-        cells.push(Cell::from(highlight_fuzzy(&r.name, search, cell_style)));
+        cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
         cells.push(Cell::from(r.age.clone()).style(cell_style));
         Row::new(cells)
     });
 
-    let title = table_title(label, rows.len(), dimmed);
+    let title = table_title(label, rows.len(), search, dimmed);
 
     let highlight_style = theme_highlight(dimmed);
 
@@ -384,7 +384,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 /// that kind (see the CustomResourceList Enter handler in main.rs) —
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: &str, dimmed: bool) {
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, dimmed: bool) {
     let header_style = theme_header(dimmed);
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
@@ -393,14 +393,14 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 
     let rows = crds.iter().map(|(_, c)| {
         Row::new(vec![
-            Cell::from(highlight_fuzzy(c.group, search, cell_style)),
-            Cell::from(highlight_fuzzy(c.kind, search, cell_style)),
+            Cell::from(highlight_fuzzy(c.group, search.text, cell_style)),
+            Cell::from(highlight_fuzzy(c.kind, search.text, cell_style)),
             Cell::from(if c.namespaced { "Namespaced" } else { "Cluster" }).style(cell_style),
         ])
     });
 
     let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = table_title(heading, crds.len(), dimmed);
+    let title = table_title(heading, crds.len(), search, dimmed);
 
     let highlight_style = theme_highlight(dimmed);
 

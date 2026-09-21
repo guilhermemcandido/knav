@@ -36,14 +36,27 @@ pub(super) fn theme_border(dimmed: bool) -> Style {
 }
 
 /// k9s-style table title: the kind as a filled pill, the count in orange.
-pub(super) fn table_title(label: &str, count: usize, dimmed: bool) -> Line<'static> {
+pub(super) fn table_title(label: &str, count: usize, search: Search, dimmed: bool) -> Line<'static> {
     if dimmed {
         return Line::styled(format!(" {label} ({count}) "), dim_style());
     }
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(format!(" {label} "), Style::default().bg(Color::Rgb(50, 56, 72)).fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
         Span::styled(format!("({count})"), Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)),
-    ])
+    ];
+    spans.extend(search_span(search.text, search.editing, false));
+    Line::from(spans)
+}
+
+/// `  search: text▏` for a title while a search is being typed (`▏` is the
+/// cursor) or applied; nothing when there isn't one. Every searchable
+/// screen shows it the same way.
+pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Span<'static>> {
+    if text.is_empty() && !editing {
+        return None;
+    }
+    let style = if dimmed { dim_style() } else { Style::default().fg(Color::Yellow) };
+    Some(Span::styled(format!("  search: {text}{}", if editing { "▏" } else { "" }), style))
 }
 
 /// Shared namespace/name coloring — namespace in the app's cyan accent,

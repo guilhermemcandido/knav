@@ -26,9 +26,12 @@ pub(super) fn draw_logs_popup(
     // pausing/resuming/toggling timestamps live in the `?` commands
     // panel now instead of being spelled out here every time.
     let follow_status = if follow { "following" } else { "scrolled" };
-    let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines  /{filter}", filtered.len(), lines.len()) };
+    let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", filtered.len(), lines.len()) };
     let mut title_line = colored_slash_title(title);
     title_line.push_span(Span::raw(format!("  {follow_status}  {count}")));
+    if let Some(span) = search_span(filter, filter_editing, false) {
+        title_line.push_span(span);
+    }
     let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title_line);
 
     // When following, always show exactly the tail that fits the visible
@@ -46,15 +49,6 @@ pub(super) fn draw_logs_popup(
 
     frame.render_widget(paragraph, area);
 
-    // The filter's own input line, pinned just inside the bottom border
-    // while actively being typed — same treatment as the `/` search box
-    // elsewhere, just scoped to this popup instead of floating over it.
-    if filter_editing {
-        let bar = Rect { x: area.x + 1, y: area.y + area.height.saturating_sub(2), width: area.width.saturating_sub(2), height: 1 };
-        frame.render_widget(Clear, bar);
-        let line = Line::styled(format!("/{filter}▏"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-        frame.render_widget(Paragraph::new(line), bar);
-    }
 }
 
 /// The furthest a non-following view can scroll: everything past the
