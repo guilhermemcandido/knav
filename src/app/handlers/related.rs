@@ -22,13 +22,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Right | KeyCode::Char('l') => go(ui::Move::Right, selected),
                 KeyCode::Up | KeyCode::Char('k') => go(ui::Move::Up, selected),
                 KeyCode::Down | KeyCode::Char('j') => go(ui::Move::Down, selected),
-                KeyCode::Enter => {
+                // Space follows the map: the diagram moves to that object.
+                KeyCode::Char(' ') => {
                     if let Some(node) = graph.nodes.get(*selected).filter(|_| *selected != 0) {
                         recentre = k8s::relations::find_manifest(all, &node.kind, node.namespace.as_deref(), &node.name);
                     }
                 }
                 KeyCode::Backspace => restore = true,
-                KeyCode::Char('o') => {
+                // Enter goes to the object's own list, like everywhere else in knav.
+                KeyCode::Enter | KeyCode::Char('o') => {
                     if let Some(node) = graph.nodes.get(*selected)
                         && let Some(kind) = ResourceKind::from_owner_kind(&node.kind)
                     {
