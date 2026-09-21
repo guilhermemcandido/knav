@@ -33,6 +33,8 @@ pub(super) struct Query<'a> {
     pub scope: Option<&'a Scope>,
     pub search: &'a str,
     pub sort: Option<SortSpec>,
+    /// Show only rows that need a look (`Ctrl-z`).
+    pub faults: bool,
 }
 
 pub(super) struct Sources<'a> {
@@ -48,7 +50,7 @@ pub(super) struct Sources<'a> {
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
-    let Query { current_kind, namespace, scope, search, sort } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // `search` only ever has an effect on whichever kind it was typed
@@ -67,6 +69,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .filter(|p| in_namespace(&p.metadata))
             .filter(|p| current_kind != ResourceKind::Pods || scope.is_none_or(|s| s.matches_meta(&p.metadata)))
             .filter(|p| row_matches(&search, &meta_search_text(&p.metadata)))
+            .filter(|p| !(faults && current_kind == ResourceKind::Pods) || k8s::pod_is_fault(p))
             .collect();
         if current_kind == ResourceKind::Pods {
             apply(&mut pods, sort, |p, column| pod_key(&k8s::row_for(p), column));
@@ -76,6 +79,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .into_iter()
             .filter(|d| in_namespace(&d.metadata))
             .filter(|d| row_matches(&search, &meta_search_text(&d.metadata)))
+            .filter(|d| !(faults && current_kind == ResourceKind::Deployments) || k8s::ready_is_short(&k8s::row_for_deployment(d).ready))
             .collect();
         if current_kind == ResourceKind::Deployments {
             apply(&mut deployments, sort, |d, column| deployment_key(&k8s::row_for_deployment(d), column));
@@ -126,6 +130,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 (n, row)
             })
             .collect();
+        if faults && current_kind == ResourceKind::Nodes {
+            node_pairs.retain(|(_, row)| !row.ready || !row.schedulable);
+        }
         if current_kind == ResourceKind::Nodes {
             apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column));
         }
@@ -159,6 +166,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                     && scope.is_none_or(|s| s.matches_row(row))
             })
             .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
+            .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::describe::Tone::Warn | crate::describe::Tone::Bad, _))))
             .collect();
         // Whether the table will show a namespace column — decides which
         // sort column is which.

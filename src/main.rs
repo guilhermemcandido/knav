@@ -102,6 +102,8 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         scope: String::new(),
         k8s_version,
         knav_version: format!("v{}", env!("CARGO_PKG_VERSION")),
+        faults_only: false,
+        wide: false,
     };
     let (pod_store, _pod_watch_handle) = k8s::watch_pods(client.clone());
     let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());

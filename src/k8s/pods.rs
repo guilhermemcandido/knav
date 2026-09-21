@@ -133,6 +133,12 @@ fn terminated_reason(done: &k8s_openapi::api::core::v1::ContainerStateTerminated
     }
 }
 
+/// Whether a pod is worth a look: not running healthily, and not simply finished.
+pub fn pod_is_fault(pod: &Pod) -> bool {
+    use crate::describe::Tone;
+    matches!(status_tone(&pod_status(pod)), Tone::Warn | Tone::Bad)
+}
+
 /// How a pod STATUS should be coloured: healthy plain, finished grey,
 /// in-progress orange, broken red.
 pub fn status_tone(status: &str) -> crate::describe::Tone {

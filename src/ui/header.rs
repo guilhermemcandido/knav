@@ -21,6 +21,10 @@ pub struct HeaderInfo {
     pub scope: String,
     pub k8s_version: String,
     pub knav_version: String,
+    /// Only rows that need a look are listed (`Ctrl-z`).
+    pub faults_only: bool,
+    /// Extra columns are shown (`Ctrl-w`).
+    pub wide: bool,
 }
 
 /// Rows the header takes at the top of a resource list: the info line

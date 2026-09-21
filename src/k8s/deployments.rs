@@ -22,6 +22,12 @@ pub struct DeploymentRow {
     pub age_secs: i64,
 }
 
+/// Whether a `have/want` ready count is short of what is wanted.
+pub fn ready_is_short(ready: &str) -> bool {
+    let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
+    matches!((parts.next(), parts.next()), (Some(have), Some(want)) if have < want)
+}
+
 pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
     let namespace = dep.metadata.namespace.clone().unwrap_or_default();
     let name = dep.metadata.name.clone().unwrap_or_default();
@@ -76,4 +82,18 @@ pub fn snapshot_deployments(store: &reflector::Store<Deployment>) -> Vec<Arc<Dep
         key(a).cmp(&key(b))
     });
     deployments
+}
+
+#[cfg(test)]
+mod fault_tests {
+    use super::*;
+
+    #[test]
+    fn short_of_replicas_is_a_fault() {
+        assert!(ready_is_short("0/1"));
+        assert!(ready_is_short("2/3"));
+        assert!(!ready_is_short("3/3"));
+        assert!(!ready_is_short("0/0"));
+        assert!(!ready_is_short("junk"));
+    }
 }

@@ -69,6 +69,10 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
             return Ok(None);
         }
     }
+    // Outside the list, Ctrl combinations are not their plain letters.
+    if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List) {
+        return Ok(None);
+    }
     // These take every key, so the global keys below never fire in them.
     if matches!(st.mode, Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. }) {
         return pickers::handle(event, st, cx);

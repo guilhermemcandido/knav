@@ -299,6 +299,7 @@ pub fn draw(
             Rows::Overview(..) => None,
         },
     };
+    let is_overview = matches!(rows, Rows::Overview(..));
     match rows {
         Rows::Pods(pods) => {
             draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, dimmed);
@@ -329,6 +330,25 @@ pub fn draw(
         Rows::CrdList(crds, heading) => {
             draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, hscroll, dimmed);
         }
+    }
+
+    // What is filtering or widening the list, in the title bar's corner.
+    if !is_overview && (header.faults_only || header.wide) && !dimmed {
+        let mut badges = Vec::new();
+        if header.faults_only {
+            badges.push(Span::styled(" faults ", Style::default().bg(WARN_FG).fg(Color::Black).add_modifier(Modifier::BOLD)));
+        }
+        if header.wide {
+            badges.push(Span::styled(" wide ", Style::default().bg(Color::Rgb(84, 148, 255)).fg(Color::Black).add_modifier(Modifier::BOLD)));
+        }
+        let width: u16 = badges.iter().map(|b| b.width() as u16 + 1).sum();
+        let rect = Rect { x: body.x + body.width.saturating_sub(width + 2), y: body.y, width: width.min(body.width), height: 1 };
+        let mut spans = Vec::new();
+        for b in badges {
+            spans.push(b);
+            spans.push(Span::raw(" "));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), rect);
     }
 
     if let Some(bg) = background {

@@ -50,6 +50,10 @@ pub(super) struct State {
     /// list changes.
     pub marked: std::collections::HashSet<String>,
     pub marked_kind: ResourceKind,
+    /// `Ctrl-z`: list only the rows that need a look.
+    pub faults_only: bool,
+    /// `Ctrl-w`: show the extra columns.
+    pub wide: bool,
     /// The views visited, oldest first, and where in that trail we are
     /// (`[` and `]` move along it).
     pub history: Vec<View>,
@@ -86,6 +90,8 @@ impl State {
             forwards: Vec::new(),
             marked: Default::default(),
             marked_kind: ResourceKind::Overview,
+            faults_only: false,
+            wide: false,
             history: vec![View { kind: ResourceKind::Overview, scope: None }],
             history_pos: 0,
             last_view: None,

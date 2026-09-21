@@ -13,6 +13,20 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let row_count = cx.row_count;
     let mut open = false;
     match (event, &mut st.mode) {
+        // Ctrl combinations: `Ctrl-z` lists only rows that need a look,
+        // `Ctrl-w` adds the wide columns. Any other Ctrl key does nothing
+        // (rather than acting as its plain letter).
+        (Event::Key(key), Mode::List) if key.modifiers.contains(KeyModifiers::CONTROL) => match key.code {
+            KeyCode::Char('z') => {
+                st.faults_only = !st.faults_only;
+                st.table_state.select(Some(0));
+            }
+            KeyCode::Char('w') => {
+                st.wide = !st.wide;
+                st.hscroll = 0;
+            }
+            _ => {}
+        },
         // Sort mode (`s`): the headers show their column numbers and a
         // digit sorts by that column — the same one again flips
         // ascending, descending, off. It stays on until `s`, Esc or

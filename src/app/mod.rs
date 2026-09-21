@@ -32,7 +32,7 @@ pub(crate) fn run(
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows };
-        let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort };
+        let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort, faults: st.faults_only };
         let derived = derive::derive(&src, catalog, &st.mode, &query);
         let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, .. } = &derived;
 
@@ -74,6 +74,8 @@ pub(crate) fn run(
             namespace: st.namespace.clone().unwrap_or_else(|| "all".into()),
             scope: st.scope.as_ref().map(Scope::label).unwrap_or_default(),
             namespace_slots: st.favorites.slots.clone(),
+            faults_only: st.faults_only,
+            wide: st.wide,
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing };
