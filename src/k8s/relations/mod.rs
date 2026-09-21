@@ -9,7 +9,7 @@ use serde_yaml::Value;
 mod graph;
 mod uses;
 
-pub use graph::{Graph, graph};
+pub use graph::{Graph, graph, mermaid};
 #[cfg(test)]
 pub use graph::GraphNode;
 use uses::uses;

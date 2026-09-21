@@ -2,7 +2,6 @@
 
 use super::*;
 
-
 /// One box of the diagram.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphNode {
@@ -79,3 +78,34 @@ pub fn graph(target: &Value, groups: &[Group]) -> Graph {
     g
 }
 
+
+/// The diagram as Mermaid text (`flowchart LR`), for pasting into docs or an issue.
+pub fn mermaid(graph: &Graph) -> String {
+    let clean = |text: &str| text.replace('"', "'");
+    let mut out = String::from("flowchart LR\n");
+    for (i, node) in graph.nodes.iter().enumerate() {
+        let place = node.namespace.as_deref().map(|ns| format!("{ns}/")).unwrap_or_default();
+        out.push_str(&format!("  n{i}[\"{}<br/>{}\"]\n", clean(&node.kind), clean(&format!("{place}{}", node.name))));
+    }
+    for (from, to) in &graph.edges {
+        match graph.nodes.get(*from).map(|n| n.detail.as_str()).filter(|d| !d.is_empty()) {
+            Some(why) => out.push_str(&format!("  n{from} -->|{}| n{to}\n", clean(why))),
+            None => out.push_str(&format!("  n{from} --> n{to}\n")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod mermaid_tests {
+    use super::*;
+
+    #[test]
+    fn boxes_and_arrows_become_mermaid_lines() {
+        let node = |kind: &str, name: &str, detail: &str| GraphNode { kind: kind.into(), namespace: Some("shop".into()), name: name.into(), detail: detail.into(), layer: 0, openable: true };
+        let graph = Graph { nodes: vec![node("Pod", "web", ""), node("ConfigMap", "cfg", "volume")], edges: vec![(1, 0)] };
+        let text = mermaid(&graph);
+        assert!(text.starts_with("flowchart LR\n"));
+        assert!(text.contains("n0[\"Pod<br/>shop/web\"]") && text.contains("n1 -->|volume| n0"), "{text}");
+    }
+}

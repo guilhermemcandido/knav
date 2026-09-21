@@ -202,16 +202,30 @@ fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize) -> Vec<Vec<(char
     grid
 }
 
+/// Where the diagram sits in `area`: how far it is panned (to keep the selected box in view)
+/// and how much room is left around a small one, which sits in the middle.
+fn viewport(area: Rect, layout: &GraphLayout, selected: usize) -> (u16, u16, u16, u16) {
+    let (sx, sy) = layout.pos.get(selected).copied().unwrap_or((0, 0));
+    let scroll = |centre: u16, view: u16, whole: u16| centre.saturating_sub(view / 2).min(whole.saturating_sub(view));
+    let (ox, oy) = (scroll(sx + BOX_W / 2, area.width, layout.width), scroll(sy + BOX_H / 2, area.height, layout.height));
+    (ox, oy, area.width.saturating_sub(layout.width) / 2, area.height.saturating_sub(layout.height) / 2)
+}
+
+/// The box under a screen position, given the diagram is drawn in `area` with `selected` in view.
+pub fn graph_hit(area: Rect, graph: &Graph, selected: usize, column: u16, row: u16) -> Option<usize> {
+    let layout = layout(graph);
+    let (ox, oy, pad_x, pad_y) = viewport(area, &layout, selected);
+    let x = column.checked_sub(area.x + pad_x)?.checked_add(ox)?;
+    let y = row.checked_sub(area.y + pad_y)?.checked_add(oy)?;
+    layout.pos.iter().position(|&(bx, by)| x >= bx && x < bx + BOX_W && y >= by && y < by + BOX_H)
+}
+
 /// Draws the diagram into `area`, panned to keep the selected box in view.
 pub(super) fn draw_graph(frame: &mut Frame, area: Rect, graph: &Graph, selected: usize) {
     let layout = layout(graph);
     let grid = canvas(graph, &layout, selected);
     let (view_w, view_h) = (area.width, area.height);
-    let (sx, sy) = layout.pos.get(selected).copied().unwrap_or((0, 0));
-    let scroll = |centre: u16, view: u16, whole: u16| centre.saturating_sub(view / 2).min(whole.saturating_sub(view));
-    let (ox, oy) = (scroll(sx + BOX_W / 2, view_w, layout.width), scroll(sy + BOX_H / 2, view_h, layout.height));
-    // Small diagrams sit in the middle of the space.
-    let (pad_x, pad_y) = (view_w.saturating_sub(layout.width) / 2, view_h.saturating_sub(layout.height) / 2);
+    let (ox, oy, pad_x, pad_y) = viewport(area, &layout, selected);
     let buffer = frame.buffer_mut();
     for y in 0..view_h.saturating_sub(pad_y) {
         for x in 0..view_w.saturating_sub(pad_x) {
@@ -266,5 +280,17 @@ mod tests {
         assert_eq!(neighbor(&g, &l, 1, Move::Left), Some(2));
         assert_eq!(neighbor(&g, &l, 1, Move::Down), Some(3));
         assert_eq!(neighbor(&g, &l, 4, Move::Right), None);
+    }
+
+    #[test]
+    fn a_click_lands_on_the_box_under_it_and_not_on_the_gaps() {
+        let g = chain();
+        let l = layout(&g);
+        let area = Rect { x: 2, y: 3, width: 200, height: 60 };
+        let (_, _, pad_x, pad_y) = viewport(area, &l, 0);
+        let (bx, by) = l.pos[4];
+        assert_eq!(graph_hit(area, &g, 0, area.x + pad_x + bx + 1, area.y + pad_y + by + 1), Some(4));
+        assert_eq!(graph_hit(area, &g, 0, area.x + pad_x + bx + BOX_W + 1, area.y + pad_y + by), None, "the gap after the box");
+        assert_eq!(graph_hit(area, &g, 0, 0, 0), None, "outside the diagram");
     }
 }

@@ -40,10 +40,15 @@ mod style;
 
 pub use self::columns::*;
 pub use self::nav::*;
+
+/// The area the relations diagram is drawn in.
+pub fn relations_inner(frame_area: Rect) -> Rect {
+    Block::default().borders(Borders::ALL).inner(body_area(frame_area, true))
+}
 use self::health::*;
 pub use self::style::{set_list_focused, set_title_reserve};
 pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
-pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
+pub use self::graph::{Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
 use self::help::draw_help;
 pub use self::layout::{configure_columns, set_data_version};

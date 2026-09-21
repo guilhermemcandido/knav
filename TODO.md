@@ -18,10 +18,10 @@ Structure
 - [x] Comments: none over 3 lines remain, the misplaced doc comments are fixed, no em dashes.
 
 Smaller
-- [ ] Secret reveal/hide toggle in the info view.
-- [ ] Reuse the connection when switching context (it connects twice now).
-- [ ] Mermaid export of the relations graph.
-- [ ] Click support in the relations diagram.
+- [x] Secret reveal/hide toggle in the info view (`x`).
+- [x] Reusing the connection when switching context: not possible, a client belongs to its session's runtime; the check now runs in the background instead.
+- [x] Mermaid export of the relations graph (`m`).
+- [x] Click support in the relations diagram (click selects, double click shows the info).
 
 ## Prior art (checked 2026-09-16 — re-verify star counts/activity before assuming these are current)
 
