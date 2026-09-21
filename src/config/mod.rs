@@ -183,8 +183,7 @@ impl Default for ThemeConfig {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct UiConfig {
-    /// The line style of every box: `heavy-rounded` (default), `thick`,
-    /// `rounded`, `double`, `block` or `arcs`.
+    /// The line style of every box: `rounded` (default), `thick` or `double`.
     pub border: String,
     /// How much of its square a command suggestion's icon fills, in percent.
     pub suggestion_icon_percent: u8,
@@ -194,7 +193,7 @@ pub struct UiConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        UiConfig { border: "heavy-rounded".into(), suggestion_icon_percent: 78, idle_redraw_ms: 200, shell_redraw_ms: 25 }
+        UiConfig { border: "rounded".into(), suggestion_icon_percent: 78, idle_redraw_ms: 200, shell_redraw_ms: 25 }
     }
 }
 

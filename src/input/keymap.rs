@@ -235,7 +235,7 @@ pub fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<Screen> {
         Mode::Logs { filter_editing: false, .. } => Logs,
         Mode::Spec { viewing: None, .. } => Spec,
         Mode::Yaml { .. } => Yaml,
-        Mode::Settings { editing: None, .. } => Settings,
+        Mode::Settings { editing: None, capture: None, .. } => Settings,
         Mode::ThemePicker { .. } => Themes,
         Mode::EventDetail { .. } | Mode::ResourcesDetail => Other,
         _ => return None,

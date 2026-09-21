@@ -98,7 +98,7 @@ toggle_timestamp = "t"
 toggle_order = "o"
 
 [ui]
-border = "heavy-rounded"   # box lines: heavy-rounded, thick, rounded, double, block or arcs
+border = "rounded"   # box lines: rounded, thick or double
 suggestion_icon_percent = 78
 
 [mouse]

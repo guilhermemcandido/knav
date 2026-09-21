@@ -96,7 +96,7 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::Settings { settings, state, editing, error, .. } => {
+            Mode::Settings { settings, state, editing, capture, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let current_theme = crate::theme::theme();
@@ -115,10 +115,15 @@ pub(super) fn draw_mode(
                                 customised: crate::config::settings::is_customised(config, setting),
                                 restart: setting.restart,
                                 editing: is_editing,
+                                help: crate::config::settings::describe(setting),
                             }
                         })
                         .collect();
-                    let overlay = ui::Overlay::Settings { rows: &rows, state, error: error.as_deref() };
+                    let capture_view = capture.as_ref().and_then(|c| {
+                        let setting = state.selected().and_then(|i| settings.get(i))?;
+                        Some(ui::CaptureView { label: setting.label.clone(), current: crate::config::settings::current(config, &current_theme, setting), pressed: c.pressed.clone(), problem: c.problem.clone() })
+                    });
+                    let overlay = ui::Overlay::Settings { rows: &rows, state, error: error.as_deref(), capture: capture_view };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

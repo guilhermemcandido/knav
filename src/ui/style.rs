@@ -52,42 +52,13 @@ pub fn mark_key(namespace: &str, name: &str) -> String {
 
 use std::sync::RwLock;
 
-/// Heavy straight strokes with the rounded corners only the light weight
-/// has (there is no heavy rounded corner in Unicode).
-const HEAVY_ROUNDED: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
-    top_left: "╭",
-    top_right: "╮",
-    bottom_left: "╰",
-    bottom_right: "╯",
-    vertical_left: "┃",
-    vertical_right: "┃",
-    horizontal_top: "━",
-    horizontal_bottom: "━",
-};
-
-/// Heavy strokes with quarter-circle corner glyphs; how heavy those look
-/// depends on the font.
-const ARCS: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
-    top_left: "◜",
-    top_right: "◝",
-    bottom_left: "◟",
-    bottom_right: "◞",
-    vertical_left: "┃",
-    vertical_right: "┃",
-    horizontal_top: "━",
-    horizontal_bottom: "━",
-};
-
 /// The line style for a config name (`ui.border`); unknown names get the default.
 pub fn border_set_named(name: &str) -> ratatui::symbols::border::Set<'static> {
     use ratatui::symbols::border;
     match name {
         "thick" => border::THICK,
-        "rounded" => border::ROUNDED,
         "double" => border::DOUBLE,
-        "block" => border::QUADRANT_OUTSIDE,
-        "arcs" => ARCS,
-        _ => HEAVY_ROUNDED,
+        _ => border::ROUNDED,
     }
 }
 
@@ -324,8 +295,8 @@ mod border_tests {
     fn names_pick_styles_and_unknown_ones_get_the_default() {
         assert_eq!(border_set_named("thick"), ratatui::symbols::border::THICK);
         assert_eq!(border_set_named("double"), ratatui::symbols::border::DOUBLE);
-        assert_eq!(border_set_named("nonsense"), HEAVY_ROUNDED);
-        assert_eq!(border_set_named("heavy-rounded").top_left, "╭");
-        assert_eq!(border_set_named("heavy-rounded").horizontal_top, "━");
+        assert_eq!(border_set_named("nonsense"), ratatui::symbols::border::ROUNDED);
+        assert_eq!(border_set_named("thick").horizontal_top, "━");
+        assert_eq!(border_set_named("double").horizontal_top, "═");
     }
 }

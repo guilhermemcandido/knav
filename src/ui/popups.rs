@@ -351,9 +351,14 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
         .map(|entry| {
             let mut swatch = Vec::new();
             for color in &entry.swatch {
-                // A background that is "reset" shows as the terminal's own, so use a hollow dot.
-                let dot = if *color == Color::Reset { "○ " } else { "● " };
-                swatch.push(Span::styled(dot, Style::default().fg(if *color == Color::Reset { theme().muted } else { *color })));
+                // Each colour sits on its own black or white chip, so it shows
+                // whatever theme is being previewed behind it. "Reset" is the
+                // terminal's own background: a hollow dot.
+                if *color == Color::Reset {
+                    swatch.push(Span::styled(" ○ ", Style::default().fg(theme().muted)));
+                } else {
+                    swatch.push(Span::styled(" ● ", Style::default().fg(*color).bg(crate::theme::on(*color))));
+                }
             }
             let mark = if entry.name == saved { "✔ in use" } else { "" };
             Row::new(vec![
@@ -363,7 +368,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
             ])
         })
         .collect();
-    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(20), Constraint::Min(8)])
+    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(24), Constraint::Min(8)])
         .column_spacing(2)
         .style(theme_row(false))
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
@@ -375,7 +380,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
 
 /// The settings screen: one row per setting under its section, the value in
 /// bold when the config file sets it, and a swatch for colours.
-pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut TableState, error: Option<&str>) {
+pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut TableState, error: Option<&str>, capture: Option<&CaptureView>) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let bottom = match error {
@@ -390,6 +395,14 @@ pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut
         .title_bottom(bottom);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    // The selected setting's explanation takes the last two lines.
+    let help = state.selected().and_then(|i| rows.get(i)).map(|r| r.help).unwrap_or("");
+    let split = Layout::vertical([Constraint::Min(1), Constraint::Length(if inner.height > 6 { 3 } else { 0 })]).split(inner);
+    let (inner, help_area) = (split[0], split[1]);
+    if help_area.height > 0 {
+        let text = Paragraph::new(help).style(Style::default().fg(theme().muted)).wrap(Wrap { trim: true }).block(Block::default().borders(Borders::TOP).border_style(theme_border(false)));
+        frame.render_widget(text, help_area);
+    }
     let mut last_section = "";
     let table_rows: Vec<Row> = rows
         .iter()
@@ -425,6 +438,43 @@ pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut
         state.select(Some(selected.min(rows.len().saturating_sub(1))));
     }
     frame.render_stateful_widget(table, inner, state);
+    if let Some(capture) = capture {
+        draw_key_capture(frame, capture);
+    }
+}
+
+/// The popup for picking a key by pressing it, then confirming.
+fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
+    let area = centered_rect(60, 40, frame.area());
+    let area = Rect { height: area.height.clamp(9, 12).min(frame.area().height), ..area };
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(true))
+        .title(Line::styled(format!(" {} ", capture.label), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let muted = Style::default().fg(theme().muted);
+    let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
+    let mut lines = vec![Line::styled(format!("Now: {}", capture.current), muted), Line::raw("")];
+    match &capture.pressed {
+        None => {
+            lines.push(Line::styled("Press the key you want to use.", Style::default().fg(theme().text_strong)));
+            lines.push(Line::styled("Enter and Esc can be picked too; you confirm next.", muted));
+        }
+        Some(key) => {
+            lines.push(Line::from(vec![Span::styled("You pressed  ", Style::default().fg(theme().text_strong)), Span::styled(format!("<{key}>"), key_style)]));
+            lines.push(Line::raw(""));
+            lines.push(Line::from(vec![Span::styled("enter", key_style), Span::styled("  use only this key", muted)]));
+            lines.push(Line::from(vec![Span::styled("a    ", key_style), Span::styled("  add it to the current keys", muted)]));
+            lines.push(Line::from(vec![Span::styled("bksp ", key_style), Span::styled("  pick again", muted), Span::styled("     esc", key_style), Span::styled("  cancel", muted)]));
+        }
+    }
+    if let Some(problem) = &capture.problem {
+        lines.push(Line::styled(problem.clone(), Style::default().fg(theme().bad)));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 /// Which settings row a click lands on.

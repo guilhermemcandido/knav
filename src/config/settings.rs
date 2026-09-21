@@ -43,7 +43,7 @@ pub fn registry() -> Vec<Setting> {
         settings.push(Setting { path: path.to_string(), section, label: label.to_string(), kind, restart });
     };
     add("theme.preset", "Theme", "Theme", Kind::Choice(theme::all_names()), false);
-    add("ui.border", "Appearance", "Box lines", choice(&["heavy-rounded", "thick", "rounded", "double", "block", "arcs"]), false);
+    add("ui.border", "Appearance", "Box lines", choice(&["rounded", "thick", "double"]), false);
     add("ui.suggestion_icon_percent", "Appearance", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
     add("ui.idle_redraw_ms", "Appearance", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);
     add("ui.shell_redraw_ms", "Appearance", "Shell redraw (ms)", Kind::Number { min: 10, max: 200 }, false);
@@ -89,6 +89,31 @@ fn show(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+/// What a setting does, in a line or two.
+pub fn describe(setting: &Setting) -> &'static str {
+    if setting.path.starts_with("keys.") {
+        return "Press enter, then the key you want. You can use only that key or add it to the current ones. Keys another action already uses on the same screen are refused. r resets it.";
+    }
+    match setting.path.as_str() {
+        "theme.preset" => "The colour theme. T opens the picker, which previews each theme as you move.",
+        "ui.border" => "The lines around every box: rounded corners, thick lines or double lines.",
+        "ui.suggestion_icon_percent" => "How large the icons in the command line suggestions are, as a percent of their row.",
+        "ui.idle_redraw_ms" => "How often the screen refreshes while nothing is happening. Lower is smoother, higher uses less CPU.",
+        "ui.shell_redraw_ms" => "How often the screen refreshes while a shell is open. Lower feels snappier.",
+        "tables.min_column_width" => "The narrowest a column can get when space is short. Past that the table scrolls sideways.",
+        "tables.wide_by_default" => "Start with the extra columns shown, like kubectl -o wide. Ctrl-w toggles them at any time.",
+        "tables.faults_by_default" => "Start with lists showing only rows that need attention. Ctrl-z toggles it at any time.",
+        "logs.order" => "oldest_first reads like a file with new lines at the bottom. newest_first puts new lines on top.",
+        "logs.timestamp_format" => "short shows the time only, full shows the whole timestamp. t toggles it in the log view.",
+        "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
+        "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
+        "startup.mode" => "direct connects to your current kubeconfig context and opens the Overview, like k9s. menu shows a cluster picker first, even with a single context. --context skips both.",
+        "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
+        "api.refresh_seconds" => "How often the API resources list refreshes in the background.",
+        _ => "",
     }
 }
 

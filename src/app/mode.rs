@@ -2,6 +2,14 @@
 
 use crate::*;
 
+/// A key being picked on the settings screen: the key pressed so far, and why
+/// it can't be used, if it can't.
+#[derive(Default)]
+pub(crate) struct KeyCapture {
+    pub pressed: Option<String>,
+    pub problem: Option<String>,
+}
+
 pub(crate) enum Mode {
     List,
     /// The `:` command line, reachable from any screen. `:q` exits, `:pods` and the
@@ -24,7 +32,7 @@ pub(crate) enum Mode {
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
-    Settings { settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, error: Option<String>, back: Box<Mode> },
+    Settings { settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, capture: Option<KeyCapture>, error: Option<String>, back: Box<Mode> },
     /// The theme list, previewing each theme live as you move through it.
     ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
@@ -116,7 +124,7 @@ pub(crate) enum Mode {
 /// Whether `c`, `?` and `:` should be typed as characters instead of acting as
 /// global keys: `Command` and `Search` always, `Logs` while its filter is edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Settings { editing: Some(_), .. } | Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } | Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -361,7 +369,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
-        Mode::Settings { editing: Some(_), .. } => Vec::new(),
+        Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("q/esc", "back")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),

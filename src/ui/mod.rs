@@ -122,7 +122,7 @@ pub enum Overlay<'a> {
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
     /// The settings screen.
-    Settings { rows: &'a [SettingView], state: &'a mut TableState, error: Option<&'a str> },
+    Settings { rows: &'a [SettingView], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
@@ -205,6 +205,16 @@ pub struct SettingView {
     pub restart: bool,
     /// Being typed right now.
     pub editing: bool,
+    /// What the setting does, shown under the list while it is selected.
+    pub help: &'static str,
+}
+
+/// The "press a key" popup on the settings screen.
+pub struct CaptureView {
+    pub label: String,
+    pub current: String,
+    pub pressed: Option<String>,
+    pub problem: Option<String>,
 }
 
 /// What a command suggestion shows beside its name.
@@ -466,7 +476,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
-        Overlay::Settings { rows, state, error } => draw_settings(frame, rows, state, error),
+        Overlay::Settings { rows, state, error, capture } => draw_settings(frame, rows, state, error, capture.as_ref()),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),

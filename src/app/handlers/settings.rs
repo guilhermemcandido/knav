@@ -34,11 +34,37 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut change: Option<Change> = None;
     let mut close = false;
     let current_theme = crate::theme::theme();
-    if let Mode::Settings { settings, state, editing, error, back } = &mut st.mode {
+    if let Mode::Settings { settings, state, editing, capture, error, back } = &mut st.mode {
         let len = settings.len();
         let setting = state.selected().and_then(|i| settings.get(i)).cloned();
         let current = setting.as_ref().map(|s| settings::current(cx.config, &current_theme, s)).unwrap_or_default();
         match event {
+            // Picking a key: the first key pressed is the candidate, then it is
+            // confirmed, added to the current keys, re-picked or dropped.
+            Event::Key(key) if capture.is_some() => {
+                let picking = capture.as_mut().expect("checked above");
+                match picking.pressed.clone() {
+                    None => picking.pressed = Some(crate::input::keymap::format_key(crate::input::keymap::KeySpec::of(&key))),
+                    Some(pressed) => match key.code {
+                        KeyCode::Esc | KeyCode::Char('n') => *capture = None,
+                        KeyCode::Backspace => *picking = KeyCapture::default(),
+                        KeyCode::Enter | KeyCode::Char('y' | 'a') => {
+                            let new = if pressed == "," { "comma".to_string() } else { pressed };
+                            let text = if key.code == KeyCode::Char('a') && !current.split(", ").any(|k| k == new) { format!("{current}, {new}") } else { new };
+                            match setting.as_ref().map(|s| (s, settings::typed_value(cx.config, s, &text))) {
+                                Some((s, Ok(_))) => {
+                                    change = Some(Change::Set(s.path.clone(), text));
+                                    *capture = None;
+                                }
+                                Some((_, Err(e))) => picking.problem = Some(format!("{e:#}")),
+                                None => {}
+                            }
+                        }
+                        _ => {}
+                    },
+                }
+            }
+            Event::Mouse(_) if capture.is_some() => {}
             Event::Key(key) if editing.is_some() => {
                 let input = editing.as_mut().expect("checked above");
                 match key.code {
@@ -95,7 +121,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         if let Some(s) = &setting {
                             match &s.kind {
-                                Kind::Number { .. } | Kind::Color | Kind::Keys => *editing = Some(current.clone()),
+                                Kind::Keys => *capture = Some(KeyCapture::default()),
+                                Kind::Number { .. } | Kind::Color => *editing = Some(current.clone()),
                                 _ => {
                                     if let Some(next) = stepped(s, &current, 1, false) {
                                         change = Some(Change::Set(s.path.clone(), next));
@@ -155,7 +182,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
 /// Opens the settings screen over whatever is showing.
 pub(super) fn open(st: &mut State) {
     let back = std::mem::replace(&mut st.mode, Mode::List);
-    st.mode = Mode::Settings { settings: settings::registry(), state: TableState::default().with_selected(0), editing: None, error: None, back: Box::new(back) };
+    st.mode = Mode::Settings { settings: settings::registry(), state: TableState::default().with_selected(0), editing: None, capture: None, error: None, back: Box::new(back) };
 }
 
 #[cfg(test)]

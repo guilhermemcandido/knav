@@ -98,7 +98,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         }
     }
     // Outside the list, Ctrl combinations are not their plain letters.
-    if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List) {
+    if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List | Mode::Settings { capture: Some(_), .. }) {
         return Ok(None);
     }
     // These take every key, so the global keys below never fire in them.
