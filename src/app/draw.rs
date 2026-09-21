@@ -11,6 +11,7 @@ pub(super) struct View<'a> {
     pub nodes: &'a [std::sync::Arc<Node>],
     pub usage: Option<&'a metrics::ClusterUsage>,
     pub node_detail_rows: &'a [k8s::PodRow],
+    pub node_rows: &'a [k8s::NodeRow],
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],
     pub favorites: &'a Favorites,
@@ -37,7 +38,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -341,7 +342,7 @@ pub(super) fn draw_mode(
             Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview };
+                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: node_rows };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

@@ -116,6 +116,7 @@ pub(crate) fn run(
             rows: &rows_view,
             overview: &overview,
             nodes: &nodes,
+            node_rows: &node_rows,
             usage: usage.as_ref(),
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,

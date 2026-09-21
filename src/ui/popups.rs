@@ -947,64 +947,92 @@ pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// One cluster-wide meter as a real `Gauge`. The popup has room for the used,
-/// capacity and percentage text in the gauge's own label.
-pub(super) fn draw_gauge_box(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
-    let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
-    let border_style = if dimmed { dim_style() } else { Style::default() };
-    let title_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
-    let gauge_style = if dimmed { dim_style() } else { Style::default().fg(usage_color(ratio, dimmed)) };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border_set())
-        .border_style(border_style)
-        .title(Line::styled(format!(" {label} "), title_style));
-    let label_text = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
-    let gauge = Gauge::default().block(block).gauge_style(gauge_style).ratio(ratio).label(label_text);
-    frame.render_widget(gauge, area);
-}
-
-/// The Resources panel opened up: cluster-wide CPU/Memory/Pods as gauges. It
-/// doesn't repeat the per-node breakdown the Nodes list owns.
-pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, dimmed: bool) {
-    let area = centered_rect(60, 30, frame.area());
+/// The Resources view: usage and requests against what the nodes offer, each
+/// node, how the pods are doing and where they are.
+pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[crate::k8s::NodeRow], dimmed: bool) {
+    let area = body_area(frame.area(), false);
     frame.render_widget(Clear, area);
-
-    let border_style = if dimmed { dim_style() } else { Style::default() };
-    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title("Resources");
+    let border_style = if dimmed { dim_style() } else { theme_border(false) };
+    let outer = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(Line::styled(" Resources ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+    let report = overview.report.as_ref();
+    let heading = |text: &str| Line::styled(text.to_string(), if dimmed { dim_style() } else { Style::default().fg(theme().heading).add_modifier(Modifier::BOLD) });
 
-    if !overview.metrics_available {
-        let text = vec![
-            Line::styled("metrics unavailable", Style::default().fg(theme().muted).add_modifier(Modifier::BOLD)),
-            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(theme().muted)),
-        ];
-        frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), inner);
-        return;
+    // Usage and requests against allocatable.
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(5), Constraint::Length(1), Constraint::Min(3), Constraint::Length(1), Constraint::Length(9)]).split(inner);
+    frame.render_widget(Paragraph::new(heading("Cluster")), rows[0]);
+    let meters = Layout::vertical([Constraint::Length(1); 5]).split(rows[1]);
+    let cores = |v: f64| format!("{:.2} cores", v / 1000.0);
+    if overview.metrics_available {
+        draw_meter(frame, meters[0], "CPU", overview.cpu_usage_millicores as f64, overview.cpu_capacity_millicores as f64, cores, dimmed);
+        draw_meter(frame, meters[2], "Memory", overview.memory_usage_bytes as f64, overview.memory_capacity_bytes as f64, format_bytes, dimmed);
+    } else {
+        for (row, label) in [(0, "CPU"), (2, "Memory")] {
+            frame.render_widget(Paragraph::new(Line::from(vec![Span::styled(format!("{label:<8}"), Style::default().add_modifier(Modifier::BOLD)), Span::styled("usage unavailable (no metrics-server)", Style::default().fg(theme().muted))])), meters[row]);
+        }
     }
+    if let Some(report) = report {
+        draw_meter(frame, meters[1], "  asked", report.cpu_requests_millicores as f64, overview.cpu_capacity_millicores as f64, cores, dimmed);
+        draw_meter(frame, meters[3], "  asked", report.memory_requests_bytes as f64, overview.memory_capacity_bytes as f64, format_bytes, dimmed);
+    }
+    draw_meter(frame, meters[4], "Pods", workloads_pod_count(overview) as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
 
-    let pod_usage = workloads_pod_count(overview);
-    let chunks = Layout::vertical([Constraint::Length(3); 3]).split(inner);
-    draw_gauge_box(
-        frame,
-        chunks[0],
-        "CPU",
-        overview.cpu_usage_millicores as f64,
-        overview.cpu_capacity_millicores as f64,
-        |v| format!("{:.2} cores", v / 1000.0),
-        dimmed,
-    );
-    draw_gauge_box(
-        frame,
-        chunks[1],
-        "Memory",
-        overview.memory_usage_bytes as f64,
-        overview.memory_capacity_bytes as f64,
-        format_bytes,
-        dimmed,
-    );
-    draw_gauge_box(frame, chunks[2], "Pods", pod_usage as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
+    // Every node.
+    frame.render_widget(Paragraph::new(heading(&format!("Nodes ({})", nodes.len()))), rows[2]);
+    let table_rows: Vec<Row> = nodes
+        .iter()
+        .map(|n| {
+            let (cpu_req, mem_req) = report.and_then(|r| r.node_requests.get(&n.name).copied()).unzip();
+            let status = if !n.ready { ("NotReady", theme().bad) } else if !n.schedulable { ("Cordoned", theme().warn) } else { ("Ready", theme().ok) };
+            let status_style = if dimmed { dim_style() } else { Style::default().fg(status.1) };
+            Row::new(vec![
+                Cell::from(n.name.clone()),
+                Cell::from(Span::styled(status.0, status_style)),
+                Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
+                Cell::from(usage_bar(n.memory_bytes, n.memory_capacity, dimmed)),
+                Cell::from(usage_bar(cpu_req.or(report.map(|_| 0)), n.cpu_capacity, dimmed)),
+                Cell::from(usage_bar(mem_req.or(report.map(|_| 0)), n.memory_capacity, dimmed)),
+                Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)),
+            ])
+        })
+        .collect();
+    let header = Row::new(["NAME", "STATUS", "CPU", "MEMORY", "CPU ASKED", "MEM ASKED", "PODS"]).style(Style::default().fg(theme().header).add_modifier(Modifier::BOLD));
+    let table = Table::new(table_rows, [Constraint::Min(16), Constraint::Length(9), Constraint::Length(16), Constraint::Length(16), Constraint::Length(16), Constraint::Length(16), Constraint::Length(9)]).header(header).column_spacing(2).style(theme_row(dimmed));
+    frame.render_widget(table, rows[3]);
+
+    // How the pods are doing and where they are.
+    frame.render_widget(Paragraph::new(heading("Pods")), rows[4]);
+    let Some(report) = report else { return };
+    let halves = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).spacing(2).split(rows[5]);
+    let phase_color = |phase: &str| match phase {
+        "Running" => theme().ok,
+        "Pending" | "Unknown" => theme().warn,
+        "Failed" => theme().bad,
+        _ => theme().muted,
+    };
+    let phase_lines: Vec<Line> = report
+        .phases
+        .iter()
+        .map(|(phase, n)| Line::from(vec![Span::styled("● ", if dimmed { dim_style() } else { Style::default().fg(phase_color(phase)) }), Span::styled(format!("{phase:<11}"), Style::default()), Span::styled(n.to_string(), Style::default().add_modifier(Modifier::BOLD))]))
+        .collect();
+    frame.render_widget(Paragraph::new(phase_lines), halves[0]);
+    let biggest = report.namespaces.first().map_or(1, |(_, n)| *n).max(1);
+    let bar_room = usize::from(halves[1].width).saturating_sub(26).clamp(4, 40);
+    let namespace_lines: Vec<Line> = report
+        .namespaces
+        .iter()
+        .map(|(name, n)| {
+            let cells = (n * bar_room / biggest).max(1);
+            Line::from(vec![
+                Span::styled(format!("{:<20}", truncate(name, 20)), Style::default()),
+                Span::styled("█".repeat(cells), if dimmed { dim_style() } else { Style::default().fg(theme().namespace) }),
+                Span::styled(format!(" {n}"), Style::default().add_modifier(Modifier::BOLD)),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(namespace_lines), halves[1]);
 }
 
 pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, sort: SortState, dimmed: bool) {
@@ -1116,6 +1144,7 @@ mod events_popup_tests {
             metrics_available: false,
             catalog: vec![("Workloads", vec![("Pods", 17), ("Deployments", 4)])],
             health: Default::default(),
+            report: None,
         };
         assert_eq!(workloads_pod_count(&overview), 17);
     }

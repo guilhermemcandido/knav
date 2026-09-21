@@ -20,6 +20,8 @@ pub struct Overview {
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
+    /// Requests, phases and busiest namespaces, worked out while the Resources view is open.
+    pub report: Option<crate::k8s::report::Report>,
 }
 
 /// How many of a kind's objects are healthy, need attention or are broken.
@@ -82,6 +84,7 @@ pub fn overview(
     usage: Option<&crate::k8s::metrics::ClusterUsage>,
     catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     health: std::collections::HashMap<&'static str, Health>,
+    report: Option<crate::k8s::report::Report>,
 ) -> Overview {
     let mut feed: Vec<EventEntry> = nodes.iter().flat_map(|n| node_warnings(n)).chain(events.iter().map(|e| event_entry(e))).collect();
     feed.sort_by_key(|e| e.age_secs);
@@ -96,5 +99,6 @@ pub fn overview(
         metrics_available: usage.is_some(),
         catalog,
         health,
+        report,
     }
 }

@@ -141,7 +141,8 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         } else {
             Default::default()
         };
-        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health);
+        let report = matches!(mode, Mode::ResourcesDetail).then(|| k8s::report::report(&k8s::snapshot(pod_store)));
+        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
         // Only filled for the kind on screen. `resolve` starts a CRD's watch the first
         // time it is opened. `generic_visible` maps a display position back to the real
         // index that `CatalogKind::spec_at` needs. Table-backed kinds add wide columns on request.

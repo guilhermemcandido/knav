@@ -408,6 +408,7 @@ mod overview_selection_tests {
             metrics_available: false,
             catalog,
             health: Default::default(),
+            report: None,
         }
     }
 

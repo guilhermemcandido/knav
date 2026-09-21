@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
@@ -117,7 +117,7 @@ pub enum Overlay<'a> {
     EventDetail { entry: &'a EventEntry },
     /// The Resources panel opened up: cluster-wide gauges plus per-node usage, drawn
     /// by the same code as the compact panel.
-    ResourcesDetail { overview: &'a Overview },
+    ResourcesDetail { overview: &'a Overview, nodes: &'a [crate::k8s::NodeRow] },
     /// One category column opened into a bigger grid of the same cards, for categories
     /// with many kinds.
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], health: &'a std::collections::HashMap<&'static str, crate::k8s::Health>, selected: usize, row_scroll: usize },
@@ -534,7 +534,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Context { items, total, filter, editing, state, error, sort } => draw_context_popup(frame, items, total, filter, editing, state, error, sort),
         Overlay::Events { events, filter, search, editing, state, sort } => draw_events_popup(frame, events, filter, search, editing, state, sort, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
-        Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
+        Overlay::ResourcesDetail { overview, nodes } => draw_resources_detail_popup(frame, overview, nodes, dimmed),
         Overlay::ColumnDetail { title, items, health, selected, row_scroll } => {
             draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
