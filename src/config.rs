@@ -119,6 +119,21 @@ impl Default for PortForwardConfig {
     }
 }
 
+/// Look-and-feel options.
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    /// The line style of every box: `heavy-rounded` (default), `thick`,
+    /// `rounded`, `double`, `block` or `arcs`.
+    pub border: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        UiConfig { border: "heavy-rounded".into() }
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
@@ -127,6 +142,7 @@ pub struct Config {
     pub keybindings: Keybindings,
     pub startup: StartupConfig,
     pub tables: TablesConfig,
+    pub ui: UiConfig,
 }
 
 impl Config {

@@ -33,7 +33,7 @@ pub(super) fn draw_logs_popup(
     if let Some(span) = search_span(filter, filter_editing, false) {
         title_line.push_span(span);
     }
-    let block = Block::default().borders(Borders::ALL).border_set(BORDER_SET).title(title_line);
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).title(title_line);
 
     // Newest-first is the same log read from the other end.
     if order == LogOrder::NewestFirst {

@@ -95,6 +95,9 @@ timestamp_format = "short" # or "full"; `t` toggles it
 toggle_timestamp = "t"
 toggle_order = "o"
 
+[ui]
+border = "heavy-rounded"   # box lines: heavy-rounded, thick, rounded, double, block or arcs
+
 [tables]
 min_column_width = 10    # no column is squeezed below this; wider tables scroll sideways
 [tables.min_widths]      # per column, keyed by the lowercase header

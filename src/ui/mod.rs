@@ -46,7 +46,7 @@ pub use self::popups::*;
 pub use self::spec::*;
 pub use self::tables::*;
 use self::theme::*;
-pub use self::theme::{BORDER_SET, mark_key};
+pub use self::theme::{border_set, configure_border, mark_key};
 
 pub enum Rows<'a> {
     /// The two `usize`s are the horizontal column scroll offset and the

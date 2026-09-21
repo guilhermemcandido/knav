@@ -58,10 +58,11 @@ pub fn mark_key(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
 
-/// The line style of every box: heavy strokes so the frames read clearly,
-/// with the rounded corners only the light weight has (there is no heavy
-/// rounded corner in Unicode).
-pub const BORDER_SET: ratatui::symbols::border::Set = ratatui::symbols::border::Set {
+use std::sync::OnceLock;
+
+/// Heavy straight strokes with the rounded corners only the light weight
+/// has (there is no heavy rounded corner in Unicode).
+const HEAVY_ROUNDED: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
     top_left: "╭",
     top_right: "╮",
     bottom_left: "╰",
@@ -71,6 +72,44 @@ pub const BORDER_SET: ratatui::symbols::border::Set = ratatui::symbols::border::
     horizontal_top: "━",
     horizontal_bottom: "━",
 };
+
+/// Heavy strokes with quarter-circle corner glyphs; how heavy those look
+/// depends on the font.
+const ARCS: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
+    top_left: "◜",
+    top_right: "◝",
+    bottom_left: "◟",
+    bottom_right: "◞",
+    vertical_left: "┃",
+    vertical_right: "┃",
+    horizontal_top: "━",
+    horizontal_bottom: "━",
+};
+
+/// The line style for a config name (`ui.border`); unknown names get the default.
+pub fn border_set_named(name: &str) -> ratatui::symbols::border::Set<'static> {
+    use ratatui::symbols::border;
+    match name {
+        "thick" => border::THICK,
+        "rounded" => border::ROUNDED,
+        "double" => border::DOUBLE,
+        "block" => border::QUADRANT_OUTSIDE,
+        "arcs" => ARCS,
+        _ => HEAVY_ROUNDED,
+    }
+}
+
+static BORDER: OnceLock<ratatui::symbols::border::Set<'static>> = OnceLock::new();
+
+/// Picks the box line style once, at startup, from the config.
+pub fn configure_border(name: &str) {
+    let _ = BORDER.set(border_set_named(name));
+}
+
+/// The line style every box is drawn with.
+pub fn border_set() -> ratatui::symbols::border::Set<'static> {
+    *BORDER.get_or_init(|| border_set_named(""))
+}
 
 pub(super) fn theme_border(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }
@@ -290,5 +329,19 @@ mod row_style_tests {
     fn mark_keys_join_namespace_and_name() {
         assert_eq!(mark_key("kube-system", "coredns"), "kube-system/coredns");
         assert_eq!(mark_key("-", "node-1"), "-/node-1");
+    }
+}
+
+#[cfg(test)]
+mod border_tests {
+    use super::*;
+
+    #[test]
+    fn names_pick_styles_and_unknown_ones_get_the_default() {
+        assert_eq!(border_set_named("thick"), ratatui::symbols::border::THICK);
+        assert_eq!(border_set_named("double"), ratatui::symbols::border::DOUBLE);
+        assert_eq!(border_set_named("nonsense"), HEAVY_ROUNDED);
+        assert_eq!(border_set_named("heavy-rounded").top_left, "╭");
+        assert_eq!(border_set_named("heavy-rounded").horizontal_top, "━");
     }
 }

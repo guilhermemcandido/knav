@@ -101,7 +101,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
     let area = frame.area();
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
 
-    let filter_block = Block::default().borders(Borders::ALL).border_set(crate::ui::BORDER_SET).title("Select a cluster");
+    let filter_block = Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title("Select a cluster");
     let filter_line = Line::from(vec![
         Span::styled("🔍 ", Style::default()),
         Span::styled(filter, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -125,7 +125,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
     if matches.is_empty() {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_set(crate::ui::BORDER_SET)
+            .border_set(crate::ui::border_set())
             .title("No matches");
         let empty = Paragraph::new("No matching context").alignment(Alignment::Center).block(block);
         frame.render_widget(empty, chunks[1]);
@@ -134,7 +134,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
 
     let title = format!("Contexts ({})", matches.len());
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).border_set(crate::ui::BORDER_SET).title(title))
+        .block(Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title(title))
         .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
         .highlight_symbol("➤ ");
     frame.render_stateful_widget(list, chunks[1], state);
