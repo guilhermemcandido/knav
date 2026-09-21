@@ -181,7 +181,18 @@ pub fn row_for(pod: &Pod) -> PodRow {
 }
 
 pub fn snapshot(store: &reflector::Store<Pod>) -> Vec<Arc<Pod>> {
-    super::watch::sorted(store)
+    // Sorting tens of thousands of pods is worth doing once per change, not once per keystroke.
+    static LAST: std::sync::Mutex<Option<(u64, usize, Vec<Arc<Pod>>)>> = std::sync::Mutex::new(None);
+    let (version, len) = (super::watch::changes(), store.len());
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((v, n, pods)) = last.as_ref()
+        && (*v, *n) == (version, len)
+    {
+        return pods.clone();
+    }
+    let pods = super::watch::sorted(store);
+    *last = Some((version, len, pods.clone()));
+    pods
 }
 
 /// Streams one container's log over an unbounded channel. The caller must abort

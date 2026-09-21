@@ -5,10 +5,10 @@
 mod command;
 mod inspect;
 mod list;
+pub(crate) use list::selected_manifest;
 mod operate;
 mod overview_popups;
 mod details;
-pub(crate) use list::selected_manifest;
 mod pickers;
 mod related;
 mod settings;
