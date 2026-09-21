@@ -200,17 +200,34 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
 /// The colour a cell's tone gets (see `describe::Tone`); plain cells keep
 /// the row colour, and everything goes dim behind a popup.
 pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
-    use crate::describe::Tone;
     if dimmed {
         return dim_style();
     }
+    Style::default().fg(tone_color(tone))
+}
+
+/// The state colours, after k9s: healthy stays the row teal, in-progress
+/// is orange, broken is a soft red, finished is grey.
+pub const OK_FG: Color = Color::Rgb(126, 201, 140);
+pub const WARN_FG: Color = Color::Rgb(255, 167, 64);
+pub const BAD_FG: Color = Color::Rgb(217, 96, 106);
+pub const MUTED_FG: Color = Color::Rgb(122, 128, 148);
+
+pub(super) fn tone_color(tone: crate::describe::Tone) -> Color {
+    use crate::describe::Tone;
     match tone {
-        Tone::Plain => Style::default().fg(ROW_FG),
-        Tone::Good => Style::default().fg(Color::Green),
-        Tone::Warn => Style::default().fg(Color::Yellow),
-        Tone::Bad => Style::default().fg(Color::Red),
-        Tone::Muted => Style::default().fg(Color::DarkGray),
+        Tone::Plain => ROW_FG,
+        Tone::Good => OK_FG,
+        Tone::Warn => WARN_FG,
+        Tone::Bad => BAD_FG,
+        Tone::Muted => MUTED_FG,
     }
+}
+
+/// The style of a row's ordinary cells: the row teal, or the colour of the
+/// row's state, so a failing pod reads as red from end to end.
+pub(super) fn row_tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+    tone_style(tone, dimmed)
 }
 
 #[cfg(test)]

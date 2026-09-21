@@ -73,29 +73,22 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
 }
 
 pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
-    let muted = dim_style();
     let border_style = theme_border(dimmed);
 
     let window = pod_window(pods, area.width, hscroll);
     let header = header_row(&POD_HEADERS, sort, dimmed, &window);
 
     let rows = pods.iter().map(|p| {
-        let status_style = if dimmed {
-            muted
-        } else {
-            let color = match p.phase.as_str() {
-                "Running" => ROW_FG,
-                "Pending" => Color::Yellow,
-                "Failed" => Color::Red,
-                _ => Color::Gray,
-            };
-            Style::default().fg(color)
-        };
-        let cell_style = theme_row(dimmed);
+        // The whole row wears its state: red when broken, orange while
+        // starting, grey when finished.
+        let tone = crate::k8s::status_tone(&p.phase);
+        let cell_style = row_tone_style(tone, dimmed);
+        let status_style = cell_style;
+        let ready_style = if dimmed || tone != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) };
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
-            Cell::from(p.ready.clone()).style(if dimmed { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) }),
+            Cell::from(p.ready.clone()).style(ready_style),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
             Cell::from(p.controlled_by.clone()).style(cell_style),
@@ -201,12 +194,22 @@ pub(super) fn ready_color(ready: &str) -> Color {
 /// A pod's READY colour: like a Deployment's, except a pod that ran to
 /// completion (a finished Job's `0/1 Succeeded`) is grey, not "not ready".
 pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
-    if phase == "Succeeded" { Color::DarkGray } else { ready_color(ready) }
+    if matches!(phase, "Succeeded" | "Completed") { MUTED_FG } else { ready_color(ready) }
+}
+
+/// The state of a `have/want` ready count for colouring a whole row.
+pub(super) fn ready_tone(ready: &str) -> crate::describe::Tone {
+    use crate::describe::Tone;
+    let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
+    match (parts.next(), parts.next()) {
+        (Some(0), Some(want)) if want > 0 => Tone::Bad,
+        (Some(have), Some(want)) if have < want => Tone::Warn,
+        _ => Tone::Plain,
+    }
 }
 
 pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let border_style = theme_border(dimmed);
-    let cell_style = theme_row(dimmed);
 
     const HEADERS: [&str; 6] = ["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
     let window = layout_table(
@@ -219,10 +222,12 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = deployments.iter().map(|d| {
+        // A deployment short of its replicas turns orange (red with none available).
+        let cell_style = row_tone_style(ready_tone(&d.ready), dimmed);
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
-            Cell::from(d.ready.clone()).style(if dimmed { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
+            Cell::from(d.ready.clone()).style(if dimmed || ready_tone(&d.ready) != crate::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
@@ -288,9 +293,7 @@ fn node_status_text(n: &NodeRow) -> String {
 }
 
 pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
-    let muted = dim_style();
     let border_style = theme_border(dimmed);
-    let cell_style = theme_row(dimmed);
 
     const HEADERS: [&str; 9] = ["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
     // `[▓▓▓▓▓▓▓▓▓▓] 100%` — the usage bars are a fixed width.
@@ -317,15 +320,13 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = nodes.iter().map(|n| {
-        let status_style = if dimmed {
-            muted
-        } else if n.ready && n.schedulable {
-            Style::default().fg(ROW_FG)
-        } else if n.ready {
-            Style::default().fg(Color::Yellow) // cordoned, but otherwise healthy
-        } else {
-            Style::default().fg(Color::Red)
+        let tone = match (n.ready, n.schedulable) {
+            (true, true) => crate::describe::Tone::Plain,
+            (true, false) => crate::describe::Tone::Warn, // cordoned, but otherwise healthy
+            (false, _) => crate::describe::Tone::Bad,
         };
+        let cell_style = row_tone_style(tone, dimmed);
+        let status_style = cell_style;
         let status = node_status_text(n);
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&n.name, search.text, cell_style)),
@@ -366,7 +367,6 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
 
 pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, dimmed: bool) {
     let border_style = theme_border(dimmed);
-    let cell_style = theme_row(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
@@ -398,12 +398,19 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     let header = header_row(&headers, sort, dimmed, &window);
 
     let table_rows = rows.iter().map(|r| {
+        use crate::describe::Tone;
+        // The row wears its state colour when it has a notable one.
+        let row_tone = match &r.status {
+            Some((tone @ (Tone::Bad | Tone::Warn | Tone::Muted), _)) => *tone,
+            _ => Tone::Plain,
+        };
+        let cell_style = row_tone_style(row_tone, dimmed);
         let mut cells = Vec::with_capacity(headers.len());
         if show_namespace {
             cells.push(Cell::from(highlight_fuzzy(&r.namespace, search.text, cell_style)));
         }
         cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
-        cells.extend(r.extras.iter().map(|c| Cell::from(c.text.clone()).style(tone_style(c.tone, dimmed))));
+        cells.extend(r.extras.iter().map(|c| Cell::from(c.text.clone()).style(if c.tone == Tone::Plain { cell_style } else { tone_style(c.tone, dimmed) })));
         cells.push(Cell::from(r.age.clone()).style(cell_style));
         Row::new(window.slice(cells))
     });
@@ -480,7 +487,8 @@ mod generic_table_tests {
 
     #[test]
     fn a_completed_pod_is_grey_not_unready() {
-        assert_eq!(pod_ready_color("0/1", "Succeeded"), Color::DarkGray);
+        assert_eq!(pod_ready_color("0/1", "Completed"), MUTED_FG);
+        assert_eq!(pod_ready_color("0/1", "Succeeded"), MUTED_FG);
         assert_eq!(pod_ready_color("0/1", "Running"), Color::Yellow);
         assert_eq!(pod_ready_color("2/2", "Running"), Color::Green);
     }

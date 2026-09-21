@@ -73,15 +73,91 @@ pub fn containers_for(pod: &Pod) -> Vec<ContainerInfo> {
         .collect()
 }
 
+/// The STATUS kubectl and k9s show: the phase, refined by what the
+/// containers are actually doing — `CrashLoopBackOff`, `ImagePullBackOff`,
+/// `Init:0/1`, `Completed`, `Terminating`, ... — because the phase alone
+/// says `Running` for a crash-looping pod.
+pub fn pod_status(pod: &Pod) -> String {
+    let Some(status) = pod.status.as_ref() else { return "Unknown".into() };
+    let mut reason = status.reason.clone().or_else(|| status.phase.clone()).unwrap_or_else(|| "Unknown".into());
+    let mut initializing = false;
+    let init_statuses = status.init_container_statuses.as_deref().unwrap_or_default();
+    for (i, container) in init_statuses.iter().enumerate() {
+        let state = container.state.as_ref();
+        if let Some(done) = state.and_then(|s| s.terminated.as_ref()) {
+            if done.exit_code == 0 {
+                continue;
+            }
+            initializing = true;
+            reason = format!("Init:{}", terminated_reason(done));
+        } else if let Some(waiting) = state.and_then(|s| s.waiting.as_ref())
+            && waiting.reason.as_deref().is_some_and(|r| !r.is_empty() && r != "PodInitializing")
+        {
+            initializing = true;
+            reason = format!("Init:{}", waiting.reason.clone().unwrap_or_default());
+        } else {
+            initializing = true;
+            reason = format!("Init:{i}/{}", init_statuses.len());
+        }
+        break;
+    }
+    if !initializing {
+        let mut has_running = false;
+        for container in status.container_statuses.as_deref().unwrap_or_default().iter().rev() {
+            let state = container.state.as_ref();
+            if let Some(waiting) = state.and_then(|s| s.waiting.as_ref()).filter(|w| w.reason.as_deref().is_some_and(|r| !r.is_empty())) {
+                reason = waiting.reason.clone().unwrap_or_default();
+            } else if let Some(done) = state.and_then(|s| s.terminated.as_ref()) {
+                reason = terminated_reason(done);
+            } else if container.ready && state.is_some_and(|s| s.running.is_some()) {
+                has_running = true;
+            }
+        }
+        if reason == "Completed" && has_running {
+            reason = "Running".into();
+        }
+    }
+    if pod.metadata.deletion_timestamp.is_some() {
+        reason = if status.reason.as_deref() == Some("NodeLost") { "Unknown".into() } else { "Terminating".into() };
+    }
+    reason
+}
+
+fn terminated_reason(done: &k8s_openapi::api::core::v1::ContainerStateTerminated) -> String {
+    match done.reason.as_deref().filter(|r| !r.is_empty()) {
+        Some(reason) => reason.to_string(),
+        None => match done.signal.filter(|s| *s != 0) {
+            Some(signal) => format!("Signal:{signal}"),
+            None => format!("ExitCode:{}", done.exit_code),
+        },
+    }
+}
+
+/// How a pod STATUS should be coloured: healthy plain, finished grey,
+/// in-progress orange, broken red.
+pub fn status_tone(status: &str) -> crate::describe::Tone {
+    use crate::describe::Tone;
+    match status {
+        "Running" => Tone::Plain,
+        "Completed" | "Succeeded" => Tone::Muted,
+        "Pending" | "ContainerCreating" | "PodInitializing" | "Terminating" | "NotReady" | "Unknown" => Tone::Warn,
+        s if s.starts_with("Init:") && s[5..].contains('/') => Tone::Warn,
+        _ => Tone::Bad,
+    }
+}
+
 pub fn row_for(pod: &Pod) -> PodRow {
     let namespace = pod.metadata.namespace.clone().unwrap_or_default();
     let name = pod.metadata.name.clone().unwrap_or_default();
     let status = pod.status.clone().unwrap_or_default();
-    let phase = status.phase.unwrap_or_else(|| "Unknown".into());
+    let phase = pod_status(pod);
     let container_statuses = status.container_statuses.unwrap_or_default();
     let restarts = container_statuses.iter().map(|c| c.restart_count).sum();
     let ready_count = container_statuses.iter().filter(|c| c.ready).count();
-    let ready = format!("{ready_count}/{}", container_statuses.len());
+    // Like kubectl: the total is the containers the spec asks for, so a
+    // pod that has not started yet reads 0/1, not 0/0.
+    let total = pod.spec.as_ref().map(|s| s.containers.len()).unwrap_or(container_statuses.len());
+    let ready = format!("{ready_count}/{total}");
     let containers = containers_for(pod);
     let node = pod.spec.as_ref().and_then(|s| s.node_name.clone()).unwrap_or_else(|| "-".into());
     let age = pod
@@ -194,4 +270,75 @@ pub fn stream_logs(
     });
 
     (rx, handle)
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use crate::describe::Tone;
+
+    fn pod(json: serde_json::Value) -> Pod {
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn with_container(state: serde_json::Value, ready: bool) -> Pod {
+        pod(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"phase": "Running", "containerStatuses": [{"name": "c", "image": "i", "imageID": "", "ready": ready, "restartCount": 0, "state": state}]}
+        }))
+    }
+
+    #[test]
+    fn a_healthy_pod_is_running() {
+        assert_eq!(pod_status(&with_container(serde_json::json!({"running": {}}), true)), "Running");
+    }
+
+    #[test]
+    fn a_crash_looping_pod_says_so_though_its_phase_is_running() {
+        let status = pod_status(&with_container(serde_json::json!({"waiting": {"reason": "CrashLoopBackOff"}}), false));
+        assert_eq!(status, "CrashLoopBackOff");
+        assert_eq!(status_tone(&status), Tone::Bad);
+    }
+
+    #[test]
+    fn a_finished_container_shows_its_reason_and_a_bare_exit_code_otherwise() {
+        assert_eq!(pod_status(&with_container(serde_json::json!({"terminated": {"exitCode": 0, "reason": "Completed"}}), false)), "Completed");
+        assert_eq!(pod_status(&with_container(serde_json::json!({"terminated": {"exitCode": 3}}), false)), "ExitCode:3");
+        assert_eq!(pod_status(&with_container(serde_json::json!({"terminated": {"exitCode": 137, "signal": 9}}), false)), "Signal:9");
+    }
+
+    #[test]
+    fn init_containers_show_their_progress() {
+        let waiting = pod(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"phase": "Pending", "initContainerStatuses": [
+                {"name": "a", "image": "i", "imageID": "", "ready": true, "restartCount": 0, "state": {"terminated": {"exitCode": 0}}},
+                {"name": "b", "image": "i", "imageID": "", "ready": false, "restartCount": 0, "state": {"waiting": {"reason": "PodInitializing"}}}]}
+        }));
+        assert_eq!(pod_status(&waiting), "Init:1/2");
+        assert_eq!(status_tone("Init:1/2"), Tone::Warn);
+        let failing = pod(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"phase": "Pending", "initContainerStatuses": [
+                {"name": "a", "image": "i", "imageID": "", "ready": false, "restartCount": 0, "state": {"terminated": {"exitCode": 1, "reason": "Error"}}}]}
+        }));
+        assert_eq!(pod_status(&failing), "Init:Error");
+        assert_eq!(status_tone("Init:Error"), Tone::Bad);
+    }
+
+    #[test]
+    fn a_deleted_pod_is_terminating() {
+        let mut p = with_container(serde_json::json!({"running": {}}), true);
+        p.metadata.deletion_timestamp = Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(k8s_openapi::jiff::Timestamp::now()));
+        assert_eq!(pod_status(&p), "Terminating");
+    }
+
+    #[test]
+    fn tones_follow_health() {
+        assert_eq!(status_tone("Running"), Tone::Plain);
+        assert_eq!(status_tone("Completed"), Tone::Muted);
+        assert_eq!(status_tone("Pending"), Tone::Warn);
+        assert_eq!(status_tone("ImagePullBackOff"), Tone::Bad);
+        assert_eq!(status_tone("Error"), Tone::Bad);
+    }
 }
