@@ -1,0 +1,234 @@
+
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ResourceKind {
+    Overview,
+    Pods,
+    Deployments,
+    Nodes,
+    Namespaces,
+    ReplicaSets,
+    StatefulSets,
+    DaemonSets,
+    Jobs,
+    CronJobs,
+    ConfigMaps,
+    Secrets,
+    Hpas,
+    Services,
+    Endpoints,
+    Ingresses,
+    NetworkPolicies,
+    Pvcs,
+    Pvs,
+    StorageClasses,
+    ServiceAccounts,
+    Roles,
+    RoleBindings,
+    ClusterRoles,
+    ClusterRoleBindings,
+    /// The Custom Resources picker — every discovered CRD kind
+    /// (group/kind/scope), not object instances, not filtered by group.
+    CustomResourceList,
+    /// Same picker, filtered to one API group — the group string is
+    /// already `&'static str` (leaked once at discovery, see
+    /// `discover_crds`), so no extra registry lookup is needed here
+    /// either, same reasoning as `CustomResource`'s label.
+    CustomResourceGroup(&'static str),
+    /// One specific CRD kind's instances — `usize` indexes into
+    /// `Catalog`'s discovered CRD list, the label is carried alongside
+    /// since it's a runtime string, not one of this enum's compile-time
+    /// variants like every other kind's `label()`.
+    CustomResource(usize, &'static str),
+}
+
+impl ResourceKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ResourceKind::Overview => "Overview",
+            ResourceKind::Pods => "Pods",
+            ResourceKind::Deployments => "Deployments",
+            ResourceKind::Nodes => "Nodes",
+            ResourceKind::Namespaces => "Namespaces",
+            ResourceKind::ReplicaSets => "ReplicaSets",
+            ResourceKind::StatefulSets => "StatefulSets",
+            ResourceKind::DaemonSets => "DaemonSets",
+            ResourceKind::Jobs => "Jobs",
+            ResourceKind::CronJobs => "CronJobs",
+            ResourceKind::ConfigMaps => "ConfigMaps",
+            ResourceKind::Secrets => "Secrets",
+            ResourceKind::Hpas => "HPAs",
+            ResourceKind::Services => "Services",
+            ResourceKind::Endpoints => "Endpoints",
+            ResourceKind::Ingresses => "Ingresses",
+            ResourceKind::NetworkPolicies => "NetworkPolicies",
+            ResourceKind::Pvcs => "PVCs",
+            ResourceKind::Pvs => "PVs",
+            ResourceKind::StorageClasses => "StorageClasses",
+            ResourceKind::ServiceAccounts => "ServiceAccounts",
+            ResourceKind::Roles => "Roles",
+            ResourceKind::RoleBindings => "RoleBindings",
+            ResourceKind::ClusterRoles => "ClusterRoles",
+            ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
+            ResourceKind::CustomResourceList => "Custom Resources",
+            ResourceKind::CustomResourceGroup(group) => group,
+            ResourceKind::CustomResource(_, label) => label,
+        }
+    }
+
+    /// What Enter on a row of this kind drills into, if anything: a
+    /// Deployment's ReplicaSets, a ReplicaSet's/StatefulSet's/
+    /// DaemonSet's/Job's/Service's Pods, a CronJob's Jobs, a Namespace's
+    /// Pods (and every later query narrowed to that namespace). Pods and
+    /// Nodes drill too, but into their own popups rather than a list.
+    pub fn drill_target(self) -> Option<ResourceKind> {
+        match self {
+            ResourceKind::Deployments => Some(ResourceKind::ReplicaSets),
+            ResourceKind::ReplicaSets
+            | ResourceKind::StatefulSets
+            | ResourceKind::DaemonSets
+            | ResourceKind::Jobs
+            | ResourceKind::Services
+            | ResourceKind::Namespaces => Some(ResourceKind::Pods),
+            ResourceKind::CronJobs => Some(ResourceKind::Jobs),
+            _ => None,
+        }
+    }
+
+    /// Whether Enter on a row of this kind opens its manifest (`d`):
+    /// everything that doesn't drill somewhere else.
+    pub fn opens_spec_on_enter(self) -> bool {
+        self.drill_target().is_none()
+            && !matches!(
+                self,
+                ResourceKind::Overview
+                    | ResourceKind::Pods
+                    | ResourceKind::Nodes
+                    | ResourceKind::CustomResourceList
+                    | ResourceKind::CustomResourceGroup(_)
+            )
+    }
+
+    /// The reverse of `label()` — for the fixed, compile-time-known kinds
+    /// only (never `CustomResource`, which needs a live index and can't
+    /// be reconstructed from its label alone). The join key between the
+    /// (label, count) tuples the Overview catalog/menu render and the
+    /// enum `current_kind` actually switches on.
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "Pods" => Some(ResourceKind::Pods),
+            "Deployments" => Some(ResourceKind::Deployments),
+            "Nodes" => Some(ResourceKind::Nodes),
+            "Namespaces" => Some(ResourceKind::Namespaces),
+            "ReplicaSets" => Some(ResourceKind::ReplicaSets),
+            "StatefulSets" => Some(ResourceKind::StatefulSets),
+            "DaemonSets" => Some(ResourceKind::DaemonSets),
+            "Jobs" => Some(ResourceKind::Jobs),
+            "CronJobs" => Some(ResourceKind::CronJobs),
+            "ConfigMaps" => Some(ResourceKind::ConfigMaps),
+            "Secrets" => Some(ResourceKind::Secrets),
+            "HPAs" => Some(ResourceKind::Hpas),
+            "Services" => Some(ResourceKind::Services),
+            "Endpoints" => Some(ResourceKind::Endpoints),
+            "Ingresses" => Some(ResourceKind::Ingresses),
+            "NetworkPolicies" => Some(ResourceKind::NetworkPolicies),
+            "PVCs" => Some(ResourceKind::Pvcs),
+            "PVs" => Some(ResourceKind::Pvs),
+            "StorageClasses" => Some(ResourceKind::StorageClasses),
+            "ServiceAccounts" => Some(ResourceKind::ServiceAccounts),
+            "Roles" => Some(ResourceKind::Roles),
+            "RoleBindings" => Some(ResourceKind::RoleBindings),
+            "ClusterRoles" => Some(ResourceKind::ClusterRoles),
+            "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+            "Custom Resources" => Some(ResourceKind::CustomResourceList),
+            _ => None,
+        }
+    }
+
+    /// Resolves a `:command` (already lowercased/trimmed by the caller)
+    /// to the kind it switches to, through `COMMAND_ALIASES` — the full
+    /// name, the singular and the short k9s-style alias all work.
+    /// Returns `None` for anything unrecognized; the caller just no-ops.
+    pub fn from_command(cmd: &str) -> Option<Self> {
+        COMMAND_ALIASES.iter().find(|(_, names)| names.contains(&cmd)).map(|(kind, _)| *kind)
+    }
+
+    /// Every name `:` accepts for this kind, primary (plural) name first.
+    /// Empty for kinds with no fixed name (a CRD group or instance).
+    pub fn aliases(self) -> &'static [&'static str] {
+        COMMAND_ALIASES.iter().find(|(kind, _)| *kind == self).map(|(_, names)| *names).unwrap_or(&[])
+    }
+}
+
+/// The names `:` accepts for each kind — the full plural first (it's what
+/// the autocomplete shows), then the singular and the k9s short aliases
+/// (`po`, `dp`, `ns`, `svc`, `cm`, `sa`, ...).
+pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
+    (ResourceKind::Overview, &["overview", "home"]),
+    (ResourceKind::Pods, &["pods", "pod", "po"]),
+    (ResourceKind::Deployments, &["deployments", "deployment", "deploy", "dp", "dep"]),
+    (ResourceKind::Nodes, &["nodes", "node", "no"]),
+    (ResourceKind::Namespaces, &["namespaces", "namespace", "ns"]),
+    (ResourceKind::ReplicaSets, &["replicasets", "replicaset", "rs"]),
+    (ResourceKind::StatefulSets, &["statefulsets", "statefulset", "sts"]),
+    (ResourceKind::DaemonSets, &["daemonsets", "daemonset", "ds"]),
+    (ResourceKind::Jobs, &["jobs", "job"]),
+    (ResourceKind::CronJobs, &["cronjobs", "cronjob", "cj"]),
+    (ResourceKind::ConfigMaps, &["configmaps", "configmap", "cm"]),
+    (ResourceKind::Secrets, &["secrets", "secret", "sec"]),
+    (ResourceKind::Hpas, &["hpas", "hpa"]),
+    (ResourceKind::Services, &["services", "service", "svc"]),
+    (ResourceKind::Endpoints, &["endpoints", "endpoint", "ep"]),
+    (ResourceKind::Ingresses, &["ingresses", "ingress", "ing"]),
+    (ResourceKind::NetworkPolicies, &["networkpolicies", "networkpolicy", "netpol"]),
+    (ResourceKind::Pvcs, &["pvcs", "pvc", "persistentvolumeclaims"]),
+    (ResourceKind::Pvs, &["pvs", "pv", "persistentvolumes"]),
+    (ResourceKind::StorageClasses, &["storageclasses", "storageclass", "sc"]),
+    (ResourceKind::ServiceAccounts, &["serviceaccounts", "serviceaccount", "sa"]),
+    (ResourceKind::Roles, &["roles", "role"]),
+    (ResourceKind::RoleBindings, &["rolebindings", "rolebinding", "rb"]),
+    (ResourceKind::ClusterRoles, &["clusterroles", "clusterrole", "cr"]),
+    (ResourceKind::ClusterRoleBindings, &["clusterrolebindings", "clusterrolebinding", "crb"]),
+    (ResourceKind::CustomResourceList, &["customresources", "customresource", "customresourcedefinitions", "crds", "crd"]),
+];
+
+#[cfg(test)]
+mod resource_kind_tests {
+    use super::*;
+
+    #[test]
+    fn enter_opens_the_spec_except_where_it_drills_elsewhere() {
+        assert!(ResourceKind::ConfigMaps.opens_spec_on_enter());
+        assert!(!ResourceKind::Services.opens_spec_on_enter());
+        assert!(!ResourceKind::Deployments.opens_spec_on_enter());
+        assert_eq!(ResourceKind::Deployments.drill_target(), Some(ResourceKind::ReplicaSets));
+        assert_eq!(ResourceKind::CronJobs.drill_target(), Some(ResourceKind::Jobs));
+        assert_eq!(ResourceKind::ConfigMaps.drill_target(), None);
+        assert!(ResourceKind::CustomResource(0, "Widget").opens_spec_on_enter());
+        assert!(!ResourceKind::CustomResourceList.opens_spec_on_enter());
+        assert!(!ResourceKind::Pods.opens_spec_on_enter());
+        assert!(!ResourceKind::Nodes.opens_spec_on_enter());
+    }
+
+    #[test]
+    fn command_resolves_full_names_and_short_aliases() {
+        assert_eq!(ResourceKind::from_command("pods"), Some(ResourceKind::Pods));
+        assert_eq!(ResourceKind::from_command("po"), Some(ResourceKind::Pods));
+        assert_eq!(ResourceKind::from_command("configmaps"), Some(ResourceKind::ConfigMaps));
+        assert_eq!(ResourceKind::from_command("cm"), Some(ResourceKind::ConfigMaps));
+        assert_eq!(ResourceKind::from_command("crd"), Some(ResourceKind::CustomResourceList));
+    }
+
+    #[test]
+    fn command_rejects_unknown_input() {
+        assert_eq!(ResourceKind::from_command("bogus"), None);
+        assert_eq!(ResourceKind::from_command(""), None);
+    }
+
+    #[test]
+    fn from_label_and_label_round_trip_for_fixed_kinds() {
+        for kind in [ResourceKind::Pods, ResourceKind::ConfigMaps, ResourceKind::CustomResourceList, ResourceKind::ClusterRoleBindings] {
+            assert_eq!(ResourceKind::from_label(kind.label()), Some(kind));
+        }
+    }
+}
