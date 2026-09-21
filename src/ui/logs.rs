@@ -52,7 +52,7 @@ pub(super) fn draw_logs_popup(
     if filter_editing {
         let bar = Rect { x: area.x + 1, y: area.y + area.height.saturating_sub(2), width: area.width.saturating_sub(2), height: 1 };
         frame.render_widget(Clear, bar);
-        let line = Line::styled(format!("/{filter}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let line = Line::styled(format!("/{filter}▏"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
         frame.render_widget(Paragraph::new(line), bar);
     }
 }
@@ -140,7 +140,7 @@ pub(super) fn highlight_matches(text: &str, needle: &str, base_style: Style) -> 
     if needle.is_empty() {
         return vec![Span::styled(text.to_string(), base_style)];
     }
-    let highlight_style = Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD);
+    let highlight_style = match_style();
     let lower_text = text.to_lowercase();
     let lower_needle = needle.to_lowercase();
     // Lowercasing can change byte lengths for some Unicode; byte offsets

@@ -12,7 +12,7 @@ pub(super) fn draw_search_bar(frame: &mut Frame, query: &str, matches: usize) {
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
     let line = Line::from(vec![
-        Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("/{query}▏"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  ({matches})"), Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
