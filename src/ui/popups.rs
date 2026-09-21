@@ -469,16 +469,19 @@ fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
         lines.push(Line::raw(""));
         lines.push(Line::styled(problem.clone(), Style::default().fg(theme().bad)));
     }
-    let height = (lines.len() as u16 + 2).min(frame.area().height);
+    let height = (lines.len() as u16 + 4).min(frame.area().height);
     let area = centered_rect(60, 100, frame.area());
     let area = Rect { y: frame.area().y + frame.area().height.saturating_sub(height) / 2, height, ..area };
+    // Everything behind recedes and the popup gets a bright border.
+    let full = frame.area();
+    frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
-        .border_style(theme_border(true))
+        .border_style(Style::default().fg(theme().accent))
         .title(Line::styled(format!(" {} ", capture.label), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
-    let inner = block.inner(area);
+    let inner = block.inner(area).inner(ratatui::layout::Margin { horizontal: 2, vertical: 1 });
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
