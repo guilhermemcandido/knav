@@ -1,5 +1,17 @@
 # knav — TODO
 
+## Next: incremental recomputation for very large clusters
+
+Today every recompute (after a watch change or a change of search, sort, namespace) walks all objects: sort the snapshot, build every row, filter. At 100k pods that is about 60 to 90 ms each time (measured with `cargo test --release bench_ -- --ignored --nocapture`); the pacing added in `app/derive.rs` (`Cache`, wait at least 4x the last duration) only keeps it from running back to back. The aim is to recompute only what changed.
+
+- [ ] Keep the sorted list of objects between recomputes and apply watch events to it (insert, replace, remove by namespace and name) instead of sorting everything again. `k8s/watch.rs` counts changes but does not say what changed; the reflector stream would need to feed a per-kind change queue.
+- [ ] Keep each object's built row (pods, deployments, generic) keyed by uid and resource version, and rebuild only the rows whose object changed. Ages are the one thing that moves without a watch event, so refresh those separately and cheaply.
+- [ ] Filter and sort from the kept rows: a new search or namespace should only re-run the filter, and a new sort column only the sort, not the whole pipeline.
+- [ ] Keep `Derived` cheap to reuse: today handlers and the draw read whole `Vec`s; check that a kept, sorted `Vec<Arc<Row>>` can be shared without cloning.
+- [ ] Measure before and after with the ignored benchmarks in `app/derive.rs` and `k8s/overview.rs` (add one for "one pod changed out of 100k"), and keep the numbers in this file.
+
+Known limits that stay as they are: counts of custom resources and API types are fetched only for the types on screen; sorting by `COUNT` covers only types already counted.
+
 ## Review follow-ups (worked through in this order)
 
 Correctness and robustness
