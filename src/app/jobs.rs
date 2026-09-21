@@ -12,6 +12,8 @@ pub(crate) enum Done {
     /// The context that was checked, or why it can't be reached.
     Connect(Result<String, String>),
     Forward(Result<portforward::Forward, String>),
+    /// What was being waited for has loaded; press this key again.
+    Ready(crossterm::event::KeyEvent),
 }
 
 pub(crate) struct Job {
@@ -126,7 +128,21 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
                 Mode::OpenUrl { text, url, back }
             };
         }
+        Done::Ready(key) => {
+            st.mode = *back;
+            st.replay = Some(key);
+        }
         Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, error: true, back },
     }
     None
+}
+
+/// Waits (up to a limit) for `waits`, then replays `key` on the screen it came from.
+pub(super) fn wait_then_replay(st: &mut State, title: &str, waits: Vec<futures::future::BoxFuture<'static, ()>>, key: crossterm::event::KeyEvent) {
+    let work = async move {
+        let _ = tokio::time::timeout(Duration::from_secs(20), futures::future::join_all(waits)).await;
+        Done::Ready(key)
+    };
+    let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
+    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
 }

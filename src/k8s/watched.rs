@@ -14,6 +14,14 @@ use super::*;
 /// in one `Vec` and read counts, rows and manifests without a match per kind.
 pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
+    /// Whether the first full list has arrived, so what is read is not just partial.
+    fn ready(&self) -> bool {
+        true
+    }
+    /// Resolves once the first list has arrived.
+    fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(std::future::ready(()))
+    }
     fn rows(&self) -> Vec<GenericRow>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
     /// The kind's extra column headers (see `describe`), even with no rows.
@@ -64,7 +72,19 @@ where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::k8s::describe::Extras + Default + 'static,
 {
     fn count(&self) -> usize {
-        self.items().len()
+        self.store.len()
+    }
+
+    fn ready(&self) -> bool {
+        use futures::FutureExt;
+        self.store.wait_until_ready().now_or_never().is_some_and(|r| r.is_ok())
+    }
+
+    fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
+        let store = self.store.clone();
+        Box::pin(async move {
+            let _ = store.wait_until_ready().await;
+        })
     }
 
     fn headers(&self) -> Vec<&'static str> {

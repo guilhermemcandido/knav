@@ -30,6 +30,8 @@ pub(super) struct State {
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
     pub info_key: String,
+    /// A key to handle again on the next turn, after a job it waited for.
+    pub replay: Option<crossterm::event::KeyEvent>,
     pub current_kind: ResourceKind,
     /// The namespace every namespaced list is narrowed to (`Enter` on a
     /// namespace sets it, `0` clears it), sticks across kind switches.
@@ -99,6 +101,7 @@ impl State {
             info_hscroll: 0,
             info_focus: false,
             info_key: String::new(),
+            replay: None,
             current_kind: ResourceKind::Overview,
             namespace: None,
             scope: None,

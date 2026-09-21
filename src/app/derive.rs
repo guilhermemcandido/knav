@@ -138,7 +138,11 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
         let catalog_sections = k8s::layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len()), layout);
         // Only the opened-up category view shows it, so only work it out then.
-        let health = if matches!(mode, Mode::ColumnDetail { .. }) {
+        let health = if let Mode::ColumnDetail { col, .. } = mode {
+            // Health needs the objects themselves, so start watching this category's kinds.
+            for (label, _) in catalog_sections.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]) {
+                catalog.ensure_label(label);
+            }
             catalog.health([("Pods", k8s::pods_health(&pod_rows)), ("Deployments", k8s::deployments_health(&dep_rows)), ("Nodes", node_health)])
         } else {
             Default::default()
@@ -222,7 +226,7 @@ const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
 fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
     let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
     format!(
-        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{}|{}|{forwards:?}",
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{forwards:?}",
         q.current_kind,
         q.namespace,
         q.scope,
@@ -234,7 +238,7 @@ fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
         node_detail_name(mode),
         node_detail_search(mode),
         node_detail_sort(mode),
-        matches!(mode, Mode::ColumnDetail { .. }),
+        if let Mode::ColumnDetail { col, .. } = mode { Some(*col) } else { None },
         matches!(mode, Mode::ResourcesDetail),
     )
 }

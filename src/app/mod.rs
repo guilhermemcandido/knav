@@ -154,7 +154,7 @@ pub(crate) fn run(
 
         // A shell's output arrives on its own, so redraw quickly while one is open.
         let wait = if matches!(st.mode, Mode::Working { .. }) { 50 } else if matches!(st.mode, Mode::Shell { .. }) { crate::config::tunables::tunables().shell_redraw_ms } else { crate::config::tunables::tunables().idle_redraw_ms };
-        if !event::poll(Duration::from_millis(wait))? {
+        if st.replay.is_none() && !event::poll(Duration::from_millis(wait))? {
             cache = Some(fresh);
             continue;
         }
@@ -162,7 +162,10 @@ pub(crate) fn run(
         // Handle every queued event before redrawing. A trackpad flick queues dozens
         // of wheel events, and a key typed after it would otherwise wait behind them.
         loop {
-            let event = event::read()?;
+            let event = match st.replay.take() {
+                Some(key) => Event::Key(key),
+                None => event::read()?,
+            };
             let config_now = st.config.clone();
             if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: derived })? {
                 return Ok(outcome);

@@ -34,5 +34,5 @@ pub use events::*;
 pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
-pub use watch::{changes, watch_store};
+pub use watch::{changes, watch_count, watch_store};
 pub use watched::*;
