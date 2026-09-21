@@ -109,10 +109,6 @@ fn age_of(timestamp: &str) -> Option<String> {
     timestamp.parse::<k8s_openapi::jiff::Timestamp>().ok().map(crate::k8s::humanize_age)
 }
 
-fn truncated(text: &str, max: usize) -> String {
-    if text.chars().count() <= max { text.to_string() } else { format!("{}…", text.chars().take(max.saturating_sub(1)).collect::<String>()) }
-}
-
 /// `cpu 100m, memory 64Mi` from a resources map.
 fn resource_list(value: Option<&Value>) -> String {
     let all = pairs(value);
@@ -144,11 +140,14 @@ fn conditions(manifest: &Value) -> Option<Section> {
             if let Some(reason) = text(c, &["reason"]) {
                 chunks.push(chunk(reason, Style::Muted));
             }
+            // The message goes under its condition, in full.
+            let mut lines = vec![Line::Item(chunks)];
             if let Some(message) = text(c, &["message"]).filter(|m| !m.is_empty()) {
-                chunks.push(chunk(format!("  {}", truncated(message, 80)), Style::Muted));
+                lines.push(Line::Sub(String::new(), vec![chunk(message, Style::Muted)]));
             }
-            Line::Item(chunks)
+            lines
         })
+        .flatten()
         .collect();
     Some(Section { title: "Conditions".into(), lines })
 }
@@ -174,12 +173,7 @@ fn properties(manifest: &Value) -> Section {
     }
     let annotations = pairs(at(manifest, &["metadata", "annotations"]));
     if !annotations.is_empty() {
-        let shown: Vec<Chunk> = annotations.iter().take(4).map(|(k, v)| chunk(truncated(&format!("{k}={v}"), 60), Style::Chip)).collect();
-        let mut chunks = shown;
-        if annotations.len() > 4 {
-            chunks.push(chunk(format!("+{} more", annotations.len() - 4), Style::Muted));
-        }
-        lines.push(Line::Field("Annotations".into(), chunks));
+        lines.push(Line::Field("Annotations".into(), chips(&annotations)));
     }
     Section { title: "Properties".into(), lines }
 }
@@ -458,7 +452,7 @@ fn events_section(manifest: &Value, events: &[EventEntry]) -> Option<Section> {
         .into_iter()
         .map(|e| {
             let style = if e.severity == crate::k8s::EventSeverity::Warning { Style::Warn } else { Style::Muted };
-            Line::Item(vec![chunk(format!("{:<6}", e.age), Style::Muted), chunk(format!("{:<18}", e.reason), style), chunk(truncated(&e.message, 100), Style::Plain)])
+            Line::Item(vec![chunk(format!("{:<6}", e.age), Style::Muted), chunk(format!("{:<18}", e.reason), style), chunk(e.message.clone(), Style::Plain)])
         })
         .collect();
     Some(Section { title: "Events".into(), lines })

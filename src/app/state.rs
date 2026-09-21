@@ -25,6 +25,7 @@ pub(super) struct State {
     /// The info panel beside the list (`i`), and how far it is scrolled.
     pub info_panel: bool,
     pub info_scroll: usize,
+    pub info_hscroll: usize,
     /// The keys scroll the info panel rather than move in the list.
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
@@ -95,6 +96,7 @@ impl State {
             last_click: None,
             info_panel: false,
             info_scroll: 0,
+            info_hscroll: 0,
             info_focus: false,
             info_key: String::new(),
             current_kind: ResourceKind::Overview,

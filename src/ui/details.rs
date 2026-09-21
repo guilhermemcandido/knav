@@ -28,7 +28,8 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         let text = if chip { format!(" {} ", chunk.text) } else { chunk.text.clone() };
         let gap = usize::from(chip && previous_chip);
         let w = text.chars().count();
-        if used + gap + w > width && used > indent {
+        // Only pills wrap; text stays on its line and is reached by scrolling sideways.
+        if chip && used + gap + w > width && used > indent {
             lines.push(Line::from(std::mem::take(&mut spans)));
             spans.push(Span::raw(" ".repeat(indent)));
             used = indent;
@@ -70,13 +71,20 @@ pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'sta
     out
 }
 
-/// How many lines the summary takes in a screen of `frame_area`.
-pub fn details_line_count(sections: &[Section], frame_area: Rect) -> usize {
-    let inner = Block::default().borders(Borders::ALL).inner(body_area(frame_area, true));
-    details_lines(sections, usize::from(inner.width)).len()
+/// How far the summary can scroll (down, right) in a viewport `width` by `height`.
+pub fn details_extent(sections: &[Section], width: usize, height: usize) -> (usize, usize) {
+    let lines = details_lines(sections, width);
+    let widest = lines.iter().map(Line::width).max().unwrap_or(0);
+    (lines.len().saturating_sub(height), widest.saturating_sub(width))
 }
 
-pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section], scroll: usize) {
+/// The most the full-screen summary can scroll on a screen of `frame_area`.
+pub fn details_max_scroll(sections: &[Section], frame_area: Rect) -> (usize, usize) {
+    let inner = Block::default().borders(Borders::ALL).inner(body_area(frame_area, true));
+    details_extent(sections, usize::from(inner.width.saturating_sub(2)), usize::from(inner.height))
+}
+
+pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section], scroll: usize, hscroll: usize) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -84,13 +92,14 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
-        .title_bottom(Line::styled(" ↑↓ scroll   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(" ↑↓←→ scroll   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
     let lines = details_lines(sections, usize::from(padded.width));
     let scroll = scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), padded);
+    let hscroll = hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 
 /// What the side panel next to a list shows.
@@ -98,6 +107,7 @@ pub struct SidePanel {
     pub title: String,
     pub sections: Vec<Section>,
     pub scroll: usize,
+    pub hscroll: usize,
     /// The keys are scrolling it.
     pub focused: bool,
 }
@@ -120,12 +130,12 @@ pub fn side_panel_width(full_width: u16) -> u16 {
 }
 
 /// How far the panel can scroll for `sections` on a terminal of `size`.
-pub fn side_panel_max_scroll(sections: &[Section], size: ratatui::layout::Size) -> usize {
+pub fn side_panel_max_scroll(sections: &[Section], size: ratatui::layout::Size) -> (usize, usize) {
     let full = Rect { x: 0, y: 0, width: size.width, height: size.height };
     let body = body_area(full, true);
     let width = (size.width * 2 / 5).max(44).min(body.width);
     let (inner_w, inner_h) = (usize::from(width).saturating_sub(4), usize::from(body.height).saturating_sub(2));
-    details_lines(sections, inner_w).len().saturating_sub(inner_h)
+    details_extent(sections, inner_w, inner_h)
 }
 
 /// The part of the body a list uses: all of it, or what is left of the panel.
@@ -149,11 +159,12 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
         .border_set(border_set())
         .border_style(if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) })
         .title(Line::styled(format!(" {} ", panel.title), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
-        .title_bottom(Line::styled(if panel.focused { " ↑↓ scroll   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(if panel.focused { " ↑↓←→ scroll   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
     let lines = details_lines(&panel.sections, usize::from(padded.width));
     let scroll = panel.scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), padded);
+    let hscroll = panel.hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }

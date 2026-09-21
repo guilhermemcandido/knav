@@ -5,9 +5,8 @@ use super::Cx;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let mut to_yaml = false;
-    if let Mode::Details { sections, scroll, back, .. } = &mut st.mode {
-        let total = ui::details_line_count(sections, cx.frame_area);
-        let last = total.saturating_sub(1);
+    if let Mode::Details { sections, scroll, hscroll, back, .. } = &mut st.mode {
+        let (last, widest) = ui::details_max_scroll(sections, cx.frame_area);
         let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
         match event {
             Event::Key(key) => {
@@ -22,6 +21,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::PageDown => *scroll = (*scroll + page).min(last),
                     KeyCode::Char('b') if ctrl => *scroll = scroll.saturating_sub(page),
                     KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
+                    KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(6),
+                    KeyCode::Right | KeyCode::Char('l') => *hscroll = (*hscroll + 6).min(widest),
                     KeyCode::Char('y') => to_yaml = true,
                     _ => {}
                 }

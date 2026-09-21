@@ -51,7 +51,7 @@ pub(crate) enum Mode {
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
     /// A readable summary of one object (name, labels, status, containers, ...).
-    Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, back: Box<Mode> },
+    Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, hscroll: usize, back: Box<Mode> },
     /// What the selected object is related to (owners, what it uses, what uses it, ...).
     Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).

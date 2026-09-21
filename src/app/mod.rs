@@ -98,12 +98,15 @@ pub(crate) fn run(
                     if key != st.info_key {
                         st.info_key = key;
                         st.info_scroll = 0;
+                        st.info_hscroll = 0;
                     }
                     let sections = k8s::details::details(&manifest, &overview.events);
                     if let Ok(size) = terminal.size() {
-                        st.info_scroll = st.info_scroll.min(ui::side_panel_max_scroll(&sections, size));
+                        let (down, right) = ui::side_panel_max_scroll(&sections, size);
+                        st.info_scroll = st.info_scroll.min(down);
+                        st.info_hscroll = st.info_hscroll.min(right);
                     }
-                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll, focused: st.info_focus }));
+                    ui::set_side_panel(Some(ui::SidePanel { title: ui_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus }));
                 }
                 None => ui::set_side_panel(None),
             }

@@ -117,6 +117,14 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
                     st.info_focus = false;
                     true
                 }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    st.info_hscroll = st.info_hscroll.saturating_sub(6);
+                    true
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    st.info_hscroll += 6;
+                    true
+                }
                 KeyCode::Char('i') => {
                     st.info_panel = false;
                     st.info_focus = false;

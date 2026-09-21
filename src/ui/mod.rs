@@ -38,7 +38,7 @@ mod style;
 
 pub use self::columns::*;
 pub use self::style::set_list_focused;
-pub use self::details::{SidePanel, side_panel_max_scroll, details_line_count, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
+pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;
 use self::help::draw_help;
@@ -127,7 +127,7 @@ pub enum Overlay<'a> {
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
     /// A readable summary of one object.
-    Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize },
+    Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
     /// What an object relates to, one group at a time.
     Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize },
     /// The settings screen.
@@ -540,7 +540,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
-        Overlay::Details { title, sections, scroll } => details::draw_details(frame, title, sections, scroll),
+        Overlay::Details { title, sections, scroll, hscroll } => details::draw_details(frame, title, sections, scroll, hscroll),
         Overlay::Relations { title, graph, selected } => draw_relations(frame, title, graph, selected),
         Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, tab, rows, layout, state, error, capture.as_ref()),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
