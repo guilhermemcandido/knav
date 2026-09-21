@@ -58,8 +58,19 @@ pub fn mark_key(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
 
-/// The line style of every box: heavy strokes so the frames read clearly.
-pub const BORDER: BorderType = BorderType::Thick;
+/// The line style of every box: heavy strokes so the frames read clearly,
+/// with the rounded corners only the light weight has (there is no heavy
+/// rounded corner in Unicode).
+pub const BORDER_SET: ratatui::symbols::border::Set = ratatui::symbols::border::Set {
+    top_left: "╭",
+    top_right: "╮",
+    bottom_left: "╰",
+    bottom_right: "╯",
+    vertical_left: "┃",
+    vertical_right: "┃",
+    horizontal_top: "━",
+    horizontal_bottom: "━",
+};
 
 pub(super) fn theme_border(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }

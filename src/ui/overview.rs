@@ -84,7 +84,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     };
     let resources_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .border_style(resources_border)
         .title(Line::styled(" Resources ", if dimmed { resources_border } else { Style::default().add_modifier(Modifier::BOLD) }));
     let resources_inner = resources_block.inner(chunks[0]);
@@ -104,7 +104,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     };
     let events_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .border_style(events_border)
         .title(Line::styled(format!(" Events ({}) ", overview.events.len()), if dimmed { events_border } else { Style::default().add_modifier(Modifier::BOLD) }));
     let events_inner = events_block.inner(chunks[2]);

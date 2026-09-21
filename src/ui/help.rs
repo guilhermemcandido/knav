@@ -73,7 +73,7 @@ pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Opti
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .border_style(theme_border(false))
         .title(Line::styled(" Help ", Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);

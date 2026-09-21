@@ -300,7 +300,7 @@ pub(super) fn draw_column(
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .border_style(border_style)
         .title(Line::styled(format!(" {title} "), title_style));
     let inner = outer.inner(area);
@@ -351,7 +351,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
         (Style::default(), Style::default().add_modifier(Modifier::BOLD), Style::default().fg(Color::Cyan))
     };
 
-    let block = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style);
+    let block = Block::default().borders(Borders::ALL).border_set(BORDER_SET).border_style(border_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -438,7 +438,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .title(title.to_string());
     let inner = outer.inner(area);
     frame.render_widget(outer, area);

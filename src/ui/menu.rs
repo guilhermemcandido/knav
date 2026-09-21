@@ -28,7 +28,7 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_type(BORDER)
+        .border_set(BORDER_SET)
         .title("Resources");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
@@ -92,7 +92,7 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
             } else {
                 (Style::default(), Style::default())
             };
-            let tile = Block::default().borders(Borders::ALL).border_type(BORDER).border_style(border_style).style(text_style);
+            let tile = Block::default().borders(Borders::ALL).border_set(BORDER_SET).border_style(border_style).style(text_style);
             let label = Paragraph::new(kind.label()).alignment(Alignment::Center).style(text_style).block(tile);
             frame.render_widget(label, *tile_area);
         }
