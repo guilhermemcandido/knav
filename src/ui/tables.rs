@@ -95,7 +95,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
-            Cell::from(p.ready.clone()).style(cell_style),
+            Cell::from(p.ready.clone()).style(if dimmed { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) }),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
             Cell::from(p.controlled_by.clone()).style(cell_style),
@@ -183,6 +183,12 @@ pub(super) fn ready_color(ready: &str) -> Color {
         (Some(have), Some(want)) if have >= want => Color::Green,
         _ => Color::Yellow,
     }
+}
+
+/// A pod's READY colour: like a Deployment's, except a pod that ran to
+/// completion (a finished Job's `0/1 Succeeded`) is grey, not "not ready".
+pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
+    if phase == "Succeeded" { Color::DarkGray } else { ready_color(ready) }
 }
 
 pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
@@ -444,6 +450,13 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 #[cfg(test)]
 mod generic_table_tests {
     use super::*;
+
+    #[test]
+    fn a_completed_pod_is_grey_not_unready() {
+        assert_eq!(pod_ready_color("0/1", "Succeeded"), Color::DarkGray);
+        assert_eq!(pod_ready_color("0/1", "Running"), Color::Yellow);
+        assert_eq!(pod_ready_color("2/2", "Running"), Color::Green);
+    }
 
     #[test]
     fn ready_is_green_when_complete_yellow_when_not_grey_when_nothing_is_wanted() {

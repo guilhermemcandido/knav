@@ -199,9 +199,13 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path.push(segment("Node", name.clone()));
             path
         }
-        Mode::Containers { title, back, .. } => {
+        Mode::Containers { title, containers, state, sort, back, .. } => {
             let mut path = breadcrumb_path(back);
             path.push(segment("Pod", title.clone()));
+            // The container the cursor is on, like the selected row of a list.
+            if let Some(container) = state.selected().and_then(|i| sorted_containers(containers, *sort).get(i).map(|c| c.name.clone())) {
+                path.push(segment("Container", container));
+            }
             path
         }
         Mode::Spec { title, back, .. } => {
@@ -211,6 +215,10 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         }
         Mode::Logs { title, back, .. } => {
             let mut path = breadcrumb_path(back);
+            // The container being read replaces the one that was selected.
+            if path.last().is_some_and(|s| s.kind == "Container") {
+                path.pop();
+            }
             // `title` is "namespace/pod/container" (see `title_for` and
             // the Containers Enter handler) — just the container name is
             // enough here, the pod/node segments already came from `back`.
@@ -386,5 +394,56 @@ pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
         Mode::NamespacePick { sort, editing, .. } => sort.handle(code, NAMESPACE_PICKER_COLUMNS, *editing),
         Mode::NodeDetail { sort, editing, .. } => sort.handle(code, POD_COLUMNS, *editing),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod breadcrumb_tests {
+    use super::*;
+    use crate::k8s::{ContainerInfo, ContainerStatusKind};
+
+    fn container(name: &str) -> ContainerInfo {
+        ContainerInfo { name: name.into(), status: ContainerStatusKind::Running, reason: None, restarts: 0 }
+    }
+
+    fn containers_mode(selected: usize) -> Mode {
+        Mode::Containers {
+            title: "default/web".into(),
+            namespace: "default".into(),
+            pod: "web".into(),
+            containers: vec![container("app"), container("sidecar")],
+            state: TableState::default().with_selected(selected),
+            sort: ListSort::default(),
+            back: Box::new(Mode::List),
+        }
+    }
+
+    fn text(path: &[ui::BreadcrumbSegment]) -> Vec<String> {
+        path.iter().map(|s| format!("{}[{}]", s.kind, s.value.clone().unwrap_or_default())).collect()
+    }
+
+    #[test]
+    fn the_selected_container_follows_the_pod() {
+        assert_eq!(text(&breadcrumb_path(&containers_mode(1))), ["Pod[default/web]", "Container[sidecar]"]);
+    }
+
+    #[test]
+    fn reading_its_logs_replaces_the_container_segment() {
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let logs = Mode::Logs {
+            title: "default/web/sidecar".into(),
+            lines: Vec::new(),
+            rx,
+            scroll: 0,
+            follow: true,
+            timestamp_format: Default::default(),
+            order: Default::default(),
+            filter: String::new(),
+            filter_editing: false,
+            handle: runtime.spawn(async {}),
+            back: Box::new(containers_mode(1)),
+        };
+        assert_eq!(text(&breadcrumb_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);
     }
 }
