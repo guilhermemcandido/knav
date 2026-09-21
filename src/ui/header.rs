@@ -1,5 +1,6 @@
 //! The persistent top bar, after k9s: a line of context/cluster/user/version
-//! info, and a line of namespace shortcuts (`<0> all <1> default ...`).
+//! info, and — on the resource lists, not the main Overview — a line of
+//! namespace shortcuts (`Namespace: (0)all (1)default ...`).
 
 use super::*;
 
@@ -22,7 +23,8 @@ pub struct HeaderInfo {
     pub knav_version: String,
 }
 
-/// Rows the header takes at the top of the main screen.
+/// Rows the header takes at the top of a resource list: the info line
+/// plus the namespace-shortcut line. The Overview only has the first.
 pub const HEADER_HEIGHT: u16 = 2;
 
 /// Below this height the header is dropped — the resource list matters
@@ -32,14 +34,15 @@ const MIN_HEIGHT_FOR_HEADER: u16 = 10;
 /// The part of the screen below the header, where the main layer (the
 /// Overview or a resource list) lives. Mouse hit-testing for that layer
 /// must use this, not the full frame area.
-pub fn body_area(area: Rect) -> Rect {
+pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return area;
     }
-    Rect { x: area.x, y: area.y + HEADER_HEIGHT, width: area.width, height: area.height - HEADER_HEIGHT }
+    let height = if shortcuts { HEADER_HEIGHT } else { 1 };
+    Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height }
 }
 
-pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimmed: bool) {
+pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shortcuts_line: bool, dimmed: bool) {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
     }
@@ -75,25 +78,28 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, dimm
     let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 };
     frame.render_widget(Paragraph::new(Line::from(spans)), line_area);
 
-    // Namespace shortcuts: `<0> all` plus each reserved number. The
+    if !shortcuts_line {
+        return;
+    }
+    // Namespace shortcuts: `(0)all` plus each reserved number. The
     // active one is filled in.
     let key = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)) };
     let name = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(143, 191, 208)) };
     let active = if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) };
-    let mut shortcuts: Vec<Span> = Vec::new();
+    let mut shortcuts: Vec<Span> = vec![Span::styled("Namespace: ", label)];
     let entries = std::iter::once((0usize, "all".to_string())).chain(
         info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))),
     );
     for (n, ns) in entries {
         let is_active = if n == 0 { info.namespace == "all" } else { info.namespace == ns };
-        if !shortcuts.is_empty() {
+        if shortcuts.len() > 1 {
             shortcuts.push(Span::raw("  "));
         }
         if is_active {
-            shortcuts.push(Span::styled(format!("<{n}> {ns}"), active));
+            shortcuts.push(Span::styled(format!("({n}){ns}"), active));
         } else {
-            shortcuts.push(Span::styled(format!("<{n}>"), key));
-            shortcuts.push(Span::styled(format!(" {ns}"), name));
+            shortcuts.push(Span::styled(format!("({n})"), key));
+            shortcuts.push(Span::styled(ns, name));
         }
     }
     let shortcut_area = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(1), height: 1 };
@@ -120,12 +126,14 @@ mod tests {
     #[test]
     fn body_area_leaves_room_for_the_header() {
         let full = Rect { x: 0, y: 0, width: 100, height: 40 };
-        assert_eq!(body_area(full), Rect { x: 0, y: HEADER_HEIGHT, width: 100, height: 40 - HEADER_HEIGHT });
+        assert_eq!(body_area(full, true), Rect { x: 0, y: HEADER_HEIGHT, width: 100, height: 40 - HEADER_HEIGHT });
+        // Without the shortcut line (the Overview) only the info line is taken.
+        assert_eq!(body_area(full, false), Rect { x: 0, y: 1, width: 100, height: 39 });
     }
 
     #[test]
     fn tiny_terminals_drop_the_header() {
         let full = Rect { x: 0, y: 0, width: 80, height: 9 };
-        assert_eq!(body_area(full), full);
+        assert_eq!(body_area(full, true), full);
     }
 }

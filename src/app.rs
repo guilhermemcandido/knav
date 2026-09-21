@@ -503,7 +503,7 @@ pub(crate) fn run(
                         };
                         if matches!(mouse.kind, MouseEventKind::Down(_))
                             && let Some(hit) = ui::column_hit(
-                                ui::body_area(frame_area),
+                                ui::body_area(frame_area, false),
                                 &overview,
                                 overview_col_scroll,
                                 active_col,
@@ -515,7 +515,7 @@ pub(crate) fn run(
                             overview_selection = hit;
                         }
                     } else {
-                        hovered = ui::row_at(ui::body_area(frame_area), &table_state, row_count, mouse.column, mouse.row).map(|row| {
+                        hovered = ui::row_at(ui::body_area(frame_area, true), &table_state, row_count, mouse.column, mouse.row).map(|row| {
                             ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
                         });
                     }
@@ -535,13 +535,12 @@ pub(crate) fn run(
                     }
                 }
                 (Event::Key(key), Mode::List) if current_kind == ResourceKind::Overview => {
-                    let columns_area = ui::columns_area(ui::body_area(frame_area), &overview);
+                    let columns_area = ui::columns_area(ui::body_area(frame_area, false), &overview);
                     let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
                     match key.code {
-                        // Esc is a no-op here — there's nowhere further
-                        // "back" than the main screen. `q` still quits;
-                        // `:q` also works, same as everywhere else.
-                        KeyCode::Char('q') => return Ok(Outcome::Quit),
+                        // Esc and `q` are no-ops here — there's nowhere
+                        // further "back" than the main screen, and quitting
+                        // takes a deliberate `:q` so a stray key can't do it.
                         KeyCode::Char('j') | KeyCode::Down => {
                             overview_selection = ui::move_overview_selection(&overview, overview_selection, ui::Direction::Down);
                         }

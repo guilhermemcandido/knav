@@ -211,8 +211,11 @@ pub fn draw(
     // background down to gray while something's on top of it, so
     // whatever's in full color is the only thing that reads as "in focus."
     let full = frame.area();
-    let body = body_area(full);
-    draw_header(frame, full, header, dimmed);
+    // The namespace-shortcut line is for the resource lists; the main
+    // Overview keeps just the info line.
+    let shortcuts_line = !matches!(rows, Rows::Overview(..));
+    let body = body_area(full, shortcuts_line);
+    draw_header(frame, full, header, shortcuts_line, dimmed);
     match rows {
         Rows::Pods(pods) => {
             // A persistent status line below the table for the
