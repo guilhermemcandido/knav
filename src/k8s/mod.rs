@@ -21,6 +21,7 @@ mod events;
 mod nodes;
 mod overview;
 mod generic;
+mod parallel;
 mod watch;
 mod watched;
 
@@ -34,5 +35,6 @@ pub use events::*;
 pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
+pub use parallel::par_map;
 pub use watch::{changes, watch_count, watch_store};
 pub use watched::*;

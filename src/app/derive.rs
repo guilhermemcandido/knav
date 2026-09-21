@@ -66,7 +66,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             ns_filter.is_none_or(|ns| meta.namespace.as_deref() == Some(ns))
         };
         let all_pods = k8s::snapshot(pod_store);
-        let mut pods: Vec<std::sync::Arc<Pod>> = all_pods
+        let pods: Vec<std::sync::Arc<Pod>> = all_pods
             .iter()
             .cloned()
             .filter(|p| in_namespace(&p.metadata))
@@ -74,10 +74,12 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .filter(|p| meta_matches(&search, &p.metadata))
             .filter(|p| !(faults && current_kind == ResourceKind::Pods) || k8s::pod_is_fault(p))
             .collect();
+        // Rows are built once, across the cores, and the sort reads them instead of rebuilding.
+        let mut pairs: Vec<(std::sync::Arc<Pod>, k8s::PodRow)> = k8s::par_map(&pods, |p| (p.clone(), k8s::row_for(p)));
         if current_kind == ResourceKind::Pods {
-            apply(&mut pods, sort, |p, column| pod_key(&k8s::row_for(p), column, wide));
+            apply(&mut pairs, sort, |(_, row), column| pod_key(row, column, wide));
         }
-        let pod_rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
+        let (pods, pod_rows): (Vec<std::sync::Arc<Pod>>, Vec<k8s::PodRow>) = pairs.into_iter().unzip();
         let mut deployments: Vec<std::sync::Arc<Deployment>> = k8s::snapshot_deployments(dep_store)
             .into_iter()
             .filter(|d| in_namespace(&d.metadata))
@@ -298,12 +300,12 @@ mod bench {
         let pods: Vec<_> = all.iter().filter(|p| meta_matches("", &p.metadata)).cloned().collect();
         println!("filter (no search)  {:?}", t.elapsed());
         let t = Instant::now();
-        let rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
-        println!("row_for x{n}    {:?}", t.elapsed());
+        let mut pairs: Vec<(std::sync::Arc<Pod>, k8s::PodRow)> = k8s::par_map(&pods, |p| (p.clone(), k8s::row_for(p)));
+        println!("rows x{n} (parallel) {:?}", t.elapsed());
         let t = Instant::now();
-        let mut sorted = pods.clone();
-        apply(&mut sorted, Some(SortSpec { column: 3, descending: true }), |p, c| pod_key(&k8s::row_for(p), c, false));
+        apply(&mut pairs, Some(SortSpec { column: 3, descending: true }), |(_, r), c| pod_key(r, c, false));
         println!("sort by column      {:?}", t.elapsed());
+        let rows = pairs;
         let t = Instant::now();
         let kept = pods.iter().filter(|p| meta_matches("web-9", &p.metadata)).count();
         println!("fuzzy search ({kept})  {:?}", t.elapsed());
