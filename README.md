@@ -54,11 +54,10 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `←` `→` / `h` `l` | Scroll columns sideways when they don't fit |
 | `d` / `e` | Show the spec / edit the manifest in `$EDITOR` |
 | `D` | Delete the selected object (asks first) |
-| `S` | Scale a Deployment, StatefulSet or ReplicaSet (type the count) |
+| `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container |
 | `r` | Restart a Deployment, StatefulSet or DaemonSet (asks first) |
-| `a` | Shell in a pod's container (in the containers popup: the selected one); needs `kubectl` on the PATH |
 | `o` | Cordon or uncordon a node |
-| `t` / `u` | Trigger a CronJob now / suspend or resume it |
+| `t` / `u` | Trigger a CronJob now / suspend or resume it (both ask first) |
 | `C` | Switch context |
 | `c` | Toggle mouse capture (off lets the terminal select text) |
 | `:q` | Quit (a stray `q` never does) |

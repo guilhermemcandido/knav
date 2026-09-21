@@ -105,6 +105,9 @@ impl Action {
             }
             Action::Delete => Some(format!("Delete {}?", target.label())),
             Action::Restart => Some(format!("Restart {}?", target.label())),
+            Action::Trigger => Some(format!("Run {} now?", target.label())),
+            Action::Suspend(true) => Some(format!("Suspend {}?", target.label())),
+            Action::Suspend(false) => Some(format!("Resume {}?", target.label())),
             _ => None,
         }
     }
@@ -285,6 +288,10 @@ mod tests {
         let t = target(DEPLOYMENT);
         assert_eq!(Action::Delete.confirmation(&t).as_deref(), Some("Delete deployment shop/web?"));
         assert!(Action::Restart.confirmation(&t).is_some());
+        let cron = target("apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: tick, namespace: d}\n");
+        assert_eq!(Action::Trigger.confirmation(&cron).as_deref(), Some("Run cronjob d/tick now?"));
+        assert_eq!(Action::Suspend(true).confirmation(&cron).as_deref(), Some("Suspend cronjob d/tick?"));
+        assert_eq!(Action::Suspend(false).confirmation(&cron).as_deref(), Some("Resume cronjob d/tick?"));
         assert!(Action::Scale(2).confirmation(&t).is_none());
         assert!(Action::Cordon(true).confirmation(&t).is_none());
         let ns = target("apiVersion: v1\nkind: Namespace\nmetadata: {name: shop}\n");

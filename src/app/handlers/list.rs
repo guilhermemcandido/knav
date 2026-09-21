@@ -289,7 +289,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             // Actions on the selected object (see `actions`).
-            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'o' | 'u' | 't' | 'a')) => {
+            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'o' | 'u' | 't')) => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let action = match c {
                         'D' => Some(Action::Delete),
@@ -299,9 +299,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         't' if target.kind == "CronJob" => Some(Action::Trigger),
                         _ => None,
                     };
+                    // `S` scales what scales and opens a shell in a pod.
                     if c == 'S' && target.scalable() {
                         st.mode = Mode::Scale { input: target.replicas().to_string(), target, back: Box::new(Mode::List) };
-                    } else if c == 'a' && target.kind == "Pod" {
+                    } else if c == 'S' && target.kind == "Pod" {
                         open_shell(st, cx, &target);
                     } else if let Some(action) = action {
                         if let Some(text) = action.confirmation(&target) {
@@ -391,7 +392,7 @@ fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Cl
     }
 }
 
-/// `a` on a pod: a shell in its container, or the container list when
+/// `S` on a pod: a shell in its container, or the container list when
 /// there is more than one to choose from.
 fn open_shell(st: &mut State, cx: &mut Cx, target: &Target) {
     let pod: k8s_openapi::api::core::v1::Pod = match serde_yaml::from_value(target.manifest.clone()) {

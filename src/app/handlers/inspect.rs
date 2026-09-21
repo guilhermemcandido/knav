@@ -72,7 +72,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
             KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
             // A shell in the selected container.
-            KeyCode::Char('a') => {
+            KeyCode::Char('S') => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
                     failed_shell = actions::shell(cx.terminal, st.mouse_capture_enabled, cx.active_context, namespace, pod, &container.name);

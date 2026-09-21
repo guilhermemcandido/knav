@@ -290,7 +290,7 @@ pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> V
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
-        ResourceKind::Pods => vec![("a", "shell")],
+        ResourceKind::Pods => vec![("S", "shell")],
         ResourceKind::Deployments | ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
         ResourceKind::ReplicaSets => vec![("S", "scale")],
         ResourceKind::DaemonSets => vec![("r", "restart")],
@@ -351,7 +351,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
-        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("a", "shell"), ("s", "sort"), ("q/esc", "back")],
+        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("S", "shell"), ("s", "sort"), ("q/esc", "back")],
         Mode::Logs { .. } => {
             vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("o", "order"), ("/", "filter"), ("q/esc", "back")]
         }
