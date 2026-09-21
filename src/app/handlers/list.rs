@@ -74,6 +74,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
         }
+        // The Port-forwards list: open one in the browser, stop one.
+        (Event::Key(key), Mode::List) if st.current_kind == ResourceKind::PortForwards && matches!(key.code, KeyCode::Enter | KeyCode::Char('o' | 'D' | 'x') | KeyCode::Delete) => {
+            let real = st.table_state.selected().and_then(|i| generic_visible.get(i).copied()).filter(|&i| i < st.forwards.len());
+            if let Some(real) = real {
+                if matches!(key.code, KeyCode::Enter | KeyCode::Char('o')) {
+                    if let Err(e) = portforward::open_in_browser(&st.forwards[real].url()) {
+                        st.mode = Mode::Notice { text: format!("{e:#}"), error: true, back: Box::new(Mode::List) };
+                    }
+                } else {
+                    st.forwards.remove(real);
+                }
+            }
+        }
         // Number keys pick the active namespace: 0 is all, 1-9 are the
         // ones reserved with `s`. Reachable from any list.
         (Event::Key(key), Mode::List) if matches!(key.code, KeyCode::Char('0'..='9')) => {

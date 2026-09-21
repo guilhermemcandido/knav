@@ -19,6 +19,18 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             _ => {}
         },
+        Mode::OpenUrl { url, back, .. } => match key.code {
+            KeyCode::Char('y') | KeyCode::Enter => {
+                let result = portforward::open_in_browser(url);
+                let back = std::mem::replace(back, Box::new(Mode::List));
+                st.mode = match result {
+                    Ok(()) => *back,
+                    Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back },
+                };
+            }
+            KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+            _ => {}
+        },
         Mode::Scale { targets, input, back } => match key.code {
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             KeyCode::Backspace => {
@@ -48,28 +60,25 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let resource = target.forward_resource().expect("only forwardable kinds open this prompt");
                     portforward::start(cx.active_context, target.namespace.as_deref().unwrap_or("default"), &resource, local, remote)
                 });
-                let outcome = match result {
-                    Ok(forward) => {
-                        let text = format!("Forwarding {} (:pf to stop)", forward.label());
-                        st.forwards.push(forward);
-                        actions::Outcome { text, error: false }
-                    }
-                    Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
-                };
                 let back = std::mem::replace(back, Box::new(Mode::List));
-                st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
-            }
-            _ => {}
-        },
-        Mode::Forwards { state, back } => match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
-            KeyCode::Char('j') | KeyCode::Down => select_next(state, st.forwards.len()),
-            KeyCode::Char('k') | KeyCode::Up => select_prev(state, st.forwards.len()),
-            KeyCode::Char('D') | KeyCode::Char('x') | KeyCode::Delete => {
-                if let Some(i) = state.selected().filter(|i| *i < st.forwards.len()) {
-                    st.forwards.remove(i);
-                    state.select(Some(i.saturating_sub(usize::from(i >= st.forwards.len()))));
-                }
+                st.mode = match result {
+                    Ok(forward) => {
+                        let mut text = format!("Forwarding {} (:pf to stop)", forward.label());
+                        let url = forward.url();
+                        st.forwards.push(forward);
+                        if !cx.config.portforward.open_browser {
+                            // Not opening by itself: ask.
+                            text.push_str(&format!("\nOpen {url} in the browser?"));
+                            Mode::OpenUrl { text, url, back }
+                        } else {
+                            if let Err(e) = portforward::open_in_browser(&url) {
+                                text.push_str(&format!("\n{e:#}"));
+                            }
+                            Mode::Notice { text, error: false, back }
+                        }
+                    }
+                    Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back },
+                };
             }
             _ => {}
         },

@@ -32,7 +32,7 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
         ui::MenuSection { title: "Config", tiles: vec![ResourceKind::ConfigMaps, ResourceKind::Secrets, ResourceKind::Hpas] },
         ui::MenuSection {
             title: "Network",
-            tiles: vec![ResourceKind::Services, ResourceKind::Endpoints, ResourceKind::Ingresses, ResourceKind::NetworkPolicies],
+            tiles: vec![ResourceKind::Services, ResourceKind::Endpoints, ResourceKind::Ingresses, ResourceKind::NetworkPolicies, ResourceKind::PortForwards],
         },
         ui::MenuSection { title: "Storage", tiles: vec![ResourceKind::Pvcs, ResourceKind::Pvs, ResourceKind::StorageClasses] },
         ui::MenuSection {
@@ -63,7 +63,6 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo]) -> Vec<Sug
     }
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
-        .chain(std::iter::once(Cmd::Forwards))
         .chain(std::iter::once(Cmd::Quit))
         .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
         .filter_map(|cmd| {
@@ -104,7 +103,6 @@ pub(crate) enum Cmd {
     Kind(ResourceKind),
     Context,
     Events,
-    Forwards,
     Quit,
 }
 
@@ -120,7 +118,6 @@ impl Cmd {
             }
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
-            Cmd::Forwards => fixed(&["portforwards", "pf", "forwards"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),
         }
     }
@@ -320,6 +317,7 @@ mod tests {
             ResourceKind::RoleBindings,
             ResourceKind::ClusterRoles,
             ResourceKind::ClusterRoleBindings,
+            ResourceKind::PortForwards,
             ResourceKind::CustomResourceList,
         ];
         let sections = menu_sections(&[]);

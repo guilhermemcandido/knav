@@ -36,7 +36,7 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         ResourceKind::ConfigMaps => ("cm", include_bytes!("../assets/icons/cm.svg")),
         ResourceKind::Secrets => ("secret", include_bytes!("../assets/icons/secret.svg")),
         ResourceKind::Hpas => ("hpa", include_bytes!("../assets/icons/hpa.svg")),
-        ResourceKind::Services => ("svc", include_bytes!("../assets/icons/svc.svg")),
+        ResourceKind::Services | ResourceKind::PortForwards => ("svc", include_bytes!("../assets/icons/svc.svg")),
         ResourceKind::Endpoints => ("ep", include_bytes!("../assets/icons/ep.svg")),
         ResourceKind::Ingresses => ("ing", include_bytes!("../assets/icons/ing.svg")),
         ResourceKind::NetworkPolicies => ("netpol", include_bytes!("../assets/icons/netpol.svg")),

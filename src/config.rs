@@ -104,9 +104,25 @@ impl Default for TablesConfig {
     }
 }
 
+/// What starting a port-forward does besides forwarding.
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct PortForwardConfig {
+    /// Open `http://localhost:<port>` in the browser once it is running;
+    /// when false, ask first.
+    pub open_browser: bool,
+}
+
+impl Default for PortForwardConfig {
+    fn default() -> Self {
+        PortForwardConfig { open_browser: true }
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
+    pub portforward: PortForwardConfig,
     pub logs: LogsConfig,
     pub keybindings: Keybindings,
     pub startup: StartupConfig,

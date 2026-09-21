@@ -27,6 +27,8 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
+    /// The running port-forwards — knav's own, not a cluster resource.
+    PortForwards,
     /// The Custom Resources picker — every discovered CRD kind
     /// (group/kind/scope), not object instances, not filtered by group.
     CustomResourceList,
@@ -58,6 +60,7 @@ impl ResourceKind {
             ResourceKind::ConfigMaps => "ConfigMaps",
             ResourceKind::Secrets => "Secrets",
             ResourceKind::Hpas => "HPAs",
+            ResourceKind::PortForwards => "Port-forwards",
             ResourceKind::Services => "Services",
             ResourceKind::Endpoints => "Endpoints",
             ResourceKind::Ingresses => "Ingresses",
@@ -140,6 +143,7 @@ impl ResourceKind {
             "RoleBindings" => Some(ResourceKind::RoleBindings),
             "ClusterRoles" => Some(ResourceKind::ClusterRoles),
             "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+            "Port-forwards" => Some(ResourceKind::PortForwards),
             "Custom Resources" => Some(ResourceKind::CustomResourceList),
             _ => None,
         }
@@ -189,6 +193,7 @@ pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
     (ResourceKind::RoleBindings, &["rolebindings", "rolebinding", "rb"]),
     (ResourceKind::ClusterRoles, &["clusterroles", "clusterrole", "cr"]),
     (ResourceKind::ClusterRoleBindings, &["clusterrolebindings", "clusterrolebinding", "crb"]),
+    (ResourceKind::PortForwards, &["portforwards", "portforward", "pf"]),
     (ResourceKind::CustomResourceList, &["customresources", "customresource", "customresourcedefinitions", "crds", "crd"]),
 ];
 

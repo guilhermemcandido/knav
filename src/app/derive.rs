@@ -42,10 +42,12 @@ pub(super) struct Sources<'a> {
     pub event_store: &'a Store<k8s_openapi::api::core::v1::Event>,
     pub node_metrics_rx: &'a watch::Receiver<Option<metrics::ClusterUsage>>,
     pub client: &'a Client,
+    /// Rows for the Port-forwards list (knav's own, not from the cluster).
+    pub forwards: &'a [k8s::GenericRow],
 }
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
-    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client } = *src;
+    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
     let Query { current_kind, namespace, scope, search, sort } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
@@ -139,8 +141,16 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // real index in `generic_rows_full`/the catalog's own live
         // snapshot — needed because `CatalogKind::spec_at` (the 'd' key)
         // takes that real index, not the display one.
-        let generic_headers: Vec<&'static str> = catalog.resolve(current_kind, client).map(|k| k.headers()).unwrap_or_default();
-        let generic_rows_full: Vec<k8s::GenericRow> = catalog.resolve(current_kind, client).map(|k| k.rows()).unwrap_or_default();
+        let generic_headers: Vec<&'static str> = if current_kind == ResourceKind::PortForwards {
+        portforward::HEADERS.to_vec()
+    } else {
+        catalog.resolve(current_kind, client).map(|k| k.headers()).unwrap_or_default()
+    };
+        let generic_rows_full: Vec<k8s::GenericRow> = if current_kind == ResourceKind::PortForwards {
+        forwards.to_vec()
+    } else {
+        catalog.resolve(current_kind, client).map(|k| k.rows()).unwrap_or_default()
+    };
         let mut generic_visible: Vec<usize> = (0..generic_rows_full.len())
             .filter(|&i| {
                 let row = &generic_rows_full[i];

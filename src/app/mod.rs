@@ -27,7 +27,10 @@ pub(crate) fn run(
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context));
 
     loop {
-        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client };
+        // A forward that kubectl dropped (the pod went away) leaves the list.
+        st.forwards.retain_mut(|f| f.alive());
+        let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
+        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows };
         let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort };
         let derived = derive::derive(&src, catalog, &st.mode, &query);
         let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, .. } = &derived;
@@ -82,8 +85,6 @@ pub(crate) fn run(
             st.marked.clear();
             st.marked_kind = st.current_kind;
         }
-        st.forwards.retain_mut(|f| f.alive());
-        let forward_labels: Vec<String> = st.forwards.iter().map(|f| f.label()).collect();
         let view = draw::View {
             rows: &rows_view,
             overview: &overview,
@@ -98,7 +99,6 @@ pub(crate) fn run(
             header_now: &header_now,
             search: &st.search,
             sort_view,
-            forwards: &forward_labels,
             marked: &st.marked,
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;

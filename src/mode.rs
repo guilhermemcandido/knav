@@ -32,10 +32,10 @@ pub(crate) enum Mode {
     Notice { text: String, error: bool, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
+    /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
+    OpenUrl { text: String, url: String, back: Box<Mode> },
     /// Asks for the ports to forward (`local:remote`).
     Ports { target: Target, input: String, back: Box<Mode> },
-    /// The active port-forwards, to stop them.
-    Forwards { state: TableState, back: Box<Mode> },
     /// Asks for a replica count (digits only) to scale to.
     Scale { targets: Vec<Target>, input: String, back: Box<Mode> },
     Spec {
@@ -129,7 +129,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Confirm { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -240,11 +240,10 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path
         }
         Mode::Events { .. } => vec![plain_segment("Events")],
-        Mode::Forwards { .. } => vec![plain_segment("Port-forwards")],
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::OpenUrl { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
         Mode::Menu { .. } => vec![plain_segment("Resources")],
         Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }
@@ -316,6 +315,9 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         // commands panel only exists once you've actually entered some
         // resource view.
         Mode::List if current_kind == ResourceKind::Overview => Vec::new(),
+        Mode::List if current_kind == ResourceKind::PortForwards => {
+            vec![("↑↓/jk", "move"), ("enter/o", "open in browser"), ("D", "stop"), ("s", "sort"), ("/", "search"), ("q/esc", "back")]
+        }
         Mode::List => {
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec")],
@@ -346,8 +348,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
-        Mode::Forwards { .. } => vec![("↑↓/jk", "move"), ("D", "stop"), ("q/esc", "back")],
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("↑↓/jk", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
