@@ -134,7 +134,7 @@ Your own themes are files in `~/.config/knav/themes/<name>.toml` and show up in 
 base = "dracula"          # optional: start from a built-in or another of yours
 [colors]                  # or put the roles at the top of the file
 ok = "#50fa7b"
-selection_bg = "#44475a"
+select_bg = "#44475a"
 ```
 
 Colours are `#rrggbb`, a terminal colour name (`red`, `darkgray`, ...) or `indexed:N`. The roles
