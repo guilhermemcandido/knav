@@ -75,12 +75,25 @@ pub(super) fn health_bar(health: Health, total: usize, width: usize, dimmed: boo
     if total == 0 {
         return Line::styled("░".repeat(bar), paint(theme().muted));
     }
-    // Each state gets its share of the bar, and never disappears if it exists.
-    let share = |n: usize| if n == 0 { 0 } else { (n * bar / total).max(1) };
-    let (bad, warn) = (share(health.bad).min(bar), share(health.warn));
-    let warn = warn.min(bar - bad);
-    let good = share(health.good).min(bar - bad - warn);
-    let rest = bar - bad - warn - good;
+    // Each state gets its share of the bar (largest remainders, so the bar is
+    // always full), and never disappears if it exists. The neutral rest is what
+    // is neither ok, warning nor error (finished, nothing wanted).
+    let counts = [health.good, health.warn, health.bad, total.saturating_sub(health.good + health.warn + health.bad)];
+    let sum: usize = counts.iter().sum();
+    let mut cells = counts.map(|n| n * bar / sum);
+    let mut order: Vec<usize> = (0..4).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(counts[i] * bar % sum));
+    for &i in order.iter().cycle().take(bar - cells.iter().sum::<usize>()) {
+        cells[i] += 1;
+    }
+    for i in [2, 1, 0] {
+        if counts[i] > 0 && cells[i] == 0 {
+            let biggest = (0..4).max_by_key(|&j| cells[j]).unwrap_or(0);
+            cells[biggest] -= 1;
+            cells[i] = 1;
+        }
+    }
+    let [good, warn, bad, rest] = cells;
     Line::from(vec![
         Span::styled("█".repeat(good), paint(theme().ok)),
         Span::styled("█".repeat(warn), paint(theme().warn)),
@@ -560,6 +573,13 @@ mod health_tests {
     #[test]
     fn the_bar_fills_its_width() {
         assert_eq!(health_bar(Health { good: 15, warn: 1, bad: 1 }, 17, 20, false).width(), 20);
+    }
+
+    #[test]
+    fn a_bar_of_everything_accounted_for_has_no_grey() {
+        let line = health_bar(Health { good: 14, warn: 1, bad: 2 }, 17, 40, false);
+        assert_eq!(line.spans[3].content.chars().count(), 0);
+        assert_eq!(line.width(), 40);
     }
 
     #[test]
