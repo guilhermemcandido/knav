@@ -34,6 +34,7 @@ pub(crate) fn run(
 ) -> Result<Outcome> {
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
 
+    let mut cache: Option<derive::Cache> = None;
     loop {
         st.record_view();
         // A forward that kubectl dropped (the pod went away) leaves the list.
@@ -41,8 +42,9 @@ pub(crate) fn run(
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows };
         let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort, faults: st.faults_only, wide: st.wide, layout: &st.config.overview };
-        let derived = derive::derive(&src, catalog, &st.mode, &query);
-        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, .. } = &derived;
+        let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
+        let derived = fresh.derived();
+        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, .. } = derived;
 
         let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
@@ -96,7 +98,7 @@ pub(crate) fn run(
         // The info panel beside the list follows the selected row.
         let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
         if st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {
-            match handlers::selected_manifest(&st, &derived, catalog, &client) {
+            match handlers::selected_manifest(&st, derived, catalog, &client) {
                 Some(manifest) => {
                     let key = format!("{:?}{}", st.current_kind, mode::object_title(&manifest));
                     if key != st.info_key {
@@ -149,6 +151,7 @@ pub(crate) fn run(
         // A shell's output arrives on its own, so redraw quickly while one is open.
         let wait = if matches!(st.mode, Mode::Shell { .. }) { crate::config::tunables::tunables().shell_redraw_ms } else { crate::config::tunables::tunables().idle_redraw_ms };
         if !event::poll(Duration::from_millis(wait))? {
+            cache = Some(fresh);
             continue;
         }
 
@@ -157,12 +160,13 @@ pub(crate) fn run(
         loop {
             let event = event::read()?;
             let config_now = st.config.clone();
-            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: &derived })? {
+            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: derived })? {
                 return Ok(outcome);
             }
             if !event::poll(Duration::from_millis(0))? {
                 break;
             }
         }
+        cache = Some(fresh);
     }
 }

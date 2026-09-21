@@ -1,13 +1,7 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{
-    Client,
-    api::Api,
-    runtime::{WatchStreamExt, reflector, watcher},
-};
-use tokio::task::JoinHandle;
+use kube::runtime::reflector;
 
 use super::*;
 
@@ -56,38 +50,8 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
     DeploymentRow { namespace, name, ready, up_to_date, available, images, age, age_secs }
 }
 
-/// Same live-watch pattern as `watch_pods`, for Deployments, see there
-/// for why a reflector instead of polling.
-pub fn watch_deployments(client: Client) -> (reflector::Store<Deployment>, JoinHandle<()>) {
-    let api: Api<Deployment> = Api::all(client);
-    let (reader, writer) = reflector::store();
-
-    let stream = watcher(api, watcher::Config::default())
-        .default_backoff()
-        .reflect(writer)
-        .applied_objects();
-
-    let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
-        while stream.next().await.is_some() {}
-    });
-
-    (reader, handle)
-}
-
-/// Sorted snapshot, as for Pods. Two kinds don't justify a shared trait.
 pub fn snapshot_deployments(store: &reflector::Store<Deployment>) -> Vec<Arc<Deployment>> {
-    let mut deployments = store.state();
-    deployments.sort_by(|a, b| {
-        let key = |d: &Arc<Deployment>| {
-            (
-                d.metadata.namespace.clone().unwrap_or_default(),
-                d.metadata.name.clone().unwrap_or_default(),
-            )
-        };
-        key(a).cmp(&key(b))
-    });
-    deployments
+    super::watch::sorted(store)
 }
 
 #[cfg(test)]

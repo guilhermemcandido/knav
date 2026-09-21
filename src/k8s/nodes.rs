@@ -1,25 +1,7 @@
 
-use futures::StreamExt;
 use k8s_openapi::api::core::v1::Node;
-use kube::{
-    Client,
-    api::Api,
-    runtime::{WatchStreamExt, reflector, watcher},
-};
-use tokio::task::JoinHandle;
 
 use super::*;
-
-pub fn watch_nodes(client: Client) -> (reflector::Store<Node>, JoinHandle<()>) {
-    let api: Api<Node> = Api::all(client);
-    let (reader, writer) = reflector::store();
-    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
-    let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
-        while stream.next().await.is_some() {}
-    });
-    (reader, handle)
-}
 
 /// One node's own capacity, the Node detail view's gauges need a single
 /// node's numbers, not the cluster-wide sum `node_allocatable_sum` gives

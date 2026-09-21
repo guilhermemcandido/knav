@@ -196,12 +196,13 @@ pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
     }
 }
 
-pub(crate) fn meta_search_text(meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) -> String {
-    format!("{} {}", meta.namespace.clone().unwrap_or_default(), meta.name.clone().unwrap_or_default())
+/// `row_matches` against `namespace name`, building that text only when there is a search.
+pub(crate) fn meta_matches(search: &str, meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) -> bool {
+    search.is_empty() || row_matches(search, &format!("{} {}", meta.namespace.as_deref().unwrap_or_default(), meta.name.as_deref().unwrap_or_default()))
 }
 
-pub(crate) fn meta_search_text_generic(row: &k8s::GenericRow) -> String {
-    format!("{} {}", row.namespace, row.name)
+pub(crate) fn generic_matches(search: &str, row: &k8s::GenericRow) -> bool {
+    search.is_empty() || row_matches(search, &format!("{} {}", row.namespace, row.name))
 }
 
 /// The sort of whichever `NodeDetail` sits in `mode`'s back-chain, the

@@ -49,7 +49,7 @@ impl LogOrder {
 
 /// The order and visibility of the Overview's categories and kinds. Anything
 /// not listed keeps its default place after the listed ones.
-#[derive(Clone, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct OverviewConfig {
     /// Category names, in the order to show them.

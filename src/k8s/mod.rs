@@ -21,6 +21,7 @@ mod events;
 mod nodes;
 mod overview;
 mod generic;
+mod watch;
 mod watched;
 
 pub use kind::*;
@@ -33,4 +34,5 @@ pub use events::*;
 pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
+pub use watch::{changes, watch_store};
 pub use watched::*;

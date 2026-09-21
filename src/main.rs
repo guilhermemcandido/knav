@@ -106,10 +106,10 @@ pub(crate) async fn session(config: &Config, context: Option<&str>) -> Result<Ou
         faults_only: false,
         wide: false,
     };
-    let (pod_store, _pod_watch_handle) = k8s::watch_pods(client.clone());
-    let (dep_store, _dep_watch_handle) = k8s::watch_deployments(client.clone());
-    let (node_store, _node_watch_handle) = k8s::watch_nodes(client.clone());
-    let (event_store, _event_watch_handle) = k8s::watch_events(client.clone());
+    let (pod_store, _pod_watch_handle) = k8s::watch_store::<Pod>(client.clone());
+    let (dep_store, _dep_watch_handle) = k8s::watch_store::<Deployment>(client.clone());
+    let (node_store, _node_watch_handle) = k8s::watch_store::<Node>(client.clone());
+    let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
     let crds = k8s::discover_crds(&client).await;
     let apis = k8s::discover_apis(&client).await;

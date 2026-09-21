@@ -1,13 +1,5 @@
-use std::sync::Arc;
 
-use futures::StreamExt;
-use kube::{
-    Client, Resource,
-    api::Api,
-    runtime::{WatchStreamExt, reflector, watcher},
-};
-use serde::{Serialize, de::DeserializeOwned};
-use tokio::task::JoinHandle;
+use serde::Serialize;
 
 use super::*;
 
@@ -63,35 +55,4 @@ pub fn generic_row<K: kube::Resource + crate::k8s::describe::Extras>(item: &K) -
     GenericRow { namespace, name, age, age_secs, extras, status, uid, owners, labels }
 }
 
-/// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic
-/// over any typed k8s-openapi resource, used for every catalog kind that
-/// doesn't need specialized fields.
-pub fn watch_generic<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
-where
-    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
-{
-    let api: Api<K> = Api::all(client);
-    let (reader, writer) = reflector::store();
-    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).applied_objects();
-    let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
-        while stream.next().await.is_some() {}
-    });
-    (reader, handle)
-}
-
-/// Sorted snapshot, same reasoning as `snapshot`/`snapshot_deployments`,
-/// generic over anything `reflector::store` can hold (typed resources and
-/// `DynamicObject` alike).
-pub fn snapshot_generic<K>(store: &reflector::Store<K>) -> Vec<Arc<K>>
-where
-    K: Resource + Clone,
-    K::DynamicType: Eq + std::hash::Hash + Clone,
-{
-    let mut items = store.state();
-    items.sort_by(|a, b| {
-        let key = |x: &Arc<K>| (x.meta().namespace.clone().unwrap_or_default(), x.meta().name.clone().unwrap_or_default());
-        key(a).cmp(&key(b))
-    });
-    items
-}
+pub use super::watch::sorted as snapshot_generic;

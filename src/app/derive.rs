@@ -65,11 +65,13 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let in_namespace = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| {
             ns_filter.is_none_or(|ns| meta.namespace.as_deref() == Some(ns))
         };
-        let mut pods: Vec<std::sync::Arc<Pod>> = k8s::snapshot(pod_store)
-            .into_iter()
+        let all_pods = k8s::snapshot(pod_store);
+        let mut pods: Vec<std::sync::Arc<Pod>> = all_pods
+            .iter()
+            .cloned()
             .filter(|p| in_namespace(&p.metadata))
             .filter(|p| current_kind != ResourceKind::Pods || scope.is_none_or(|s| s.matches_meta(&p.metadata)))
-            .filter(|p| row_matches(&search, &meta_search_text(&p.metadata)))
+            .filter(|p| meta_matches(&search, &p.metadata))
             .filter(|p| !(faults && current_kind == ResourceKind::Pods) || k8s::pod_is_fault(p))
             .collect();
         if current_kind == ResourceKind::Pods {
@@ -79,7 +81,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let mut deployments: Vec<std::sync::Arc<Deployment>> = k8s::snapshot_deployments(dep_store)
             .into_iter()
             .filter(|d| in_namespace(&d.metadata))
-            .filter(|d| row_matches(&search, &meta_search_text(&d.metadata)))
+            .filter(|d| meta_matches(&search, &d.metadata))
             .filter(|d| !(faults && current_kind == ResourceKind::Deployments) || k8s::ready_is_short(&k8s::row_for_deployment(d).ready))
             .collect();
         if current_kind == ResourceKind::Deployments {
@@ -98,14 +100,14 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             Vec::new()
         };
         let node_search = node_detail_search(mode).to_string();
-        node_detail_pods.retain(|p| row_matches(&node_search, &meta_search_text(&p.metadata)));
+        node_detail_pods.retain(|p| meta_matches(&node_search, &p.metadata));
         apply(&mut node_detail_pods, node_detail_sort(mode), |p, column| pod_key(&k8s::row_for(p), column, false));
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         // Nodes have their own rows (CPU/Memory in the list). They are filtered here so
         // the handlers indexing into `sorted_nodes` match what is displayed.
         // Every pod counts toward its node's PODS, whatever the list is narrowed to.
         let mut pods_per_node: HashMap<String, usize> = HashMap::new();
-        for pod in k8s::snapshot(pod_store) {
+        for pod in &all_pods {
             if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
                 *pods_per_node.entry(node).or_default() += 1;
             }
@@ -141,7 +143,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         } else {
             Default::default()
         };
-        let report = matches!(mode, Mode::ResourcesDetail).then(|| k8s::report::report(&k8s::snapshot(pod_store)));
+        let report = matches!(mode, Mode::ResourcesDetail).then(|| k8s::report::report(&all_pods));
         let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
         // Only filled for the kind on screen. `resolve` starts a CRD's watch the first
         // time it is opened. `generic_visible` maps a display position back to the real
@@ -166,7 +168,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 ns_filter.is_none_or(|ns| row.namespace == "-" || row.namespace == ns)
                     && scope.is_none_or(|s| s.matches_row(row))
             })
-            .filter(|&i| row_matches(&search, &meta_search_text_generic(&generic_rows_full[i])))
+            .filter(|&i| generic_matches(&search, &generic_rows_full[i]))
             .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::k8s::describe::Tone::Warn | crate::k8s::describe::Tone::Bad, _))))
             .collect();
         // Whether the table will show a namespace column, decides which
@@ -200,4 +202,104 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         apply(&mut crd_rows, sort, |(_, crd), column| crd_key(crd, column));
 
     Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows }
+}
+
+/// The last derivation and what it was made from, so idle iterations (a mouse move,
+/// a redraw tick) reuse it instead of re-sorting every store.
+pub(super) struct Cache {
+    key: String,
+    changes: u64,
+    at: std::time::Instant,
+    derived: Derived,
+}
+
+/// A watch that changed something is picked up at most this often.
+const MIN_REFRESH: std::time::Duration = std::time::Duration::from_millis(250);
+/// Ages and metrics move without any watch event, so refresh at least this often.
+const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// What `derive` reads besides the stores.
+fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
+    let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
+    format!(
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{}|{}|{forwards:?}",
+        q.current_kind,
+        q.namespace,
+        q.scope,
+        q.search,
+        q.sort,
+        q.faults,
+        q.wide,
+        q.layout,
+        node_detail_name(mode),
+        node_detail_search(mode),
+        node_detail_sort(mode),
+        matches!(mode, Mode::ColumnDetail { .. }),
+        matches!(mode, Mode::ResourcesDetail),
+    )
+}
+
+impl Cache {
+    /// The derivation for `q`: the cached one while it is still good, else a fresh one.
+    pub(super) fn take_or_derive(cache: Option<Cache>, src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Cache {
+        let key = key_of(q, mode, src.forwards);
+        let changes = k8s::changes();
+        if let Some(cache) = cache
+            && cache.key == key
+            && cache.at.elapsed() < MAX_AGE
+            && (cache.changes == changes || cache.at.elapsed() < MIN_REFRESH)
+        {
+            return cache;
+        }
+        Cache { key, changes, at: std::time::Instant::now(), derived: derive(src, catalog, mode, q) }
+    }
+
+    pub(super) fn derived(&self) -> &Derived {
+        &self.derived
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use kube::runtime::{reflector, watcher};
+    use std::time::Instant;
+
+    fn pod(i: usize) -> Pod {
+        serde_json::from_value(serde_json::json!({
+            "metadata": {"name": format!("web-{i}-abcde"), "namespace": format!("ns-{}", i % 500), "creationTimestamp": "2020-01-01T00:00:00Z", "labels": {"app": "web"},
+                "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "rs", "uid": "u", "controller": true}]},
+            "spec": {"nodeName": format!("node-{}", i % 300), "containers": [{"name": "a", "image": "nginx"}, {"name": "b", "image": "envoy"}]},
+            "status": {"phase": "Running", "containerStatuses": [{"name": "a", "ready": true, "restartCount": 0, "image": "nginx", "imageID": "x", "state": {"running": {"startedAt": "2020-01-01T00:00:00Z"}}}]}
+        }))
+        .unwrap()
+    }
+
+    /// `cargo test --release bench_ -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_pods() {
+        let n = 100_000;
+        let (store, mut writer) = reflector::store::<Pod>();
+        for i in 0..n {
+            writer.apply_watcher_event(&watcher::Event::Apply(pod(i)));
+        }
+        let t = Instant::now();
+        let all = k8s::snapshot(&store);
+        println!("sorted snapshot     {:?}", t.elapsed());
+        let t = Instant::now();
+        let pods: Vec<_> = all.iter().filter(|p| meta_matches("", &p.metadata)).cloned().collect();
+        println!("filter (no search)  {:?}", t.elapsed());
+        let t = Instant::now();
+        let rows: Vec<k8s::PodRow> = pods.iter().map(|p| k8s::row_for(p)).collect();
+        println!("row_for x{n}    {:?}", t.elapsed());
+        let t = Instant::now();
+        let mut sorted = pods.clone();
+        apply(&mut sorted, Some(SortSpec { column: 3, descending: true }), |p, c| pod_key(&k8s::row_for(p), c, false));
+        println!("sort by column      {:?}", t.elapsed());
+        let t = Instant::now();
+        let kept = pods.iter().filter(|p| meta_matches("web-9", &p.metadata)).count();
+        println!("fuzzy search ({kept})  {:?}", t.elapsed());
+        assert_eq!(rows.len(), n);
+    }
 }

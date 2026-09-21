@@ -5,7 +5,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{
     Client,
     api::{Api, LogParams},
-    runtime::{WatchStreamExt, reflector, watcher},
+    runtime::reflector,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -180,43 +180,8 @@ pub fn row_for(pod: &Pod) -> PodRow {
     PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs }
 }
 
-/// Watches every Pod in the cluster into an in-memory store, reconnecting with
-/// backoff. Call `.snapshot()` for the current list.
-pub fn watch_pods(client: Client) -> (reflector::Store<Pod>, JoinHandle<()>) {
-    let api: Api<Pod> = Api::all(client);
-    let (reader, writer) = reflector::store();
-
-    let stream = watcher(api, watcher::Config::default())
-        .default_backoff()
-        .reflect(writer)
-        .applied_objects();
-
-    let handle = tokio::spawn(async move {
-        let mut stream = stream.boxed();
-        while stream.next().await.is_some() {
-            // Nothing to do per-event, `reader.snapshot()` already
-            // reflects it, since `reflect(writer)` updates the store.
-        }
-    });
-
-    (reader, handle)
-}
-
-/// A stable, sorted snapshot of every pod currently in the store. Sorted
-/// so a selected row index stays pointing at the same pod across ticks
-/// (the store itself has no defined order).
 pub fn snapshot(store: &reflector::Store<Pod>) -> Vec<Arc<Pod>> {
-    let mut pods = store.state();
-    pods.sort_by(|a, b| {
-        let key = |p: &Arc<Pod>| {
-            (
-                p.metadata.namespace.clone().unwrap_or_default(),
-                p.metadata.name.clone().unwrap_or_default(),
-            )
-        };
-        key(a).cmp(&key(b))
-    });
-    pods
+    super::watch::sorted(store)
 }
 
 /// Streams one container's log over an unbounded channel. The caller must abort
