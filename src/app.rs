@@ -31,6 +31,9 @@ pub(crate) fn run(
     // whether the next digit is choosing one. Reset when the kind changes.
     let mut sort: Option<SortSpec> = None;
     let mut sort_choosing = false;
+    // How many columns the list is scrolled to the right (←/→ or h/l) when
+    // its columns don't all fit the screen.
+    let mut hscroll: usize = 0;
     // Namespaces reserved to number keys 1-9 (`s` on a namespace).
     let mut favorites = Favorites::load(active_context);
     let mut nav_stack: Vec<(ResourceKind, Option<Scope>, usize)> = Vec::new();
@@ -236,7 +239,7 @@ pub(crate) fn run(
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Command { input, selected, .. } => {
@@ -245,7 +248,7 @@ pub(crate) fn run(
                     let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(|s| s.label).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
@@ -254,7 +257,7 @@ pub(crate) fn run(
                     let items: Vec<(String, String, bool)> =
                         filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
                     let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::NamespacePick { names, filter, editing, state, sort: popup_sort, .. } => {
@@ -263,27 +266,27 @@ pub(crate) fn run(
                     let items: Vec<(String, Option<usize>)> =
                         filtered_names(names, filter, *popup_sort, &favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
                     let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Slots { namespace, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Slots { namespace, slots: &favorites.slots, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Notice { text, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Notice { text, error: *error };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: true }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: true }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -291,7 +294,7 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     let sections = menu_sections(&catalog.crds);
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Spec { title, items, state, viewing, back, .. } => {
@@ -334,7 +337,7 @@ pub(crate) fn run(
                         }
                         None => (node_background, ui::Overlay::Spec { title, items, state }),
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Containers { title, containers, state, sort: popup_sort, back, .. } => {
@@ -366,7 +369,7 @@ pub(crate) fn run(
                     };
                     let shown = sorted_containers(containers, *popup_sort);
                     let overlay = ui::Overlay::Containers { title, containers: &shown, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::NodeDetail { name, state, sort: popup_sort, .. } => {
@@ -388,14 +391,14 @@ pub(crate) fn run(
                         state,
                         sort: popup_sort.view(),
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Events { filter, search, editing, state, sort: popup_sort } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -408,14 +411,14 @@ pub(crate) fn run(
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -423,9 +426,9 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                     }
                 })?;
             }
@@ -449,7 +452,7 @@ pub(crate) fn run(
                         filter,
                         filter_editing: *filter_editing,
                     };
-                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
+                    ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
         }
@@ -629,7 +632,7 @@ pub(crate) fn run(
                             overview_selection = hit;
                         }
                     } else {
-                        hovered = ui::row_at(ui::body_area(frame_area, true), &table_state, row_count, mouse.column, mouse.row).map(|row| {
+                        hovered = ui::row_at(ui::body_area(frame_area, true), &pod_rows, hscroll, &table_state, row_count, mouse.column, mouse.row).map(|row| {
                             ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
                         });
                     }
@@ -700,6 +703,7 @@ pub(crate) fn run(
                                     scope = None;
                                     nav_stack.clear();
                                     sort = None;
+                                    hscroll = 0;
                                     table_state.select(Some(0));
                                     search.clear();
                                 }
@@ -800,6 +804,7 @@ pub(crate) fn run(
                                 scope = None;
                                 nav_stack.clear();
                                 sort = None;
+                                hscroll = 0;
                                 table_state.select(Some(0));
                                 search.clear();
                                 mode = Mode::List;
@@ -826,6 +831,7 @@ pub(crate) fn run(
                             current_kind = kind;
                             scope = previous_scope;
                             sort = None;
+                            hscroll = 0;
                             table_state.select(Some(selected));
                         }
                         search.clear();
@@ -875,11 +881,16 @@ pub(crate) fn run(
                             nav_stack.push((current_kind, scope.take(), selected));
                             scope = new_scope;
                             sort = None;
+                            hscroll = 0;
                             current_kind = target;
                             table_state.select(Some(0));
                             search.clear();
                         }
                     }
+                    // ←/→ (or h/l) scroll a table sideways when its columns don't
+                    // all fit; the title shows `‹ ›` for what's out of view.
+                    KeyCode::Left | KeyCode::Char('h') => hscroll = hscroll.saturating_sub(1),
+                    KeyCode::Right | KeyCode::Char('l') => hscroll += 1,
                     // `s` sorts: the column numbers in the header light up and the
                     // next digit picks one.
                     KeyCode::Char('s') if column_count(current_kind, generic_has_namespace) > 0 => sort_choosing = true,
@@ -968,6 +979,7 @@ pub(crate) fn run(
                             scope = None;
                             nav_stack.clear();
                             sort = None;
+                            hscroll = 0;
                             table_state.select(Some(0));
                             search.clear();
                         }
@@ -1034,6 +1046,7 @@ pub(crate) fn run(
                             scope = None;
                             nav_stack.clear();
                             sort = None;
+                            hscroll = 0;
                             table_state.select(Some(0));
                             search.clear();
                             mode = Mode::List;
@@ -1139,6 +1152,7 @@ pub(crate) fn run(
                                 scope = None;
                                 nav_stack.clear();
                                 sort = None;
+                                hscroll = 0;
                                 table_state.select(Some(0));
                                 search.clear();
                                 mode = Mode::List;

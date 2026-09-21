@@ -58,6 +58,7 @@ fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
+    ui::configure_columns(config.tables.min_column_width, config.tables.min_widths.clone());
     let cli = Cli::parse(std::env::args().skip(1))?;
     let mut context = resolve_context(&cli, &config)?;
 

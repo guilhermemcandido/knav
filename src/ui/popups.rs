@@ -48,15 +48,22 @@ pub(super) fn draw_context_popup(
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let header = header_row(&["CONTEXT", "CLUSTER", "STATUS"], sort, false);
+    const HEADERS: [&str; 3] = ["CONTEXT", "CLUSTER", "STATUS"];
+    let window = layout_table(
+        &HEADERS,
+        items.iter().map(|(name, cluster, _)| vec![cell_width(name), cell_width(cluster), cell_width("current")]),
+        area.width.saturating_sub(2),
+        None,
+        &mut 0,
+    );
+    let header = header_row(&HEADERS, sort, false, &window);
     let rows = items.iter().map(|(name, cluster, current)| {
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
             Cell::from(highlight_fuzzy(cluster, filter, Style::default())),
             Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(Color::Green)),
-        ])
+        ]))
     });
-    let widths = [Constraint::Fill(2), Constraint::Fill(2), Constraint::Length(13)];
 
     let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
     if let Some(span) = search_span(filter, editing, false) {
@@ -66,7 +73,8 @@ pub(super) fn draw_context_popup(
         title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
     }
 
-    let table = Table::new(select_rows(rows, state.selected(), false), widths)
+    let table = Table::new(select_rows(rows, state.selected(), false), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
@@ -93,21 +101,23 @@ pub(super) fn draw_namespace_picker(
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let header = header_row(&["NAMESPACE", "KEY"], sort, false);
+    const HEADERS: [&str; 2] = ["NAMESPACE", "KEY"];
+    let window = layout_table(&HEADERS, items.iter().map(|(name, _)| vec![cell_width(name), 1]), area.width.saturating_sub(2), None, &mut 0);
+    let header = header_row(&HEADERS, sort, false, &window);
     let rows = items.iter().map(|(name, key)| {
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
             Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(Color::Rgb(240, 160, 110))),
-        ])
+        ]))
     });
-    let widths = [Constraint::Fill(1), Constraint::Length(10)];
 
     let mut title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
     if let Some(span) = search_span(filter, editing, false) {
         title.push_span(span);
     }
 
-    let table = Table::new(select_rows(rows, state.selected(), false), widths)
+    let table = Table::new(select_rows(rows, state.selected(), false), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
@@ -239,7 +249,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, Search::default(), if dimmed { SortState::default() } else { sort }, dimmed);
+    draw_table(frame, chunks[2], pods, state, Search::default(), if dimmed { SortState::default() } else { sort }, &mut 0, dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
@@ -333,7 +343,16 @@ pub(super) fn draw_events_popup(
 
     let filtered = crate::k8s::filter_events(events, filter, search, sort.spec());
 
-    let header = header_row(&["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"], sort, dimmed);
+    const HEADERS: [&str; 6] = ["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"];
+    // MESSAGE is free text: it takes whatever room the other columns leave.
+    let window = layout_table(
+        &HEADERS,
+        filtered.iter().map(|e| vec![cell_width("Warning"), cell_width(&e.reason), cell_width(&e.object), cell_width(&e.kind), cell_width(&e.message), cell_width(&e.age)]),
+        area.width.saturating_sub(2),
+        Some(4),
+        &mut 0,
+    );
+    let header = header_row(&HEADERS, sort, dimmed, &window);
     let cell_style = theme_row(dimmed);
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
@@ -349,24 +368,15 @@ pub(super) fn draw_events_popup(
             crate::k8s::EventSeverity::Normal => "Normal",
             crate::k8s::EventSeverity::Warning => "Warning",
         };
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(type_text).style(Style::default().fg(color)),
             Cell::from(Line::from(highlight_matches(&e.reason, search, cell_style))),
             Cell::from(Line::from(highlight_matches(&e.object, search, cell_style))),
             Cell::from(Line::from(highlight_matches(&e.kind, search, cell_style))),
             Cell::from(Line::from(highlight_matches(&e.message, search, cell_style))),
             Cell::from(e.age.clone()).style(cell_style),
-        ])
+        ]))
     });
-
-    let widths = [
-        Constraint::Length(10),
-        Constraint::Fill(2),
-        Constraint::Fill(2),
-        Constraint::Length(12),
-        Constraint::Fill(4),
-        Constraint::Length(10),
-    ];
 
     // `Events (3/11)  (a) all  (w) warnings  (n) normal`, the active
     // severity highlighted, and `/text` while a search is applied.
@@ -384,7 +394,8 @@ pub(super) fn draw_events_popup(
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
-    let table = Table::new(select_rows(rows, state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(rows, state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
@@ -523,34 +534,38 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
     frame.render_widget(Clear, area);
 
     let muted = dim_style();
-    let header = header_row(&["", "NAME", "STATE", "RESTARTS"], sort, dimmed);
-    let cell_style = theme_row(dimmed);
-    let rows = containers.iter().map(|c| {
-        let (glyph, color) = container_dot(c);
-        let dot_style = if dimmed { muted } else { Style::default().fg(color) };
-        let state_text = c.reason.clone().unwrap_or_else(|| match c.status {
+    const HEADERS: [&str; 4] = ["", "NAME", "STATE", "RESTARTS"];
+    let state_text_of = |c: &ContainerInfo| {
+        c.reason.clone().unwrap_or_else(|| match c.status {
             ContainerStatusKind::Running => "Running".into(),
             ContainerStatusKind::Waiting => "Waiting".into(),
             ContainerStatusKind::Terminated => "Terminated".into(),
             ContainerStatusKind::Unknown => "Unknown".into(),
-        });
-        Row::new(vec![
+        })
+    };
+    let window = layout_table(
+        &HEADERS,
+        containers.iter().map(|c| vec![1, cell_width(&c.name), cell_width(&state_text_of(c)), c.restarts.to_string().len()]),
+        area.width.saturating_sub(2),
+        None,
+        &mut 0,
+    );
+    let header = header_row(&HEADERS, sort, dimmed, &window);
+    let cell_style = theme_row(dimmed);
+    let rows = containers.iter().map(|c| {
+        let (glyph, color) = container_dot(c);
+        let dot_style = if dimmed { muted } else { Style::default().fg(color) };
+        Row::new(window.slice(vec![
             Cell::from(Span::styled(glyph, dot_style)),
             Cell::from(c.name.clone()).style(cell_style),
-            Cell::from(state_text).style(dot_style),
+            Cell::from(state_text_of(c)).style(dot_style),
             Cell::from(c.restarts.to_string()).style(cell_style),
-        ])
+        ]))
     });
 
-    let widths = [
-        Constraint::Length(if sort.choosing { 5 } else { 2 }),
-        Constraint::Fill(1),
-        Constraint::Length(18),
-        Constraint::Length(14),
-    ];
-
     let border_style = theme_border(dimmed);
-    let table = Table::new(select_rows(rows, state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(rows, state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(

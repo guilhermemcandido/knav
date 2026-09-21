@@ -95,11 +95,12 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let muted = dim_style();
     let border_style = theme_border(dimmed);
 
-    let header = header_row(&["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"], sort, dimmed);
+    let window = pod_window(pods, area.width, hscroll);
+    let header = header_row(&POD_HEADERS, sort, dimmed, &window);
 
     let rows = pods.iter().map(|p| {
         let status_style = if dimmed {
@@ -114,7 +115,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
             Style::default().fg(color)
         };
         let cell_style = theme_row(dimmed);
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
             Cell::from(p.ready.clone()).style(cell_style),
@@ -123,12 +124,13 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
             Cell::from(p.node.clone()).style(cell_style),
             Cell::from(p.age.clone()).style(cell_style),
             Cell::from(containers_cell(&p.containers, dimmed)),
-        ])
+        ]))
     });
 
-    let title = table_title("Pods", pods.len(), search, dimmed);
+    let title = table_title("Pods", pods.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), pod_table_widths())
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
@@ -137,17 +139,24 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
     frame.render_stateful_widget(table, area, table_state);
 }
 
-pub(super) fn pod_table_widths() -> [Constraint; 8] {
-    [
-        Constraint::Fill(2),   // namespace
-        Constraint::Fill(3),   // name
-        Constraint::Length(11), // (3)READY ▲
-        Constraint::Fill(2),   // status
-        Constraint::Length(14), // (5)RESTARTS ▲
-        Constraint::Fill(2),   // node
-        Constraint::Length(9), // (7)AGE ▲
-        Constraint::Fill(3),   // containers
-    ]
+const POD_HEADERS: [&str; 8] = ["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"];
+
+/// The pods table's visible columns — shared by drawing and by hover
+/// hit-testing so they can't disagree about where CONTAINERS is.
+fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window {
+    let rows = pods.iter().map(|p| {
+        vec![
+            cell_width(&p.namespace),
+            cell_width(&p.name),
+            cell_width(&p.ready),
+            cell_width(&p.phase),
+            p.restarts.to_string().len(),
+            cell_width(&p.node),
+            cell_width(&p.age),
+            p.containers.len() * 2,
+        ]
+    });
+    layout_table(&POD_HEADERS, rows, table_width.saturating_sub(2), None, hscroll)
 }
 
 /// Which pod row sits under an absolute terminal position, restricted to
@@ -157,7 +166,7 @@ pub(super) fn pod_table_widths() -> [Constraint; 8] {
 /// widths, same default 1-cell `column_spacing`) rather than
 /// hand-guessing pixel math that could silently drift out of sync with
 /// what's actually rendered.
-pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
+pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area =
         Rect { x: frame_area.x, y: frame_area.y, width: frame_area.width, height: frame_area.height.saturating_sub(1) };
 
@@ -172,8 +181,10 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
         return None;
     }
 
-    let columns = Layout::horizontal(pod_table_widths()).spacing(1).split(inner);
-    let containers_col = columns[7];
+    let window = pod_window(pods, table_area.width, &mut { hscroll });
+    let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
+    // CONTAINERS is the last column; nothing to hover if it's scrolled away.
+    let containers_col = if window.range().end == POD_HEADERS.len() { columns.last()? } else { return None };
     if column < containers_col.x || column >= containers_col.x + containers_col.width {
         return None;
     }
@@ -183,35 +194,35 @@ pub fn row_at(frame_area: Rect, table_state: &TableState, row_count: usize, colu
     (index < row_count).then_some(index)
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header = header_row(&["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"], sort, dimmed);
+    const HEADERS: [&str; 6] = ["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
+    let window = layout_table(
+        &HEADERS,
+        deployments.iter().map(|d| vec![cell_width(&d.namespace), cell_width(&d.name), cell_width(&d.ready), d.up_to_date.to_string().len(), d.available.to_string().len(), cell_width(&d.age)]),
+        area.width.saturating_sub(2),
+        None,
+        hscroll,
+    );
+    let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = deployments.iter().map(|d| {
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
             Cell::from(d.ready.clone()).style(cell_style),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
-        ])
+        ]))
     });
 
-    let widths = [
-        Constraint::Fill(2),
-        Constraint::Fill(3),
-        Constraint::Length(11),
-        Constraint::Length(17),
-        Constraint::Length(14),
-        Constraint::Length(9),
-    ];
+    let title = table_title("Deployments", deployments.len(), search, &window, dimmed);
 
-    let title = table_title("Deployments", deployments.len(), search, dimmed);
-
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
@@ -254,12 +265,44 @@ pub(super) fn usage_color(ratio: f64, dimmed: bool) -> Color {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
+/// kubectl's own convention: ",SchedulingDisabled" is appended to STATUS
+/// rather than being a separate column.
+fn node_status_text(n: &NodeRow) -> String {
+    match (n.ready, n.schedulable) {
+        (true, true) => "Ready".to_string(),
+        (true, false) => "Ready,SchedulingDisabled".to_string(),
+        (false, true) => "NotReady".to_string(),
+        (false, false) => "NotReady,SchedulingDisabled".to_string(),
+    }
+}
+
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let muted = dim_style();
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header = header_row(&["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"], sort, dimmed);
+    const HEADERS: [&str; 8] = ["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
+    // `[▓▓▓▓▓▓▓▓▓▓] 100%` — the usage bars are a fixed width.
+    const BAR_WIDTH: usize = 17;
+    let window = layout_table(
+        &HEADERS,
+        nodes.iter().map(|n| {
+            vec![
+                cell_width(&n.name),
+                cell_width(&node_status_text(n)),
+                cell_width(&n.roles),
+                BAR_WIDTH,
+                BAR_WIDTH,
+                cell_width(&format!("{}/{}", n.pod_count, n.pod_capacity)),
+                cell_width(&n.age),
+                cell_width(&n.version),
+            ]
+        }),
+        area.width.saturating_sub(2),
+        None,
+        hscroll,
+    );
+    let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = nodes.iter().map(|n| {
         let status_style = if dimmed {
@@ -271,15 +314,8 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         } else {
             Style::default().fg(Color::Red)
         };
-        // kubectl's own convention: append ",SchedulingDisabled" to STATUS
-        // rather than a separate column.
-        let status = match (n.ready, n.schedulable) {
-            (true, true) => "Ready".to_string(),
-            (true, false) => "Ready,SchedulingDisabled".to_string(),
-            (false, true) => "NotReady".to_string(),
-            (false, false) => "NotReady,SchedulingDisabled".to_string(),
-        };
-        Row::new(vec![
+        let status = node_status_text(n);
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(&n.name, search.text, cell_style)),
             Cell::from(status).style(status_style),
             Cell::from(n.roles.clone()).style(cell_style),
@@ -288,23 +324,13 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
             Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)).style(cell_style),
             Cell::from(n.age.clone()).style(cell_style),
             Cell::from(n.version.clone()).style(cell_style),
-        ])
+        ]))
     });
 
-    let widths = [
-        Constraint::Fill(2),
-        Constraint::Length(24),
-        Constraint::Fill(1),
-        Constraint::Length(16),
-        Constraint::Length(16),
-        Constraint::Length(9),
-        Constraint::Length(9),
-        Constraint::Length(12),
-    ];
+    let title = table_title("Nodes", nodes.len(), search, &window, dimmed);
 
-    let title = table_title("Nodes", nodes.len(), search, dimmed);
-
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
@@ -324,17 +350,23 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
-    let (header, widths): (Row, Vec<Constraint>) = if show_namespace {
-        (header_row(&["NAMESPACE", "NAME", "AGE"], sort, dimmed), vec![Constraint::Fill(2), Constraint::Fill(3), Constraint::Length(9)])
-    } else {
-        (header_row(&["NAME", "AGE"], sort, dimmed), vec![Constraint::Fill(1), Constraint::Length(9)])
-    };
+    let headers: &[&str] = if show_namespace { &["NAMESPACE", "NAME", "AGE"] } else { &["NAME", "AGE"] };
+    let window = layout_table(
+        headers,
+        rows.iter().map(|r| {
+            if show_namespace { vec![cell_width(&r.namespace), cell_width(&r.name), cell_width(&r.age)] } else { vec![cell_width(&r.name), cell_width(&r.age)] }
+        }),
+        area.width.saturating_sub(2),
+        None,
+        hscroll,
+    );
+    let header = header_row(headers, sort, dimmed, &window);
 
     let table_rows = rows.iter().map(|r| {
         let mut cells = Vec::with_capacity(3);
@@ -343,12 +375,13 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         }
         cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
         cells.push(Cell::from(r.age.clone()).style(cell_style));
-        Row::new(cells)
+        Row::new(window.slice(cells))
     });
 
-    let title = table_title(label, rows.len(), search, dimmed);
+    let title = table_title(label, rows.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(table_rows, table_state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(table_rows, table_state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
@@ -365,24 +398,32 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 /// that kind (see the CustomResourceList Enter handler in main.rs) —
 /// nothing here is live-watched itself, consistent with the "list only
 /// until opened" design.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, dimmed: bool) {
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    let header = header_row(&["GROUP", "KIND", "SCOPE"], sort, dimmed);
+    const HEADERS: [&str; 3] = ["GROUP", "KIND", "SCOPE"];
+    let window = layout_table(
+        &HEADERS,
+        crds.iter().map(|(_, c)| vec![cell_width(c.group), cell_width(c.kind), cell_width("Namespaced")]),
+        area.width.saturating_sub(2),
+        None,
+        hscroll,
+    );
+    let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = crds.iter().map(|(_, c)| {
-        Row::new(vec![
+        Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(c.group, search.text, cell_style)),
             Cell::from(highlight_fuzzy(c.kind, search.text, cell_style)),
             Cell::from(if c.namespaced { "Namespaced" } else { "Cluster" }).style(cell_style),
-        ])
+        ]))
     });
 
-    let widths = [Constraint::Fill(3), Constraint::Fill(2), Constraint::Length(11)];
-    let title = table_title(heading, crds.len(), search, dimmed);
+    let title = table_title(heading, crds.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), widths)
+    let table = Table::new(select_rows(rows, table_state.selected(), dimmed), window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))

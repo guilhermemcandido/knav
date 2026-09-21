@@ -63,12 +63,32 @@ pub struct StartupConfig {
     pub mode: StartupMode,
 }
 
+/// Table column sizing. A column is as wide as its content, but never
+/// squeezed below its minimum; when the columns' minimums don't all fit the
+/// screen, the table scrolls sideways (←/→) instead.
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct TablesConfig {
+    /// The minimum width of every column unless overridden below.
+    pub min_column_width: usize,
+    /// Per-column minimums, keyed by the lowercase header name
+    /// (`name = 24`, `namespace = 14`, `"up-to-date" = 12`).
+    pub min_widths: std::collections::HashMap<String, usize>,
+}
+
+impl Default for TablesConfig {
+    fn default() -> Self {
+        TablesConfig { min_column_width: 10, min_widths: std::collections::HashMap::new() }
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub logs: LogsConfig,
     pub keybindings: Keybindings,
     pub startup: StartupConfig,
+    pub tables: TablesConfig,
 }
 
 impl Config {

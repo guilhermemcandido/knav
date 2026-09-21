@@ -43,7 +43,7 @@ pub(super) fn theme_border(dimmed: bool) -> Style {
 }
 
 /// k9s-style table title: the kind as a filled pill, the count in orange.
-pub(super) fn table_title(label: &str, count: usize, search: Search, dimmed: bool) -> Line<'static> {
+pub(super) fn table_title(label: &str, count: usize, search: Search, window: &Window, dimmed: bool) -> Line<'static> {
     if dimmed {
         return Line::styled(format!(" {label} ({count}) "), dim_style());
     }
@@ -52,6 +52,11 @@ pub(super) fn table_title(label: &str, count: usize, search: Search, dimmed: boo
         Span::styled(format!("({count})"), Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)),
     ];
     spans.extend(search_span(search.text, search.editing, false));
+    // `‹ ›` when columns are scrolled out of view on that side.
+    if window.can_left || window.can_right {
+        let hint = Style::default().fg(Color::Rgb(240, 160, 110));
+        spans.push(Span::styled(format!("  {}{}", if window.can_left { "‹" } else { " " }, if window.can_right { "›" } else { "" }), hint));
+    }
     Line::from(spans)
 }
 
@@ -157,15 +162,16 @@ mod highlight_tests {
 /// A table header. In sort mode (`s`) every column carries its number,
 /// `(1)NAME`; the sorted column always carries an arrow, `AGE ▲`
 /// (ascending) or `AGE ▼` (descending).
-pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool) -> Row<'static> {
+pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: &Window) -> Row<'static> {
     let text = theme_header(dimmed);
     let number = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
-    let cells = names.iter().enumerate().map(|(i, name)| {
+    let cells = window.range().map(|i| {
+        let name = names[i];
         let mut spans = Vec::new();
         if sort.choosing {
             spans.push(Span::styled(format!("({})", i + 1), number));
         }
-        spans.push(Span::styled((*name).to_string(), text));
+        spans.push(Span::styled(name.to_string(), text));
         if sort.column == Some(i) {
             spans.push(Span::styled(if sort.descending { " ▼" } else { " ▲" }, text));
         }
