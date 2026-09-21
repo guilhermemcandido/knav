@@ -64,7 +64,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     ];
     // Leave the top-right corner to the `help: ?` indicator; when the
     // terminal is too narrow for everything, the trailing fields drop.
-    let available = area.width.saturating_sub(1 + 14) as usize;
+    // The line is centred, so both sides keep clear of the corner indicator.
+    let available = area.width.saturating_sub(2 * 14 + 2) as usize;
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
     for (name, v) in fields.iter().filter(|(_, v)| !v.is_empty()) {
@@ -81,7 +82,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
         used += gap + width;
     }
     let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 };
-    frame.render_widget(Paragraph::new(Line::from(spans)), line_area);
+    frame.render_widget(Paragraph::new(Line::from(spans)).alignment(Alignment::Center), line_area);
 
     if !shortcuts_line {
         return;

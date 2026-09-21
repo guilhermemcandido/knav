@@ -10,7 +10,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     frame.render_widget(Clear, area);
 
     let border_style = if dimmed { dim_style() } else { Style::default() };
-    let title_line = if dimmed { Line::styled(title.to_string(), dim_style()) } else { colored_slash_title(title) };
+    let title_line = pill_title(title, dimmed);
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title_line);
 
     let highlight_style = if dimmed { dim_style() } else { Style::default().bg(theme().muted).add_modifier(Modifier::BOLD) };

@@ -326,3 +326,16 @@ mod border_tests {
         assert_eq!(border_set_named("double").horizontal_top, "═");
     }
 }
+
+/// A popup title as a pill set in from the corner, like the `sorting` and `wide` badges.
+pub(super) fn pill_title(title: &str, dimmed: bool) -> Line<'static> {
+    if dimmed {
+        return Line::styled(format!("  {title} "), dim_style());
+    }
+    let mut spans = vec![Span::raw("  ")];
+    let inner = colored_slash_title(title);
+    spans.push(Span::styled(" ", Style::default().bg(theme().pill_bg)));
+    spans.extend(inner.spans.into_iter().map(|s| Span::styled(s.content, s.style.bg(theme().pill_bg))));
+    spans.push(Span::styled(" ", Style::default().bg(theme().pill_bg)));
+    Line::from(spans)
+}

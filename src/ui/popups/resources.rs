@@ -210,7 +210,7 @@ pub(in crate::ui) fn draw_containers_popup(frame: &mut Frame, title: &str, conta
                 .borders(Borders::ALL)
                 .border_set(border_set())
                 .border_style(border_style)
-                .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
+                .title(pill_title(title, dimmed)),
         )
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, dimmed));
