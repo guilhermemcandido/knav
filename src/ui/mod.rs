@@ -398,7 +398,12 @@ pub fn draw(
     };
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
-    draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
+    // The header lines start where the boxes below do: the Home columns' left edge, or the list's.
+    let header_left = match &rows {
+        Rows::Overview(overview, ..) => columns_span(beside_sidebar(full, false), overview.catalog.len()).x,
+        _ => beside_sidebar(full, true).x,
+    };
+    draw_header(frame, full, header_left, header, shortcuts_line, sort.choosing, dimmed);
     // The keyboard-selected row, shown at the end of the path bar
     // (only while nothing is open on top of the list).
     let selected_row = table_state.selected();

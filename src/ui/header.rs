@@ -47,7 +47,8 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
     Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height - 1 }
 }
 
-pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shortcuts_line: bool, sort_mode: bool, dimmed: bool) {
+/// `left` is the column the lines start at: the left edge of what is drawn below.
+pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &HeaderInfo, shortcuts_line: bool, sort_mode: bool, dimmed: bool) {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
     }
@@ -64,8 +65,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     ];
     // Leave the top-right corner to the `help: ?` indicator; when the
     // terminal is too narrow for everything, the trailing fields drop.
-    // The line is centred, so both sides keep clear of the corner indicator.
-    let available = area.width.saturating_sub(2 * 14 + 2) as usize;
+    let start_x = left.clamp(area.x, (area.x + area.width).saturating_sub(1));
+    let available = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(14 + 1);
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
     for (name, v) in fields.iter().filter(|(_, v)| !v.is_empty()) {
@@ -81,10 +82,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
         spans.push(Span::styled(v.to_string(), value));
         used += gap + width;
     }
-    let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 };
-    frame.render_widget(Paragraph::new(Line::from(spans)).alignment(Alignment::Center), line_area);
-    // The namespace line starts under the first line's first character and grows from there.
-    let start_x = line_area.x + line_area.width.saturating_sub(used as u16) / 2;
+    let line_area = Rect { x: start_x, y: area.y, width: (area.x + area.width).saturating_sub(start_x), height: 1 };
+    frame.render_widget(Paragraph::new(Line::from(spans)), line_area);
 
     if !shortcuts_line {
         return;

@@ -91,7 +91,7 @@ bindings! {
     ("mark", "Mark the row", &[List], &["space"]),
     ("open_browser", "Open in the browser", &[List], &["o"]),
     ("namespaces", "Namespaces", &[List, Overview], &["n"]),
-    ("menu", "Show or hide the sidebar", &[List, Overview], &["m"]),
+    ("menu", "Show or hide the sidebar", &[List, Overview], &["b", "m"]),
     ("themes", "Themes", &[List, Overview], &["T"]),
     ("settings", "Settings", &[List, Overview], &[","]),
     ("history_back", "History back", &[List], &["["]),

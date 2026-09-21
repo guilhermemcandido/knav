@@ -1,4 +1,4 @@
-//! The resource sidebar: `m` shows or hides it, Shift-Left gives it the keys, clicks open a kind.
+//! The resource sidebar: `b` (or `m`) shows or hides it, Shift-Left gives it the keys, clicks open a kind.
 
 use super::super::sidebar::{self as rows, Entry};
 use super::super::*;
@@ -29,7 +29,7 @@ fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {
         return false;
     }
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-    if key.code == KeyCode::Char('m') {
+    if matches!(key.code, KeyCode::Char('b' | 'm')) {
         toggle(st, cx);
         return true;
     }
