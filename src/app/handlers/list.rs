@@ -79,14 +79,27 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 keep_overview_selection_visible(st, overview, frame_area);
             } else {
                 let table = ui::list_body(frame_area);
-                // The wheel over the info panel scrolls it.
-                if st.info_panel && mouse.column >= table.x + table.width && matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) {
-                    if mouse.kind == MouseEventKind::ScrollDown {
-                        st.info_scroll += 3;
-                    } else {
-                        st.info_scroll = st.info_scroll.saturating_sub(3);
+                // Over the info panel: the wheel scrolls it, a click gives it the keys, and
+                // nothing reaches the list underneath. A click on the list takes the keys back.
+                if st.info_panel {
+                    let over_panel = mouse.column >= table.x + table.width;
+                    match mouse.kind {
+                        MouseEventKind::ScrollDown if over_panel => {
+                            st.info_scroll += 3;
+                            return Ok(None);
+                        }
+                        MouseEventKind::ScrollUp if over_panel => {
+                            st.info_scroll = st.info_scroll.saturating_sub(3);
+                            return Ok(None);
+                        }
+                        MouseEventKind::Down(_) if over_panel => {
+                            st.info_focus = true;
+                            return Ok(None);
+                        }
+                        _ if over_panel => return Ok(None),
+                        MouseEventKind::Down(_) => st.info_focus = false,
+                        _ => {}
                     }
-                    return Ok(None);
                 }
                 match mouse.kind {
                     MouseEventKind::Moved => {
