@@ -63,6 +63,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     }
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
+        .chain(std::iter::once(Cmd::Theme))
         .chain(std::iter::once(Cmd::Quit))
         .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
         // Every other resource the server lists, by plural or kind (`:flowschemas`),
@@ -108,6 +109,7 @@ impl Suggestion {
             Cmd::Api(index, plural, _) => ui::SuggestionIcon::Kind(ResourceKind::Api(index, plural)),
             Cmd::Context => ui::SuggestionIcon::Named("switch"),
             Cmd::Events => ui::SuggestionIcon::Named("bell"),
+            Cmd::Theme => ui::SuggestionIcon::Named("palette"),
             Cmd::Quit => ui::SuggestionIcon::Named("door"),
         }
     }
@@ -127,6 +129,7 @@ pub(crate) enum Cmd {
     Api(usize, &'static str, &'static str),
     Context,
     Events,
+    Theme,
     Quit,
 }
 
@@ -149,6 +152,7 @@ impl Cmd {
             }
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
+            Cmd::Theme => fixed(&["theme", "themes", "skin", "skins", "colors", "colours"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),
         }
     }

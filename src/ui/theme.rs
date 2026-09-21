@@ -36,7 +36,7 @@ pub(super) fn selection_style(tone: crate::describe::Tone, dimmed: bool) -> Styl
         crate::describe::Tone::Plain | crate::describe::Tone::Good => theme().select_bg,
         other => tone_color(other),
     };
-    Style::default().bg(bg).fg(theme().on_select).add_modifier(Modifier::BOLD)
+    Style::default().bg(bg).fg(crate::theme::on(bg)).add_modifier(Modifier::BOLD)
 }
 
 /// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
@@ -181,7 +181,7 @@ pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
 /// The look of a matched search character: yellow fill, dark bold text,
 /// underlined so it still shows on the selected row's own fill.
 pub(super) fn match_style() -> Style {
-    Style::default().bg(theme().highlight).fg(theme().on_select).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    Style::default().bg(theme().highlight).fg(crate::theme::on(theme().highlight)).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
 }
 
 /// `text` with the characters the fuzzy filter `pattern` matched
@@ -305,7 +305,7 @@ mod row_style_tests {
     #[test]
     fn the_selection_is_a_pale_bar_with_dark_bold_text() {
         let style = selection_style(crate::describe::Tone::Plain, false);
-        assert_eq!((style.bg, style.fg), (Some(theme().select_bg), Some(theme().on_select)));
+        assert_eq!((style.bg, style.fg), (Some(theme().select_bg), Some(crate::theme::on(theme().select_bg))));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
@@ -316,7 +316,7 @@ mod row_style_tests {
         assert_eq!(selection_style(Tone::Warn, false).bg, Some(theme().warn));
         assert_eq!(selection_style(Tone::Muted, false).bg, Some(theme().muted));
         assert_eq!(selection_style(Tone::Good, false).bg, Some(theme().select_bg));
-        assert_eq!(selection_style(Tone::Bad, false).fg, Some(theme().on_select), "text stays dark and readable");
+        assert_eq!(selection_style(Tone::Bad, false).fg, Some(crate::theme::on(theme().bad)), "text stays readable on the state colour");
     }
 
     #[test]

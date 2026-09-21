@@ -8,6 +8,7 @@ mod list;
 mod operate;
 mod overview_popups;
 mod pickers;
+mod themes;
 
 use super::derive::Derived;
 use super::*;
@@ -102,6 +103,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } | Mode::Menu { .. } => pickers::handle(event, st, cx),
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
+        Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Shell { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
     }
 }
@@ -154,7 +156,7 @@ mod tests {
     use super::*;
 
     fn state() -> State {
-        State::new(icons::IconCache::halfblocks(), Favorites::default())
+        State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default())
     }
 
     #[test]
@@ -197,7 +199,7 @@ mod key_tests {
 
     #[test]
     fn c_is_left_to_the_screens_that_use_it() {
-        let mut st = State::new(icons::IconCache::halfblocks(), Favorites::default());
+        let mut st = State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default());
         assert!(!global_key(KeyCode::Char('c'), &mut st, "ctx").unwrap());
     }
 }

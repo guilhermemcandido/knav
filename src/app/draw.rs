@@ -21,6 +21,8 @@ pub(super) struct View<'a> {
     pub search: &'a str,
     pub sort_view: ui::SortState,
     pub marked: &'a HashSet<String>,
+    /// The theme saved in the config, marked in the theme picker.
+    pub config_preset: &'a str,
 }
 
 /// Draws one frame and returns the screen area it used (input handlers
@@ -34,7 +36,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked, config_preset } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -90,6 +92,13 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Confirm { text };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                })?;
+            }
+            Mode::ThemePicker { entries, state, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::ThemePicker { entries, state, saved: &config_preset };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

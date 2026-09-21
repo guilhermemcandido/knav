@@ -136,7 +136,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
     let title = format!("Contexts ({})", matches.len());
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title(title))
-        .highlight_style(Style::default().bg(theme().namespace).fg(theme().on_select).add_modifier(Modifier::BOLD))
+        .highlight_style(Style::default().bg(theme().namespace).fg(crate::theme::on(theme().namespace)).add_modifier(Modifier::BOLD))
         .highlight_symbol("➤ ");
     frame.render_stateful_widget(list, chunks[1], state);
 }

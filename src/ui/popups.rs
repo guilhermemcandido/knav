@@ -52,7 +52,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
         let row = Rect { x: inner.x, y: inner.y + (n - start) as u16 * SUGGESTION_HEIGHT, width: inner.width, height: SUGGESTION_HEIGHT };
         let chosen = n == selected;
-        let style = if chosen { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
+        let style = if chosen { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
         frame.render_widget(Block::default().style(style), row);
         let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
         // All the same size, a little inside the square so they don't crowd the row.
@@ -179,7 +179,7 @@ pub(super) fn draw_namespace_picker(
     for key in 1..=9usize {
         let taken = items.iter().any(|(_, k)| *k == Some(key));
         let style = if selected_key == Some(key) {
-            Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD)
+            Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD)
         } else if taken {
             Style::default().fg(theme().warm).add_modifier(Modifier::BOLD)
         } else {
@@ -232,7 +232,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
             None => "—".to_string(),
         };
         let line = if i == selected {
-            let style = Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD);
+            let style = Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD);
             Line::styled(format!("{:<width$}", format!("<{}> {text}", i + 1), width = row.width as usize), style)
         } else {
             Line::from(vec![Span::styled(format!("<{}> ", i + 1), key_style), Span::raw(text)])
@@ -316,7 +316,7 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
         Line::from(vec![Span::styled(format!(" {name:<16}"), label), shown])
     };
     let button = |name: &str, focused: bool| {
-        let style = if focused { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) } else { Style::default().fg(value.fg.unwrap_or(theme().text_strong)) };
+        let style = if focused { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(value.fg.unwrap_or(theme().text_strong)) };
         Span::styled(format!(" {name} "), style)
     };
     let mut lines = vec![
@@ -336,6 +336,58 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![button("OK", form.focus == Field::Ok), Span::raw("   "), button("Cancel", form.focus == Field::Cancel)]).centered());
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The theme list: each theme with a strip of its colours. The screen behind
+/// is drawn in the theme being previewed, so the whole interface is the sample.
+pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::mode::ThemeEntry], state: &mut TableState, saved: &str) {
+    let area = centered_rect(64, 86, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(Line::styled(format!(" Themes ({}) ", entries.len()), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)))
+        .title_bottom(Line::styled(" enter keeps  ·  esc cancels ", Style::default().fg(theme().muted)).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let rows: Vec<Row> = entries
+        .iter()
+        .map(|entry| {
+            let mut swatch = Vec::new();
+            for color in &entry.swatch {
+                // A background that is "reset" shows as the terminal's own, so use a hollow dot.
+                let dot = if *color == Color::Reset { "○ " } else { "● " };
+                swatch.push(Span::styled(dot, Style::default().fg(if *color == Color::Reset { theme().muted } else { *color })));
+            }
+            let mark = if entry.name == saved { "✔ in use" } else { "" };
+            Row::new(vec![
+                Cell::from(Span::styled(entry.name.clone(), Style::default().add_modifier(Modifier::BOLD))),
+                Cell::from(Line::from(swatch)),
+                Cell::from(Span::styled(mark, Style::default().fg(theme().ok))),
+            ])
+        })
+        .collect();
+    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(20), Constraint::Min(8)])
+        .column_spacing(2)
+        .style(theme_row(false))
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(entries.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, inner, state);
+}
+
+/// Which theme row a click lands on.
+pub fn theme_row_at(frame_area: Rect, len: usize, offset: usize, row: u16) -> Option<usize> {
+    let area = centered_rect(64, 86, frame_area);
+    let top = area.y + 1; // top border
+    let bottom = area.y + area.height.saturating_sub(1);
+    if row < top || row >= bottom {
+        return None;
+    }
+    let index = offset + usize::from(row - top);
+    (index < len).then_some(index)
 }
 
 /// Where an embedded shell's screen goes: the body of the page, inside its border.

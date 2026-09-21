@@ -13,6 +13,8 @@ pub(super) struct View {
 const HISTORY_LIMIT: usize = 50;
 
 pub(super) struct State {
+    /// The config as it stands now: the config screen edits it while knav runs.
+    pub config: Config,
     pub table_state: TableState,
     pub mode: Mode,
     pub hovered: Option<ui::Hover>,
@@ -70,8 +72,11 @@ pub(super) struct State {
 impl State {
     /// `icons` must be detected after raw mode is on (it queries the
     /// terminal) and before the event loop starts reading stdin.
-    pub fn new(icons: icons::IconCache, favorites: Favorites) -> Self {
+    pub fn new(icons: icons::IconCache, favorites: Favorites, config: Config) -> Self {
         State {
+            faults_only: config.tables.faults_by_default,
+            wide: config.tables.wide_by_default,
+            config,
             table_state: TableState::default().with_selected(0),
             mode: Mode::List,
             hovered: None,
@@ -90,8 +95,6 @@ impl State {
             forwards: Vec::new(),
             marked: Default::default(),
             marked_kind: ResourceKind::Overview,
-            faults_only: false,
-            wide: false,
             history: vec![View { kind: ResourceKind::Overview, scope: None }],
             history_pos: 0,
             last_view: None,
@@ -180,7 +183,7 @@ mod tests {
     use super::*;
 
     fn state() -> State {
-        State::new(icons::IconCache::halfblocks(), Favorites::default())
+        State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default())
     }
 
     #[test]
@@ -214,7 +217,7 @@ mod history_tests {
     use super::*;
 
     fn state() -> State {
-        State::new(icons::IconCache::halfblocks(), Favorites::default())
+        State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default())
     }
 
     fn visit(st: &mut State, kind: ResourceKind) {

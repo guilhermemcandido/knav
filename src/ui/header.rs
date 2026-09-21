@@ -90,7 +90,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     // active one is filled in.
     let key = if dimmed { dim_style() } else { Style::default().fg(theme().warm) };
     let name = if dimmed { dim_style() } else { Style::default().fg(theme().row) };
-    let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) };
+    let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) };
     // In sort mode the digits pick columns, not namespaces — grey the line
     // out so it reads as unavailable.
     let (key, name, active) = if sort_mode && !dimmed {

@@ -136,6 +136,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
+    /// The theme list: name, colour swatch, and a mark on the one in use.
+    ThemePicker { entries: &'a [crate::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
     /// A manifest as text, from line `scroll`.
@@ -282,6 +284,7 @@ pub fn draw(
                 | Some(Overlay::Prompt { .. })
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
+                | Some(Overlay::ThemePicker { .. })
                 | Some(Overlay::PortForward { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
@@ -387,13 +390,13 @@ pub fn draw(
     if !is_overview && (header.faults_only || header.wide || sort.choosing) && !dimmed {
         let mut badges = Vec::new();
         if sort.choosing {
-            badges.push(Span::styled(" sorting ", Style::default().bg(theme().accent).fg(theme().on_select).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" sorting ", Style::default().bg(theme().accent).fg(crate::theme::on(theme().accent)).add_modifier(Modifier::BOLD)));
         }
         if header.faults_only {
-            badges.push(Span::styled(" faults ", Style::default().bg(theme().warn).fg(theme().on_select).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" faults ", Style::default().bg(theme().warn).fg(crate::theme::on(theme().warn)).add_modifier(Modifier::BOLD)));
         }
         if header.wide {
-            badges.push(Span::styled(" wide ", Style::default().bg(theme().key).fg(theme().on_select).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" wide ", Style::default().bg(theme().key).fg(crate::theme::on(theme().key)).add_modifier(Modifier::BOLD)));
         }
         let width: u16 = badges.iter().map(|b| b.width() as u16 + 1).sum();
         let rect = Rect { x: body.x + body.width.saturating_sub(width + 2), y: body.y, width: width.min(body.width), height: 1 };
@@ -429,6 +432,24 @@ pub fn draw(
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments, selected_pod);
     }
+    paint_theme_base(frame);
+}
+
+/// A theme's background and default text colour, filled in wherever nothing
+/// else set one (popups `Clear` their area, so this runs last).
+fn paint_theme_base(frame: &mut Frame) {
+    let (background, foreground) = (theme().background, theme().foreground);
+    if background == Color::Reset && foreground == Color::Reset {
+        return;
+    }
+    for cell in frame.buffer_mut().content.iter_mut() {
+        if background != Color::Reset && cell.bg == Color::Reset {
+            cell.bg = background;
+        }
+        if foreground != Color::Reset && cell.fg == Color::Reset {
+            cell.fg = foreground;
+        }
+    }
 }
 
 /// Dispatches one `Overlay` value to its actual draw function — shared
@@ -459,6 +480,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),

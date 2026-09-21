@@ -39,7 +39,7 @@ pub fn registry() -> Vec<Setting> {
     let mut add = |path: &str, section: &'static str, label: &str, kind: Kind, restart: bool| {
         settings.push(Setting { path: path.to_string(), section, label: label.to_string(), kind, restart });
     };
-    add("theme.preset", "Theme", "Colour preset", choice(theme::PRESETS), false);
+    add("theme.preset", "Theme", "Theme", Kind::Choice(theme::all_names()), false);
     add("ui.border", "Appearance", "Box lines", choice(&["heavy-rounded", "thick", "rounded", "double", "block", "arcs"]), false);
     add("ui.suggestion_icon_percent", "Appearance", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
     add("ui.idle_redraw_ms", "Appearance", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);

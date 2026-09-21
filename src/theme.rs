@@ -44,6 +44,8 @@ macro_rules! theme_roles {
 }
 
 theme_roles! {
+    background: "Background (reset = your terminal's)", Color::Reset;
+    foreground: "Default text (reset = your terminal's)", Color::Reset;
     row: "Row text", Color::Rgb(143, 191, 208);
     header: "Column headers", Color::Rgb(137, 180, 250);
     text_strong: "Emphasised text", Color::Rgb(226, 232, 240);
@@ -58,7 +60,6 @@ theme_roles! {
     info_label: "Header info labels", Color::Rgb(122, 140, 170);
     border: "Box lines", Color::Rgb(96, 125, 139);
     select_bg: "Selection bar", Color::Rgb(148, 191, 206);
-    on_select: "Text on the selection bar", Color::Black;
     marked_bg: "Marked rows", Color::Rgb(84, 72, 24);
     pill_bg: "Title pill", Color::Rgb(50, 56, 72);
     panel_bg: "Panel fill", Color::Rgb(78, 88, 104);
@@ -86,10 +87,114 @@ pub fn set_theme(theme: Theme) {
     }
 }
 
-/// The built-in themes.
-pub const PRESETS: &[&str] = &["knav", "k9s", "high-contrast", "solarized", "mono"];
+/// A theme's colours in the terms themes are usually published in.
+struct Palette {
+    bg: &'static str,
+    fg: &'static str,
+    muted: &'static str,
+    blue: &'static str,
+    cyan: &'static str,
+    green: &'static str,
+    yellow: &'static str,
+    orange: &'static str,
+    red: &'static str,
+    purple: &'static str,
+    select: &'static str,
+    border: &'static str,
+}
 
-pub fn preset(name: &str) -> Option<Theme> {
+fn hex(text: &str) -> Color {
+    parse_color(text).expect("built-in palette colours are valid")
+}
+
+fn channels(color: Color) -> (f32, f32, f32) {
+    match color {
+        Color::Rgb(r, g, b) => (r as f32, g as f32, b as f32),
+        Color::Black => (0.0, 0.0, 0.0),
+        Color::Red => (205.0, 49.0, 49.0),
+        Color::Green => (13.0, 188.0, 121.0),
+        Color::Yellow => (229.0, 229.0, 16.0),
+        Color::Blue => (36.0, 114.0, 200.0),
+        Color::Magenta => (188.0, 63.0, 188.0),
+        Color::Cyan => (17.0, 168.0, 205.0),
+        Color::Gray => (229.0, 229.0, 229.0),
+        Color::DarkGray => (102.0, 102.0, 102.0),
+        Color::White | Color::LightRed | Color::LightGreen | Color::LightYellow | Color::LightBlue | Color::LightMagenta | Color::LightCyan => (240.0, 240.0, 240.0),
+        _ => (0.0, 0.0, 0.0),
+    }
+}
+
+/// Brightness from 0 (black) to 1 (white).
+fn luminance(color: Color) -> f32 {
+    let (r, g, b) = channels(color);
+    (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+}
+
+/// Readable text for something drawn on `bg`: black on light colours, white on dark.
+pub fn on(bg: Color) -> Color {
+    if luminance(bg) > 0.5 { Color::Black } else { Color::White }
+}
+
+/// `from` moved `amount` (0-1) of the way to `to`.
+fn blend(from: Color, to: Color, amount: f32) -> Color {
+    let (a, b) = (channels(from), channels(to));
+    let mix = |x: f32, y: f32| (x + (y - x) * amount).round().clamp(0.0, 255.0) as u8;
+    Color::Rgb(mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
+}
+
+fn from_palette(p: &Palette) -> Theme {
+    let (bg, fg, muted) = (hex(p.bg), hex(p.fg), hex(p.muted));
+    Theme {
+        background: bg,
+        foreground: fg,
+        row: fg,
+        header: hex(p.blue),
+        text_strong: blend(fg, if luminance(bg) > 0.5 { Color::Rgb(0, 0, 0) } else { Color::Rgb(255, 255, 255) }, 0.35),
+        text_soft: fg,
+        desc: blend(fg, muted, 0.45),
+        muted,
+        accent: hex(p.cyan),
+        warm: hex(p.orange),
+        key: hex(p.blue),
+        heading: hex(p.green),
+        label: hex(p.orange),
+        info_label: muted,
+        border: hex(p.border),
+        select_bg: hex(p.select),
+        marked_bg: blend(bg, hex(p.yellow), 0.28),
+        pill_bg: blend(bg, fg, 0.14),
+        panel_bg: blend(bg, fg, 0.22),
+        command: hex(p.yellow),
+        ok: hex(p.green),
+        warn: hex(p.orange),
+        bad: hex(p.red),
+        highlight: hex(p.yellow),
+        namespace: hex(p.cyan),
+        container: hex(p.purple),
+        dim: blend(bg, fg, 0.16),
+    }
+}
+
+/// The published palettes knav ships as themes.
+const PALETTES: &[(&str, Palette)] = &[
+    ("dracula", Palette { bg: "#282a36", fg: "#f8f8f2", muted: "#6272a4", blue: "#bd93f9", cyan: "#8be9fd", green: "#50fa7b", yellow: "#f1fa8c", orange: "#ffb86c", red: "#ff5555", purple: "#ff79c6", select: "#44475a", border: "#6272a4" }),
+    ("nord", Palette { bg: "#2e3440", fg: "#d8dee9", muted: "#616e88", blue: "#81a1c1", cyan: "#88c0d0", green: "#a3be8c", yellow: "#ebcb8b", orange: "#d08770", red: "#bf616a", purple: "#b48ead", select: "#434c5e", border: "#4c566a" }),
+    ("gruvbox-dark", Palette { bg: "#282828", fg: "#ebdbb2", muted: "#928374", blue: "#83a598", cyan: "#8ec07c", green: "#b8bb26", yellow: "#fabd2f", orange: "#fe8019", red: "#fb4934", purple: "#d3869b", select: "#504945", border: "#665c54" }),
+    ("gruvbox-light", Palette { bg: "#fbf1c7", fg: "#3c3836", muted: "#928374", blue: "#076678", cyan: "#427b58", green: "#79740e", yellow: "#b57614", orange: "#af3a03", red: "#9d0006", purple: "#8f3f71", select: "#d5c4a1", border: "#bdae93" }),
+    ("catppuccin-mocha", Palette { bg: "#1e1e2e", fg: "#cdd6f4", muted: "#6c7086", blue: "#89b4fa", cyan: "#89dceb", green: "#a6e3a1", yellow: "#f9e2af", orange: "#fab387", red: "#f38ba8", purple: "#cba6f7", select: "#45475a", border: "#585b70" }),
+    ("catppuccin-latte", Palette { bg: "#eff1f5", fg: "#4c4f69", muted: "#9ca0b0", blue: "#1e66f5", cyan: "#04a5e5", green: "#40a02b", yellow: "#df8e1d", orange: "#fe640b", red: "#d20f39", purple: "#8839ef", select: "#ccd0da", border: "#acb0be" }),
+    ("tokyo-night", Palette { bg: "#1a1b26", fg: "#c0caf5", muted: "#565f89", blue: "#7aa2f7", cyan: "#7dcfff", green: "#9ece6a", yellow: "#e0af68", orange: "#ff9e64", red: "#f7768e", purple: "#bb9af7", select: "#33467c", border: "#3b4261" }),
+    ("one-dark", Palette { bg: "#282c34", fg: "#abb2bf", muted: "#5c6370", blue: "#61afef", cyan: "#56b6c2", green: "#98c379", yellow: "#e5c07b", orange: "#d19a66", red: "#e06c75", purple: "#c678dd", select: "#3e4451", border: "#4b5263" }),
+    ("monokai", Palette { bg: "#272822", fg: "#f8f8f2", muted: "#75715e", blue: "#66d9ef", cyan: "#66d9ef", green: "#a6e22e", yellow: "#e6db74", orange: "#fd971f", red: "#f92672", purple: "#ae81ff", select: "#49483e", border: "#75715e" }),
+    ("solarized-dark", Palette { bg: "#002b36", fg: "#93a1a1", muted: "#586e75", blue: "#268bd2", cyan: "#2aa198", green: "#859900", yellow: "#b58900", orange: "#cb4b16", red: "#dc322f", purple: "#6c71c4", select: "#073642", border: "#586e75" }),
+    ("solarized-light", Palette { bg: "#fdf6e3", fg: "#586e75", muted: "#93a1a1", blue: "#268bd2", cyan: "#2aa198", green: "#859900", yellow: "#b58900", orange: "#cb4b16", red: "#dc322f", purple: "#6c71c4", select: "#eee8d5", border: "#93a1a1" }),
+    ("rose-pine", Palette { bg: "#191724", fg: "#e0def4", muted: "#6e6a86", blue: "#31748f", cyan: "#9ccfd8", green: "#9ccfd8", yellow: "#f6c177", orange: "#ebbcba", red: "#eb6f92", purple: "#c4a7e7", select: "#26233a", border: "#403d52" }),
+    ("everforest", Palette { bg: "#2d353b", fg: "#d3c6aa", muted: "#859289", blue: "#7fbbb3", cyan: "#83c092", green: "#a7c080", yellow: "#dbbc7f", orange: "#e69875", red: "#e67e80", purple: "#d699b6", select: "#475258", border: "#56635f" }),
+    ("github-dark", Palette { bg: "#0d1117", fg: "#c9d1d9", muted: "#8b949e", blue: "#58a6ff", cyan: "#79c0ff", green: "#3fb950", yellow: "#d29922", orange: "#db6d28", red: "#f85149", purple: "#bc8cff", select: "#21262d", border: "#30363d" }),
+];
+
+/// Themes that don't paint a background: they use your terminal's own.
+fn transparent(name: &str) -> Option<Theme> {
     let base = Theme::default();
     Some(match name {
         "knav" => base,
@@ -120,40 +225,12 @@ pub fn preset(name: &str) -> Option<Theme> {
             key: Color::Rgb(120, 180, 255),
             border: Color::White,
             select_bg: Color::White,
-            on_select: Color::Black,
             marked_bg: Color::Rgb(90, 90, 0),
             command: Color::Rgb(255, 255, 0),
             ok: Color::Rgb(0, 255, 0),
             warn: Color::Rgb(255, 200, 0),
             bad: Color::Rgb(255, 60, 60),
             dim: Color::Rgb(90, 90, 90),
-            ..base
-        },
-        "solarized" => Theme {
-            row: Color::Rgb(147, 161, 161),
-            header: Color::Rgb(38, 139, 210),
-            text_strong: Color::Rgb(238, 232, 213),
-            text_soft: Color::Rgb(147, 161, 161),
-            desc: Color::Rgb(131, 148, 150),
-            muted: Color::Rgb(101, 123, 131),
-            accent: Color::Rgb(42, 161, 152),
-            warm: Color::Rgb(203, 75, 22),
-            key: Color::Rgb(38, 139, 210),
-            heading: Color::Rgb(133, 153, 0),
-            label: Color::Rgb(203, 75, 22),
-            info_label: Color::Rgb(101, 123, 131),
-            border: Color::Rgb(88, 110, 117),
-            select_bg: Color::Rgb(42, 161, 152),
-            on_select: Color::Rgb(0, 43, 54),
-            marked_bg: Color::Rgb(88, 110, 0),
-            pill_bg: Color::Rgb(7, 54, 66),
-            command: Color::Rgb(181, 137, 0),
-            ok: Color::Rgb(133, 153, 0),
-            warn: Color::Rgb(181, 137, 0),
-            bad: Color::Rgb(220, 50, 47),
-            highlight: Color::Rgb(181, 137, 0),
-            namespace: Color::Rgb(42, 161, 152),
-            container: Color::Rgb(211, 54, 130),
             ..base
         },
         "mono" => Theme {
@@ -171,7 +248,6 @@ pub fn preset(name: &str) -> Option<Theme> {
             info_label: Color::DarkGray,
             border: Color::DarkGray,
             select_bg: Color::White,
-            on_select: Color::Black,
             marked_bg: Color::DarkGray,
             pill_bg: Color::DarkGray,
             panel_bg: Color::DarkGray,
@@ -186,6 +262,82 @@ pub fn preset(name: &str) -> Option<Theme> {
         },
         _ => return None,
     })
+}
+
+/// A built-in theme or one from the user's themes folder.
+pub fn lookup_theme(name: &str) -> Option<Theme> {
+    builtin(name).or_else(|| user_theme(name))
+}
+
+/// The built-in themes, in the order the picker lists them.
+pub fn builtin_names() -> Vec<&'static str> {
+    let mut names = vec!["knav", "k9s", "high-contrast", "mono"];
+    names.extend(PALETTES.iter().map(|(name, _)| *name));
+    names
+}
+
+pub fn builtin(name: &str) -> Option<Theme> {
+    // The old name for the hand-made preset.
+    let name = if name == "solarized" { "solarized-dark" } else { name };
+    transparent(name).or_else(|| PALETTES.iter().find(|(n, _)| *n == name).map(|(_, palette)| from_palette(palette)))
+}
+
+/// The folder for the user's own themes (`<name>.toml`).
+pub fn themes_dir() -> std::path::PathBuf {
+    crate::config::Config::dir().join("themes")
+}
+
+/// A theme file: an optional `base` (a built-in or user theme to start
+/// from), then colour roles either at the top or under `[colors]`.
+pub fn theme_from_toml(text: &str, dir: &std::path::Path) -> Option<Theme> {
+    let table: toml::Table = text.parse().ok()?;
+    let mut theme = match table.get("base").and_then(|b| b.as_str()) {
+        Some(base) => builtin(base).or_else(|| user_theme_in(dir, base))?,
+        None => Theme::default(),
+    };
+    let colors = table.get("colors").and_then(|c| c.as_table()).unwrap_or(&table);
+    for (role, value) in colors {
+        if let Some(color) = value.as_str().and_then(parse_color) {
+            theme.set(role, color);
+        }
+    }
+    Some(theme)
+}
+
+pub fn user_theme_in(dir: &std::path::Path, name: &str) -> Option<Theme> {
+    // A name is a file name, nothing else.
+    if name.is_empty() || name.contains(['/', '\\', '.']) {
+        return None;
+    }
+    let text = std::fs::read_to_string(dir.join(format!("{name}.toml"))).ok()?;
+    theme_from_toml(&text, dir)
+}
+
+pub fn user_theme(name: &str) -> Option<Theme> {
+    user_theme_in(&themes_dir(), name)
+}
+
+/// The names of the user's theme files, sorted.
+pub fn user_theme_names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension()? == "toml").then(|| path.file_stem()?.to_str().map(str::to_string))?
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Every theme by name: the built-in ones, then the user's own.
+pub fn all_names() -> Vec<String> {
+    let mut names: Vec<String> = builtin_names().into_iter().map(str::to_string).collect();
+    let builtins = names.clone();
+    names.extend(user_theme_names_in(&themes_dir()).into_iter().filter(|n| !builtins.contains(n)));
+    names
 }
 
 const NAMED: &[(&str, Color)] = &[
@@ -239,7 +391,7 @@ pub fn format_color(color: Color) -> String {
 /// unparsable colours are skipped; the returned list says what was ignored.
 pub fn build(preset_name: &str, overrides: &BTreeMap<String, String>) -> (Theme, Vec<String>) {
     let mut ignored = Vec::new();
-    let mut theme = preset(preset_name).unwrap_or_else(|| {
+    let mut theme = lookup_theme(preset_name).unwrap_or_else(|| {
         ignored.push(format!("unknown theme preset '{preset_name}'"));
         Theme::default()
     });
@@ -292,12 +444,53 @@ mod tests {
     }
 
     #[test]
-    fn every_preset_exists_and_differs_from_the_default_except_the_default() {
-        for name in PRESETS {
-            let theme = preset(name).unwrap_or_else(|| panic!("{name}"));
-            assert_eq!(theme == Theme::default(), *name == "knav", "{name}");
+    fn every_builtin_theme_exists_and_differs_from_the_default_except_the_default() {
+        let names = builtin_names();
+        assert!(names.len() >= 18, "{}", names.len());
+        for name in names {
+            let theme = builtin(name).unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(theme == Theme::default(), name == "knav", "{name}");
         }
-        assert!(preset("nope").is_none());
+        assert!(builtin("nope").is_none());
+        assert_eq!(builtin("solarized"), builtin("solarized-dark"), "the old name still works");
+    }
+
+    #[test]
+    fn palette_themes_paint_their_background_and_keep_text_readable() {
+        for name in builtin_names().into_iter().filter(|n| PALETTES.iter().any(|(p, _)| p == n)) {
+            let theme = builtin(name).unwrap();
+            assert_ne!(theme.background, Color::Reset, "{name}");
+            // Text must stand clear of the background.
+            let gap = (luminance(theme.foreground) - luminance(theme.background)).abs();
+            assert!(gap > 0.3, "{name}: text vs background {gap}");
+        }
+        assert!(luminance(builtin("gruvbox-light").unwrap().background) > 0.5);
+        assert!(luminance(builtin("dracula").unwrap().background) < 0.2);
+    }
+
+    #[test]
+    fn text_on_a_colour_is_black_or_white_by_brightness() {
+        assert_eq!(on(Color::Rgb(250, 240, 200)), Color::Black);
+        assert_eq!(on(Color::Rgb(40, 42, 54)), Color::White);
+        assert_eq!(on(Color::Yellow), Color::Black);
+        assert_eq!(on(Color::Blue), Color::White);
+    }
+
+    #[test]
+    fn a_user_theme_file_can_start_from_a_builtin_and_override_roles() {
+        let dir = std::env::temp_dir().join(format!("knav-themes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mine.toml"), "base = \"dracula\"\n[colors]\nok = \"#010203\"\nnonsense = \"red\"\nbad = \"not-a-colour\"\n").unwrap();
+        std::fs::write(dir.join("flat.toml"), "background = \"#101010\"\n").unwrap();
+        let mine = user_theme_in(&dir, "mine").unwrap();
+        assert_eq!(mine.ok, Color::Rgb(1, 2, 3));
+        assert_eq!(mine.background, builtin("dracula").unwrap().background, "inherited");
+        assert_eq!(mine.bad, builtin("dracula").unwrap().bad, "a bad colour is ignored");
+        assert_eq!(user_theme_in(&dir, "flat").unwrap().background, Color::Rgb(16, 16, 16));
+        assert_eq!(user_theme_names_in(&dir), ["flat", "mine"]);
+        assert!(user_theme_in(&dir, "../etc").is_none(), "a name is not a path");
+        assert!(user_theme_in(&dir, "missing").is_none());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -305,7 +498,7 @@ mod tests {
         let overrides: BTreeMap<String, String> = [("ok", "#00ff00"), ("bad", "chartreuse"), ("wat", "red")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let (theme, ignored) = build("k9s", &overrides);
         assert_eq!(theme.ok, Color::Rgb(0, 255, 0));
-        assert_eq!(theme.heading, preset("k9s").unwrap().heading);
+        assert_eq!(theme.heading, builtin("k9s").unwrap().heading);
         assert_eq!(ignored.len(), 2);
         let (fallback, ignored) = build("nope", &BTreeMap::new());
         assert_eq!(fallback, Theme::default());

@@ -24,7 +24,7 @@ pub(crate) fn run(
     active_context: &str,
     header: &ui::HeaderInfo,
 ) -> Result<Outcome> {
-    let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context));
+    let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
 
     loop {
         st.record_view();
@@ -104,6 +104,7 @@ pub(crate) fn run(
             search: &st.search,
             sort_view,
             marked: &st.marked,
+            config_preset: &st.config.theme.preset,
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
@@ -121,7 +122,8 @@ pub(crate) fn run(
         // whole backlog instead of being handled almost immediately.
         loop {
             let event = event::read()?;
-            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, client: &client, config, active_context, frame_area, row_count, d: &derived })? {
+            let config_now = st.config.clone();
+            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, client: &client, config: &config_now, active_context, frame_area, row_count, d: &derived })? {
                 return Ok(outcome);
             }
             if !event::poll(Duration::from_millis(0))? {

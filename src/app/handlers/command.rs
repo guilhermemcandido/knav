@@ -40,7 +40,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {
                     return Ok(Some(Outcome::Quit));
                 }
-                if matches!(highlighted, Some(Cmd::Events)) {
+                if matches!(highlighted, Some(Cmd::Theme)) || matches!(cmd.as_str(), "theme" | "themes" | "skin" | "skins") {
+                    let mut opened = std::mem::replace(&mut **back, Mode::List);
+                    std::mem::swap(&mut st.mode, &mut opened);
+                    super::themes::open(st, cx.config);
+                } else if matches!(highlighted, Some(Cmd::Events)) {
                     st.mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
                 } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
                     let mut opened = std::mem::replace(&mut **back, Mode::List);

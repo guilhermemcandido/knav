@@ -30,6 +30,8 @@ pub(crate) enum Mode {
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
+    /// The theme list, previewing each theme live as you move through it.
+    ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
     Shell { title: String, session: Box<crate::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
@@ -204,6 +206,25 @@ pub(crate) fn plain_segment(kind: &str) -> ui::BreadcrumbSegment {
 /// Each segment carries `Kind[identifier]` — e.g. `Node[worker-1]`,
 /// `Pod[default/web-1]`, `Logs[nginx]` — so the breadcrumb reads as a
 /// literal address into the cluster, not just a label trail.
+/// One theme in the picker, with the colours to show as its swatch.
+pub(crate) struct ThemeEntry {
+    pub name: String,
+    pub swatch: Vec<ratatui::style::Color>,
+}
+
+/// The picker's rows, and where the current theme is among them.
+pub(crate) fn theme_entries(current: &str) -> (Vec<ThemeEntry>, usize) {
+    let entries: Vec<ThemeEntry> = crate::theme::all_names()
+        .into_iter()
+        .map(|name| {
+            let t = crate::theme::lookup_theme(&name).unwrap_or_default();
+            ThemeEntry { swatch: vec![t.background, t.foreground, t.header, t.ok, t.warn, t.bad, t.accent, t.container, t.select_bg], name }
+        })
+        .collect();
+    let at = entries.iter().position(|e| e.name == current).unwrap_or(0);
+    (entries, at)
+}
+
 pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
     match mode {
         Mode::NodeDetail { name, back, .. } => {
@@ -238,6 +259,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path.push(segment("Logs", container));
             path
         }
+        Mode::ThemePicker { .. } => vec![plain_segment("Themes")],
         Mode::Shell { title, back, .. } => {
             let mut path = breadcrumb_path(back);
             path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));
@@ -365,11 +387,13 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("/", "search"));
             hints.push(("m", "resources"));
             hints.push(("C", "contexts"));
+            hints.push(("T", "themes"));
             hints.push(("q/esc", "back"));
             hints
         }
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
+        Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],

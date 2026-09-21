@@ -140,6 +140,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('m') => {
                     st.mode = Mode::Menu { selected: menu_position_for(st.current_kind, &catalog.crds) };
                 }
+                KeyCode::Char('T') => super::themes::open(st, cx.config),
                 KeyCode::Enter => match st.overview_selection {
                     ui::OverviewSelection::Resources => {
                         st.mode = Mode::ResourcesDetail;
@@ -327,6 +328,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
                 }
             }
+            // The theme picker.
+            KeyCode::Char('T') => super::themes::open(st, cx.config),
             // History: back, forward, and the view before this one.
             KeyCode::Char('[') => st.history_back(),
             KeyCode::Char(']') => st.history_forward(),
