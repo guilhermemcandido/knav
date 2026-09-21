@@ -106,18 +106,13 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     let scope_text = (!info.scope.is_empty()).then(|| format!("Scope: {}", info.scope));
     let scope_room = scope_text.as_ref().map_or(0, |t| cell_width(t) + 3);
     let max_width = (area.width as usize).saturating_sub(2 * scope_room.max(1) + 2);
-    let entries = std::iter::once((0usize, "all".to_string())).chain(info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone()))));
+    let all: Vec<(usize, String)> = std::iter::once((0usize, "all".to_string())).chain(info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone())))).collect();
+    let prefix = cell_width("Namespace: ");
+    let (entries, trimmed) = fit_namespaces(&all, max_width.saturating_sub(prefix), &info.namespace);
     let mut shortcuts: Vec<Span> = vec![Span::styled("Namespace: ", label)];
-    let mut used = cell_width("Namespace: ");
-    let mut trimmed = false;
-    for (n, ns) in entries {
-        let is_active = if n == 0 { info.namespace == "all" } else { info.namespace == ns };
-        let width = cell_width(&format!("({n}){ns}")) + 2;
-        if used + width + 2 > max_width && !is_active {
-            trimmed = true;
-            continue;
-        }
-        if used > cell_width("Namespace: ") {
+    for (k, (n, ns)) in entries.into_iter().enumerate() {
+        let is_active = all.iter().any(|(m, full)| *m == n && *full == info.namespace) || (n == 0 && info.namespace == "all");
+        if k > 0 {
             shortcuts.push(Span::raw("  "));
         }
         if is_active {
@@ -126,7 +121,6 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
             shortcuts.push(Span::styled(format!("({n})"), key));
             shortcuts.push(Span::styled(ns, name));
         }
-        used += width;
     }
     if trimmed {
         shortcuts.push(Span::styled("  …", key));
@@ -144,9 +138,50 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     }
 }
 
+/// The namespace shortcuts in `room` cells. When the full names do not fit they are cut to their
+/// starts (`abcdef…`), as long as they still say something; failing that, some are left out (the
+/// active one never is). The flag says some were.
+fn fit_namespaces(all: &[(usize, String)], room: usize, active: &str) -> (Vec<(usize, String)>, bool) {
+    let width = |entries: &[(usize, String)]| entries.iter().map(|(n, ns)| cell_width(&format!("({n}){ns}"))).sum::<usize>() + 2 * entries.len().saturating_sub(1);
+    let longest = all.iter().map(|(_, ns)| cell_width(ns)).max().unwrap_or(0);
+    for limit in (MIN_NAME..=longest.max(MIN_NAME)).rev() {
+        let cut: Vec<(usize, String)> = all.iter().map(|(n, ns)| (*n, if cell_width(ns) > limit { truncate(ns, limit) } else { ns.clone() })).collect();
+        if width(&cut) <= room {
+            return (cut, false);
+        }
+    }
+    // Even the shortest starts do not all fit: keep what does, always the active one.
+    let mut kept: Vec<(usize, String)> = Vec::new();
+    for (n, ns) in all {
+        let short = (*n, if cell_width(ns) > MIN_NAME { truncate(ns, MIN_NAME) } else { ns.clone() });
+        let is_active = *ns == active || (*n == 0 && active == "all");
+        kept.push(short);
+        if width(&kept) > room && !is_active {
+            kept.pop();
+        }
+    }
+    (kept, true)
+}
+
+/// The fewest characters of a namespace worth showing.
+const MIN_NAME: usize = 5;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn namespaces_that_do_not_fit_are_cut_to_their_starts() {
+        let all = vec![(0, "all".to_string()), (1, "absdnuqweasd".to_string()), (2, "dahjsdlkjhasd".to_string())];
+        let (fit, trimmed) = fit_namespaces(&all, 100, "all");
+        assert_eq!(fit[1].1, "absdnuqweasd");
+        assert!(!trimmed);
+        let (fit, trimmed) = fit_namespaces(&all, 30, "all");
+        assert!(!trimmed && fit[1].1.ends_with('…') && fit[2].1.ends_with('…'), "{fit:?}");
+        assert!(fit.iter().map(|(n, ns)| cell_width(&format!("({n}){ns}"))).sum::<usize>() + 4 <= 30);
+        let (fit, trimmed) = fit_namespaces(&all, 12, "dahjsdlkjhasd");
+        assert!(trimmed && fit.iter().any(|(n, _)| *n == 2), "the active one stays: {fit:?}");
+    }
 
     #[test]
     fn body_area_leaves_room_for_the_header() {
