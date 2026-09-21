@@ -53,9 +53,18 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `s` then a digit | Sort by that column; the same digit flips the direction. `s`/`Esc`/`q` leaves |
 | `←` `→` / `h` `l` | Scroll columns sideways when they don't fit |
 | `d` / `e` | Show the spec / edit the manifest in `$EDITOR` |
+| `D` | Delete the selected object (asks first) |
+| `S` | Scale a Deployment, StatefulSet or ReplicaSet (type the count) |
+| `r` | Restart a Deployment, StatefulSet or DaemonSet (asks first) |
+| `a` | Shell in a pod's container (in the containers popup: the selected one); needs `kubectl` on the PATH |
+| `o` | Cordon or uncordon a node |
+| `t` / `u` | Trigger a CronJob now / suspend or resume it |
 | `C` | Switch context |
 | `c` | Toggle mouse capture (off lets the terminal select text) |
 | `:q` | Quit (a stray `q` never does) |
+
+The mouse works too: the wheel moves the selection in every list and popup, a click
+selects a row, a double-click opens it, and clicking a tile on the overview selects it.
 
 The bottom bar shows where you are (`Deployment[web]>>ReplicaSets>>...`) and
 the selected row's status, with a green or yellow dot for ready counts.

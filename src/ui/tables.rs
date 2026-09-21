@@ -147,6 +147,18 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window 
 /// widths, same default 1-cell `column_spacing`) rather than
 /// hand-guessing pixel math that could silently drift out of sync with
 /// what's actually rendered.
+/// Which data row of a bordered table (border, header, rows, border) a
+/// screen row falls on, given the table's own scroll `offset`.
+pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) -> Option<usize> {
+    let first = table_area.y.saturating_add(2);
+    let last = (table_area.y + table_area.height).saturating_sub(1); // the bottom border
+    if row < first || row >= last {
+        return None;
+    }
+    let index = offset + usize::from(row - first);
+    (index < row_count).then_some(index)
+}
+
 pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area = frame_area;
 
@@ -450,6 +462,17 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 #[cfg(test)]
 mod generic_table_tests {
     use super::*;
+
+    #[test]
+    fn a_click_lands_on_the_row_under_it() {
+        let area = Rect { x: 0, y: 2, width: 80, height: 10 }; // border 2, header 3, rows 4..=10, border 11
+        assert_eq!(list_row_at(area, 0, 20, 4), Some(0));
+        assert_eq!(list_row_at(area, 5, 20, 6), Some(7));
+        assert_eq!(list_row_at(area, 0, 20, 2), None, "the border");
+        assert_eq!(list_row_at(area, 0, 20, 3), None, "the header");
+        assert_eq!(list_row_at(area, 0, 20, 11), None, "the bottom border");
+        assert_eq!(list_row_at(area, 0, 2, 8), None, "below the last row");
+    }
 
     #[test]
     fn a_completed_pod_is_grey_not_unready() {

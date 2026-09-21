@@ -10,6 +10,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let client = cx.client;
     let config = cx.config;
     let frame_area = cx.frame_area;
+    let mut failed_shell = None;
     match (event, &mut st.mode) {
         (Event::Key(key), Mode::Spec { viewing: viewing @ Some(_), .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => *viewing = None,
@@ -70,6 +71,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
             KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
+            // A shell in the selected container.
+            KeyCode::Char('a') => {
+                let shown = sorted_containers(containers, *sort);
+                if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
+                    failed_shell = actions::shell(cx.terminal, st.mouse_capture_enabled, cx.active_context, namespace, pod, &container.name);
+                }
+            }
             KeyCode::Enter => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
@@ -208,12 +216,22 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
+        (Event::Mouse(mouse), Mode::Containers { containers, state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, containers.len());
+        }
+        (Event::Mouse(mouse), Mode::NodeDetail { state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, node_detail_rows.len());
+        }
         (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, order, .. }) => match mouse.kind {
             MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, *order, follow, scroll),
             MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
             _ => {}
         },
         _ => {}
+    }
+    if let Some(outcome) = failed_shell {
+        let back = std::mem::replace(&mut st.mode, Mode::List);
+        st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
     }
     Ok(None)
 }

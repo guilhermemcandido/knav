@@ -1,3 +1,4 @@
+mod actions;
 mod app;
 mod catalog;
 mod cli;
@@ -39,6 +40,7 @@ use ratatui::{layout::Rect, widgets::TableState};
 use tokio::sync::{mpsc, watch};
 use tui_tree_widget::{TreeItem, TreeState};
 
+use actions::{Action, Target};
 use app::*;
 use catalog::*;
 use cli::*;

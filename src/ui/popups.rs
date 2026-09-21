@@ -213,8 +213,33 @@ pub(super) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(color))
-        .title(if error { "Edit failed" } else { "Done" });
+        .title(if error { "Failed" } else { "Done" });
     frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
+}
+
+/// A small centred box with a title and body lines, for the question popups.
+fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'static>>) {
+    let full = frame.area();
+    let width = (full.width * 3 / 5).max(30).min(full.width);
+    let height = (body.len() as u16 + 2).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
+    frame.render_widget(Clear, area);
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(color)).title(title.to_string());
+    frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
+}
+
+pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
+    let key = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+    let body = vec![
+        Line::from(text.to_string()),
+        Line::from(vec![Span::styled("y", key), Span::raw(" yes   "), Span::styled("n", key), Span::raw(" no")]),
+    ];
+    small_popup(frame, "Confirm", Color::Yellow, body);
+}
+
+pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str) {
+    let body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
+    small_popup(frame, title, Color::Cyan, body);
 }
 
 /// Freelens-style node drill-down: that node's own CPU/Memory/Pods

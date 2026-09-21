@@ -1,0 +1,305 @@
+//! Things you can do to the selected object besides looking at it: delete,
+//! scale, restart, cordon, trigger or suspend a CronJob, and open a shell in
+//! a container. Every action works on a `Target` read from the object's
+//! manifest, so it applies to any kind (custom resources included) the same
+//! way.
+
+use std::io::{Write, stdout};
+use std::process::Command;
+
+use anyhow::{Context as _, Result, bail};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::execute;
+use kube::{
+    Client,
+    api::{Api, ApiResource, DeleteParams, DynamicObject, Patch, PatchParams, PostParams},
+    core::GroupVersionKind,
+    discovery::{Scope, pinned_kind},
+};
+use serde_json::json;
+
+pub use crate::edit::Outcome;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Target {
+    pub api_version: String,
+    pub kind: String,
+    pub name: String,
+    pub namespace: Option<String>,
+    pub manifest: serde_yaml::Value,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Action {
+    Delete,
+    Scale(i32),
+    Restart,
+    /// `true` marks the node unschedulable (cordon), `false` undoes it.
+    Cordon(bool),
+    Trigger,
+    /// `true` suspends the CronJob, `false` resumes it.
+    Suspend(bool),
+}
+
+impl Target {
+    pub fn from_manifest(manifest: &serde_yaml::Value) -> Option<Target> {
+        let text = |path: &[&str]| {
+            let mut value = manifest;
+            for key in path {
+                value = value.get(*key)?;
+            }
+            value.as_str().map(str::to_string)
+        };
+        Some(Target {
+            api_version: text(&["apiVersion"])?,
+            kind: text(&["kind"])?,
+            name: text(&["metadata", "name"])?,
+            namespace: text(&["metadata", "namespace"]),
+            manifest: manifest.clone(),
+        })
+    }
+
+    /// `pod default/web-1`, or `node worker-1` when it has no namespace.
+    pub fn label(&self) -> String {
+        let kind = self.kind.to_lowercase();
+        match &self.namespace {
+            Some(ns) => format!("{kind} {ns}/{}", self.name),
+            None => format!("{kind} {}", self.name),
+        }
+    }
+
+    pub fn scalable(&self) -> bool {
+        matches!(self.kind.as_str(), "Deployment" | "StatefulSet" | "ReplicaSet")
+    }
+
+    pub fn restartable(&self) -> bool {
+        matches!(self.kind.as_str(), "Deployment" | "StatefulSet" | "DaemonSet")
+    }
+
+    /// The desired replica count now, to pre-fill the scale prompt.
+    pub fn replicas(&self) -> i64 {
+        self.manifest.get("spec").and_then(|s| s.get("replicas")).and_then(|r| r.as_i64()).unwrap_or(1)
+    }
+
+    fn flag(&self, key: &str) -> bool {
+        self.manifest.get("spec").and_then(|s| s.get(key)).and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// The action for `o` on a node: cordon if it is schedulable, else undo.
+    pub fn cordon_action(&self) -> Option<Action> {
+        (self.kind == "Node").then(|| Action::Cordon(!self.flag("unschedulable")))
+    }
+
+    /// The action for `u` on a CronJob: suspend if it is running, else resume.
+    pub fn suspend_action(&self) -> Option<Action> {
+        (self.kind == "CronJob").then(|| Action::Suspend(!self.flag("suspend")))
+    }
+}
+
+impl Action {
+    /// What to ask before doing it, for the actions that ask.
+    pub fn confirmation(self, target: &Target) -> Option<String> {
+        match self {
+            Action::Delete if target.kind == "Namespace" => {
+                Some(format!("Delete {}? This removes everything in it.", target.label()))
+            }
+            Action::Delete => Some(format!("Delete {}?", target.label())),
+            Action::Restart => Some(format!("Restart {}?", target.label())),
+            _ => None,
+        }
+    }
+}
+
+pub fn run(client: &Client, target: &Target, action: Action) -> Outcome {
+    match block(perform(client, target, action)) {
+        Ok(text) => Outcome { text, error: false },
+        Err(e) => Outcome { text: format!("{e:#}"), error: true },
+    }
+}
+
+fn block<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
+}
+
+async fn api_for(client: &Client, target: &Target) -> Result<Api<DynamicObject>> {
+    let type_meta = kube::api::TypeMeta { api_version: target.api_version.clone(), kind: target.kind.clone() };
+    let gvk = GroupVersionKind::try_from(&type_meta)?;
+    let (resource, caps) = pinned_kind(client, &gvk).await?;
+    Ok(match (caps.scope, target.namespace.as_deref()) {
+        (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
+        _ => Api::all_with(client.clone(), &resource),
+    })
+}
+
+async fn perform(client: &Client, target: &Target, action: Action) -> Result<String> {
+    let api = api_for(client, target).await?;
+    let name = target.name.as_str();
+    let merge = |body: serde_json::Value| Patch::Merge(body);
+    let params = PatchParams::default();
+    let label = target.label();
+    match action {
+        Action::Delete => {
+            api.delete(name, &DeleteParams::default()).await?;
+            Ok(format!("Deleted {label}"))
+        }
+        Action::Scale(replicas) => {
+            if !target.scalable() {
+                bail!("{label} can't be scaled");
+            }
+            api.patch_scale(name, &params, &merge(json!({ "spec": { "replicas": replicas } }))).await?;
+            Ok(format!("Scaled {label} to {replicas}"))
+        }
+        Action::Restart => {
+            if !target.restartable() {
+                bail!("{label} can't be restarted");
+            }
+            let now = k8s_openapi::jiff::Timestamp::now().to_string();
+            let body = json!({ "spec": { "template": { "metadata": { "annotations": { "kubectl.kubernetes.io/restartedAt": now } } } } });
+            api.patch(name, &params, &merge(body)).await?;
+            Ok(format!("Restarting {label}"))
+        }
+        Action::Cordon(on) => {
+            api.patch(name, &params, &merge(json!({ "spec": { "unschedulable": on } }))).await?;
+            Ok(format!("{} {label}", if on { "Cordoned" } else { "Uncordoned" }))
+        }
+        Action::Suspend(on) => {
+            api.patch(name, &params, &merge(json!({ "spec": { "suspend": on } }))).await?;
+            Ok(format!("{} {label}", if on { "Suspended" } else { "Resumed" }))
+        }
+        Action::Trigger => {
+            let job = job_from_cronjob(target, k8s_openapi::jiff::Timestamp::now().as_second())?;
+            let namespace = target.namespace.as_deref().context("a CronJob has a namespace")?;
+            let jobs: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &ApiResource::from_gvk(&GroupVersionKind::gvk("batch", "v1", "Job")));
+            let created = jobs.create(&PostParams::default(), &serde_json::from_value(job)?).await?;
+            Ok(format!("Started job {}", created.metadata.name.unwrap_or_default()))
+        }
+    }
+}
+
+/// The Job a CronJob would create, owned by it, named `<cronjob>-manual-<n>`
+/// (what `kubectl create job --from=cronjob/...` makes).
+fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json::Value> {
+    let cronjob = serde_json::to_value(&target.manifest)?;
+    let template = cronjob.pointer("/spec/jobTemplate").context("the CronJob has no jobTemplate")?;
+    let uid = cronjob.pointer("/metadata/uid").cloned().unwrap_or_default();
+    let mut name = format!("{}-manual-{stamp:x}", target.name);
+    name.truncate(63);
+    let mut annotations = template.pointer("/metadata/annotations").cloned().unwrap_or_else(|| json!({}));
+    annotations["cronjob.kubernetes.io/instantiate"] = json!("manual");
+    Ok(json!({
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": name,
+            "labels": template.pointer("/metadata/labels").cloned().unwrap_or_else(|| json!({})),
+            "annotations": annotations,
+            "ownerReferences": [{
+                "apiVersion": "batch/v1", "kind": "CronJob", "name": target.name, "uid": uid,
+                "controller": true, "blockOwnerDeletion": true,
+            }],
+        },
+        "spec": template.get("spec").cloned().unwrap_or_else(|| json!({})),
+    }))
+}
+
+/// Opens an interactive shell in a container by handing the terminal to
+/// `kubectl exec` (bash if the image has it, else sh), and takes it back
+/// when the shell exits.
+pub fn shell(terminal: &mut ratatui::DefaultTerminal, mouse_capture: bool, context: &str, namespace: &str, pod: &str, container: &str) -> Option<Outcome> {
+    let _ = execute!(stdout(), DisableMouseCapture);
+    ratatui::restore();
+    println!("kubectl exec -it {namespace}/{pod} -c {container}");
+    let status = Command::new("kubectl")
+        .args(["--context", context, "exec", "-it", "-n", namespace, pod, "-c", container, "--", "sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"])
+        .status();
+    let failed = !matches!(&status, Ok(s) if s.success());
+    if failed {
+        // Leave whatever kubectl printed on screen long enough to read.
+        match &status {
+            Ok(s) => println!("\nshell exited with {s}. Press Enter to return."),
+            Err(e) => println!("\ncouldn't run kubectl: {e}. Press Enter to return."),
+        }
+        let _ = stdout().flush();
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    *terminal = ratatui::init();
+    if mouse_capture {
+        let _ = execute!(stdout(), EnableMouseCapture);
+    }
+    // A shell that ends normally needs no notice; a launch failure gets one.
+    status.err().map(|e| Outcome { text: format!("couldn't run kubectl: {e}"), error: true })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(yaml: &str) -> Target {
+        Target::from_manifest(&serde_yaml::from_str(yaml).unwrap()).unwrap()
+    }
+
+    const DEPLOYMENT: &str = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web, namespace: shop}\nspec: {replicas: 3}\n";
+
+    #[test]
+    fn a_target_is_read_from_the_manifest() {
+        let t = target(DEPLOYMENT);
+        assert_eq!((t.api_version.as_str(), t.kind.as_str(), t.name.as_str()), ("apps/v1", "Deployment", "web"));
+        assert_eq!(t.namespace.as_deref(), Some("shop"));
+        assert_eq!(t.label(), "deployment shop/web");
+        assert_eq!(t.replicas(), 3);
+    }
+
+    #[test]
+    fn a_manifest_without_an_identity_is_no_target() {
+        assert!(Target::from_manifest(&serde_yaml::from_str("foo: bar").unwrap()).is_none());
+    }
+
+    #[test]
+    fn cluster_scoped_objects_are_labelled_without_a_namespace() {
+        assert_eq!(target("apiVersion: v1\nkind: Node\nmetadata: {name: n1}\n").label(), "node n1");
+    }
+
+    #[test]
+    fn only_workloads_scale_and_restart() {
+        assert!(target(DEPLOYMENT).scalable() && target(DEPLOYMENT).restartable());
+        let daemon = target("apiVersion: apps/v1\nkind: DaemonSet\nmetadata: {name: d}\n");
+        assert!(!daemon.scalable() && daemon.restartable());
+        let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\n");
+        assert!(!pod.scalable() && !pod.restartable());
+    }
+
+    #[test]
+    fn cordon_and_suspend_flip_the_current_state() {
+        let node = target("apiVersion: v1\nkind: Node\nmetadata: {name: n}\nspec: {unschedulable: true}\n");
+        assert_eq!(node.cordon_action(), Some(Action::Cordon(false)));
+        let fresh = target("apiVersion: v1\nkind: Node\nmetadata: {name: n}\n");
+        assert_eq!(fresh.cordon_action(), Some(Action::Cordon(true)));
+        let cron = target("apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: c}\nspec: {suspend: false}\n");
+        assert_eq!(cron.suspend_action(), Some(Action::Suspend(true)));
+        assert_eq!(target(DEPLOYMENT).cordon_action(), None);
+        assert_eq!(target(DEPLOYMENT).suspend_action(), None);
+    }
+
+    #[test]
+    fn destructive_actions_ask_first_and_reversible_ones_do_not() {
+        let t = target(DEPLOYMENT);
+        assert_eq!(Action::Delete.confirmation(&t).as_deref(), Some("Delete deployment shop/web?"));
+        assert!(Action::Restart.confirmation(&t).is_some());
+        assert!(Action::Scale(2).confirmation(&t).is_none());
+        assert!(Action::Cordon(true).confirmation(&t).is_none());
+        let ns = target("apiVersion: v1\nkind: Namespace\nmetadata: {name: shop}\n");
+        assert!(Action::Delete.confirmation(&ns).unwrap().contains("everything"));
+    }
+
+    #[test]
+    fn a_triggered_job_is_owned_by_its_cronjob() {
+        let cron = target(
+            "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: tick, namespace: d, uid: abc}\nspec:\n  schedule: '* * * * *'\n  jobTemplate:\n    spec: {template: {spec: {containers: [{name: c, image: busybox}]}}}\n",
+        );
+        let job = job_from_cronjob(&cron, 255).unwrap();
+        assert_eq!(job["metadata"]["name"], "tick-manual-ff");
+        assert_eq!(job["metadata"]["ownerReferences"][0]["uid"], "abc");
+        assert_eq!(job["metadata"]["annotations"]["cronjob.kubernetes.io/instantiate"], "manual");
+        assert_eq!(job["spec"]["template"]["spec"]["containers"][0]["image"], "busybox");
+    }
+}

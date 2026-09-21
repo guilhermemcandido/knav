@@ -11,6 +11,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let client = cx.client;
     let frame_area = cx.frame_area;
     let row_count = cx.row_count;
+    let mut open = false;
     match (event, &mut st.mode) {
         // Sort mode (`s`): the headers show their column numbers and a
         // digit sorts by that column — the same one again flips
@@ -31,29 +32,46 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 _ => st.sort_choosing = false,
             }
         }
-        (Event::Mouse(mouse), Mode::List) if mouse.kind == MouseEventKind::Moved || matches!(mouse.kind, MouseEventKind::Down(_)) => {
+        (Event::Mouse(mouse), Mode::List) => {
             if st.current_kind == ResourceKind::Overview {
                 let active_col = match st.overview_selection {
                     ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
                     ui::OverviewSelection::Resources | ui::OverviewSelection::Events => usize::MAX,
                 };
-                if matches!(mouse.kind, MouseEventKind::Down(_))
-                    && let Some(hit) = ui::column_hit(
-                        ui::body_area(frame_area, false),
-                        &overview,
-                        st.overview_col_scroll,
-                        active_col,
-                        st.overview_item_scroll,
-                        mouse.column,
-                        mouse.row,
-                    )
-                {
-                    st.overview_selection = hit;
+                match mouse.kind {
+                    MouseEventKind::Down(_) => {
+                        if let Some(hit) = ui::column_hit(ui::body_area(frame_area, false), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
+                            st.overview_selection = hit;
+                        }
+                    }
+                    MouseEventKind::ScrollDown => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Down),
+                    MouseEventKind::ScrollUp => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Up),
+                    _ => {}
                 }
+                keep_overview_selection_visible(st, overview, frame_area);
             } else {
-                st.hovered = ui::row_at(ui::body_area(frame_area, true), &pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row).map(|row| {
-                    ui::Hover { row, column: mouse.column, row_on_screen: mouse.row }
-                });
+                let table = ui::body_area(frame_area, true);
+                match mouse.kind {
+                    MouseEventKind::Moved => {
+                        st.hovered = ui::row_at(table, pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                            .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
+                    }
+                    // A click selects the row; a second click on it soon after opens it.
+                    MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                        st.hovered = ui::row_at(table, pod_rows, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                            .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
+                        if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
+                            st.table_state.select(Some(index));
+                            let now = std::time::Instant::now();
+                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < DOUBLE_CLICK);
+                            st.last_click = if again { None } else { Some((now, index)) };
+                            open = again;
+                        }
+                    }
+                    kind => {
+                        wheel_select(kind, &mut st.table_state, row_count);
+                    }
+                }
             }
         }
         // Number keys pick the active namespace: 0 is all, 1-9 are the
@@ -71,8 +89,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
         }
         (Event::Key(key), Mode::List) if st.current_kind == ResourceKind::Overview => {
-            let columns_area = ui::columns_area(ui::body_area(frame_area, false), &overview);
-            let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
             match key.code {
                 KeyCode::Char('n') => {
                     let names: Vec<String> =
@@ -124,15 +140,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 },
                 _ => {}
             }
-            if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = st.overview_selection {
-                st.overview_col_scroll = ui::scroll_columns_to_show(st.overview_col_scroll, cols_visible, c);
-                let target_item = match st.overview_selection {
-                    ui::OverviewSelection::Item(_, i) => i,
-                    _ => 0,
-                };
-                let items_visible = ui::visible_items_per_column(columns_area.height, ui::column_item_height(&overview, c));
-                st.overview_item_scroll = ui::scroll_columns_to_show(st.overview_item_scroll, items_visible, target_item);
-            }
+            keep_overview_selection_visible(st, overview, frame_area);
         }
         (Event::Key(key), Mode::List) => match if key.code == KeyCode::Enter && st.current_kind.opens_spec_on_enter() {
             KeyCode::Char('d')
@@ -275,21 +283,34 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // the same manifest `d` shows, for every kind that has
             // a selectable row.
             KeyCode::Char('e') => {
-                let manifest: Option<serde_yaml::Value> = match st.current_kind {
-                    ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
-                    ResourceKind::Pods => st.table_state.selected().and_then(|i| pods.get(i)).map(|p| k8s::manifest_value(p.as_ref())),
-                    ResourceKind::Deployments => {
-                        st.table_state.selected().and_then(|i| deployments.get(i)).map(|d| k8s::manifest_value(d.as_ref()))
-                    }
-                    ResourceKind::Nodes => st.table_state.selected().and_then(|i| sorted_nodes.get(i)).map(|n| k8s::manifest_value(n.as_ref())),
-                    _ => st.table_state
-                        .selected()
-                        .and_then(|i| generic_visible.get(i).copied())
-                        .and_then(|real| catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real))),
-                };
-                if let Some(manifest) = manifest {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     let outcome = edit::edit_resource(cx.terminal, &client, st.mouse_capture_enabled, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                }
+            }
+            // Actions on the selected object (see `actions`).
+            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'o' | 'u' | 't' | 'a')) => {
+                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
+                    let action = match c {
+                        'D' => Some(Action::Delete),
+                        'r' if target.restartable() => Some(Action::Restart),
+                        'o' => target.cordon_action(),
+                        'u' => target.suspend_action(),
+                        't' if target.kind == "CronJob" => Some(Action::Trigger),
+                        _ => None,
+                    };
+                    if c == 'S' && target.scalable() {
+                        st.mode = Mode::Scale { input: target.replicas().to_string(), target, back: Box::new(Mode::List) };
+                    } else if c == 'a' && target.kind == "Pod" {
+                        open_shell(st, cx, &target);
+                    } else if let Some(action) = action {
+                        if let Some(text) = action.confirmation(&target) {
+                            st.mode = Mode::Confirm { text, target, action, back: Box::new(Mode::List) };
+                        } else {
+                            let outcome = actions::run(client, &target, action);
+                            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                        }
+                    }
                 }
             }
             KeyCode::Enter if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
@@ -331,5 +352,75 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         },
         _ => {}
     }
+    if open {
+        return handle(Event::Key(KeyCode::Enter.into()), st, cx);
+    }
     Ok(None)
+}
+
+/// Two clicks on one row this close together are a double-click.
+const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Scrolls the overview's columns so the selected tile is on screen.
+fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Overview, frame_area: Rect) {
+    let columns_area = ui::columns_area(ui::body_area(frame_area, false), overview);
+    if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = st.overview_selection {
+        let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
+        st.overview_col_scroll = ui::scroll_columns_to_show(st.overview_col_scroll, cols_visible, c);
+        let target_item = match st.overview_selection {
+            ui::OverviewSelection::Item(_, i) => i,
+            _ => 0,
+        };
+        let items_visible = ui::visible_items_per_column(columns_area.height, ui::column_item_height(overview, c));
+        st.overview_item_scroll = ui::scroll_columns_to_show(st.overview_item_scroll, items_visible, target_item);
+    }
+}
+
+/// The manifest of the row the cursor is on, for every kind with rows.
+fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Option<serde_yaml::Value> {
+    let selected = st.table_state.selected()?;
+    match st.current_kind {
+        ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
+        ResourceKind::Pods => d.pods.get(selected).map(|p| k8s::manifest_value(p.as_ref())),
+        ResourceKind::Deployments => d.deployments.get(selected).map(|x| k8s::manifest_value(x.as_ref())),
+        ResourceKind::Nodes => d.sorted_nodes.get(selected).map(|n| k8s::manifest_value(n.as_ref())),
+        kind => {
+            let real = *d.generic_visible.get(selected)?;
+            catalog.resolve(kind, client).and_then(|k| k.spec_at(real))
+        }
+    }
+}
+
+/// `a` on a pod: a shell in its container, or the container list when
+/// there is more than one to choose from.
+fn open_shell(st: &mut State, cx: &mut Cx, target: &Target) {
+    let pod: k8s_openapi::api::core::v1::Pod = match serde_yaml::from_value(target.manifest.clone()) {
+        Ok(pod) => pod,
+        Err(_) => return,
+    };
+    let containers = k8s::containers_for(&pod);
+    let namespace = target.namespace.clone().unwrap_or_default();
+    match containers.as_slice() {
+        [only] => {
+            let name = only.name.clone();
+            run_shell(st, cx, &namespace, &target.name, &name);
+        }
+        _ => {
+            st.mode = Mode::Containers {
+                title: title_for(Some(&namespace), Some(&target.name)),
+                namespace,
+                pod: target.name.clone(),
+                containers,
+                state: TableState::default().with_selected(0),
+                sort: ListSort::default(),
+                back: Box::new(Mode::List),
+            };
+        }
+    }
+}
+
+pub(super) fn run_shell(st: &mut State, cx: &mut Cx, namespace: &str, pod: &str, container: &str) {
+    if let Some(outcome) = actions::shell(cx.terminal, st.mouse_capture_enabled, cx.active_context, namespace, pod, container) {
+        st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+    }
 }

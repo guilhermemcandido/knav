@@ -30,6 +30,10 @@ pub(crate) enum Mode {
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
+    /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
+    Confirm { text: String, target: Target, action: Action, back: Box<Mode> },
+    /// Asks for a replica count (digits only) to scale to.
+    Scale { target: Target, input: String, back: Box<Mode> },
     Spec {
         title: String,
         items: Vec<TreeItem<'static, String>>,
@@ -121,7 +125,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Confirm { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -235,7 +239,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
-        Mode::Notice { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
+        Mode::Notice { back, .. } | Mode::Confirm { back, .. } | Mode::Scale { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
         Mode::Menu { .. } => vec![plain_segment("Resources")],
         Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }
@@ -283,6 +287,21 @@ pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> V
 /// bar instead of crammed into each screen's title. `Command`/`Search`
 /// return nothing: both already occupy that bar themselves with the
 /// input being typed, which matters more than a hint list right then.
+/// The keys for acting on the selected object, for the kinds each applies to.
+fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
+    let mut hints = match kind {
+        ResourceKind::Pods => vec![("a", "shell")],
+        ResourceKind::Deployments | ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
+        ResourceKind::ReplicaSets => vec![("S", "scale")],
+        ResourceKind::DaemonSets => vec![("r", "restart")],
+        ResourceKind::Nodes => vec![("o", "cordon")],
+        ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],
+        _ => Vec::new(),
+    };
+    hints.push(("D", "delete"));
+    hints
+}
+
 pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     match mode {
         // Nothing on the main screen — deliberately kept clean. The
@@ -306,6 +325,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             };
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
+                hints.extend(action_hints(current_kind));
             }
             hints.push(("n", "namespaces"));
             hints.push(("0-9", "namespace"));
@@ -316,7 +336,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::Scale { .. } => Vec::new(),
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("↑↓/jk", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],
@@ -331,7 +351,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
-        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("q/esc", "back")],
+        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter", "logs"), ("a", "shell"), ("s", "sort"), ("q/esc", "back")],
         Mode::Logs { .. } => {
             vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("o", "order"), ("/", "filter"), ("q/esc", "back")]
         }
@@ -382,6 +402,23 @@ pub(crate) fn select_prev(state: &mut TableState, len: usize) {
     }
     let prev = state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
     state.select(Some(prev));
+}
+
+/// Rows the selection moves per wheel notch.
+const WHEEL_ROWS: usize = 3;
+
+/// Moves a table's selection for a mouse wheel notch; false for any other
+/// mouse event.
+pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: usize) -> bool {
+    let step: fn(&mut TableState, usize) = match kind {
+        MouseEventKind::ScrollDown => select_next,
+        MouseEventKind::ScrollUp => select_prev,
+        _ => return false,
+    };
+    for _ in 0..WHEEL_ROWS {
+        step(state, len);
+    }
+    true
 }
 
 /// Routes `s` and the digits to whichever popup table has focus; `true`
@@ -445,5 +482,30 @@ mod breadcrumb_tests {
             back: Box::new(containers_mode(1)),
         };
         assert_eq!(text(&breadcrumb_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);
+    }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    #[test]
+    fn the_wheel_moves_three_rows_and_stops_at_the_ends() {
+        let mut state = TableState::default().with_selected(0);
+        assert!(wheel_select(MouseEventKind::ScrollDown, &mut state, 10));
+        assert_eq!(state.selected(), Some(3));
+        wheel_select(MouseEventKind::ScrollDown, &mut state, 5);
+        assert_eq!(state.selected(), Some(4));
+        wheel_select(MouseEventKind::ScrollUp, &mut state, 5);
+        assert_eq!(state.selected(), Some(1));
+        wheel_select(MouseEventKind::ScrollUp, &mut state, 5);
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn other_mouse_events_are_ignored() {
+        let mut state = TableState::default().with_selected(2);
+        assert!(!wheel_select(MouseEventKind::Moved, &mut state, 10));
+        assert_eq!(state.selected(), Some(2));
     }
 }

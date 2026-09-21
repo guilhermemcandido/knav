@@ -84,6 +84,21 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
                 })?;
             }
+            Mode::Confirm { text, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::Confirm { text };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
+                })?;
+            }
+            Mode::Scale { target, input, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let title = format!("Scale {} to", target.label());
+                    let overlay = ui::Overlay::Prompt { title: &title, value: input };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll);
+                })?;
+            }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

@@ -45,6 +45,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
+        (Event::Mouse(mouse), Mode::Events { filter, search, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, k8s::filter_events(&overview.events, *filter, search, sort.spec).len());
+        }
         (Event::Mouse(mouse), Mode::Events { filter, search, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
             let filtered = k8s::filter_events(&overview.events, *filter, search, sort.spec);
             if let Some(idx) = ui::event_row_at(frame_area, filtered.len(), state.offset(), mouse.row) {

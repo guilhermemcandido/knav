@@ -51,6 +51,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
         }
+        (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, filtered_names(names, filter, *sort, &st.favorites).len());
+        }
         (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
             let matches = filtered_names(names, filter, *sort, &st.favorites);
             if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
@@ -132,6 +135,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
+        (Event::Mouse(mouse), Mode::Context { contexts, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, filtered_contexts(contexts, filter, *sort).len());
+        }
         (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
             let matches = filtered_contexts(contexts, filter, *sort);
             if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {

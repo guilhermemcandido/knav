@@ -7,6 +7,8 @@ pub(super) struct State {
     pub table_state: TableState,
     pub mode: Mode,
     pub hovered: Option<ui::Hover>,
+    /// When and where the last click landed, to recognise a double-click.
+    pub last_click: Option<(std::time::Instant, usize)>,
     pub current_kind: ResourceKind,
     /// The namespace every namespaced list is narrowed to (`Enter` on a
     /// namespace sets it, `0` clears it) — sticks across kind switches.
@@ -50,6 +52,7 @@ impl State {
             table_state: TableState::default().with_selected(0),
             mode: Mode::List,
             hovered: None,
+            last_click: None,
             current_kind: ResourceKind::Overview,
             namespace: None,
             scope: None,

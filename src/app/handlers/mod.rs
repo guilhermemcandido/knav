@@ -5,6 +5,7 @@
 mod command;
 mod inspect;
 mod list;
+mod operate;
 mod overview_popups;
 mod pickers;
 
@@ -43,6 +44,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Command { .. } | Mode::Search => command::handle(event, st, cx),
         Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } | Mode::Menu { .. } => pickers::handle(event, st, cx),
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
+        Mode::Confirm { .. } | Mode::Scale { .. } => operate::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
     }
 }
