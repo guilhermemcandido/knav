@@ -89,23 +89,45 @@ pub(super) fn health_bar(health: Health, total: usize, width: usize, dimmed: boo
     ])
 }
 
-/// `● 14 ok  ● 2 warn  ● 1 bad`, only the states that have objects.
-pub(super) fn health_legend(health: Health, total: usize, dimmed: bool) -> Line<'static> {
+/// 1234 as `1.2k`, 15000 as `15k`, so big clusters still fit.
+fn compact(n: usize) -> String {
+    match n {
+        0..=999 => n.to_string(),
+        1_000..=9_999 => format!("{}.{}k", n / 1000, n % 1000 / 100),
+        10_000..=999_999 => format!("{}k", n / 1000),
+        _ => format!("{}M", n / 1_000_000),
+    }
+}
+
+/// `● 14 ok  ● 2 warn  ● 1 bad`, only the states that have objects. It gives up
+/// the words, then exact numbers, to fit `width`.
+pub(super) fn health_legend(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
     let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
     if total == 0 {
         return Line::styled("none", paint(theme().muted));
     }
-    let mut spans = Vec::new();
-    for (n, word, color) in [(health.good, "ok", theme().ok), (health.warn, "warn", theme().warn), (health.bad, "bad", theme().bad)] {
-        if n > 0 {
-            if !spans.is_empty() {
-                spans.push(Span::raw("  "));
-            }
-            spans.push(Span::styled(format!("● {n} {word}"), paint(color)));
-        }
+    let groups = [(health.good, "ok", theme().ok), (health.warn, "warn", theme().warn), (health.bad, "bad", theme().bad)];
+    let build = |words: bool, short: bool| -> Vec<(String, Color)> {
+        groups
+            .iter()
+            .filter(|(n, _, _)| *n > 0)
+            .map(|(n, word, color)| {
+                let number = if short { compact(*n) } else { n.to_string() };
+                (if words { format!("● {number} {word}") } else { format!("● {number}") }, *color)
+            })
+            .collect()
+    };
+    let fits = |parts: &[(String, Color)]| parts.iter().map(|(t, _)| t.chars().count()).sum::<usize>() + 2 * parts.len().saturating_sub(1) <= width;
+    let parts = [(true, false), (false, false), (true, true), (false, true)].into_iter().map(|(w, s)| build(w, s)).find(|p| fits(p)).unwrap_or_default();
+    if parts.is_empty() {
+        return Line::styled(format!("{} total", compact(total)), paint(theme().muted));
     }
-    if spans.is_empty() {
-        spans.push(Span::styled(format!("{total} total"), paint(theme().muted)));
+    let mut spans = Vec::new();
+    for (text, color) in parts {
+        if !spans.is_empty() {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(text, paint(color)));
     }
     Line::from(spans)
 }
@@ -410,7 +432,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
     // The opened-up view adds a bar and what it is made of.
     if let Some(health) = health {
         lines.push(health_bar(health, count, split[1].width as usize, dimmed));
-        lines.push(health_legend(health, count, dimmed));
+        lines.push(health_legend(health, count, split[1].width as usize, dimmed));
     }
     lines.truncate(inner.height as usize);
     frame.render_widget(Paragraph::new(lines), split[1]);
@@ -541,9 +563,19 @@ mod health_tests {
 
     #[test]
     fn the_legend_lists_only_states_that_exist() {
-        let text: String = health_legend(Health { good: 14, warn: 0, bad: 3 }, 17, false).spans.iter().map(|s| s.content.as_ref()).collect();
+        let text: String = health_legend(Health { good: 14, warn: 0, bad: 3 }, 17, 30, false).spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "● 14 ok  ● 3 bad");
-        assert_eq!(health_legend(Health::default(), 0, false).spans[0].content, "none");
+        assert_eq!(health_legend(Health::default(), 0, 30, false).spans[0].content, "none");
+    }
+
+    #[test]
+    fn a_big_cluster_still_fits_the_card() {
+        let big = Health { good: 41_250, warn: 1_800, bad: 950 };
+        for width in [31, 20, 12] {
+            assert!(health_legend(big, 44_000, width, false).width() <= width.max(12), "{width}");
+        }
+        assert_eq!(compact(1_234), "1.2k");
+        assert_eq!(compact(15_000), "15k");
     }
 }
 
