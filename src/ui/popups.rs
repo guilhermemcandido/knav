@@ -1231,6 +1231,7 @@ mod events_popup_tests {
             message: "m".into(),
             reason: "r".into(),
             object: "o".into(),
+            namespace: String::new(),
             kind: "Pod".into(),
             age: "1m".into(),
             age_secs: 60,

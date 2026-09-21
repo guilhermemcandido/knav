@@ -47,6 +47,15 @@ pub fn parse_memory_bytes(s: &str) -> i64 {
     s.parse::<f64>().unwrap_or(0.0) as i64
 }
 
+/// Any quantity as a plain number, counting `m` as a thousandth.
+pub fn parse_quantity(s: &str) -> Option<f64> {
+    match s.strip_suffix('m') {
+        Some(n) => n.parse::<f64>().ok().map(|v| v / 1000.0),
+        None if s.chars().last().is_some_and(|c| c.is_ascii_digit() || c == '.') => s.parse().ok(),
+        None => Some(parse_memory_bytes(s) as f64),
+    }
+}
+
 #[derive(Clone)]
 pub struct NodeUsage {
     pub name: String,

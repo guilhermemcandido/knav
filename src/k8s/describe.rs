@@ -296,7 +296,7 @@ fn storage(capacity: Option<&BTreeMap<String, k8s_openapi::apimachinery::pkg::ap
     capacity.and_then(|c| c.get("storage")).map(|q| q.0.clone()).unwrap_or_else(|| "-".into())
 }
 
-fn phase_tone(phase: &str) -> Tone {
+pub(crate) fn phase_tone(phase: &str) -> Tone {
     match phase {
         "Bound" | "Active" | "Available" => Tone::Good,
         "Pending" | "Terminating" | "Released" => Tone::Warn,
