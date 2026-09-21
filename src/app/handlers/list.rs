@@ -353,7 +353,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 });
                 match owner {
                     Some((kind, name)) => match ResourceKind::from_owner_kind(&kind) {
-                        Some(target) => st.jump_to(target, name),
+                        Some(target) => {
+                            let namespace = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("namespace")?.as_str().map(String::from));
+                            st.jump_to_object(target, namespace.as_deref(), &name);
+                        }
                         None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), error: false, back: Box::new(Mode::List) },
                     },
                     None => st.mode = Mode::Notice { text: "No owner".into(), error: false, back: Box::new(Mode::List) },
@@ -373,12 +376,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // What the selected object relates to.
             KeyCode::Char('R') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let title = format!("{}/{}", manifest.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).unwrap_or("-"), manifest.get("metadata").and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or(""));
-                    let title = format!("{} {title}", manifest.get("kind").and_then(|k| k.as_str()).unwrap_or(""));
                     let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
-                    let groups = k8s::relations::relations(&manifest, &all);
+                    let graph = k8s::relations::graph(&manifest, &k8s::relations::relations(&manifest, &all));
                     let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Relations { title, groups, selected: 0, back: Box::new(back) };
+                    st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), back: Box::new(back) };
                 }
             }
             // Copy the row's name (`namespace/name`) to the clipboard.

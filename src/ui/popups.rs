@@ -367,9 +367,8 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
     frame.render_stateful_widget(table, inner, state);
 }
 
-/// What the selected object relates to: each group under its title, the chosen
-/// entry highlighted.
-pub(super) fn draw_relations(frame: &mut Frame, title: &str, groups: &[crate::k8s::RelationGroup], selected: usize) {
+/// The relations diagram in a full-size frame.
+pub(super) fn draw_relations(frame: &mut Frame, title: &str, graph: &crate::k8s::relations::Graph, selected: usize) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -377,50 +376,14 @@ pub(super) fn draw_relations(frame: &mut Frame, title: &str, groups: &[crate::k8
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(Line::styled(format!(" Related to {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
-        .title_bottom(Line::styled(" enter open   esc back ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(Line::styled(" ←↑↓→ move   enter recentre   o open list   backspace back   esc close ", Style::default().fg(theme().muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    if groups.is_empty() {
+    if graph.nodes.len() <= 1 {
         frame.render_widget(Paragraph::new("Nothing else is related to this object.").style(Style::default().fg(theme().muted)).alignment(Alignment::Center), inner);
         return;
     }
-    let mut lines: Vec<Line> = Vec::new();
-    let mut chosen_line = 0;
-    let mut position = 0;
-    for group in groups {
-        if !lines.is_empty() {
-            lines.push(Line::raw(""));
-        }
-        lines.push(Line::styled(group.title, Style::default().fg(theme().heading).add_modifier(Modifier::BOLD)));
-        for entry in &group.entries {
-            let is_selected = entry.openable && position == selected;
-            if entry.openable {
-                position += 1;
-            }
-            if is_selected {
-                chosen_line = lines.len();
-            }
-            let indent = format!("  {}{}", "  ".repeat(entry.depth), if entry.depth > 0 { "↑ " } else { "" });
-            let place = match &entry.namespace {
-                Some(ns) if entry.openable => format!("{ns}/{}", entry.name),
-                _ => entry.name.clone(),
-            };
-            let base = if is_selected { selection_style(crate::k8s::describe::Tone::Plain, false) } else { Style::default() };
-            let mut spans = vec![Span::styled(indent, base)];
-            if !entry.kind.is_empty() {
-                spans.push(Span::styled(format!("{:<22}", entry.kind), if is_selected { base } else { Style::default().fg(theme().muted) }));
-            }
-            spans.push(Span::styled(place, if is_selected { base.add_modifier(Modifier::BOLD) } else { Style::default().add_modifier(Modifier::BOLD) }));
-            if !entry.detail.is_empty() {
-                spans.push(Span::styled(format!("   {}", entry.detail), if is_selected { base } else { Style::default().fg(theme().muted) }));
-            }
-            lines.push(Line::from(spans));
-        }
-    }
-    // Keep the chosen line on screen.
-    let height = usize::from(inner.height);
-    let scroll = chosen_line.saturating_sub(height.saturating_sub(3)).min(lines.len().saturating_sub(height));
-    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
+    super::graph::draw_graph(frame, inner, graph, selected);
 }
 
 /// The settings screen: one row per setting under its section, the value in

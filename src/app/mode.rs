@@ -51,7 +51,7 @@ pub(crate) enum Mode {
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
     /// What the selected object is related to (owners, what it uses, what uses it, ...).
-    Relations { title: String, groups: Vec<k8s::RelationGroup>, selected: usize, back: Box<Mode> },
+    Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
@@ -144,10 +144,24 @@ pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
     format!("{}/{}", namespace.unwrap_or("?"), name.unwrap_or("?"))
 }
 
+/// `Kind namespace/name` for a manifest.
+pub(crate) fn object_title(manifest: &serde_yaml::Value) -> String {
+    let text = |path: &[&str]| path.iter().try_fold(manifest, |v, key| v.get(*key)).and_then(|v| v.as_str()).map(String::from);
+    let place = match text(&["metadata", "namespace"]) {
+        Some(ns) => format!("{ns}/"),
+        None => String::new(),
+    };
+    format!("{} {place}{}", text(&["kind"]).unwrap_or_default(), text(&["metadata", "name"]).unwrap_or_default())
+}
+
 /// The `/` filter: an empty query matches everything, otherwise a fuzzy
 /// subsequence match against `haystack`.
+/// A search starting with `=` matches exactly (the jumps use it to land on one object).
 pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
-    search.is_empty() || fuzzy::score(search, haystack).is_some()
+    match search.strip_prefix('=') {
+        Some(exact) => haystack == exact,
+        None => search.is_empty() || fuzzy::score(search, haystack).is_some(),
+    }
 }
 
 pub(crate) fn meta_search_text(meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) -> String {
@@ -262,9 +276,9 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             path.push(segment("YAML", title.clone()));
             path
         }
-        Mode::Relations { title, back, .. } => {
+        Mode::Relations { target, back, .. } => {
             let mut path = mode_path(back);
-            path.push(segment("Related", title.clone()));
+            path.push(segment("Related", object_title(target)));
             path
         }
         Mode::EventDetail { back, .. } => {
@@ -391,7 +405,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),
         Mode::Settings { tab: ui::SettingsTab::Overview, .. } => vec![("↑↓/jk", "move"), ("1-9", "place"), ("J/K", "nudge"), ("space", "show/hide"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
-        Mode::Relations { .. } => vec![("↑↓/jk", "move"), ("enter", "open"), ("q/esc", "back")],
+        Mode::Relations { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "recentre"), ("o", "open list"), ("backspace", "back"), ("q/esc", "close")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],

@@ -32,4 +32,3 @@ pub use nodes::*;
 pub use overview::*;
 pub use generic::*;
 pub use watched::*;
-pub use relations::Group as RelationGroup;

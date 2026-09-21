@@ -157,10 +157,11 @@ pub(super) fn draw_mode(
                     });
                 })?;
             }
-            Mode::Relations { title, groups, selected, .. } => {
+            Mode::Relations { target, graph, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Relations { title, groups, selected: *selected };
+                    let title = crate::app::mode::object_title(target);
+                    let overlay = ui::Overlay::Relations { title: &title, graph, selected: *selected };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

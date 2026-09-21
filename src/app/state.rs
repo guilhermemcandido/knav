@@ -191,6 +191,16 @@ impl State {
         self.search = search;
     }
 
+    /// Goes to the list of `kind` showing exactly the object `namespace`/`name`.
+    pub fn jump_to_object(&mut self, kind: ResourceKind, namespace: Option<&str>, name: &str) {
+        let search = match (kind, namespace) {
+            (ResourceKind::Nodes, _) => format!("={name}"),
+            (_, Some(ns)) => format!("={ns} {name}"),
+            (_, None) => format!("=- {name}"),
+        };
+        self.jump_to(kind, search);
+    }
+
     pub fn switch_kind(&mut self, kind: ResourceKind) {
         self.current_kind = kind;
         self.scope = None;
