@@ -234,6 +234,7 @@ pub(super) fn draw_node_detail_popup(
     pods: &[PodRow],
     state: &mut TableState,
     sort: SortState,
+    search: Search,
     dimmed: bool,
 ) {
     let area = centered_rect(94, 92, frame.area());
@@ -269,7 +270,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, Search::default(), if dimmed { SortState::default() } else { sort }, &mut 0, dimmed);
+    draw_table(frame, chunks[2], pods, state, if dimmed { Search::default() } else { search }, if dimmed { SortState::default() } else { sort }, &mut 0, dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank

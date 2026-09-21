@@ -92,6 +92,7 @@ pub enum Overlay<'a> {
         pods: &'a [PodRow],
         state: &'a mut TableState,
         sort: SortState,
+        search: Search<'a>,
     },
     /// A vim/k9s-style `:` command line with live autocomplete —
     /// `suggestions` are already fuzzy-matched and sorted (see
@@ -259,15 +260,15 @@ pub fn draw(
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
     draw_header(frame, full, header, shortcuts_line, sort.choosing, dimmed);
+    // The keyboard-selected pod, shown at the end of the breadcrumb bar
+    // (only while nothing is open on top of the list).
+    let selected_pod: Option<Vec<Span<'static>>> = match &rows {
+        Rows::Pods(pods) if !dimmed => table_state.selected().and_then(|i| pods.get(i)).map(pod_selection_spans),
+        _ => None,
+    };
     match rows {
         Rows::Pods(pods) => {
-            // A persistent status line below the table for the
-            // keyboard-selected row's container breakdown — always
-            // there, keyboard-driven, works regardless of mouse/terminal
-            // support.
-            let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(body);
-            draw_table(frame, chunks[0], pods, table_state, search, sort, hscroll, dimmed);
-            draw_status_line(frame, chunks[1], pods, table_state.selected(), dimmed);
+            draw_table(frame, body, pods, table_state, search, sort, hscroll, dimmed);
 
             // The mouse-hover popup is separate from the status line and
             // only appears while actively hovering over a container dot
@@ -314,7 +315,7 @@ pub fn draw(
         draw_hints(frame, hints, show_hints_panel);
     }
     if let Some(segments) = breadcrumb {
-        draw_breadcrumb_bar(frame, segments);
+        draw_breadcrumb_bar(frame, segments, selected_pod);
     }
 }
 
@@ -333,8 +334,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, order, filter, filter_editing)
         }
         Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
-        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort } => {
-            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, dimmed)
+        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search } => {
+            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search, dimmed)
         }
         // Drawn by `draw` itself, in its own bar.
         Overlay::Command { .. } => {}
@@ -360,7 +361,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
 /// calmer gray) so they read as visually distinct without either one
 /// shouting; `>>` between segments is muted so it doesn't compete with
 /// either.
-pub(super) fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment]) {
+pub(super) fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegment], selection: Option<Vec<Span<'static>>>) {
     let area = frame.area();
     let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
@@ -380,6 +381,11 @@ pub(super) fn draw_breadcrumb_bar(frame: &mut Frame, segments: &[BreadcrumbSegme
             spans.push(Span::styled(value.clone(), value_style));
             spans.push(Span::styled("]", punct_style));
         }
+    }
+    // What's selected in the list, last: `Pods>>kube-system/web-1 [● web]`.
+    if let Some(selection) = selection {
+        spans.push(Span::styled(">>", punct_style));
+        spans.extend(selection);
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), bar);
 }

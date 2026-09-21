@@ -58,6 +58,9 @@ pub(crate) enum Mode {
         name: String,
         state: TableState,
         sort: ListSort,
+        /// `/` filters the pods table; `editing` while typing it.
+        search: String,
+        editing: bool,
         // Where Esc returns to — the Nodes list normally, or the
         // Overview's Resources detail if this node was opened from
         // there, same "remember where you came from" pattern as
@@ -118,7 +121,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -143,6 +146,14 @@ pub(crate) fn meta_search_text_generic(row: &k8s::GenericRow) -> String {
 
 /// The sort of whichever `NodeDetail` sits in `mode`'s back-chain — the
 /// pods table behind Containers/Logs keeps its order.
+pub(crate) fn node_detail_search(mode: &Mode) -> &str {
+    match mode {
+        Mode::NodeDetail { search, .. } => search,
+        Mode::Containers { back, .. } | Mode::Logs { back, .. } | Mode::Spec { back, .. } => node_detail_search(back),
+        _ => "",
+    }
+}
+
 pub(crate) fn node_detail_sort(mode: &Mode) -> Option<SortSpec> {
     match mode {
         Mode::NodeDetail { sort, .. } => sort.spec,
@@ -290,7 +301,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Spec { .. } => {
             vec![("↑↓/jk", "move"), ("enter", "toggle"), ("v", "value"), ("a", "expand all"), ("q/esc", "back")]
         }
-        Mode::NodeDetail { .. } => vec![("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("q/esc", "back")],
+        Mode::NodeDetail { editing: true, .. } => Vec::new(),
+        Mode::NodeDetail { .. } => vec![("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("s", "sort"), ("/", "search"), ("q/esc", "back")],
         Mode::Events { editing: true, .. } => Vec::new(),
         Mode::Events { .. } => vec![("↑↓/jk", "move"), ("enter", "detail"), ("a/w/n", "filter"), ("/", "search"), ("q/esc", "back")],
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
@@ -357,7 +369,7 @@ pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
         Mode::Containers { sort, .. } => sort.handle(code, CONTAINER_COLUMNS, false),
         Mode::Context { sort, editing, .. } => sort.handle(code, CONTEXT_COLUMNS, *editing),
         Mode::NamespacePick { sort, editing, .. } => sort.handle(code, NAMESPACE_PICKER_COLUMNS, *editing),
-        Mode::NodeDetail { sort, .. } => sort.handle(code, POD_COLUMNS, false),
+        Mode::NodeDetail { sort, editing, .. } => sort.handle(code, POD_COLUMNS, *editing),
         _ => false,
     }
 }

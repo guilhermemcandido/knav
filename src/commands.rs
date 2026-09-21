@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     pub(crate) fn breadcrumb_walks_the_whole_back_chain_oldest_first() {
-        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), back: Box::new(Mode::List) };
+        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
         let containers = Mode::Containers {
             title: "default/web-1".into(),
             namespace: "default".into(),

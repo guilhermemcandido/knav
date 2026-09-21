@@ -113,6 +113,8 @@ pub(crate) fn run(
         } else {
             Vec::new()
         };
+        let node_search = node_detail_search(&mode).to_string();
+        node_detail_pods.retain(|p| row_matches(&node_search, &meta_search_text(&p.metadata)));
         apply(&mut node_detail_pods, node_detail_sort(&mode), |p, column| pod_key(&k8s::row_for(p), column));
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         // Nodes get their own specialized rows (CPU/Memory visible right
@@ -121,6 +123,14 @@ pub(crate) fn run(
         // `generic_rows` path other kinds use) so the 'd'/Enter handlers
         // below, which index straight into `sorted_nodes`, can't drift
         // out of alignment with what's actually displayed.
+        // Every pod counts toward its node's PODS, whatever the list's search,
+        // namespace or drill-down is currently narrowed to.
+        let mut pods_per_node: HashMap<String, usize> = HashMap::new();
+        for pod in k8s::snapshot(pod_store) {
+            if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
+                *pods_per_node.entry(node).or_default() += 1;
+            }
+        }
         let mut node_pairs: Vec<(std::sync::Arc<Node>, k8s::NodeRow)> = k8s::snapshot_generic(node_store)
             .into_iter()
             .filter(|n| row_matches(&search, &n.metadata.name.clone().unwrap_or_default()))
@@ -129,8 +139,7 @@ pub(crate) fn run(
             .map(|n| {
                 let name = n.metadata.name.clone().unwrap_or_default();
                 let node_usage = usage.as_ref().and_then(|u| u.for_node(&name));
-                let pod_count =
-                    pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name.as_str())).count();
+                let pod_count = pods_per_node.get(&name).copied().unwrap_or(0);
                 let row = k8s::node_row(&n, node_usage, pod_count);
                 (n, row)
             })
@@ -324,6 +333,7 @@ pub(crate) fn run(
                             pods: &node_detail_rows,
                             state: nd_state,
                             sort: ui::SortState::default(),
+                            search: ui::Search::default(),
                         })
                     } else {
                         None
@@ -364,6 +374,7 @@ pub(crate) fn run(
                             pods: &node_detail_rows,
                             state: nd_state,
                             sort: ui::SortState::default(),
+                            search: ui::Search::default(),
                         })
                     } else {
                         None
@@ -373,7 +384,7 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
-            Mode::NodeDetail { name, state, sort: popup_sort, .. } => {
+            Mode::NodeDetail { name, state, sort: popup_sort, search: nd_search, editing: nd_editing, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
@@ -391,6 +402,7 @@ pub(crate) fn run(
                         pods: &node_detail_rows,
                         state,
                         sort: popup_sort.view(),
+                        search: ui::Search { text: nd_search, editing: *nd_editing },
                     };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
@@ -1008,7 +1020,7 @@ pub(crate) fn run(
                     KeyCode::Enter if current_kind == ResourceKind::Nodes => {
                         if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                             let name = node.metadata.name.clone().unwrap_or_default();
-                            mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), sort: ListSort::default(), back: Box::new(Mode::List) };
+                            mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), sort: ListSort::default(), search: String::new(), editing: false, back: Box::new(Mode::List) };
                         }
                     }
                     KeyCode::Char('/') | KeyCode::Char('f') => {
@@ -1254,7 +1266,26 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::NodeDetail { name, state, sort, back }) => match key.code {
+                (Event::Key(key), Mode::NodeDetail { search, editing: editing @ true, state, .. }) => match key.code {
+                    // Esc clears the search; Enter keeps it and goes back to
+                    // browsing the matches.
+                    KeyCode::Esc => {
+                        search.clear();
+                        *editing = false;
+                    }
+                    KeyCode::Enter => *editing = false,
+                    KeyCode::Backspace => {
+                        search.pop();
+                        state.select(Some(0));
+                    }
+                    KeyCode::Char(c) => {
+                        search.push(c);
+                        state.select(Some(0));
+                    }
+                    _ => {}
+                },
+                (Event::Key(key), Mode::NodeDetail { name, state, sort, search, editing, back }) => match key.code {
+                    KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('d') => {
                         if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
@@ -1269,6 +1300,8 @@ pub(crate) fn run(
                                 name: name.clone(),
                                 state: *state,
                                 sort: *sort,
+                                search: search.clone(),
+                                editing: false,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             });
                             let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
@@ -1287,6 +1320,8 @@ pub(crate) fn run(
                                 name: name.clone(),
                                 state: *state,
                                 sort: *sort,
+                                search: search.clone(),
+                                editing: false,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             };
                             mode = Mode::Containers {

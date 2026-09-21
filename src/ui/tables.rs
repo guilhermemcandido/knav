@@ -39,27 +39,23 @@ pub(super) fn container_state_text(c: &ContainerInfo) -> String {
     }
 }
 
-pub(super) fn draw_status_line(frame: &mut Frame, area: Rect, pods: &[PodRow], row: Option<usize>, dimmed: bool) {
-    let line = match (dimmed, row.and_then(|i| pods.get(i))) {
-        (false, Some(pod)) => {
-            let mut spans = namespace_name_spans(&pod.namespace, &pod.name);
-            spans.push(Span::raw(" ["));
-            for (i, c) in pod.containers.iter().enumerate() {
-                if i > 0 {
-                    spans.push(Span::styled(" : ", Style::default().fg(Color::DarkGray)));
-                }
-                let (glyph, color) = container_dot(c);
-                let style = Style::default().fg(color);
-                spans.push(Span::styled(format!("{glyph} "), style));
-                spans.push(Span::styled(c.name.clone(), style));
-                spans.push(Span::styled(format!("({})", container_state_text(c)), style));
-            }
-            spans.push(Span::raw("]"));
-            Line::from(spans)
+/// The selected pod, for the end of the breadcrumb bar: `namespace/name
+/// [● container(state) : ...]`.
+pub(super) fn pod_selection_spans(pod: &PodRow) -> Vec<Span<'static>> {
+    let mut spans = namespace_name_spans(&pod.namespace, &pod.name);
+    spans.push(Span::raw(" ["));
+    for (i, c) in pod.containers.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" : ", Style::default().fg(Color::DarkGray)));
         }
-        _ => Line::raw(""),
-    };
-    frame.render_widget(Paragraph::new(line), area);
+        let (glyph, color) = container_dot(c);
+        let style = Style::default().fg(color);
+        spans.push(Span::styled(format!("{glyph} "), style));
+        spans.push(Span::styled(c.name.clone(), style));
+        spans.push(Span::styled(format!("({})", container_state_text(c)), style));
+    }
+    spans.push(Span::raw("]"));
+    spans
 }
 
 /// A real floating popup, positioned right next to the cursor — "in
@@ -167,8 +163,7 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window 
 /// hand-guessing pixel math that could silently drift out of sync with
 /// what's actually rendered.
 pub fn row_at(frame_area: Rect, pods: &[PodRow], hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
-    let table_area =
-        Rect { x: frame_area.x, y: frame_area.y, width: frame_area.width, height: frame_area.height.saturating_sub(1) };
+    let table_area = frame_area;
 
     let inner = Rect {
         x: table_area.x.saturating_add(1),
