@@ -312,6 +312,28 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
                 }
             }
+            // The manifest as plain YAML text.
+            KeyCode::Char('y') => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
+                    && let Some(target) = Target::from_manifest(&manifest)
+                {
+                    let title = format!("{}/{}", target.namespace.as_deref().unwrap_or("-"), target.name);
+                    let text = serde_yaml::to_string(&manifest).unwrap_or_default();
+                    let back = std::mem::replace(&mut st.mode, Mode::List);
+                    st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
+                }
+            }
+            // Copy the row's name (`namespace/name`) to the clipboard.
+            KeyCode::Char('Y') => {
+                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
+                    let name = target.namespace.as_deref().map(|ns| format!("{ns}/{}", target.name)).unwrap_or_else(|| target.name.clone());
+                    let outcome = match clipboard::copy(&name) {
+                        Ok(how) => actions::Outcome { text: format!("Copied {name} with {how}"), error: false },
+                        Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                    };
+                    st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
+                }
+            }
             // A Secret's values, decoded.
             KeyCode::Char('x') if st.current_kind == ResourceKind::Secrets => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)

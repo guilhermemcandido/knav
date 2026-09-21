@@ -1,0 +1,43 @@
+//! Copying text to the system clipboard: the platform's own tool when there
+//! is one, else the terminal's OSC 52 escape (which many terminals honour,
+//! including over ssh).
+
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use anyhow::{Result, bail};
+
+/// Copies `text`; returns how it was done, for the notice.
+pub fn copy(text: &str) -> Result<&'static str> {
+    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("pbcopy", &[])]
+    } else if cfg!(target_os = "windows") {
+        &[("clip", &[])]
+    } else {
+        &[("wl-copy", &[]), ("xclip", &["-selection", "clipboard"]), ("xsel", &["--clipboard", "--input"])]
+    };
+    for (program, args) in candidates {
+        if pipe_into(program, args, text).is_ok() {
+            return Ok(program);
+        }
+    }
+    osc52(text)?;
+    Ok("the terminal")
+}
+
+fn pipe_into(program: &str, args: &[&str], text: &str) -> Result<()> {
+    let mut child = Command::new(program).args(args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    child.stdin.take().map(|mut stdin| stdin.write_all(text.as_bytes())).transpose()?;
+    if !child.wait()?.success() {
+        bail!("{program} failed");
+    }
+    Ok(())
+}
+
+fn osc52(text: &str) -> Result<()> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut out = std::io::stdout();
+    write!(out, "\x1b]52;c;{}\x07", STANDARD.encode(text))?;
+    out.flush()?;
+    Ok(())
+}

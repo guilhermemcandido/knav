@@ -286,6 +286,45 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// One YAML line coloured by role: keys blue, the rest plain, list dashes muted.
+fn yaml_line(line: &str) -> Line<'static> {
+    let indent = line.len() - line.trim_start().len();
+    let (lead, rest) = line.split_at(indent);
+    let (dash, rest) = match rest.strip_prefix("- ") {
+        Some(after) => ("- ", after),
+        None => ("", rest),
+    };
+    let key_style = Style::default().fg(Color::Rgb(84, 148, 255));
+    let plain = Style::default().fg(Color::Rgb(200, 205, 218));
+    let mut spans = vec![Span::raw(lead.to_string()), Span::styled(dash.to_string(), Style::default().fg(MUTED_FG))];
+    match rest.split_once(": ").or_else(|| rest.strip_suffix(':').map(|k| (k, ""))) {
+        Some((key, value)) if !key.contains(' ') || key.starts_with('"') => {
+            spans.push(Span::styled(key.to_string(), key_style));
+            spans.push(Span::styled(":", Style::default().fg(MUTED_FG)));
+            if !value.is_empty() {
+                spans.push(Span::styled(format!(" {value}"), plain));
+            }
+        }
+        _ => spans.push(Span::styled(rest.to_string(), plain)),
+    }
+    Line::from(spans)
+}
+
+/// A manifest as scrollable text over the whole body of the screen.
+pub(super) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll: usize) {
+    let area = body_area(frame.area(), true);
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(theme_border(false))
+        .title(Line::styled(format!(" {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(yaml_line).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hint: &str) {
     let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
     if !hint.is_empty() {

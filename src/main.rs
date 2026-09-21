@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod catalog;
 mod cli;
+mod clipboard;
 mod commands;
 mod config;
 mod describe;

@@ -30,6 +30,8 @@ pub(crate) enum Mode {
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
+    /// A manifest as plain YAML text, scrollable (`y`).
+    Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
@@ -234,6 +236,11 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path.push(segment("Logs", container));
             path
         }
+        Mode::Yaml { title, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push(segment("YAML", title.clone()));
+            path
+        }
         Mode::EventDetail { back, .. } => {
             let mut path = breadcrumb_path(back);
             path.push(plain_segment("Event"));
@@ -335,6 +342,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             };
             if !matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) {
                 hints.push(("e", "edit"));
+                hints.push(("y", "yaml"));
+                hints.push(("Y", "copy name"));
                 hints.extend(action_hints(current_kind));
             }
             hints.push(("space", "mark"));
@@ -349,6 +358,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints
         }
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
+        Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],
         Mode::Context { .. } => vec![("↑↓/jk", "move"), ("enter", "connect"), ("/", "filter"), ("q/esc", "back")],

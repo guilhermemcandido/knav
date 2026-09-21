@@ -12,6 +12,39 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let frame_area = cx.frame_area;
     let mut failed_shell = None;
     match (event, &mut st.mode) {
+        (Event::Key(key), Mode::Yaml { text, scroll, back, .. }) => {
+            let last = text.lines().count().saturating_sub(1);
+            let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+                KeyCode::Char('j') | KeyCode::Down => *scroll = (*scroll + 1).min(last),
+                KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
+                KeyCode::Char('g') | KeyCode::Home => *scroll = 0,
+                KeyCode::Char('G') | KeyCode::End => *scroll = last,
+                KeyCode::Char('f') if ctrl => *scroll = (*scroll + page).min(last),
+                KeyCode::PageDown => *scroll = (*scroll + page).min(last),
+                KeyCode::Char('b') if ctrl => *scroll = scroll.saturating_sub(page),
+                KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
+                KeyCode::Char('c') => {
+                    let outcome = match clipboard::copy(text) {
+                        Ok(how) => actions::Outcome { text: format!("Copied the YAML with {how}"), error: false },
+                        Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                    };
+                    let back = std::mem::replace(&mut st.mode, Mode::List);
+                    st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+                }
+                _ => {}
+            }
+        }
+        (Event::Mouse(mouse), Mode::Yaml { text, scroll, .. }) => {
+            let last = text.lines().count().saturating_sub(1);
+            match mouse.kind {
+                MouseEventKind::ScrollDown => *scroll = (*scroll + 3).min(last),
+                MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
+                _ => {}
+            }
+        }
         (Event::Key(key), Mode::Spec { viewing: viewing @ Some(_), .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => *viewing = None,
             _ => {}

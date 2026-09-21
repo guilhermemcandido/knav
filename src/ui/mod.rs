@@ -135,6 +135,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
+    /// A manifest as text, from line `scroll`.
+    Yaml { title: &'a str, text: &'a str, scroll: usize },
     /// The port-forward dialog.
     PortForward { title: &'a str, form: &'a crate::portforward::PortForm },
     /// A number being typed.
@@ -246,6 +248,7 @@ pub fn draw(
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Confirm { .. })
                 | Some(Overlay::Prompt { .. })
+                | Some(Overlay::Yaml { .. })
                 | Some(Overlay::PortForward { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
@@ -377,6 +380,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
         Overlay::Confirm { text } => draw_confirm_popup(frame, text),
         Overlay::Prompt { title, value, hint } => draw_prompt_popup(frame, title, value, hint),
