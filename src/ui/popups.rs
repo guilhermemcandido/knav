@@ -19,7 +19,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         .and_then(|name| name.strip_prefix(input))
         .unwrap_or("");
     let line = Line::from(vec![
-        Span::styled(":", Style::default().fg(Color::Yellow)),
+        Span::styled("> ", Style::default().fg(Color::Yellow)),
         Span::styled(input.to_string(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled("▏", Style::default().fg(Color::Yellow)),
         Span::styled(ghost.to_string(), Style::default().fg(Color::DarkGray)),
