@@ -70,6 +70,8 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `c` | Cordon or uncordon a node |
 | `t` / `u` | Trigger a CronJob now / suspend or resume it (both ask first) |
 | `C` | Switch context |
+| `T` / `:theme` | Pick a theme; each one previews live as you move, `Enter` keeps it |
+| `,` / `:config` | The settings screen: every option, colours and key bindings included |
 | `:q` | Quit (a stray `q` never does) |
 
 The mouse works too (hold Shift, or Option in iTerm2, to select text with the terminal): the wheel moves the selection in every list and popup, a click
@@ -97,6 +99,14 @@ toggle_order = "o"
 
 [ui]
 border = "heavy-rounded"   # box lines: heavy-rounded, thick, rounded, double, block or arcs
+suggestion_icon_percent = 78
+
+[mouse]
+wheel_rows = 3
+double_click_ms = 400
+
+[api]
+refresh_seconds = 2
 
 [tables]
 min_column_width = 10    # no column is squeezed below this; wider tables scroll sideways
@@ -109,6 +119,59 @@ name = 24
 [portforward]
 open_browser = true      # false: ask "Open ... in the browser?" instead
 ```
+
+## Themes
+
+`T` (or `:theme`) lists the themes; moving through the list previews each one on the whole
+interface, `Enter` keeps it and `Esc` goes back. Built in: `knav`, `k9s`, `high-contrast`, `mono`,
+`dracula`, `nord`, `gruvbox-dark`, `gruvbox-light`, `catppuccin-mocha`, `catppuccin-latte`,
+`tokyo-night`, `one-dark`, `monokai`, `solarized-dark`, `solarized-light`, `rose-pine`, `everforest`
+and `github-dark`. The palette themes paint their own background.
+
+Your own themes are files in `~/.config/knav/themes/<name>.toml` and show up in the list:
+
+```toml
+base = "dracula"          # optional: start from a built-in or another of yours
+[colors]                  # or put the roles at the top of the file
+ok = "#50fa7b"
+selection_bg = "#44475a"
+```
+
+Colours are `#rrggbb`, a terminal colour name (`red`, `darkgray`, ...) or `indexed:N`. The roles
+are listed in the settings screen (`,`), where each can be edited with a live swatch. To set them in
+the config instead:
+
+```toml
+[theme]
+preset = "dracula"
+[theme.colors]            # overrides on top of the preset
+warn = "#ffb86c"
+```
+
+## Settings screen
+
+`,` or `:config` opens every setting in one list, grouped by section: theme, box lines, table
+columns, logs, mouse, behaviour, colours and keys. `←` `→` (or `Enter`) change a value, `Enter`
+types a number, colour or key, `r` resets one to its default. Changes save to `config.toml` (your
+comments and other settings stay) and apply at once, except the few marked "restart to apply".
+
+## Key bindings
+
+Every action can be rebound under `[keys]`, as one key or a list. Keys are `j`, `D` (shift-d),
+`ctrl-z`, `alt-x`, `enter`, `esc`, `space`, `tab`, `up`, `down`, `f5`, ... The digits are reserved
+for the namespace and sort shortcuts, and text entry and the mouse are fixed.
+
+```toml
+[keys]
+delete = "X"
+move_down = ["j", "down", "ctrl-n"]
+help = "f1"
+```
+
+Two actions that can be used on the same screen can't share a key: the settings screen refuses
+with a message naming the other action, and in the file the later one is ignored (with a warning
+when knav starts). Swapping two actions' keys is fine. The action names and their keys are all in
+the settings screen under "Keys". The help screen and the hints follow whatever you bind.
 
 Reserved namespaces are saved in `~/.config/knav/namespaces`.
 
