@@ -181,6 +181,8 @@ pub struct SortState {
     pub column: Option<usize>,
     pub descending: bool,
     pub choosing: bool,
+    /// The column the sort cursor is on while choosing (arrows move it, Enter sorts by it).
+    pub cursor: Option<usize>,
 }
 
 impl SortState {

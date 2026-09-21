@@ -34,7 +34,7 @@ pub(crate) struct ListSort {
 
 impl ListSort {
     pub(crate) fn view(self) -> ui::SortState {
-        ui::SortState { column: self.spec.map(|s| s.column), descending: self.spec.is_some_and(|s| s.descending), choosing: self.choosing }
+        ui::SortState { column: self.spec.map(|s| s.column), descending: self.spec.is_some_and(|s| s.descending), choosing: self.choosing, cursor: None }
     }
 
     /// Feeds it a key; `true` if it was a sort key (`s` to enter sort
@@ -53,8 +53,8 @@ impl ListSort {
         }
         match code {
             KeyCode::Char(c @ '0'..='9') => {
-                // 1-9 are columns 1-9; 0 is the tenth.
-                let column = (c as usize + 9 - '0' as usize) % 10;
+                // The digits are columns 0-9.
+                let column = c as usize - '0' as usize;
                 if column < columns {
                     self.spec = Some(SortSpec::pressed(self.spec, column));
                 }
@@ -263,16 +263,16 @@ mod tests {
         assert!(sort.handle(KeyCode::Char('s'), 4, false));
         assert!(sort.choosing);
         assert!(sort.handle(KeyCode::Char('2'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: false }));
+        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: false }));
         assert!(sort.handle(KeyCode::Char('2'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }));
+        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }));
         // Past the last column: consumed, but nothing changes.
         assert!(sort.handle(KeyCode::Char('9'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }));
+        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }));
         assert!(sort.choosing);
         assert!(sort.handle(KeyCode::Esc, 4, false));
         assert!(!sort.choosing);
-        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }), "leaving keeps the sort");
+        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }), "leaving keeps the sort");
     }
 
     #[test]

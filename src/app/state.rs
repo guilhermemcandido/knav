@@ -53,6 +53,8 @@ pub(super) struct State {
     pub sort: Option<SortSpec>,
     /// Whether the next digit is choosing a sort column.
     pub sort_choosing: bool,
+    /// The column the sort cursor is on while choosing.
+    pub sort_cursor: usize,
     /// How many columns the list is scrolled to the right (←/→ or h/l)
     /// when its columns don't all fit the screen.
     pub hscroll: usize,
@@ -120,6 +122,7 @@ impl State {
             nav_stack: Vec::new(),
             sort: None,
             sort_choosing: false,
+            sort_cursor: 0,
             hscroll: 0,
             favorites,
             search: String::new(),

@@ -51,7 +51,7 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `0`-`9` | Switch namespace: `0` is all, `1`-`9` the ones you reserved (kept per context) |
 | `Enter` | Drill into what a row owns (Deployment → ReplicaSets → Pods → containers → logs), or open its spec |
 | `/` | Search the list; matches are highlighted |
-| `s` then a digit | Sort by that column; the same digit flips the direction. `s`/`Esc`/`q` leaves |
+| `s` then a digit | Sort by that column (columns are numbered from 0); the same digit flips the direction. `←`/`→` (or `h`/`l`) move a cursor along the headers, scrolling to it, and `Enter` sorts by that column, so any column can be sorted, not just the first ten. `s`/`Esc`/`q` leaves |
 | `←` `→` | Scroll columns sideways when they don't fit |
 | `g` `G` / `Ctrl-f` `Ctrl-b` | Top or bottom of the list / page down or up (also `Home` `End` `PageUp` `PageDown`) |
 | `y` / `Y` | The manifest as YAML text (`c` there copies it) / copy the row's `namespace/name` to the clipboard |

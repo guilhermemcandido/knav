@@ -38,18 +38,27 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('u') if st.info_panel => st.info_scroll = st.info_scroll.saturating_sub(8),
             _ => {}
         },
-        // Sort mode (`s`): headers show column numbers and a digit sorts by that column.
-        // The same digit again flips ascending, descending, off. It stays on until
-        // `s`, Esc or `q`; other keys work as usual.
+        // Sort mode (`s`): headers show column numbers 0-9 and a digit sorts by that column; the
+        // arrows move a cursor along the headers so any column can be picked, and Enter sorts by it.
+        // The same column again flips ascending, descending, off. It stays on until `s`, Esc or `q`.
         (Event::Key(key), Mode::List)
-            if st.sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
+            if st.sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q' | 'h' | 'l') | KeyCode::Esc | KeyCode::Left | KeyCode::Right | KeyCode::Enter) =>
         {
+            let columns = column_count(st.current_kind, *generic_columns, st.wide);
             match key.code {
                 KeyCode::Char(c @ '0'..='9') => {
-                    // 1-9 are columns 1-9; 0 is the tenth.
-                    let column = (c as usize + 9 - '0' as usize) % 10;
-                    if column < column_count(st.current_kind, *generic_columns, st.wide) {
+                    let column = c as usize - '0' as usize;
+                    if column < columns {
+                        st.sort_cursor = column;
                         st.sort = Some(SortSpec::pressed(st.sort, column));
+                        st.table_state.select(Some(0));
+                    }
+                }
+                KeyCode::Left | KeyCode::Char('h') => st.sort_cursor = st.sort_cursor.saturating_sub(1),
+                KeyCode::Right | KeyCode::Char('l') => st.sort_cursor = (st.sort_cursor + 1).min(columns.saturating_sub(1)),
+                KeyCode::Enter => {
+                    if st.sort_cursor < columns {
+                        st.sort = Some(SortSpec::pressed(st.sort, st.sort_cursor));
                         st.table_state.select(Some(0));
                     }
                 }
@@ -163,7 +172,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Right => st.hscroll += 1,
             // `s` sorts: the column numbers in the header light up and the
             // next digit picks one.
-            KeyCode::Char('s') if column_count(st.current_kind, *generic_columns, st.wide) > 0 => st.sort_choosing = true,
+            KeyCode::Char('s') if column_count(st.current_kind, *generic_columns, st.wide) > 0 => {
+                st.sort_choosing = true;
+                st.sort_cursor = st.sort.map_or(0, |s| s.column);
+            }
             // `n` gives a namespace one of the keys 1-9. On the Namespaces list it acts on
             // the highlighted row; elsewhere it shows the namespaces to choose from.
             KeyCode::Char('n') => {

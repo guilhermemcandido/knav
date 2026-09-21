@@ -242,10 +242,11 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
         let name = names[i];
         let mut spans = Vec::new();
         if sort.choosing && i < 10 {
-            // Columns 1-9 are keys 1-9; the tenth is key 0; later ones have none.
-            spans.push(Span::styled(format!("({})", (i + 1) % 10), number));
+            // Columns 0-9 are keys 0-9; later ones are reached with the sort cursor.
+            spans.push(Span::styled(format!("({i})"), number));
         }
-        spans.push(Span::styled(name.to_string(), text));
+        let under_cursor = sort.cursor == Some(i) && !dimmed;
+        spans.push(Span::styled(name.to_string(), if under_cursor { text.bg(theme().pill_bg).add_modifier(Modifier::UNDERLINED) } else { text }));
         if sort.column == Some(i) {
             spans.push(Span::styled(if sort.descending { " ▼" } else { " ▲" }, text));
         }

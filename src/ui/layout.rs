@@ -182,6 +182,7 @@ pub(super) fn layout_list(
     available: u16,
     flex: Option<usize>,
     hscroll: &mut usize,
+    keep: Option<usize>,
 ) -> Window {
     let key: WidthKey = (DATA_VERSION.load(std::sync::atomic::Ordering::Relaxed), data.0, data.1, headers.join("|"));
     let cached = WIDTHS.lock().ok().and_then(|cache| cache.iter().find(|(k, _)| *k == key).map(|(_, w)| w.clone()));
@@ -196,7 +197,22 @@ pub(super) fn layout_list(
         }
         natural
     });
-    let window = Fitted::from_natural(headers, natural, available, flex).window(*hscroll, available);
+    let fitted = Fitted::from_natural(headers, natural, available, flex);
+    let mut window = fitted.window(*hscroll, available);
+    // Scroll sideways until the column `keep` names (the sort cursor) is in view.
+    if let Some(column) = keep {
+        for _ in 0..headers.len() {
+            let range = window.range();
+            if column < range.start {
+                *hscroll = column;
+            } else if column >= range.end {
+                *hscroll = window.offset + 1;
+            } else {
+                break;
+            }
+            window = fitted.window(*hscroll, available);
+        }
+    }
     *hscroll = window.offset;
     window
 }

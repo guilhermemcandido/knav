@@ -118,7 +118,7 @@ fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut Tabl
 
 pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
 
-    let window = pod_window(pods, area.width, hscroll, wide);
+    let window = pod_window(pods, area.width, hscroll, wide, sort.cursor);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
     let vis = visible(table_state, pods.len(), area);
 
@@ -170,7 +170,7 @@ fn pod_headers(wide: bool) -> Vec<&'static str> {
 
 /// The pods table's visible columns, shared by drawing and by hover
 /// hit-testing so they can't disagree about where CONTAINERS is.
-fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool) -> Window {
+fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
     let rows = pods.iter().map(|p| {
         let mut widths = vec![
             cell_width(&p.namespace),
@@ -190,7 +190,7 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool
         widths.push(p.containers.len() * 2);
         widths
     });
-    layout_list(&pod_headers(wide), (pods.as_ptr() as usize, pods.len()), rows, table_width.saturating_sub(2), None, hscroll)
+    layout_list(&pod_headers(wide), (pods.as_ptr() as usize, pods.len()), rows, table_width.saturating_sub(2), None, hscroll, keep)
 }
 
 /// Which data row of a bordered table a screen row falls on, given its scroll `offset`.
@@ -208,7 +208,7 @@ pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) 
 pub fn controller_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, column: u16) -> bool {
     const CONTROLLER: usize = 5;
     let inner = Rect { x: frame_area.x.saturating_add(1), y: frame_area.y.saturating_add(2), width: frame_area.width.saturating_sub(2), height: frame_area.height.saturating_sub(3) };
-    let window = pod_window(pods, frame_area.width, &mut { hscroll }, wide);
+    let window = pod_window(pods, frame_area.width, &mut { hscroll }, wide, None);
     let range = window.range();
     if !range.contains(&CONTROLLER) {
         return false;
@@ -233,7 +233,7 @@ pub fn row_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, tab
         return None;
     }
 
-    let window = pod_window(pods, table_area.width, &mut { hscroll }, wide);
+    let window = pod_window(pods, table_area.width, &mut { hscroll }, wide, None);
     let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
     // CONTAINERS is the last column; nothing to hover if it's scrolled away.
     let containers_col = if window.range().end == pod_headers(wide).len() { columns.last()? } else { return None };
@@ -293,6 +293,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         area.width.saturating_sub(2),
         None,
         hscroll,
+        sort.cursor,
     );
     let header = header_row(&headers, sort, dimmed, &window);
     let vis = visible(table_state, deployments.len(), area);
@@ -416,6 +417,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
         area.width.saturating_sub(2),
         None,
         hscroll,
+        sort.cursor,
     );
     let header = header_row(&headers, sort, dimmed, &window);
     let vis = visible(table_state, nodes.len(), area);
@@ -494,6 +496,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
         area.width.saturating_sub(2),
         None,
         hscroll,
+        sort.cursor,
     );
     let header = header_row(&headers, sort, dimmed, &window);
     let vis = visible(table_state, rows.len(), area);
