@@ -73,6 +73,14 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         },
         other => other,
     };
+    // `Q` quits from anywhere (`q` only goes back), except while text is being typed.
+    if let Event::Key(key) = &event
+        && key.code == KeyCode::Char('Q')
+        && !key.modifiers.contains(KeyModifiers::CONTROL)
+        && !is_typing(&st.mode)
+    {
+        return Ok(Some(Outcome::Quit));
+    }
     // While the help is open it takes the keys: `?`, `q` and Esc close it.
     if st.show_hints_panel {
         if let Event::Key(key) = &event

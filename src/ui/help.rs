@@ -59,7 +59,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                     shown("T", "themes", "Themes"),
                     shown(",", "settings", "Settings"),
                     shown("?", "help", "Help"),
-                    entry(":q", "Quit"),
+                    shown("Q", "quit", "Quit"),
                 ],
             },
             Section {
@@ -89,7 +89,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown("minus", "last_view", "Last view"),
                 shown("esc", "cancel", "Back / clear marks"),
                 shown("?", "help", "Help"),
-                entry(":q", "Quit"),
+                shown("Q", "quit", "Quit"),
             ],
         },
         Section {

@@ -387,7 +387,7 @@ pub(super) fn draw_settings(frame: &mut Frame, tab: SettingsTab, rows: &[Setting
     frame.render_widget(block, area);
     // The selected setting's explanation takes the last two lines.
     let help = if tab == SettingsTab::Overview {
-        "Reorder the Overview: K and J (or shift with the arrows) move a category or a kind up and down; space hides or shows it. Kinds stay inside their category. The `m` menu is unchanged."
+        "Give each category its place from the left: press a number to put the selected one there, or K and J to nudge it. Space hides or shows it."
     } else {
         state.selected().and_then(|i| rows.get(i)).map(|r| r.help).unwrap_or("")
     };
@@ -478,27 +478,29 @@ pub fn settings_tab_at(frame_area: Rect, column: u16, row: u16) -> Option<Settin
     None
 }
 
-/// The Overview layout editor: categories with their kinds under them, each
-/// with a check for shown or hidden.
+/// The Overview layout editor: each category with its place from the left,
+/// and a line showing the result.
 fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: &mut TableState) {
+    let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(area);
     let rows: Vec<Row> = layout
         .iter()
         .map(|row| {
-            let mark = if row.hidden { "[ ]" } else { "[x]" };
-            let (indent, style) = if row.section {
-                ("", Style::default().fg(theme().heading).add_modifier(Modifier::BOLD))
-            } else {
-                ("    ", Style::default().fg(theme().desc))
-            };
-            let style = if row.hidden { Style::default().fg(theme().muted) } else { style };
-            Row::new(vec![Cell::from(Line::from(vec![Span::styled(format!("{indent}{mark} "), Style::default().fg(theme().muted)), Span::styled(row.name.clone(), style)])), Cell::from(Span::styled(if row.hidden { "hidden" } else { "" }, Style::default().fg(theme().muted)))])
+            let style = if row.hidden { Style::default().fg(theme().muted) } else { Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD) };
+            Row::new(vec![
+                Cell::from(Span::styled(format!(" {} ", row.number), Style::default().fg(theme().key).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled(row.name.clone(), style)),
+                Cell::from(Span::styled(if row.hidden { "hidden" } else { "" }, Style::default().fg(theme().muted))),
+            ])
         })
         .collect();
-    let table = Table::new(rows, [Constraint::Length(40), Constraint::Min(8)]).column_spacing(2).style(theme_row(false)).row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+    let table = Table::new(rows, [Constraint::Length(5), Constraint::Length(24), Constraint::Min(8)]).column_spacing(2).style(theme_row(false)).row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(layout.len().saturating_sub(1))));
     }
-    frame.render_stateful_widget(table, area, state);
+    frame.render_stateful_widget(table, parts[0], state);
+    let shown: Vec<&str> = layout.iter().filter(|r| !r.hidden).map(|r| r.name.as_str()).collect();
+    let preview = Paragraph::new(vec![Line::raw(""), Line::from(vec![Span::styled("Left to right:  ", Style::default().fg(theme().muted)), Span::styled(shown.join("  ›  "), Style::default().fg(theme().accent))])]).wrap(Wrap { trim: true });
+    frame.render_widget(preview, parts[1]);
 }
 
 /// The popup for changing an action's keys: what to do with them, then the

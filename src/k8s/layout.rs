@@ -71,42 +71,12 @@ pub fn any_visible(layout: &[LayoutSection]) -> bool {
     layout.iter().any(|s| !s.hidden && (s.items.is_empty() || s.items.iter().any(|i| !i.hidden)))
 }
 
-/// One row of the editor: a category, or one of its kinds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FlatRow {
-    pub section: usize,
-    pub item: Option<usize>,
-}
-
-pub fn flatten(layout: &[LayoutSection]) -> Vec<FlatRow> {
-    let mut rows = Vec::new();
-    for (s, section) in layout.iter().enumerate() {
-        rows.push(FlatRow { section: s, item: None });
-        rows.extend((0..section.items.len()).map(|i| FlatRow { section: s, item: Some(i) }));
-    }
-    rows
-}
-
-/// Moves the row one place up (`-1`) or down (`1`) among its siblings. Returns
-/// the row's new place in the flattened list, or `None` if it can't move.
-pub fn move_row(layout: &mut [LayoutSection], row: FlatRow, direction: i32) -> Option<usize> {
-    let step = |at: usize, len: usize| -> Option<usize> {
-        let to = at as i64 + i64::from(direction);
-        (to >= 0 && (to as usize) < len).then_some(to as usize)
-    };
-    match row.item {
-        None => {
-            let to = step(row.section, layout.len())?;
-            layout.swap(row.section, to);
-            flatten(layout).iter().position(|r| *r == FlatRow { section: to, item: None })
-        }
-        Some(item) => {
-            let items = &mut layout[row.section].items;
-            let to = step(item, items.len())?;
-            items.swap(item, to);
-            flatten(layout).iter().position(|r| *r == FlatRow { section: row.section, item: Some(to) })
-        }
-    }
+/// Puts the category at `from` at place `to` (both 0-based), shifting the others.
+pub fn move_section_to(layout: &mut Vec<LayoutSection>, from: usize, to: usize) -> usize {
+    let to = to.min(layout.len().saturating_sub(1));
+    let section = layout.remove(from);
+    layout.insert(to, section);
+    to
 }
 
 /// The live catalog in the configured order, without what is hidden.
@@ -165,23 +135,10 @@ mod tests {
     #[test]
     fn a_layout_survives_a_round_trip_through_the_config() {
         let mut layout = resolve(&OverviewConfig::default());
-        let flat = flatten(&layout);
-        let workloads_pods = flat.iter().position(|r| r.item == Some(0) && layout[r.section].name == "Workloads").unwrap();
-        move_row(&mut layout, flat[workloads_pods], 1).unwrap();
+        layout.swap(1, 2);
         layout[0].hidden = true;
         layout[2].items[1].hidden = true;
         assert_eq!(resolve(&to_config(&layout)), layout);
-    }
-
-    #[test]
-    fn moving_stops_at_the_ends_and_stays_inside_a_category() {
-        let mut layout = resolve(&OverviewConfig::default());
-        assert_eq!(move_row(&mut layout, FlatRow { section: 0, item: None }, -1), None);
-        assert_eq!(move_row(&mut layout, FlatRow { section: 0, item: Some(0) }, -1), None, "first kind can't leave its category");
-        let last = layout[0].items.len() - 1;
-        assert_eq!(move_row(&mut layout, FlatRow { section: 0, item: Some(last) }, 1), None);
-        assert!(move_row(&mut layout, FlatRow { section: 0, item: None }, 1).is_some());
-        assert_eq!(names(&layout)[..2], ["Workloads", "Cluster"]);
     }
 
     #[test]
@@ -197,6 +154,14 @@ mod tests {
         let live = vec![("Config", vec![("ConfigMaps", 3)])];
         let config = OverviewConfig { hidden: vec!["Config/ConfigMaps".into()], ..Default::default() };
         assert!(arrange(live, &config).is_empty());
+    }
+
+    #[test]
+    fn a_category_can_be_put_at_a_numbered_place() {
+        let mut layout = resolve(&OverviewConfig::default());
+        assert_eq!(move_section_to(&mut layout, 3, 0), 0);
+        assert_eq!(names(&layout)[..3], ["Network", "Cluster", "Workloads"]);
+        assert_eq!(move_section_to(&mut layout, 0, 99), layout.len() - 1, "clamped to the last place");
     }
 
     #[test]

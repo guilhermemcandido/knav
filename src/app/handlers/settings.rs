@@ -58,7 +58,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let current_theme = crate::theme::theme();
     if let Mode::Settings { tab, settings, state, editing, capture, error, back } = &mut st.mode {
         let mut layout = crate::k8s::layout::resolve(&cx.config.overview);
-        let len = if *tab == ui::SettingsTab::Overview { crate::k8s::layout::flatten(&layout).len() } else { settings.len() };
+        let len = if *tab == ui::SettingsTab::Overview { layout.len() } else { settings.len() };
         let setting = state.selected().and_then(|i| settings.get(i)).cloned();
         let current = setting.as_ref().map(|s| settings::current(cx.config, &current_theme, s)).unwrap_or_default();
         match event {
@@ -77,28 +77,26 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     *error = None;
                 }
             }
-            // The Overview layout: move categories and kinds, hide or show them.
+            // The Overview layout: give each category its place from the left.
             Event::Key(key) if *tab == ui::SettingsTab::Overview => {
                 use crate::k8s::layout;
-                let flat = layout::flatten(&layout);
-                let row = flat[state.selected().unwrap_or(0).min(flat.len() - 1)];
+                let at = state.selected().unwrap_or(0).min(layout.len() - 1);
                 let shift = key.modifiers.contains(KeyModifiers::SHIFT);
                 *error = None;
-                let direction = match key.code {
-                    KeyCode::Char('K') => Some(-1),
-                    KeyCode::Char('J') => Some(1),
-                    KeyCode::Up if shift => Some(-1),
-                    KeyCode::Down if shift => Some(1),
+                // Where the selected category goes: a number is its place, K and J nudge it.
+                let target = match key.code {
+                    KeyCode::Char(c @ '1'..='9') => Some(c as usize - '1' as usize),
+                    KeyCode::Char('K') => at.checked_sub(1),
+                    KeyCode::Up if shift => at.checked_sub(1),
+                    KeyCode::Char('J') => Some(at + 1).filter(|&n| n < len),
+                    KeyCode::Down if shift => Some(at + 1).filter(|&n| n < len),
                     _ => None,
                 };
-                if let Some(direction) = direction {
-                    if let Some(to) = layout::move_row(&mut layout, row, direction) {
+                if let Some(target) = target {
+                    let to = layout::move_section_to(&mut layout, at, target);
+                    if to != at {
                         state.select(Some(to));
-                        let save = match row.item {
-                            None => ("overview.sections".to_string(), names_array(layout.iter().map(|s| s.name.clone()))),
-                            Some(_) => (format!("overview.items.{}", layout[row.section].name), names_array(layout[row.section].items.iter().map(|i| i.name.clone()))),
-                        };
-                        change = Some(Change::Save(vec![(save.0, Some(save.1))]));
+                        change = Some(Change::Save(vec![("overview.sections".to_string(), Some(names_array(layout.iter().map(|s| s.name.clone()))))]));
                     }
                 } else {
                     match key.code {
@@ -108,10 +106,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         KeyCode::Char('g') | KeyCode::Home => state.select(Some(0)),
                         KeyCode::Char('G') | KeyCode::End => state.select(Some(len.saturating_sub(1))),
                         KeyCode::Char(' ') | KeyCode::Enter => {
-                            match row.item {
-                                None => layout[row.section].hidden = !layout[row.section].hidden,
-                                Some(i) => layout[row.section].items[i].hidden = !layout[row.section].items[i].hidden,
-                            }
+                            layout[at].hidden = !layout[at].hidden;
                             if layout::any_visible(&layout) {
                                 let hidden = layout::to_config(&layout).hidden;
                                 change = Some(Change::Save(vec![("overview.hidden".to_string(), (!hidden.is_empty()).then(|| names_array(hidden)))]));

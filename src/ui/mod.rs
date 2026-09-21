@@ -237,11 +237,11 @@ impl SettingsTab {
     }
 }
 
-/// One row of the Overview layout editor.
+/// One category in the Overview layout editor.
 pub struct LayoutRow {
     pub name: String,
-    /// A category (else one of its kinds).
-    pub section: bool,
+    /// Its place from the left, counting from 1.
+    pub number: usize,
     pub hidden: bool,
 }
 

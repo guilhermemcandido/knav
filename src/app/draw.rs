@@ -130,14 +130,7 @@ pub(super) fn draw_mode(
                         Some(ui::CaptureView { label: setting.label.clone(), keys, stage, problem: c.problem.clone() })
                     });
                     let layout_rows: Vec<ui::LayoutRow> = if *tab == ui::SettingsTab::Overview {
-                        let layout = crate::k8s::layout::resolve(&config.overview);
-                        crate::k8s::layout::flatten(&layout)
-                            .into_iter()
-                            .map(|row| match row.item {
-                                None => ui::LayoutRow { name: layout[row.section].name.clone(), section: true, hidden: layout[row.section].hidden },
-                                Some(i) => ui::LayoutRow { name: layout[row.section].items[i].name.clone(), section: false, hidden: layout[row.section].hidden || layout[row.section].items[i].hidden },
-                            })
-                            .collect()
+                        crate::k8s::layout::resolve(&config.overview).into_iter().enumerate().map(|(i, s)| ui::LayoutRow { name: s.name, number: i + 1, hidden: s.hidden }).collect()
                     } else {
                         Vec::new()
                     };

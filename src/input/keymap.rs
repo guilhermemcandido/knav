@@ -55,6 +55,7 @@ macro_rules! bindings {
 bindings! {
     ("help", "Help", ALL, &["?"]),
     ("command", "Command line", ALL, &[":"]),
+    ("quit", "Quit knav", ALL, &["Q"]),
     ("contexts", "Contexts", ALL, &["C"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
