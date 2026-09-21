@@ -217,21 +217,31 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
         Mode::Notice { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => breadcrumb_path(back),
-        Mode::List | Mode::Command { .. } | Mode::Search | Mode::Menu { .. } => Vec::new(),
+        Mode::Menu { .. } => vec![plain_segment("Resources")],
+        Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }
 }
 
-/// The breadcrumb bar's segments, or `None` when there's nothing worth
-/// showing (plain `List`, or a shallow overlay whose own title already
-/// says everything — Menu/Command/Events/ResourcesDetail/ColumnDetail).
-pub(crate) fn breadcrumb(mode: &Mode, current_kind: ResourceKind) -> Option<Vec<ui::BreadcrumbSegment>> {
-    let path = breadcrumb_path(mode);
-    if path.is_empty() {
-        return None;
-    }
-    let mut segments = vec![plain_segment(current_kind.label())];
-    segments.extend(path);
-    Some(segments)
+/// Where you are, for the bar at the bottom of every screen: the list you're
+/// on (through any drill-downs — `Deployments>>ReplicaSets[Deployment/web]`),
+/// then whatever popup is open on top of it (`>>Pod[...]>>Logs[...]`).
+pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::BreadcrumbSegment> {
+    let level = |kind: ResourceKind, scope: Option<&Scope>| match scope {
+        Some(s) => segment(kind.label(), s.label()),
+        None => plain_segment(kind.label()),
+    };
+    // Each stacked level's scope is the one it was drilled into with.
+    let mut segments: Vec<ui::BreadcrumbSegment> = trail.iter().map(|(kind, sc, _)| level(*kind, sc.as_ref())).collect();
+    segments.push(level(current_kind, scope));
+    segments
+}
+
+/// The breadcrumb bar's segments: the list's `location`, then the open
+/// popups.
+pub(crate) fn breadcrumb(mode: &Mode, location: Vec<ui::BreadcrumbSegment>) -> Vec<ui::BreadcrumbSegment> {
+    let mut segments = location;
+    segments.extend(breadcrumb_path(mode));
+    segments
 }
 
 /// The keybindings actually available on whatever's currently focused —

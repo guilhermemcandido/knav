@@ -229,7 +229,8 @@ pub(crate) fn run(
             ..header.clone()
         };
         let sort_view = ui::SortState { column: sort.map(|s| s.column), descending: sort.is_some_and(|s| s.descending), choosing: sort_choosing };
-        let breadcrumb_text = breadcrumb(&mode, current_kind);
+        let breadcrumb_segments = breadcrumb(&mode, location(current_kind, &nav_stack, scope.as_ref()));
+        let breadcrumb_text = Some(breadcrumb_segments);
         let mut hints = hints_for(&mode, current_kind);
         if !hints.is_empty() {
             hints.push(("c", if mouse_capture_enabled { "mouse off" } else { "mouse on" }));
@@ -248,7 +249,7 @@ pub(crate) fn run(
                     let suggestions: Vec<String> = command_suggestions(input, &catalog.crds).into_iter().map(|s| s.label).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
-                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
+                    ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
@@ -286,7 +287,7 @@ pub(crate) fn run(
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: true }, sort_view, &mut hscroll);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: true }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -294,7 +295,7 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     let sections = menu_sections(&catalog.crds);
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
+                    ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                 })?;
             }
             Mode::Spec { title, items, state, viewing, back, .. } => {
@@ -426,9 +427,9 @@ pub(crate) fn run(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                     } else {
-                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
+                        ui::draw(frame, rows_view(), &mut table_state, None, None, None, &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, &mut hscroll);
                     }
                 })?;
             }

@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     pub(crate) fn breadcrumb_is_none_for_plain_list() {
-        assert_eq!(breadcrumb(&Mode::List, ResourceKind::Pods), None);
+        assert_eq!(breadcrumb(&Mode::List, location(ResourceKind::Pods, &[], None)), vec![plain_segment("Pods")]);
     }
 
     #[test]
@@ -380,8 +380,7 @@ mod tests {
             sort: ListSort::default(),
             back: Box::new(node_detail),
         };
-        let rendered: Vec<String> = breadcrumb(&containers, ResourceKind::Overview)
-            .unwrap()
+        let rendered: Vec<String> = breadcrumb(&containers, location(ResourceKind::Overview, &[], None))
             .into_iter()
             .map(|s| match s.value {
                 Some(v) => format!("{}[{v}]", s.kind),

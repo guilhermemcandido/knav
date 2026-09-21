@@ -39,7 +39,8 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
         return area;
     }
     let height = if shortcuts { HEADER_HEIGHT } else { 1 };
-    Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height }
+    // The last row belongs to the breadcrumb bar.
+    Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height - 1 }
 }
 
 pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shortcuts_line: bool, sort_mode: bool, dimmed: bool) {
@@ -134,9 +135,9 @@ mod tests {
     #[test]
     fn body_area_leaves_room_for_the_header() {
         let full = Rect { x: 0, y: 0, width: 100, height: 40 };
-        assert_eq!(body_area(full, true), Rect { x: 0, y: HEADER_HEIGHT, width: 100, height: 40 - HEADER_HEIGHT });
+        assert_eq!(body_area(full, true), Rect { x: 0, y: HEADER_HEIGHT, width: 100, height: 40 - HEADER_HEIGHT - 1 });
         // Without the shortcut line (the Overview) only the info line is taken.
-        assert_eq!(body_area(full, false), Rect { x: 0, y: 1, width: 100, height: 39 });
+        assert_eq!(body_area(full, false), Rect { x: 0, y: 1, width: 100, height: 38 });
     }
 
     #[test]
