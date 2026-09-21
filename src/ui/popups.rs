@@ -99,7 +99,7 @@ pub(super) fn draw_context_popup(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(false));
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -143,7 +143,7 @@ pub(super) fn draw_namespace_picker(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(false));
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -537,7 +537,7 @@ pub(super) fn draw_events_popup(
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(dimmed));
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
@@ -714,7 +714,7 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
         .highlight_symbol("")
-        .row_highlight_style(selection_style(dimmed));
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, dimmed));
 
     frame.render_stateful_widget(table, area, state);
 }

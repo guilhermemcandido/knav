@@ -30,8 +30,17 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
 /// The selected row, after k9s: a solid pale-blue bar with dark bold text,
 /// laid over the row's own colours (so a selected failing pod is still
 /// findable by the breadcrumb, not by its tint).
-pub(super) fn selection_style(dimmed: bool) -> Style {
-    if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) }
+pub(super) fn selection_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+    if dimmed {
+        return dim_style();
+    }
+    // The bar wears the state of the row it is on, like k9s: red on a broken
+    // pod, orange on a pending one, grey on a finished one.
+    let bg = match tone {
+        crate::describe::Tone::Plain | crate::describe::Tone::Good => SELECT_BG,
+        other => tone_color(other),
+    };
+    Style::default().bg(bg).fg(Color::Black).add_modifier(Modifier::BOLD)
 }
 
 /// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
@@ -248,9 +257,19 @@ mod row_style_tests {
 
     #[test]
     fn the_selection_is_a_pale_bar_with_dark_bold_text() {
-        let style = selection_style(false);
+        let style = selection_style(crate::describe::Tone::Plain, false);
         assert_eq!((style.bg, style.fg), (Some(SELECT_BG), Some(Color::Black)));
         assert!(style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn the_bar_takes_the_colour_of_the_rows_state() {
+        use crate::describe::Tone;
+        assert_eq!(selection_style(Tone::Bad, false).bg, Some(BAD_FG));
+        assert_eq!(selection_style(Tone::Warn, false).bg, Some(WARN_FG));
+        assert_eq!(selection_style(Tone::Muted, false).bg, Some(MUTED_FG));
+        assert_eq!(selection_style(Tone::Good, false).bg, Some(SELECT_BG));
+        assert_eq!(selection_style(Tone::Bad, false).fg, Some(Color::Black), "text stays dark and readable");
     }
 
     #[test]
