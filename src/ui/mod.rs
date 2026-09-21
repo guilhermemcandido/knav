@@ -22,6 +22,7 @@ use crate::k8s::{
 mod breadcrumb;
 mod columns;
 mod header;
+mod help;
 mod layout;
 mod logs;
 mod menu;
@@ -33,6 +34,7 @@ mod theme;
 
 pub use self::columns::*;
 pub use self::header::*;
+use self::help::draw_help;
 pub use self::layout::configure_columns;
 use self::layout::*;
 pub use self::breadcrumb::BreadcrumbPod;
@@ -336,8 +338,8 @@ pub fn draw(
         Some(overlay) => draw_overlay(frame, overlay, false, icons),
         None => {}
     }
-    if !suppress_hints && !hints.is_empty() {
-        draw_hints(frame, hints, show_hints_panel);
+    if !suppress_hints && (!hints.is_empty() || show_hints_panel) {
+        draw_hints(frame, hints, show_hints_panel, &header.namespace_slots);
     }
     if let Some(segments) = breadcrumb {
         draw_breadcrumb_bar(frame, segments, selected_pod);
@@ -389,7 +391,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
 /// as the breadcrumb's kind/value split — a flat run of same-colored
 /// text reads as one undifferentiated blob, not a list of distinct
 /// commands.
-pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool) {
+pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>]) {
     let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
     let sep_style = Style::default().fg(Color::DarkGray);
@@ -409,26 +411,7 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool) 
         return;
     }
 
-    let content_width = hints.iter().map(|(key, desc)| key.chars().count() + 2 + desc.chars().count()).max().unwrap_or(0) as u16;
-    let panel_width = (content_width + 4).min(area.width);
-    let panel_height = (hints.len() as u16 + 2).min(area.height.saturating_sub(1));
-    let panel = Rect {
-        x: area.x + area.width.saturating_sub(panel_width),
-        y: area.y + 1,
-        width: panel_width,
-        height: panel_height,
-    };
-    frame.render_widget(Clear, panel);
-
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Commands ");
-    let inner = block.inner(panel);
-    frame.render_widget(block, panel);
-
-    let lines: Vec<Line> = hints
-        .iter()
-        .map(|(key, desc)| Line::from(vec![Span::styled(*key, key_style), Span::styled(": ", sep_style), Span::styled(*desc, desc_style)]))
-        .collect();
-    frame.render_widget(Paragraph::new(lines), inner);
+    draw_help(frame, hints, slots);
 }
 
 /// A floating box, horizontally centered with its top edge a quarter of the

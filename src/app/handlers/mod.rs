@@ -45,6 +45,15 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
 }
 
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+    // While the help is open it takes the keys: `?`, `q` and Esc close it.
+    if st.show_hints_panel {
+        if let Event::Key(key) = &event
+            && matches!(key.code, KeyCode::Char('?' | 'q') | KeyCode::Esc)
+        {
+            st.show_hints_panel = false;
+        }
+        return Ok(None);
+    }
     // `s` and the digits sort a popup's table when one has focus.
     if matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code)) {
         return Ok(None);
