@@ -57,35 +57,63 @@ pub(super) fn shows_health(label: &str) -> bool {
     matches!(label, "Nodes" | "Namespaces" | "Pods" | "Deployments" | "ReplicaSets" | "StatefulSets" | "DaemonSets" | "Jobs" | "CronJobs" | "HPAs" | "Services" | "Endpoints" | "Ingresses" | "PVCs" | "PVs")
 }
 
+/// The opened-up category view draws bigger cards for kinds with a health readout.
+pub(super) const DETAIL_WIDTH: u16 = 36;
+pub(super) const DETAIL_HEIGHT: u16 = 5;
+
+/// The card size for the opened-up category view: bigger when its kinds have
+/// health to show, else the compact size.
+pub(super) fn detail_card(items: &[(&str, usize)]) -> (u16, u16) {
+    if items.iter().any(|(label, _)| shows_health(label)) { (DETAIL_WIDTH, DETAIL_HEIGHT) } else { (COLUMN_WIDTH, item_height(items, COLUMN_WIDTH)) }
+}
+
 /// A bar `width` cells wide: green for what is fine, yellow for what needs a
-/// look, red for what is broken, the rest muted; then `ok/total`.
-pub(super) fn health_line(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
+/// look, red for what is broken, the rest muted.
+pub(super) fn health_bar(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
     let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
+    let bar = width.max(1);
     if total == 0 {
-        return Line::styled("none", if dimmed { dim_style() } else { Style::default().fg(theme().muted) });
+        return Line::styled("░".repeat(bar), paint(theme().muted));
     }
-    let text = format!(" {}/{}", health.good, total);
-    let bar = width.saturating_sub(text.chars().count()).max(1);
     // Each state gets its share of the bar, and never disappears if it exists.
     let share = |n: usize| if n == 0 { 0 } else { (n * bar / total).max(1) };
     let (bad, warn) = (share(health.bad).min(bar), share(health.warn));
     let warn = warn.min(bar - bad);
     let good = share(health.good).min(bar - bad - warn);
     let rest = bar - bad - warn - good;
-    let text_color = if health.bad > 0 { theme().bad } else if health.warn > 0 { theme().warn } else if health.good == total { theme().ok } else { theme().muted };
     Line::from(vec![
         Span::styled("█".repeat(good), paint(theme().ok)),
         Span::styled("█".repeat(warn), paint(theme().warn)),
         Span::styled("█".repeat(bad), paint(theme().bad)),
         Span::styled("░".repeat(rest), paint(theme().muted)),
-        Span::styled(text, paint(text_color)),
     ])
 }
 
+/// `● 14 ok  ● 2 warn  ● 1 bad`, only the states that have objects.
+pub(super) fn health_legend(health: Health, total: usize, dimmed: bool) -> Line<'static> {
+    let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
+    if total == 0 {
+        return Line::styled("none", paint(theme().muted));
+    }
+    let mut spans = Vec::new();
+    for (n, word, color) in [(health.good, "ok", theme().ok), (health.warn, "warn", theme().warn), (health.bad, "bad", theme().bad)] {
+        if n > 0 {
+            if !spans.is_empty() {
+                spans.push(Span::raw("  "));
+            }
+            spans.push(Span::styled(format!("● {n} {word}"), paint(color)));
+        }
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(format!("{total} total"), paint(theme().muted)));
+    }
+    Line::from(spans)
+}
+
 /// The height every card in a column takes: taller when any of its names
-/// needs two rows at `column_width`, or any card carries a health bar.
+/// needs two rows at `column_width`.
 pub fn item_height(items: &[(&str, usize)], column_width: u16) -> u16 {
-    if items.iter().any(|(label, count)| shows_health(label) || wrap_label(label, label_room(column_width, *count)).is_some()) {
+    if items.iter().any(|(label, count)| wrap_label(label, label_room(column_width, *count)).is_some()) {
         ITEM_HEIGHT_WRAPPED
     } else {
         ITEM_HEIGHT
@@ -154,19 +182,17 @@ pub(super) fn column_detail_area(frame_area: Rect) -> Rect {
     centered_rect(85, 80, frame_area)
 }
 
-/// How many item cards fit per row in a column-detail popup, same
-/// card width the compact Overview columns use, so a kind's card looks
-/// identical whether you're looking at it there or here.
-pub fn column_detail_cols(frame_area: Rect) -> usize {
+/// How many item cards fit per row in a column-detail popup.
+pub fn column_detail_cols(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
-    ((inner.width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize
+    ((inner.width + 1) / (detail_card(items).0 + 1)).max(1) as usize
 }
 
 /// How many grid rows of item cards fit vertically in a column-detail
 /// popup at once.
 pub fn column_detail_visible_rows(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
-    (inner.height / item_height(items, COLUMN_WIDTH)).max(1) as usize
+    (inner.height / detail_card(items).1).max(1) as usize
 }
 
 /// Movement for a column-detail popup's item grid: `move_selection` with one
@@ -260,7 +286,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, col_idx, title, items, &overview.health, selection, scroll, dimmed, icons);
+        draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -269,7 +295,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
         frame.render_widget(Paragraph::new(Span::styled("◀", arrow_style)), left);
     }
     if col_scroll + cols_visible < total {
-        let right = Rect { x: area.x + area.width - SCROLL_ARROW_WIDTH, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
+        let right = Rect { x: (area.x + area.width).saturating_sub(SCROLL_ARROW_WIDTH), y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
         frame.render_widget(Paragraph::new(Span::styled("▶", arrow_style)), right);
     }
 }
@@ -284,7 +310,6 @@ pub(super) fn draw_column(
     col_idx: usize,
     title: &str,
     items: &[(&str, usize)],
-    health: &std::collections::HashMap<&'static str, Health>,
     selection: OverviewSelection,
     item_scroll: usize,
     dimmed: bool,
@@ -323,7 +348,7 @@ pub(super) fn draw_column(
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], label, *count, health.get(label).copied(), title, selected, dimmed, icons);
+        draw_column_item(frame, rows[slot], label, *count, None, title, selected, dimmed, icons);
     }
 }
 
@@ -382,11 +407,10 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
             Span::styled(count_text, count_style),
         ])],
     };
-    // Kinds with a health bar show it on the second row, unless the name took it.
-    if lines.len() == 1 && inner.height >= 2 && shows_health(label) {
-        if let Some(health) = health.or((count == 0).then(Health::default)) {
-            lines.push(health_line(health, count, split[1].width as usize, dimmed));
-        }
+    // The opened-up view adds a bar and what it is made of.
+    if let Some(health) = health {
+        lines.push(health_bar(health, count, split[1].width as usize, dimmed));
+        lines.push(health_legend(health, count, dimmed));
     }
     lines.truncate(inner.height as usize);
     frame.render_widget(Paragraph::new(lines), split[1]);
@@ -441,9 +465,9 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         return;
     }
 
-    let cols = ((inner.width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize;
+    let (card_w, item_h) = detail_card(items);
+    let cols = ((inner.width + 1) / (card_w + 1)).max(1) as usize;
     let total_rows = items.len().div_ceil(cols);
-    let item_h = item_height(items, COLUMN_WIDTH);
     let visible_rows = (inner.height / item_h).max(1) as usize;
     let row_scroll = row_scroll.min(total_rows.saturating_sub(visible_rows));
     let rows_shown = visible_rows.min(total_rows.saturating_sub(row_scroll));
@@ -455,11 +479,11 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         let row_idx = row_scroll + slot;
         let start = row_idx * cols;
         let row_items = &items[start..(start + cols).min(items.len())];
-        let col_constraints: Vec<Constraint> = row_items.iter().map(|_| Constraint::Length(COLUMN_WIDTH)).collect();
+        let col_constraints: Vec<Constraint> = row_items.iter().map(|_| Constraint::Length(card_w)).collect();
         let col_areas = Layout::horizontal(col_constraints).spacing(1).split(*row_area);
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
-            draw_column_item(frame, *item_area, label, *count, health.get(label).copied(), title, idx == selected, false, icons);
+            draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label)), title, idx == selected, false, icons);
         }
     }
 }
@@ -494,9 +518,8 @@ mod wrap_tests {
     }
 
     #[test]
-    fn a_column_is_tall_when_a_name_needs_two_rows_or_a_card_has_a_health_bar() {
-        assert_eq!(item_height(&[("ConfigMaps", 3), ("Secrets", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
-        assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT_WRAPPED);
+    fn a_column_is_tall_only_when_one_of_its_names_needs_two_rows() {
+        assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
         assert_eq!(item_height(&[("Pods", 3), ("ClusterRoleBindings", 61)], 22), ITEM_HEIGHT_WRAPPED);
     }
 }
@@ -505,27 +528,22 @@ mod wrap_tests {
 mod health_tests {
     use super::*;
 
-    fn cells(line: &Line) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect()
-    }
-
     #[test]
-    fn the_bar_fills_its_width_and_ends_with_the_ratio() {
-        let line = health_line(Health { good: 15, warn: 1, bad: 1 }, 17, 20, false);
-        assert_eq!(line.width(), 20);
-        assert!(cells(&line).ends_with(" 15/17"));
+    fn the_bar_fills_its_width() {
+        assert_eq!(health_bar(Health { good: 15, warn: 1, bad: 1 }, 17, 20, false).width(), 20);
     }
 
     #[test]
     fn a_broken_object_always_shows_even_among_many() {
-        let line = health_line(Health { good: 199, warn: 0, bad: 1 }, 200, 20, false);
-        assert!(cells(&line).contains('█'));
+        let line = health_bar(Health { good: 199, warn: 0, bad: 1 }, 200, 20, false);
         assert_eq!(line.spans[2].content.chars().count(), 1, "one red cell");
     }
 
     #[test]
-    fn an_empty_kind_says_none() {
-        assert_eq!(cells(&health_line(Health::default(), 0, 20, false)), "none");
+    fn the_legend_lists_only_states_that_exist() {
+        let text: String = health_legend(Health { good: 14, warn: 0, bad: 3 }, 17, false).spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "● 14 ok  ● 3 bad");
+        assert_eq!(health_legend(Health::default(), 0, false).spans[0].content, "none");
     }
 }
 
@@ -545,7 +563,7 @@ mod column_detail_tests {
     #[test]
     fn column_detail_cols_and_visible_rows_are_at_least_one() {
         let tiny = Rect { x: 0, y: 0, width: 1, height: 1 };
-        assert!(column_detail_cols(tiny) >= 1);
+        assert!(column_detail_cols(tiny, &[("Pods", 1)]) >= 1);
         assert!(column_detail_visible_rows(tiny, &[("Pods", 1)]) >= 1);
     }
 }
