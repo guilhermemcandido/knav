@@ -740,10 +740,23 @@ pub(crate) fn run(
                             search.clear();
                         }
                     }
-                    // `s` on a namespace opens the list of number keys 1-9 to
-                    // choose which one it goes on (0 is always "all").
-                    KeyCode::Char('s') if current_kind == ResourceKind::Namespaces => {
-                        if let Some(name) = table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
+                    // `n` opens the list of number keys 1-9 to choose which one
+                    // the selected row's namespace goes on (0 is always "all").
+                    // Works on any namespaced row — a Pod, a Deployment, a
+                    // ConfigMap — and on the Namespaces list itself.
+                    KeyCode::Char('n') => {
+                        let selected_row = table_state.selected();
+                        let name = match current_kind {
+                            ResourceKind::Namespaces => selected_row.and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()),
+                            ResourceKind::Pods => selected_row.and_then(|i| pods.get(i)).and_then(|p| p.metadata.namespace.clone()),
+                            ResourceKind::Deployments => selected_row.and_then(|i| deployments.get(i)).and_then(|d| d.metadata.namespace.clone()),
+                            ResourceKind::Overview
+                            | ResourceKind::Nodes
+                            | ResourceKind::CustomResourceList
+                            | ResourceKind::CustomResourceGroup(_) => None,
+                            _ => selected_row.and_then(|i| generic_rows.get(i)).map(|r| r.namespace.clone()).filter(|ns| ns != "-"),
+                        };
+                        if let Some(name) = name {
                             // Start on the key it already has, else the first free one.
                             let selected = favorites
                                 .key_of(&name)
