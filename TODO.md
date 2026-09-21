@@ -8,12 +8,12 @@ Correctness and robustness
 - [x] Wide characters: widths now count terminal cells.
 - [x] Config: problems are shown inside the app.
 - [x] Blocking: clipboard copy is bounded to 2 s, port-forward stderr is drained (the `e` edit apply stays synchronous because the editor loop needs its result).
-- [ ] Details: suspended Jobs show as Pending; work-queue Jobs read `0/1`; Endpoints ignore not-ready addresses.
-- [ ] Lists: EndpointSlice, IngressClass, PodDisruptionBudget, ResourceQuota, LimitRange and Lease have info views but no list.
-- [ ] Sorted pod snapshot is not cached (about 27 ms per refresh at 100k pods).
+- [x] Details: suspended Jobs, work-queue Jobs and not-ready Endpoints are shown properly.
+- [x] Lists: those kinds are reachable through API Resources (`:leases`, `:poddisruptionbudgets`, ...) with the server's own columns, so no dedicated tables.
+- [x] Sorted pod snapshot is cached per change.
 
 Structure
-- [ ] Split `handlers/list.rs` (`handle` is about 540 lines), `relations.rs`, `actions.rs`, `columns.rs`, `overview.rs`.
+- [x] Split `handlers/list.rs`, `relations.rs`, `actions.rs`, `columns.rs`, `overview.rs` into modules (the key match in `list/mod.rs` is still one long function).
 - [ ] Share the table tail (about 10 copies), the text-entry handlers (7 copies) and the 15-argument draw call in `draw.rs` (25 copies).
 - [ ] Trim comments longer than 1 to 3 lines and fix doc comments sitting above the wrong item.
 
