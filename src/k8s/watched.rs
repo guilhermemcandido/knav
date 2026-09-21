@@ -40,6 +40,8 @@ pub trait CatalogKind: Send + Sync {
     }
     /// Whether wide-only columns are wanted (only table-backed kinds have any).
     fn set_wide(&self, _wide: bool) {}
+    /// Narrows what is fetched to one namespace (`None`: all), for kinds that fetch on demand.
+    fn set_namespace(&self, _namespace: Option<&str>) {}
 }
 
 pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {

@@ -165,10 +165,21 @@ struct TableData {
     error: Option<String>,
     /// More pages of the first load are still coming.
     loading: bool,
+    /// The namespace the rows were fetched for (`None`: all of them), and whether that is all of them.
+    scope: Option<String>,
+    complete: bool,
+}
+
+impl TableData {
+    /// Whether the rows held include everything a fetch of `namespace` would return.
+    fn covers(&self, namespace: Option<&str>) -> bool {
+        self.complete && (self.scope.is_none() || self.scope.as_deref() == namespace)
+    }
 }
 
 /// One resource type shown through the server's Table view, refreshed every
-/// couple of seconds in the background for as long as it is open.
+/// couple of seconds in the background for as long as it is open. With a namespace
+/// selected only that namespace is fetched.
 pub struct TableKind {
     data: Arc<Mutex<TableData>>,
     wide: AtomicBool,
@@ -176,6 +187,11 @@ pub struct TableKind {
     client: Client,
     resource: ApiResource,
     namespaced: bool,
+    /// Full objects fetched for the info view and actions, so asking again costs nothing.
+    objects: Arc<Mutex<HashMap<(String, String), (std::time::Instant, serde_yaml::Value)>>>,
+    /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
+    scope: Arc<Mutex<Option<String>>>,
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl Drop for TableKind {
@@ -188,19 +204,31 @@ impl TableKind {
     pub fn start(client: Client, api: &ApiInfo) -> Self {
         let resource = api.resource();
         let data = Arc::new(Mutex::new(TableData::default()));
+        let scope = Arc::new(Mutex::new(None::<String>));
+        let changed = Arc::new(tokio::sync::Notify::new());
         let handle = {
-            let (client, resource, data) = (client.clone(), resource.clone(), Arc::clone(&data));
+            let (client, resource) = (client.clone(), resource.clone());
+            let (data, scope, changed) = (Arc::clone(&data), Arc::clone(&scope), Arc::clone(&changed));
+            let namespaced = api.namespaced;
             tokio::spawn(async move {
                 loop {
                     let started = std::time::Instant::now();
-                    refresh_table(&client, &resource, &data).await;
+                    let wanted = if namespaced { scope.lock().ok().and_then(|s| s.clone()) } else { None };
+                    // A change of namespace drops the fetch in flight and starts over.
+                    tokio::select! {
+                        _ = refresh_table(&client, &resource, &data, wanted.as_deref()) => {}
+                        _ = changed.notified() => continue,
+                    }
                     // A big list takes long to fetch, so wait in proportion and never hammer the server.
                     let pause = Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1)).max(started.elapsed() * 3);
-                    tokio::time::sleep(pause).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(pause) => {}
+                        _ = changed.notified() => {}
+                    }
                 }
             })
         };
-        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced }
+        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced, objects: Arc::default(), scope, changed }
     }
 
     fn shows(&self, column: &TableColumn) -> bool {
@@ -213,8 +241,12 @@ impl TableKind {
 const PAGE: usize = 500;
 
 /// One page of the Table view of `resource`, and the token for the next page if there is one.
-async fn fetch_page(client: &Client, resource: &ApiResource, token: Option<&str>) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>, Option<String>)> {
-    let base = if resource.group.is_empty() { format!("/api/{}/{}", resource.version, resource.plural) } else { format!("/apis/{}/{}/{}", resource.group, resource.version, resource.plural) };
+async fn fetch_page(client: &Client, resource: &ApiResource, namespace: Option<&str>, token: Option<&str>) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>, Option<String>)> {
+    let root = if resource.group.is_empty() { format!("/api/{}", resource.version) } else { format!("/apis/{}/{}", resource.group, resource.version) };
+    let base = match namespace {
+        Some(ns) => format!("{root}/namespaces/{}/{}", percent_encode(ns), resource.plural),
+        None => format!("{root}/{}", resource.plural),
+    };
     let path = match token {
         Some(token) => format!("{base}?limit={PAGE}&continue={}", percent_encode(token)),
         None => format!("{base}?limit={PAGE}"),
@@ -230,22 +262,28 @@ fn percent_encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-/// Reads every page. The first time, rows show up as pages arrive so a long list appears at once;
-/// later refreshes gather the whole snapshot and swap it in, so rows never jump around mid-fetch.
-async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>) {
-    let first = data.lock().map(|d| d.columns.is_empty()).unwrap_or(true);
+/// Reads every page of `namespace` (all when `None`). When what is held cannot stand in for the
+/// new list, rows show up as pages arrive so a long list appears at once; otherwise the whole
+/// snapshot is gathered and swapped in, so rows never jump around mid-fetch.
+async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) {
+    let in_place = data.lock().map(|d| d.columns.is_empty() || !d.covers(namespace)).unwrap_or(true);
+    if in_place && let Ok(mut d) = data.lock() {
+        d.rows.clear();
+        d.complete = false;
+        d.scope = namespace.map(str::to_string);
+    }
     let (mut columns, mut rows, mut token) = (Vec::new(), Vec::new(), None::<String>);
     loop {
-        match fetch_page(client, resource, token.as_deref()).await {
+        match fetch_page(client, resource, namespace, token.as_deref()).await {
             Ok((page_columns, page_rows, next)) => {
-                if first {
-                    if let Ok(mut data) = data.lock() {
-                        if data.columns.is_empty() {
-                            data.columns = page_columns;
+                if in_place {
+                    if let Ok(mut d) = data.lock() {
+                        if d.columns.is_empty() {
+                            d.columns = page_columns;
                         }
-                        data.rows.extend(page_rows);
-                        data.error = None;
-                        data.loading = next.is_some();
+                        d.rows.extend(page_rows);
+                        d.error = None;
+                        d.loading = next.is_some();
                     }
                 } else {
                     if columns.is_empty() {
@@ -259,16 +297,20 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
                 }
             }
             Err(e) => {
-                if let Ok(mut data) = data.lock() {
-                    data.error = Some(format!("{e:#}"));
-                    data.loading = false;
+                if let Ok(mut d) = data.lock() {
+                    d.error = Some(format!("{e:#}"));
+                    d.loading = false;
                 }
                 return;
             }
         }
     }
-    if !first && let Ok(mut data) = data.lock() {
-        *data = TableData { columns, rows, error: None, loading: false };
+    if let Ok(mut d) = data.lock() {
+        if in_place {
+            d.complete = true;
+        } else {
+            *d = TableData { columns, rows, error: None, loading: false, scope: namespace.map(str::to_string), complete: true };
+        }
     }
 }
 
@@ -344,6 +386,24 @@ impl CatalogKind for TableKind {
         self.wide.store(wide, Ordering::Relaxed);
     }
 
+    fn set_namespace(&self, namespace: Option<&str>) {
+        if !self.namespaced {
+            return;
+        }
+        if let Ok(mut scope) = self.scope.lock()
+            && scope.as_deref() != namespace
+        {
+            *scope = namespace.map(str::to_string);
+            self.changed.notify_one();
+            // Rows of another namespace are not this list: say it is loading rather than show a gap.
+            if let Ok(mut data) = self.data.lock()
+                && !data.covers(namespace)
+            {
+                data.loading = true;
+            }
+        }
+    }
+
     fn headers(&self) -> Vec<&'static str> {
         self.data.lock().map(|d| d.columns.iter().filter(|c| self.shows(c)).map(|c| c.name).collect()).unwrap_or_default()
     }
@@ -403,17 +463,42 @@ impl CatalogKind for TableKind {
             let row = data.rows.get(index)?;
             (row.namespace.clone(), row.name.clone())
         };
-        let (client, resource) = (self.client.clone(), self.resource.clone());
-        let namespaced = self.namespaced && namespace != "-";
-        let object = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                let api: Api<DynamicObject> = if namespaced { Api::namespaced_with(client, &namespace, &resource) } else { Api::all_with(client, &resource) };
-                api.get(&name).await.ok()
-            })
-        })?;
-        Some(manifest_value(&object))
+        let key = (namespace.clone(), name.clone());
+        let cached = self.objects.lock().ok().and_then(|o| o.get(&key).cloned());
+        // A held copy is used at once; an old one is refreshed in the background.
+        if let Some((fetched, value)) = cached {
+            if fetched.elapsed() > STALE_AFTER
+                && let Ok(mut objects) = self.objects.lock()
+            {
+                objects.insert(key.clone(), (std::time::Instant::now(), value.clone()));
+                let (client, resource, namespaced, objects) = (self.client.clone(), self.resource.clone(), self.namespaced && namespace != "-", Arc::clone(&self.objects));
+                tokio::spawn(async move {
+                    if let Some(fresh) = fetch_object(client, &resource, namespaced, &namespace, &name).await
+                        && let Ok(mut objects) = objects.lock()
+                    {
+                        objects.insert(key, (std::time::Instant::now(), fresh));
+                    }
+                });
+            }
+            return Some(value);
+        }
+        let (client, resource, namespaced) = (self.client.clone(), self.resource.clone(), self.namespaced && namespace != "-");
+        let object = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(fetch_object(client, &resource, namespaced, &namespace, &name)))?;
+        if let Ok(mut objects) = self.objects.lock() {
+            objects.insert(key, (std::time::Instant::now(), object.clone()));
+        }
+        Some(object)
     }
 }
+
+/// How long a fetched object is trusted before it is fetched again.
+const STALE_AFTER: Duration = Duration::from_secs(5);
+
+async fn fetch_object(client: Client, resource: &ApiResource, namespaced: bool, namespace: &str, name: &str) -> Option<serde_yaml::Value> {
+    let api: Api<DynamicObject> = if namespaced { Api::namespaced_with(client, namespace, resource) } else { Api::all_with(client, resource) };
+    api.get(name).await.ok().map(|object| manifest_value(&object))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -444,7 +529,7 @@ mod tests {
         let _entered = runtime.enter();
         let handle = runtime.spawn(async {});
         let client = Client::try_from(kube::Config::new("http://localhost:1".parse().unwrap())).unwrap();
-        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true };
+        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true, objects: Arc::default(), scope: Arc::default(), changed: Arc::default() };
         (kind, runtime)
     }
 
@@ -463,7 +548,7 @@ mod tests {
     #[test]
     fn name_and_age_are_left_to_the_list_and_wide_columns_wait_for_wide() {
         let (columns, rows) = parse_table(&table()).unwrap();
-        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None, loading: false });
+        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None, loading: false, scope: None, complete: true });
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE"]);
         kind.set_wide(true);
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE", "SELECTOR"]);
@@ -474,7 +559,7 @@ mod tests {
 
     #[test]
     fn a_resource_that_cannot_be_listed_says_why() {
-        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()), loading: false });
+        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()), loading: false, scope: None, complete: true });
         let rows = kind.rows();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].name.contains("forbidden"));

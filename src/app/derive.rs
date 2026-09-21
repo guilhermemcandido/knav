@@ -156,6 +156,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // index that `CatalogKind::spec_at` needs. Table-backed kinds add wide columns on request.
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
+        kind.set_namespace(ns_filter);
     }
     let generic_headers: Vec<&'static str> = if current_kind == ResourceKind::PortForwards {
         portforward::HEADERS.to_vec()
