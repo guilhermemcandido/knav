@@ -37,7 +37,7 @@ pub(in crate::ui) fn draw_context_popup(
 
     let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
     if let Some(err) = error {
-        title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(theme().bad)));
+        title.push_span(Span::styled(format!("  -  {err}"), Style::default().fg(theme().bad)));
     }
 
     let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
@@ -155,7 +155,7 @@ pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots:
         let Some(row) = rows.get(i + 1) else { break };
         let text = match slot.as_deref() {
             Some(ns) => ns.to_string(),
-            None => "—".to_string(),
+            None => "-".to_string(),
         };
         let line = if i == selected {
             let style = Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD);

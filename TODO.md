@@ -14,8 +14,8 @@ Correctness and robustness
 
 Structure
 - [x] Split `handlers/list.rs`, `relations.rs`, `actions.rs`, `columns.rs`, `overview.rs` into modules (the key match in `list/mod.rs` is still one long function).
-- [ ] Share the table tail (about 10 copies), the text-entry handlers (7 copies) and the 15-argument draw call in `draw.rs` (25 copies).
-- [ ] Trim comments longer than 1 to 3 lines and fix doc comments sitting above the wrong item.
+- [x] Shared the table tail, the search-box handlers (4 of 6; the Context and command bars keep their own extras) and the draw call in `draw.rs`.
+- [x] Comments: none over 3 lines remain, the misplaced doc comments are fixed, no em dashes.
 
 Smaller
 - [ ] Secret reveal/hide toggle in the info view.

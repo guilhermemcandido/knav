@@ -11,7 +11,6 @@ pub(super) fn dim_style() -> Style {
 /// The table palette, after k9s: pale-teal rows, a lighter blue header,
 /// a solid pale-blue selection bar with dark text, and a slate border.
 /// Every list/table goes through these so they read as one theme.
-
 pub(super) fn theme_row(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(theme().row) }
 }
@@ -36,10 +35,8 @@ pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) ->
     Style::default().bg(bg).fg(crate::theme::on(bg)).add_modifier(Modifier::BOLD)
 }
 
-/// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
-
-/// Gives marked rows their own fill; `marked` says, row by row, which are
-/// marked and may be empty (no marks).
+/// Gives marked rows (Space) their own fill, under the cells like the selection bar.
+/// `marked` says, row by row, which are marked and may be empty (no marks).
 pub(super) fn mark_rows<'a>(rows: impl Iterator<Item = Row<'a>>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
     let mark = if dimmed { dim_style() } else { Style::default().bg(theme().marked_bg) };
     rows.enumerate().map(|(i, row)| if marked.get(i).copied().unwrap_or(false) { row.style(mark) } else { row }).collect()
@@ -253,7 +250,6 @@ pub(super) fn tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Styl
 
 /// The state colours, after k9s: healthy stays the row teal, in-progress
 /// is orange, broken is a soft red, finished is grey.
-
 pub(super) fn tone_color(tone: crate::k8s::describe::Tone) -> Color {
     use crate::k8s::describe::Tone;
     match tone {
