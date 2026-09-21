@@ -210,6 +210,12 @@ pub fn start(context: &str, namespace: &str, resource: &str, address: &str, loca
         }
         bail!("{}", if message.trim().is_empty() { format!("kubectl exited with {status}") } else { message.trim().to_string() });
     }
+    // Nobody reads kubectl's later chatter, and an unread pipe would eventually stall it.
+    if let Some(mut err) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut err, &mut std::io::sink());
+        });
+    }
     Ok(Forward { resource: resource.to_string(), namespace: namespace.to_string(), local, remote, child, started: Instant::now() })
 }
 

@@ -28,10 +28,19 @@ pub fn copy(text: &str) -> Result<&'static str> {
 fn pipe_into(program: &str, args: &[&str], text: &str) -> Result<()> {
     let mut child = Command::new(program).args(args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
     child.stdin.take().map(|mut stdin| stdin.write_all(text.as_bytes())).transpose()?;
-    if !child.wait()?.success() {
-        bail!("{program} failed");
+    // A clipboard tool that hangs (no display to talk to) must not hang knav with it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match child.try_wait()? {
+            Some(status) if status.success() => return Ok(()),
+            Some(_) => bail!("{program} failed"),
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                bail!("{program} did not answer");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(10)),
+        }
     }
-    Ok(())
 }
 
 fn osc52(text: &str) -> Result<()> {

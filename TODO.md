@@ -6,8 +6,8 @@ Correctness and robustness
 - [x] Logs: wrapped lines break follow mode (fixed: scrolling counts wrapped rows, no 65k limit).
 - [x] Logs: search highlighting matches by character.
 - [x] Wide characters: widths now count terminal cells.
-- [ ] Config: a broken `config.toml` warning is wiped by the screen clearing; show it inside the app.
-- [ ] Blocking: `e` edit apply, clipboard copy (`xclip` / `wl-copy`), port-forward stderr never drained.
+- [x] Config: problems are shown inside the app.
+- [x] Blocking: clipboard copy is bounded to 2 s, port-forward stderr is drained (the `e` edit apply stays synchronous because the editor loop needs its result).
 - [ ] Details: suspended Jobs show as Pending; work-queue Jobs read `0/1`; Endpoints ignore not-ready addresses.
 - [ ] Lists: EndpointSlice, IngressClass, PodDisruptionBudget, ResourceQuota, LimitRange and Lease have info views but no list.
 - [ ] Sorted pod snapshot is not cached (about 27 ms per refresh at 100k pods).
