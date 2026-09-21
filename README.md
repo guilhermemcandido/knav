@@ -137,9 +137,8 @@ ok = "#50fa7b"
 select_bg = "#44475a"
 ```
 
-Colours are `#rrggbb`, a terminal colour name (`red`, `darkgray`, ...) or `indexed:N`. The roles
-are listed in the settings screen (`,`), where each can be edited with a live swatch. To set them in
-the config instead:
+Colours are `#rrggbb`, a terminal colour name (`red`, `darkgray`, ...) or `indexed:N`. Pick a
+theme with `T`; to tweak single roles, set them in the config:
 
 ```toml
 [theme]
@@ -151,8 +150,9 @@ warn = "#ffb86c"
 ## Settings screen
 
 `,` or `:config` opens every setting in one list, grouped by section: theme, box lines, table
-columns, logs, mouse, behaviour, colours and keys. `←` `→` (or `Enter`) change a value, `Enter`
-types a number, colour or key, `r` resets one to its default. Changes save to `config.toml` (your
+columns, logs, mouse, behaviour and keys. The selected setting is explained under the list. `←` `→`
+(or `Enter`) change a value, `Enter` types a number, and on a key it opens a popup where you press
+the new key and confirm. `r` resets one to its default. Changes save to `config.toml` (your
 comments and other settings stay) and apply at once, except the few marked "restart to apply".
 
 ## Key bindings
