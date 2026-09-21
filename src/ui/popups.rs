@@ -93,12 +93,13 @@ pub(super) fn draw_context_popup(
         title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
     }
 
-    let table = Table::new(select_rows(rows, state.selected(), &[], false), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -136,12 +137,13 @@ pub(super) fn draw_namespace_picker(
         title.push_span(span);
     }
 
-    let table = Table::new(select_rows(rows, state.selected(), &[], false), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(false));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(items.len().saturating_sub(1))));
@@ -490,12 +492,13 @@ pub(super) fn draw_events_popup(
     let title = Line::from(title_spans);
 
     let border_style = theme_border(dimmed);
-    let table = Table::new(select_rows(rows, state.selected(), &[], dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &[], dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(filtered.len().saturating_sub(1))));
@@ -660,7 +663,7 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
     });
 
     let border_style = theme_border(dimmed);
-    let table = Table::new(select_rows(rows, state.selected(), &[], dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &[], dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
@@ -671,7 +674,8 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
                 .border_style(border_style)
                 .title(if dimmed { Line::styled(title.to_string(), muted) } else { colored_slash_title(title) }),
         )
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, state);
 }

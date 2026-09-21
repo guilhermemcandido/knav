@@ -27,26 +27,21 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(HEADER_FG) }
 }
 
-/// The selected row's bar: a background fill only, applied *underneath*
-/// the row's cells (`Row::style`), so each cell keeps its own colours — the
-/// container dots, status colours and the yellow search match all stay
-/// visible on the selected row instead of being painted over.
-const SELECTED_ROW_BG: Color = Color::Rgb(58, 74, 96);
+/// The selected row, after k9s: a solid pale-blue bar with dark bold text,
+/// laid over the row's own colours (so a selected failing pod is still
+/// findable by the breadcrumb, not by its tint).
+pub(super) fn selection_style(dimmed: bool) -> Style {
+    if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) }
+}
 
 /// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
 const MARKED_ROW_BG: Color = Color::Rgb(84, 72, 24);
 
-/// `marked` says, row by row, which are marked; it may be empty (no marks).
-pub(super) fn select_rows<'a>(rows: impl Iterator<Item = Row<'a>>, selected: Option<usize>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
-    let bar = if dimmed { dim_style() } else { Style::default().bg(SELECTED_ROW_BG).add_modifier(Modifier::BOLD) };
+/// Gives marked rows their own fill; `marked` says, row by row, which are
+/// marked and may be empty (no marks).
+pub(super) fn mark_rows<'a>(rows: impl Iterator<Item = Row<'a>>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
     let mark = if dimmed { dim_style() } else { Style::default().bg(MARKED_ROW_BG) };
-    rows.enumerate()
-        .map(|(i, row)| match () {
-            _ if Some(i) == selected => row.style(bar),
-            _ if marked.get(i).copied().unwrap_or(false) => row.style(mark),
-            _ => row,
-        })
-        .collect()
+    rows.enumerate().map(|(i, row)| if marked.get(i).copied().unwrap_or(false) { row.style(mark) } else { row }).collect()
 }
 
 /// The key a marked row is remembered by: `namespace/name` (`-` when cluster-scoped).
@@ -234,28 +229,28 @@ pub(super) fn row_tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style
 mod row_style_tests {
     use super::*;
 
-    fn bg(row: &Row) -> Option<Color> {
+    fn marked_bg(row: &Row) -> bool {
         // `Row` keeps its style private; the debug form shows it.
-        let text = format!("{row:?}");
-        [SELECTED_ROW_BG, MARKED_ROW_BG].into_iter().find(|c| text.contains(&format!("{c:?}")))
-    }
-
-    fn rows() -> Vec<Row<'static>> {
-        select_rows((0..3).map(|_| Row::new(["x"])), Some(0), &[false, true, false], false)
+        format!("{row:?}").contains(&format!("{MARKED_ROW_BG:?}"))
     }
 
     #[test]
-    fn the_cursor_row_gets_the_selection_fill_and_marked_rows_their_own() {
-        let rows = rows();
-        assert_eq!(bg(&rows[0]), Some(SELECTED_ROW_BG));
-        assert_eq!(bg(&rows[1]), Some(MARKED_ROW_BG));
-        assert_eq!(bg(&rows[2]), None);
+    fn marked_rows_get_their_own_fill() {
+        let rows = mark_rows((0..3).map(|_| Row::new(["x"])), &[false, true, false], false);
+        assert_eq!(rows.iter().map(marked_bg).collect::<Vec<_>>(), [false, true, false]);
     }
 
     #[test]
-    fn the_cursor_wins_over_a_mark_on_the_same_row() {
-        let rows = select_rows(std::iter::once(Row::new(["x"])), Some(0), &[true], false);
-        assert_eq!(bg(&rows[0]), Some(SELECTED_ROW_BG));
+    fn no_marks_leaves_rows_alone() {
+        let rows = mark_rows((0..2).map(|_| Row::new(["x"])), &[], false);
+        assert!(rows.iter().all(|r| !marked_bg(r)));
+    }
+
+    #[test]
+    fn the_selection_is_a_pale_bar_with_dark_bold_text() {
+        let style = selection_style(false);
+        assert_eq!((style.bg, style.fg), (Some(SELECT_BG), Some(Color::Black)));
+        assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]

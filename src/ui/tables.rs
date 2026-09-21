@@ -102,12 +102,13 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
     let flags: Vec<bool> = pods.iter().map(|p| marked.contains(&mark_key(&p.namespace, &p.name))).collect();
     let title = table_title("Pods", pods.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -237,12 +238,13 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     let flags: Vec<bool> = deployments.iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
     let title = table_title("Deployments", deployments.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -344,12 +346,13 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     let flags: Vec<bool> = nodes.iter().map(|n| marked.contains(&mark_key("-", &n.name))).collect();
     let title = table_title("Nodes", nodes.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -418,12 +421,13 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
     let flags: Vec<bool> = rows.iter().map(|r| marked.contains(&mark_key(&r.namespace, &r.name))).collect();
     let title = table_title(label, rows.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(table_rows, table_state.selected(), &flags, dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(table_rows, &flags, dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }
@@ -460,12 +464,13 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 
     let title = table_title(heading, crds.len(), search, &window, dimmed);
 
-    let table = Table::new(select_rows(rows, table_state.selected(), &[], dimmed), window.constraints.clone())
+    let table = Table::new(mark_rows(rows, &[], dimmed), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(border_style).title(title))
-        .highlight_symbol("");
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(dimmed));
 
     frame.render_stateful_widget(table, area, table_state);
 }
