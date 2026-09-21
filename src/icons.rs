@@ -54,7 +54,8 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         // Overview's tile isn't drawn with an icon at all (see `IconCache::draw`'s
         // caller), so this arm is never actually reached — a fallback is still
         // required since `icon_asset` is total over `ResourceKind`.
-        ResourceKind::Overview => ("pod", include_bytes!("../assets/icons/pod.svg")),
+        // The command line shows Overview as a house.
+        ResourceKind::Overview => ("home", include_bytes!("../assets/icons/home.svg")),
     }
 }
 
@@ -62,7 +63,18 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
 /// canvas, scaled uniformly (not stretched) to fit and centered — every
 /// vendored icon is close to square already, but this keeps a
 /// non-square one from distorting instead of just being letterboxed.
-fn rasterize(svg: &[u8]) -> Option<DynamicImage> {
+/// Icons that are not a resource kind, by name.
+fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
+    Some(match name {
+        "home" => ("home", include_bytes!("../assets/icons/home.svg")),
+        "door" => ("door", include_bytes!("../assets/icons/door.svg")),
+        "bell" => ("bell", include_bytes!("../assets/icons/bell.svg")),
+        "switch" => ("switch", include_bytes!("../assets/icons/switch.svg")),
+        _ => return None,
+    })
+}
+
+fn rasterize(svg: &[u8], fill: f32) -> Option<DynamicImage> {
     let tree = Tree::from_data(svg, &Options::default()).ok()?;
     let size = tree.size();
     let (w, h) = (size.width(), size.height());
@@ -70,7 +82,8 @@ fn rasterize(svg: &[u8]) -> Option<DynamicImage> {
         return None;
     }
 
-    let scale = RENDER_SIZE as f32 / w.max(h);
+    // `fill` is how much of the square the icon takes (1.0 = all of it).
+    let scale = RENDER_SIZE as f32 * fill / w.max(h);
     let tx = (RENDER_SIZE as f32 - w * scale) / 2.0;
     let ty = (RENDER_SIZE as f32 - h * scale) / 2.0;
     let transform = Transform::from_scale(scale, scale).post_translate(tx, ty);
@@ -92,7 +105,8 @@ fn rasterize(svg: &[u8]) -> Option<DynamicImage> {
 /// time anyway).
 pub struct IconCache {
     picker: Picker,
-    protocols: HashMap<&'static str, StatefulProtocol>,
+    /// Keyed by asset and fill (in percent), so a smaller version of an icon is its own image.
+    protocols: HashMap<(&'static str, u8), StatefulProtocol>,
 }
 
 impl IconCache {
@@ -131,13 +145,13 @@ impl IconCache {
         Rect { x, y: area.y, width, height: area.height }
     }
 
-    fn protocol_for(&mut self, kind: ResourceKind) -> Option<&mut StatefulProtocol> {
-        let (key, svg) = icon_asset(kind);
-        if !self.protocols.contains_key(key) {
-            let image = rasterize(svg)?;
-            self.protocols.insert(key, self.picker.new_resize_protocol(image));
+    fn protocol_for(&mut self, key: &'static str, svg: &'static [u8], fill: f32) -> Option<&mut StatefulProtocol> {
+        let slot = (key, (fill * 100.0) as u8);
+        if !self.protocols.contains_key(&slot) {
+            let image = rasterize(svg, fill)?;
+            self.protocols.insert(slot, self.picker.new_resize_protocol(image));
         }
-        self.protocols.get_mut(key)
+        self.protocols.get_mut(&slot)
     }
 
     /// Draws `kind`'s icon into `area`. A silent no-op if rasterizing
@@ -145,7 +159,23 @@ impl IconCache {
     /// hard-coded asset table has no user-facing way to fail otherwise) —
     /// callers just get an icon-less tile rather than a crash.
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind) {
-        if let Some(protocol) = self.protocol_for(kind) {
+        self.draw_kind(frame, area, kind, 1.0);
+    }
+
+    /// `draw`, with the icon filling only `fill` (0.0-1.0) of its square — a
+    /// little smaller, with an even margin.
+    pub fn draw_kind(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind, fill: f32) {
+        let (key, svg) = icon_asset(kind);
+        if let Some(protocol) = self.protocol_for(key, svg, fill) {
+            frame.render_stateful_widget(StatefulImage::default(), area, protocol);
+        }
+    }
+
+    /// A named icon (`door`, `bell`, `switch`, `home`) instead of a kind's.
+    pub fn draw_named(&mut self, frame: &mut Frame, area: Rect, name: &str, fill: f32) {
+        if let Some((key, svg)) = named_asset(name)
+            && let Some(protocol) = self.protocol_for(key, svg, fill)
+        {
             frame.render_stateful_widget(StatefulImage::default(), area, protocol);
         }
     }

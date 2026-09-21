@@ -189,12 +189,26 @@ pub struct Hover {
     pub row_on_screen: u16,
 }
 
+/// The line shown in the middle of an empty list: yellow when there is simply
+/// nothing, and saying why when a search or the faults filter emptied it.
+pub(super) fn empty_list_message(label: &str, search: &str, faults_only: bool) -> Line<'static> {
+    let label = label.to_lowercase();
+    if !search.is_empty() {
+        Line::styled(format!("No {label} match '{search}'"), Style::default().fg(WARN_FG).add_modifier(Modifier::BOLD))
+    } else if faults_only {
+        Line::styled(format!("✔ No {label} need attention"), Style::default().fg(OK_FG).add_modifier(Modifier::BOLD))
+    } else {
+        Line::styled(format!("No {label} found"), Style::default().fg(WARN_FG).add_modifier(Modifier::BOLD))
+    }
+}
+
 /// What a command suggestion shows beside its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SuggestionIcon {
     /// The resource kind's own icon, as in the menu.
     Kind(crate::k8s::ResourceKind),
-    Emoji(&'static str),
+    /// One of the drawn icons that is not a resource (`door`, `bell`, `switch`).
+    Named(&'static str),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -250,14 +264,13 @@ pub fn draw(
     // Rows marked with Space, by `mark_key`.
     marked: &HashSet<String>,
 ) {
-    // Popups dim what's behind them, and so does the `:` command line, so its
-    // suggestions stand out. The `/` search is a bar in the page: the list
-    // stays in full colour.
+    // Popups dim what's behind them. The `:` command line only softens it a
+    // little (below), and the `/` search is a bar in the page: the list stays
+    // in full colour.
     let dimmed = background.is_some()
         || matches!(
             overlay,
-            Some(Overlay::Command { .. })
-                | Some(Overlay::Spec { .. })
+            Some(Overlay::Spec { .. })
                 | Some(Overlay::Containers { .. })
                 | Some(Overlay::Logs { .. })
                 | Some(Overlay::Menu { .. })
@@ -319,6 +332,16 @@ pub fn draw(
         },
     };
     let is_overview = matches!(rows, Rows::Overview(..));
+    // What to say in the middle of a list with nothing in it.
+    let empty_message = match &rows {
+        Rows::Pods(r) if r.is_empty() => Some("pods"),
+        Rows::Deployments(r) if r.is_empty() => Some("deployments"),
+        Rows::Nodes(r) if r.is_empty() => Some("nodes"),
+        Rows::Generic(r, label, _) if r.is_empty() => Some(*label),
+        Rows::CrdList(r, heading) if r.is_empty() => Some(*heading),
+        _ => None,
+    }
+    .map(|label| empty_list_message(label, search.text, header.faults_only));
     match rows {
         Rows::Pods(pods) => {
             draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, dimmed);
@@ -351,9 +374,20 @@ pub fn draw(
         }
     }
 
+    if let Some(message) = empty_message.filter(|_| !dimmed) {
+        // Inside the border, below the header row: the middle of what is left.
+        let inner = Rect { x: body.x + 1, y: body.y + 2, width: body.width.saturating_sub(2), height: body.height.saturating_sub(3) };
+        if inner.height > 0 {
+            frame.render_widget(Paragraph::new(message).centered(), Rect { y: inner.y + inner.height / 2, height: 1, ..inner });
+        }
+    }
+
     // What is filtering or widening the list, in the title bar's corner.
-    if !is_overview && (header.faults_only || header.wide) && !dimmed {
+    if !is_overview && (header.faults_only || header.wide || sort.choosing) && !dimmed {
         let mut badges = Vec::new();
+        if sort.choosing {
+            badges.push(Span::styled(" sorting ", Style::default().bg(Color::Rgb(120, 230, 230)).fg(Color::Black).add_modifier(Modifier::BOLD)));
+        }
         if header.faults_only {
             badges.push(Span::styled(" faults ", Style::default().bg(WARN_FG).fg(Color::Black).add_modifier(Modifier::BOLD)));
         }
@@ -372,6 +406,11 @@ pub fn draw(
 
     if let Some(bg) = background {
         draw_overlay(frame, bg, true, icons);
+    }
+    // Behind the command line everything recedes just a little, so the
+    // suggestions read clearly without the page vanishing.
+    if matches!(overlay, Some(Overlay::Command { .. })) {
+        frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     }
     match overlay {
         Some(Overlay::Command { input, suggestions, selected }) => {
@@ -496,4 +535,32 @@ pub(super) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect 
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(vertical[1])[1]
+}
+
+#[cfg(test)]
+mod empty_message_tests {
+    use super::*;
+
+    fn text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
+    #[test]
+    fn an_empty_list_says_nothing_was_found_in_yellow() {
+        let line = empty_list_message("PVCs", "", false);
+        assert_eq!(text(&line), "No pvcs found");
+        assert_eq!(line.style.fg, Some(WARN_FG));
+    }
+
+    #[test]
+    fn a_search_that_matches_nothing_says_so() {
+        assert_eq!(text(&empty_list_message("Pods", "zzz", false)), "No pods match 'zzz'");
+    }
+
+    #[test]
+    fn an_empty_faults_list_is_good_news_in_green() {
+        let line = empty_list_message("Pods", "", true);
+        assert_eq!(text(&line), "✔ No pods need attention");
+        assert_eq!(line.style.fg, Some(OK_FG));
+    }
 }

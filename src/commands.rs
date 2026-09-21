@@ -100,15 +100,15 @@ pub(crate) struct Suggestion {
 }
 
 impl Suggestion {
-    /// What to show beside it: the kind's icon from the menu, or an emoji
-    /// for the commands that are not a resource.
+    /// What to show beside it: the kind's icon from the menu, or a drawn
+    /// icon for the commands that are not a resource.
     pub(crate) fn icon(&self) -> ui::SuggestionIcon {
         match self.cmd {
             Cmd::Kind(kind) => ui::SuggestionIcon::Kind(kind),
             Cmd::Api(index, plural, _) => ui::SuggestionIcon::Kind(ResourceKind::Api(index, plural)),
-            Cmd::Context => ui::SuggestionIcon::Emoji("🔀"),
-            Cmd::Events => ui::SuggestionIcon::Emoji("🔔"),
-            Cmd::Quit => ui::SuggestionIcon::Emoji("🚪"),
+            Cmd::Context => ui::SuggestionIcon::Named("switch"),
+            Cmd::Events => ui::SuggestionIcon::Named("bell"),
+            Cmd::Quit => ui::SuggestionIcon::Named("door"),
         }
     }
 

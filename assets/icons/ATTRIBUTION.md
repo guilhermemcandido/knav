@@ -12,3 +12,5 @@ The Linux Foundation; see
 https://www.linuxfoundation.org/trademark-usage/ for its usage
 guidelines (not applicable to the plain resource-kind icons vendored
 here, which don't include the logo).
+
+`home.svg`, `door.svg`, `bell.svg` and `switch.svg` are original drawings for knav (the command line's non-resource entries), in the same heptagon style.

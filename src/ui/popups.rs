@@ -2,8 +2,13 @@
 
 use super::*;
 
+/// The command line's calm steel blue (its border and prompt).
+const COMMAND_FG: Color = Color::Rgb(122, 170, 214);
+
 /// Rows each suggestion takes: room for a 6x3 icon beside its name.
 const SUGGESTION_HEIGHT: u16 = 3;
+/// How much of its square a suggestion's icon fills.
+const SUGGESTION_ICON_FILL: f32 = 0.78;
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
 /// The `:` command line, k9s-style: a bar right under the header, above
@@ -13,7 +18,7 @@ const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HE
 /// the cursor.
 pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     frame.render_widget(Clear, bar);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(COMMAND_FG));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
@@ -24,10 +29,10 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         .and_then(|name| name.strip_prefix(input))
         .unwrap_or("");
     let line = Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::Yellow)),
-        Span::styled(input.to_string(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled("▏", Style::default().fg(Color::Yellow)),
-        Span::styled(ghost.to_string(), Style::default().fg(Color::DarkGray)),
+        Span::styled("> ", Style::default().fg(COMMAND_FG)),
+        Span::styled(input.to_string(), Style::default().fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
+        Span::styled("▏", Style::default().fg(COMMAND_FG)),
+        Span::styled(ghost.to_string(), Style::default().fg(MUTED_FG)),
         Span::styled(if suggestions.is_empty() { "" } else { "   tab completes" }, Style::default().fg(MUTED_FG)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
@@ -45,7 +50,7 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     let width = (suggestions.iter().map(|s| s.label.chars().count()).max().unwrap_or(0) as u16 + SUGGESTION_ICON.width + 8).max(40).min(bar.width);
     let list = Rect { x: bar.x, y: bar.bottom(), width, height: shown as u16 * SUGGESTION_HEIGHT + 2 };
     frame.render_widget(Clear, list);
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(COMMAND_FG));
     let inner = block.inner(list);
     frame.render_widget(block, list);
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
@@ -54,12 +59,11 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         let style = if chosen { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) } else { Style::default().fg(ROW_FG) };
         frame.render_widget(Block::default().style(style), row);
         let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
+        // All the same size, a little inside the square so they don't crowd the row.
+        let square = icons.centered_square(icon_area);
         match suggestion.icon {
-            SuggestionIcon::Kind(kind) => icons.draw(frame, icons.centered_square(icon_area), kind),
-            SuggestionIcon::Emoji(emoji) => {
-                let middle = Rect { y: icon_area.y + 1, height: 1, ..icon_area };
-                frame.render_widget(Paragraph::new(Line::raw(emoji)).centered(), middle);
-            }
+            SuggestionIcon::Kind(kind) => icons.draw_kind(frame, square, kind, SUGGESTION_ICON_FILL),
+            SuggestionIcon::Named(name) => icons.draw_named(frame, square, name, SUGGESTION_ICON_FILL),
         }
         let text = Rect { x: icon_area.right() + 1, y: row.y + 1, width: row.right().saturating_sub(icon_area.right() + 1), height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
