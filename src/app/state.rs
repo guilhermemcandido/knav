@@ -43,9 +43,9 @@ pub(super) struct State {
 }
 
 impl State {
-    /// Must be created after raw mode is on (the icon cache queries the
+    /// `icons` must be detected after raw mode is on (it queries the
     /// terminal) and before the event loop starts reading stdin.
-    pub fn new(active_context: &str) -> Self {
+    pub fn new(icons: icons::IconCache, favorites: Favorites) -> Self {
         State {
             table_state: TableState::default().with_selected(0),
             mode: Mode::List,
@@ -57,11 +57,11 @@ impl State {
             sort: None,
             sort_choosing: false,
             hscroll: 0,
-            favorites: Favorites::load(active_context),
+            favorites,
             search: String::new(),
             mouse_capture_enabled: true,
             show_hints_panel: false,
-            icons: icons::IconCache::detect(),
+            icons,
             overview_selection: ui::OverviewSelection::Resources,
             overview_col_scroll: 0,
             overview_item_scroll: 0,
@@ -78,5 +78,39 @@ impl State {
         self.hscroll = 0;
         self.table_state.select(Some(0));
         self.search.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> State {
+        State::new(icons::IconCache::halfblocks(), Favorites::default())
+    }
+
+    #[test]
+    fn switching_kind_clears_drill_down_sort_scroll_and_search() {
+        let mut st = state();
+        st.scope = Some(Scope::Namespace { name: "kube-system".into() });
+        st.nav_stack.push((ResourceKind::Deployments, None, 2));
+        st.sort = Some(SortSpec::pressed(None, 1));
+        st.hscroll = 3;
+        st.search = "core".into();
+        st.table_state.select(Some(5));
+
+        st.switch_kind(ResourceKind::Services);
+
+        assert_eq!(st.current_kind, ResourceKind::Services);
+        assert!(st.scope.is_none() && st.nav_stack.is_empty() && st.sort.is_none());
+        assert_eq!((st.hscroll, st.search.as_str(), st.table_state.selected()), (0, "", Some(0)));
+    }
+
+    #[test]
+    fn switching_kind_keeps_the_namespace() {
+        let mut st = state();
+        st.namespace = Some("kube-system".into());
+        st.switch_kind(ResourceKind::Pods);
+        assert_eq!(st.namespace.as_deref(), Some("kube-system"));
     }
 }

@@ -109,6 +109,12 @@ impl IconCache {
         IconCache { picker, protocols: HashMap::new() }
     }
 
+    /// A cache that never queries the terminal, for tests.
+    #[cfg(test)]
+    pub fn halfblocks() -> Self {
+        IconCache { picker: Picker::halfblocks(), protocols: HashMap::new() }
+    }
+
     /// Centers a roughly-square sub-area within `area` using the
     /// terminal's real font aspect ratio — tiles are sized for text
     /// (wide), so rendering an icon into the whole area would letterbox

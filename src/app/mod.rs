@@ -24,7 +24,7 @@ pub(crate) fn run(
     active_context: &str,
     header: &ui::HeaderInfo,
 ) -> Result<Outcome> {
-    let mut st = State::new(active_context);
+    let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context));
 
     loop {
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client };

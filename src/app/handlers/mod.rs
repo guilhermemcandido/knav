@@ -78,3 +78,45 @@ fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<boo
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> State {
+        State::new(icons::IconCache::halfblocks(), Favorites::default())
+    }
+
+    #[test]
+    fn question_mark_toggles_the_commands_panel() {
+        let mut st = state();
+        assert!(global_key(KeyCode::Char('?'), &mut st, "ctx").unwrap());
+        assert!(st.show_hints_panel);
+        assert!(global_key(KeyCode::Char('?'), &mut st, "ctx").unwrap());
+        assert!(!st.show_hints_panel);
+    }
+
+    #[test]
+    fn colon_opens_the_command_line_and_remembers_where_it_came_from() {
+        let mut st = state();
+        st.mode = Mode::ResourcesDetail;
+        assert!(global_key(KeyCode::Char(':'), &mut st, "ctx").unwrap());
+        let Mode::Command { back, .. } = &st.mode else { panic!("not the command line") };
+        assert!(matches!(**back, Mode::ResourcesDetail));
+    }
+
+    #[test]
+    fn global_keys_are_plain_characters_while_typing() {
+        let mut st = state();
+        st.mode = Mode::Search;
+        assert!(!global_key(KeyCode::Char('?'), &mut st, "ctx").unwrap());
+        assert!(!global_key(KeyCode::Char(':'), &mut st, "ctx").unwrap());
+        assert!(!st.show_hints_panel && matches!(st.mode, Mode::Search));
+    }
+
+    #[test]
+    fn other_keys_are_not_global() {
+        let mut st = state();
+        assert!(!global_key(KeyCode::Char('x'), &mut st, "ctx").unwrap());
+    }
+}
