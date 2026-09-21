@@ -155,6 +155,19 @@ columns, logs, mouse, behaviour and keys. The selected setting is explained unde
 the new key and confirm. `r` resets one to its default. Changes save to `config.toml` (your
 comments and other settings stay) and apply at once, except the few marked "restart to apply".
 
+The settings screen has three tabs, switched with `Tab` / `Shift-Tab` or a click: **General**,
+**Keys** and **Overview layout**. The last one reorders the Overview: `K` / `J` (or `Shift` with the
+arrows) move a category or a kind up and down, `Space` hides or shows it, `r` restores the default.
+Kinds stay inside their category, and the `m` menu keeps its own order. In the file:
+
+```toml
+[overview]
+sections = ["Workloads", "Cluster"]          # categories first, the rest keep their order
+hidden = ["Config/Secrets", "Storage"]       # a kind, or a whole category
+[overview.items]
+Workloads = ["Pods", "Jobs"]                 # kinds first within a category
+```
+
 ## Key bindings
 
 Every action can be rebound under `[keys]`, as one key or a list. Keys are `j`, `D` (shift-d),

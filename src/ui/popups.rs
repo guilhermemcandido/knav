@@ -369,28 +369,40 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::
 
 /// The settings screen: one row per setting under its section, the value in
 /// bold when the config file sets it, and a swatch for colours.
-pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut TableState, error: Option<&str>, capture: Option<&CaptureView>) {
+pub(super) fn draw_settings(frame: &mut Frame, tab: SettingsTab, rows: &[SettingView], layout: &[LayoutRow], state: &mut TableState, error: Option<&str>, capture: Option<&CaptureView>) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let bottom = match error {
         Some(e) => Line::styled(format!(" {e} "), Style::default().fg(theme().bad)),
-        None => Line::styled(" ←→ change   enter edit   r reset   esc close ", Style::default().fg(theme().muted)).right_aligned(),
+        None if tab == SettingsTab::Overview => Line::styled(" J/K move   space show/hide   r reset   tab next   esc close ", Style::default().fg(theme().muted)).right_aligned(),
+        None => Line::styled(" ←→ change   enter edit   r reset   tab next   esc close ", Style::default().fg(theme().muted)).right_aligned(),
     };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(" Settings ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title(settings_tabs(tab).centered())
         .title_bottom(bottom);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     // The selected setting's explanation takes the last two lines.
-    let help = state.selected().and_then(|i| rows.get(i)).map(|r| r.help).unwrap_or("");
+    let help = if tab == SettingsTab::Overview {
+        "Reorder the Overview: K and J (or shift with the arrows) move a category or a kind up and down; space hides or shows it. Kinds stay inside their category. The `m` menu is unchanged."
+    } else {
+        state.selected().and_then(|i| rows.get(i)).map(|r| r.help).unwrap_or("")
+    };
     let split = Layout::vertical([Constraint::Min(1), Constraint::Length(if inner.height > 6 { 3 } else { 0 })]).split(inner);
     let (inner, help_area) = (split[0], split[1]);
     if help_area.height > 0 {
         let text = Paragraph::new(help).style(Style::default().fg(theme().muted)).wrap(Wrap { trim: true }).block(Block::default().borders(Borders::TOP).border_style(theme_border(false)));
         frame.render_widget(text, help_area);
+    }
+    if tab == SettingsTab::Overview {
+        draw_layout_rows(frame, inner, layout, state);
+        if let Some(capture) = capture {
+            draw_key_capture(frame, capture);
+        }
+        return;
     }
     let mut last_section = "";
     let table_rows: Vec<Row> = rows
@@ -430,6 +442,63 @@ pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut
     if let Some(capture) = capture {
         draw_key_capture(frame, capture);
     }
+}
+
+/// The tab names for the top border, the current one lit.
+fn settings_tabs(current: SettingsTab) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (i, tab) in SettingsTab::ALL.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("│", Style::default().fg(theme().muted)));
+        }
+        let style = if *tab == current { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD | Modifier::UNDERLINED) } else { Style::default().fg(theme().muted) };
+        spans.push(Span::styled(format!(" {} ", tab.label()), style));
+    }
+    Line::from(spans)
+}
+
+/// Which tab a click on the top border lands on.
+pub fn settings_tab_at(frame_area: Rect, column: u16, row: u16) -> Option<SettingsTab> {
+    let area = body_area(frame_area, true);
+    if row != area.y {
+        return None;
+    }
+    let width: usize = SettingsTab::ALL.iter().map(|t| t.label().chars().count() + 2).sum::<usize>() + SettingsTab::ALL.len() - 1;
+    let mut x = usize::from(area.x) + usize::from(area.width).saturating_sub(width) / 2;
+    for (i, tab) in SettingsTab::ALL.iter().enumerate() {
+        if i > 0 {
+            x += 1;
+        }
+        let end = x + tab.label().chars().count() + 2;
+        if (x..end).contains(&usize::from(column)) {
+            return Some(*tab);
+        }
+        x = end;
+    }
+    None
+}
+
+/// The Overview layout editor: categories with their kinds under them, each
+/// with a check for shown or hidden.
+fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: &mut TableState) {
+    let rows: Vec<Row> = layout
+        .iter()
+        .map(|row| {
+            let mark = if row.hidden { "[ ]" } else { "[x]" };
+            let (indent, style) = if row.section {
+                ("", Style::default().fg(theme().heading).add_modifier(Modifier::BOLD))
+            } else {
+                ("    ", Style::default().fg(theme().desc))
+            };
+            let style = if row.hidden { Style::default().fg(theme().muted) } else { style };
+            Row::new(vec![Cell::from(Line::from(vec![Span::styled(format!("{indent}{mark} "), Style::default().fg(theme().muted)), Span::styled(row.name.clone(), style)])), Cell::from(Span::styled(if row.hidden { "hidden" } else { "" }, Style::default().fg(theme().muted)))])
+        })
+        .collect();
+    let table = Table::new(rows, [Constraint::Length(40), Constraint::Min(8)]).column_spacing(2).style(theme_row(false)).row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(layout.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, area, state);
 }
 
 /// The popup for changing an action's keys: what to do with them, then the

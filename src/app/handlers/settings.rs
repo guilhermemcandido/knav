@@ -10,6 +10,28 @@ use crate::config::settings::{self, Kind, Setting};
 enum Change {
     Set(String, String),
     Reset(String),
+    /// Values written as they are, for the Overview layout (`None` removes).
+    Save(Vec<(String, Option<toml_edit::Value>)>),
+}
+
+/// The settings each tab lists (the Overview tab has its own editor).
+fn tab_settings(tab: ui::SettingsTab) -> Vec<Setting> {
+    settings::registry()
+        .into_iter()
+        .filter(|s| match tab {
+            ui::SettingsTab::General => !s.path.starts_with("keys."),
+            ui::SettingsTab::Keys => s.path.starts_with("keys."),
+            ui::SettingsTab::Overview => false,
+        })
+        .collect()
+}
+
+fn names_array(names: impl IntoIterator<Item = String>) -> toml_edit::Value {
+    let mut array = toml_edit::Array::new();
+    for name in names {
+        array.push(name);
+    }
+    toml_edit::Value::Array(array)
 }
 
 /// The next value for a setting stepped by `direction` (-1, +1; 10x for `big`).
@@ -34,11 +56,74 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut change: Option<Change> = None;
     let mut close = false;
     let current_theme = crate::theme::theme();
-    if let Mode::Settings { settings, state, editing, capture, error, back } = &mut st.mode {
-        let len = settings.len();
+    if let Mode::Settings { tab, settings, state, editing, capture, error, back } = &mut st.mode {
+        let mut layout = crate::k8s::layout::resolve(&cx.config.overview);
+        let len = if *tab == ui::SettingsTab::Overview { crate::k8s::layout::flatten(&layout).len() } else { settings.len() };
         let setting = state.selected().and_then(|i| settings.get(i)).cloned();
         let current = setting.as_ref().map(|s| settings::current(cx.config, &current_theme, s)).unwrap_or_default();
         match event {
+            // Tabs, by key or click.
+            Event::Key(key) if editing.is_none() && capture.is_none() && matches!(key.code, KeyCode::Tab | KeyCode::BackTab) => {
+                *tab = if key.code == KeyCode::Tab { tab.next() } else { tab.previous() };
+                *settings = tab_settings(*tab);
+                state.select(Some(0));
+                *error = None;
+            }
+            Event::Mouse(mouse) if editing.is_none() && capture.is_none() && matches!(mouse.kind, MouseEventKind::Down(_)) && ui::settings_tab_at(cx.frame_area, mouse.column, mouse.row).is_some() => {
+                if let Some(clicked) = ui::settings_tab_at(cx.frame_area, mouse.column, mouse.row) {
+                    *tab = clicked;
+                    *settings = tab_settings(*tab);
+                    state.select(Some(0));
+                    *error = None;
+                }
+            }
+            // The Overview layout: move categories and kinds, hide or show them.
+            Event::Key(key) if *tab == ui::SettingsTab::Overview => {
+                use crate::k8s::layout;
+                let flat = layout::flatten(&layout);
+                let row = flat[state.selected().unwrap_or(0).min(flat.len() - 1)];
+                let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+                *error = None;
+                let direction = match key.code {
+                    KeyCode::Char('K') => Some(-1),
+                    KeyCode::Char('J') => Some(1),
+                    KeyCode::Up if shift => Some(-1),
+                    KeyCode::Down if shift => Some(1),
+                    _ => None,
+                };
+                if let Some(direction) = direction {
+                    if let Some(to) = layout::move_row(&mut layout, row, direction) {
+                        state.select(Some(to));
+                        let save = match row.item {
+                            None => ("overview.sections".to_string(), names_array(layout.iter().map(|s| s.name.clone()))),
+                            Some(_) => (format!("overview.items.{}", layout[row.section].name), names_array(layout[row.section].items.iter().map(|i| i.name.clone()))),
+                        };
+                        change = Some(Change::Save(vec![(save.0, Some(save.1))]));
+                    }
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => close = true,
+                        KeyCode::Char('j') | KeyCode::Down => select_next(state, len),
+                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, len),
+                        KeyCode::Char('g') | KeyCode::Home => state.select(Some(0)),
+                        KeyCode::Char('G') | KeyCode::End => state.select(Some(len.saturating_sub(1))),
+                        KeyCode::Char(' ') | KeyCode::Enter => {
+                            match row.item {
+                                None => layout[row.section].hidden = !layout[row.section].hidden,
+                                Some(i) => layout[row.section].items[i].hidden = !layout[row.section].items[i].hidden,
+                            }
+                            if layout::any_visible(&layout) {
+                                let hidden = layout::to_config(&layout).hidden;
+                                change = Some(Change::Save(vec![("overview.hidden".to_string(), (!hidden.is_empty()).then(|| names_array(hidden)))]));
+                            } else {
+                                *error = Some("Keep at least one category visible".into());
+                            }
+                        }
+                        KeyCode::Char('r') => change = Some(Change::Save(vec![("overview".to_string(), None)])),
+                        _ => {}
+                    }
+                }
+            }
             // The key popup: a menu of what to do with the keys, then (to add or
             // replace) the key itself, which is confirmed before anything is saved.
             Event::Key(key) if capture.is_some() => {
@@ -197,9 +282,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             Change::Reset(path) => settings::save(&Config::path(), path, None),
+            Change::Save(values) => values.iter().try_fold(None, |_, (path, value)| settings::save(&Config::path(), path, value.clone()).map(Some)).and_then(|c| c.ok_or_else(|| anyhow::anyhow!("nothing to save"))),
         };
+        // A new order makes the old selection and scroll meaningless.
+        let layout_change = matches!(change, Change::Save(_));
         match result {
-            Ok(config) => st.reload(config),
+            Ok(config) => {
+                st.reload(config);
+                if layout_change {
+                    st.overview_selection = ui::OverviewSelection::Resources;
+                    st.overview_col_scroll = 0;
+                    st.overview_item_scroll = 0;
+                }
+            }
             Err(e) => {
                 if let Mode::Settings { error, .. } = &mut st.mode {
                     *error = Some(format!("{e:#}"));
@@ -213,7 +308,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
 /// Opens the settings screen over whatever is showing.
 pub(super) fn open(st: &mut State) {
     let back = std::mem::replace(&mut st.mode, Mode::List);
-    st.mode = Mode::Settings { settings: settings::registry(), state: TableState::default().with_selected(0), editing: None, capture: None, error: None, back: Box::new(back) };
+    st.mode = Mode::Settings { tab: ui::SettingsTab::General, settings: tab_settings(ui::SettingsTab::General), state: TableState::default().with_selected(0), editing: None, capture: None, error: None, back: Box::new(back) };
 }
 
 #[cfg(test)]

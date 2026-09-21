@@ -38,6 +38,8 @@ pub(super) struct Query<'a> {
     pub faults: bool,
     /// Show the extra columns (`Ctrl-w`), which the sort keys must know about.
     pub wide: bool,
+    /// The Overview's category order and hidden entries.
+    pub layout: &'a crate::config::OverviewConfig,
 }
 
 pub(super) struct Sources<'a> {
@@ -53,7 +55,7 @@ pub(super) struct Sources<'a> {
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
-    let Query { current_kind, namespace, scope, search, sort, faults, wide } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // `search` only applies to the kind it was typed against (it is cleared on every
@@ -132,7 +134,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column, wide));
         }
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
-        let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
+        let catalog_sections = k8s::layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len()), layout);
         // Only the opened-up category view shows it, so only work it out then.
         let health = if matches!(mode, Mode::ColumnDetail { .. }) {
             catalog.health([("Pods", k8s::pods_health(&pod_rows)), ("Deployments", k8s::deployments_health(&dep_rows)), ("Nodes", node_health)])

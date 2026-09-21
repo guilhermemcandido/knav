@@ -4,6 +4,7 @@
 
 pub mod catalog;
 pub mod describe;
+pub mod layout;
 pub mod metrics;
 pub mod scope;
 pub mod sort;

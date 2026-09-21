@@ -122,7 +122,7 @@ pub enum Overlay<'a> {
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
     /// The settings screen.
-    Settings { rows: &'a [SettingView], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
+    Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
@@ -207,6 +207,42 @@ pub struct SettingView {
     pub editing: bool,
     /// What the setting does, shown under the list while it is selected.
     pub help: &'static str,
+}
+
+/// The tabs along the top of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettingsTab {
+    General,
+    Keys,
+    Overview,
+}
+
+impl SettingsTab {
+    pub const ALL: [SettingsTab; 3] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingsTab::General => "General",
+            SettingsTab::Keys => "Keys",
+            SettingsTab::Overview => "Overview layout",
+        }
+    }
+
+    pub fn next(self) -> SettingsTab {
+        Self::ALL[(Self::ALL.iter().position(|t| *t == self).unwrap_or(0) + 1) % Self::ALL.len()]
+    }
+
+    pub fn previous(self) -> SettingsTab {
+        Self::ALL[(Self::ALL.iter().position(|t| *t == self).unwrap_or(0) + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+}
+
+/// One row of the Overview layout editor.
+pub struct LayoutRow {
+    pub name: String,
+    /// A category (else one of its kinds).
+    pub section: bool,
+    pub hidden: bool,
 }
 
 /// The "press a key" popup on the settings screen.
@@ -484,7 +520,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
-        Overlay::Settings { rows, state, error, capture } => draw_settings(frame, rows, state, error, capture.as_ref()),
+        Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, tab, rows, layout, state, error, capture.as_ref()),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),

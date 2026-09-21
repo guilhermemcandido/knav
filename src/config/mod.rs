@@ -47,6 +47,19 @@ impl LogOrder {
     }
 }
 
+/// The order and visibility of the Overview's categories and kinds. Anything
+/// not listed keeps its default place after the listed ones.
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct OverviewConfig {
+    /// Category names, in the order to show them.
+    pub sections: Vec<String>,
+    /// Kind names per category, in the order to show them.
+    pub items: BTreeMap<String, Vec<String>>,
+    /// Hidden categories (`Config`) and kinds (`Config/Secrets`).
+    pub hidden: Vec<String>,
+}
+
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct LogsConfig {
@@ -209,6 +222,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub mouse: MouseConfig,
     pub api: ApiConfig,
+    pub overview: OverviewConfig,
     /// Key bindings by action id; each is one key or a list (see `keymap`).
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,

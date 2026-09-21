@@ -96,7 +96,7 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::Settings { settings, state, editing, capture, error, .. } => {
+            Mode::Settings { tab, settings, state, editing, capture, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let current_theme = crate::theme::theme();
@@ -129,7 +129,19 @@ pub(super) fn draw_mode(
                         };
                         Some(ui::CaptureView { label: setting.label.clone(), keys, stage, problem: c.problem.clone() })
                     });
-                    let overlay = ui::Overlay::Settings { rows: &rows, state, error: error.as_deref(), capture: capture_view };
+                    let layout_rows: Vec<ui::LayoutRow> = if *tab == ui::SettingsTab::Overview {
+                        let layout = crate::k8s::layout::resolve(&config.overview);
+                        crate::k8s::layout::flatten(&layout)
+                            .into_iter()
+                            .map(|row| match row.item {
+                                None => ui::LayoutRow { name: layout[row.section].name.clone(), section: true, hidden: layout[row.section].hidden },
+                                Some(i) => ui::LayoutRow { name: layout[row.section].items[i].name.clone(), section: false, hidden: layout[row.section].hidden || layout[row.section].items[i].hidden },
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, state, error: error.as_deref(), capture: capture_view };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
