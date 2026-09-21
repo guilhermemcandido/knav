@@ -350,7 +350,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
                 hints.push(("e", "edit"));
                 hints.push(("y", "yaml"));
                 hints.push(("Y", "copy name"));
-                hints.push(("J", "owner"));
+                hints.push(("O", "owner"));
                 hints.extend(action_hints(current_kind));
             }
             hints.push(("space", "mark"));

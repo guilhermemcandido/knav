@@ -123,6 +123,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Char('p') => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
+                    let previous = key.code == KeyCode::Char('p');
+                    let no_previous = previous && container.restarts == 0;
                     let snapshot = Mode::Containers {
                         title: title.clone(),
                         namespace: namespace.clone(),
@@ -132,7 +134,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         sort: *sort,
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     };
-                    st.mode = logs_mode(cx, namespace, pod, &container.name, key.code == KeyCode::Char('p'), snapshot);
+                    st.mode = if no_previous {
+                        Mode::Notice { text: format!("{} has not restarted, so there is no previous run to show", container.name), error: false, back: Box::new(snapshot) }
+                    } else {
+                        logs_mode(cx, namespace, pod, &container.name, previous, snapshot)
+                    };
                 }
             }
             _ => {}

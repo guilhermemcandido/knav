@@ -12,6 +12,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let frame_area = cx.frame_area;
     let row_count = cx.row_count;
     let mut open = false;
+    let mut to_owner = false;
     match (event, &mut st.mode) {
         // Ctrl combinations: `Ctrl-z` lists only rows that need a look,
         // `Ctrl-w` adds the wide columns. Any other Ctrl key does nothing
@@ -86,10 +87,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                         if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                             st.table_state.select(Some(index));
-                            let now = std::time::Instant::now();
-                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
-                            st.last_click = if again { None } else { Some((now, index)) };
-                            open = again;
+                            // Clicking a pod's CONTROLLER follows it to the owner.
+                            let on_controller = st.current_kind == ResourceKind::Pods && ui::controller_at(table, pod_rows, st.wide, st.hscroll, mouse.column) && pod_rows.get(index).is_some_and(|p| p.controlled_by != "-");
+                            if on_controller {
+                                st.last_click = None;
+                                to_owner = true;
+                            } else {
+                                let now = std::time::Instant::now();
+                                let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
+                                st.last_click = if again { None } else { Some((now, index)) };
+                                open = again;
+                            }
                         }
                     }
                     kind => {
@@ -338,7 +346,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('-') => st.toggle_last_view(),
             // Jump to what owns the selected object (a pod's ReplicaSet, a
             // ReplicaSet's Deployment); Esc comes back.
-            KeyCode::Char('J') => {
+            KeyCode::Char('O') => {
                 let owner = selected_manifest(st, cx.d, catalog, client).and_then(|m| {
                     let first = m.get("metadata")?.get("ownerReferences")?.as_sequence()?.first()?.clone();
                     Some((first.get("kind")?.as_str()?.to_string(), first.get("name")?.as_str()?.to_string()))
@@ -490,6 +498,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     if open {
         return handle(Event::Key(KeyCode::Enter.into()), st, cx);
     }
+    if to_owner {
+        return handle(Event::Key(KeyCode::Char('O').into()), st, cx);
+    }
     Ok(None)
 }
 
@@ -535,6 +546,22 @@ fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodView) {
     let Ok(pod) = serde_yaml::from_value::<k8s_openapi::api::core::v1::Pod>(target.manifest.clone()) else { return };
     let containers = k8s::containers_for(&pod);
     let namespace = target.namespace.clone().unwrap_or_default();
+    // The previous run only exists for a container that restarted.
+    if let PodView::Logs { previous: true } = view {
+        let restarted: Vec<&k8s::ContainerInfo> = containers.iter().filter(|c| c.restarts > 0).collect();
+        match restarted.as_slice() {
+            [] => {
+                st.mode = Mode::Notice { text: format!("{} has not restarted, so there is no previous run to show", target.name), error: false, back: Box::new(Mode::List) };
+                return;
+            }
+            [one] => {
+                let name = one.name.clone();
+                st.mode = logs_mode(cx, &namespace, &target.name, &name, true, Mode::List);
+                return;
+            }
+            _ => {}
+        }
+    }
     match (containers.as_slice(), view) {
         ([only], PodView::Shell) => {
             let name = only.name.clone();

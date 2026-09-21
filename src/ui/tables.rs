@@ -152,8 +152,6 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize, wide: bool
     layout_table(&pod_headers(wide), rows, table_width.saturating_sub(2), None, hscroll)
 }
 
-/// Which pod row is under a terminal position, only over the CONTAINERS column so
-/// the popup fires on the dots. It solves the table's `Layout` to match its widths.
 /// Which data row of a bordered table a screen row falls on, given its scroll `offset`.
 pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) -> Option<usize> {
     let first = table_area.y.saturating_add(2);
@@ -165,6 +163,21 @@ pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) 
     (index < row_count).then_some(index)
 }
 
+/// Whether a terminal column is over the pods table's CONTROLLER column.
+pub fn controller_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, column: u16) -> bool {
+    const CONTROLLER: usize = 5;
+    let inner = Rect { x: frame_area.x.saturating_add(1), y: frame_area.y.saturating_add(2), width: frame_area.width.saturating_sub(2), height: frame_area.height.saturating_sub(3) };
+    let window = pod_window(pods, frame_area.width, &mut { hscroll }, wide);
+    let range = window.range();
+    if !range.contains(&CONTROLLER) {
+        return false;
+    }
+    let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
+    columns.get(CONTROLLER - range.start).is_some_and(|c| column >= c.x && column < c.x + c.width)
+}
+
+/// Which pod row is under a terminal position, only over the CONTAINERS column so
+/// the popup fires on the dots. It solves the table's `Layout` to match its widths.
 pub fn row_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area = frame_area;
 

@@ -55,7 +55,7 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `←` `→` | Scroll columns sideways when they don't fit |
 | `g` `G` / `Ctrl-f` `Ctrl-b` | Top or bottom of the list / page down or up (also `Home` `End` `PageUp` `PageDown`) |
 | `y` / `Y` | The manifest as YAML text (`c` there copies it) / copy the row's `namespace/name` to the clipboard |
-| `J` | Jump to the owner (pod → ReplicaSet → Deployment); `Esc` comes back |
+| `O` | Jump to the owner (pod → ReplicaSet → Deployment), or click a pod's CONTROLLER; `Esc` comes back |
 | `[` `]` `-` | View history back, forward, and the view before this one |
 | `Ctrl-z` | List only the rows that need a look (broken or unready) |
 | `Ctrl-w` | Wide columns: IP and images for pods, address/OS/kernel/runtime for nodes, images for deployments, labels for the rest |

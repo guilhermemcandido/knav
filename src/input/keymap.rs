@@ -84,7 +84,7 @@ bindings! {
     ("decode", "Decode a secret", &[List], &["x"]),
     ("pod_logs", "Pod logs", &[List], &["l"]),
     ("previous_logs", "Previous logs", &[List, Containers], &["p"]),
-    ("owner", "Jump to the owner", &[List], &["J"]),
+    ("owner", "Jump to the owner", &[List], &["O"]),
     ("mark", "Mark the row", &[List], &["space"]),
     ("open_browser", "Open in the browser", &[List], &["o"]),
     ("namespaces", "Namespaces", &[List, Overview], &["n"]),
