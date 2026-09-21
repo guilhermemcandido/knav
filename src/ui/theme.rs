@@ -169,7 +169,8 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
         let name = names[i];
         let mut spans = Vec::new();
         if sort.choosing {
-            spans.push(Span::styled(format!("({})", i + 1), number));
+            // Columns 1-9 are keys 1-9; the tenth is key 0.
+            spans.push(Span::styled(format!("({})", (i + 1) % 10), number));
         }
         spans.push(Span::styled(name.to_string(), text));
         if sort.column == Some(i) {
@@ -178,4 +179,20 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
         Cell::from(Line::from(spans))
     });
     Row::new(cells)
+}
+
+/// The colour a cell's tone gets (see `describe::Tone`); plain cells keep
+/// the row colour, and everything goes dim behind a popup.
+pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
+    use crate::describe::Tone;
+    if dimmed {
+        return dim_style();
+    }
+    match tone {
+        Tone::Plain => Style::default().fg(ROW_FG),
+        Tone::Good => Style::default().fg(Color::Green),
+        Tone::Warn => Style::default().fg(Color::Yellow),
+        Tone::Bad => Style::default().fg(Color::Red),
+        Tone::Muted => Style::default().fg(Color::DarkGray),
+    }
 }

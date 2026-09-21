@@ -58,7 +58,8 @@ pub enum Rows<'a> {
     Nodes(&'a [NodeRow]),
     /// Every other resource kind — a plain namespace/name/age table,
     /// labeled with the kind so the title bar and log line make sense.
-    Generic(&'a [GenericRow], &'static str),
+    /// Rows, the kind's label, and its extra column headers (for when there are no rows yet).
+    Generic(&'a [GenericRow], &'static str, &'a [&'static str]),
     /// The Custom Resources picker — every discovered CRD kind (or just
     /// one API group's), not yet any specific kind's instances. Each
     /// entry keeps its real index into `Catalog`'s full discovered list
@@ -276,7 +277,7 @@ pub fn draw(
             Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(BreadcrumbPod::from_pod),
             Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(BreadcrumbPod::from_deployment),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(BreadcrumbPod::from_node),
-            Rows::Generic(rows, _) => selected_row.and_then(|i| rows.get(i)).map(BreadcrumbPod::from_generic),
+            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(BreadcrumbPod::from_generic),
             Rows::CrdList(crds, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| BreadcrumbPod::from_crd(crd)),
             Rows::Overview(..) => None,
         },
@@ -305,8 +306,8 @@ pub fn draw(
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
-        Rows::Generic(rows, label) => {
-            draw_generic_table(frame, body, rows, label, table_state, search, sort, hscroll, dimmed);
+        Rows::Generic(rows, label, kind_headers) => {
+            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, dimmed);
         }
         Rows::CrdList(crds, heading) => {
             draw_crd_list_table(frame, body, crds, heading, table_state, search, sort, hscroll, dimmed);

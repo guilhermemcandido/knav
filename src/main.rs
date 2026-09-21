@@ -3,6 +3,7 @@ mod catalog;
 mod cli;
 mod commands;
 mod config;
+mod describe;
 mod edit;
 mod favorites;
 mod fuzzy;

@@ -42,10 +42,20 @@ impl BreadcrumbPod {
     }
 
     pub(super) fn from_generic(row: &GenericRow) -> Self {
+        use crate::describe::Tone;
         BreadcrumbPod {
             namespace: (row.namespace != "-").then(|| row.namespace.clone()),
             name: row.name.clone(),
-            note: None,
+            note: row.status.as_ref().map(|(tone, text)| {
+                let color = match tone {
+                    Tone::Plain => Color::Gray,
+                    Tone::Good => Color::Green,
+                    Tone::Warn => Color::Yellow,
+                    Tone::Bad => Color::Red,
+                    Tone::Muted => Color::DarkGray,
+                };
+                (color, text.clone())
+            }),
             containers: Vec::new(),
         }
     }

@@ -216,6 +216,9 @@ pub struct PodRow {
     /// Freelens' pod lists.
     pub ready: String,
     pub node: String,
+    /// What controls it — the kind of its owner (`ReplicaSet`, `Job`), or `-`.
+    pub controlled_by: String,
+    pub qos: String,
     pub age: String,
     pub age_secs: i64,
 }
@@ -353,7 +356,9 @@ pub fn row_for(pod: &Pod) -> PodRow {
         .unwrap_or_else(|| "-".into());
 
     let age_secs = age_seconds(pod.metadata.creation_timestamp.as_ref());
-    PodRow { namespace, name, phase, restarts, containers, ready, node, age, age_secs }
+    let controlled_by = pod.metadata.owner_references.as_ref().and_then(|o| o.first()).map(|o| o.kind.clone()).unwrap_or_else(|| "-".into());
+    let qos = status.qos_class.unwrap_or_else(|| "-".into());
+    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, age, age_secs }
 }
 
 /// A short "5m"/"3h"/"2d" style duration, matching kubectl/k9s's AGE
@@ -364,7 +369,7 @@ fn age_seconds(created: Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::
     created.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.0.as_second()).max(0)).unwrap_or(i64::MAX)
 }
 
-fn humanize_age(created: k8s_openapi::jiff::Timestamp) -> String {
+pub fn humanize_age(created: k8s_openapi::jiff::Timestamp) -> String {
     let secs = (k8s_openapi::jiff::Timestamp::now().as_second() - created.as_second()).max(0);
     if secs < 60 {
         format!("{secs}s")
@@ -784,6 +789,7 @@ pub struct NodeRow {
     pub memory_capacity: i64,
     pub pod_count: usize,
     pub pod_capacity: i64,
+    pub taints: usize,
     pub age: String,
     pub age_secs: i64,
 }
@@ -837,6 +843,7 @@ pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_coun
         memory_capacity: capacity.memory_bytes,
         pod_count,
         pod_capacity: capacity.pods,
+        taints: node.spec.as_ref().and_then(|s| s.taints.as_ref()).map_or(0, Vec::len),
         age,
         age_secs: age_seconds(node.metadata.creation_timestamp.as_ref()),
     }
@@ -946,6 +953,10 @@ pub struct GenericRow {
     pub name: String,
     pub age: String,
     pub age_secs: i64,
+    /// Kind-specific columns (see `describe`), between NAME and AGE.
+    pub extras: Vec<crate::describe::Col>,
+    /// A short coloured status for the bottom bar.
+    pub status: crate::describe::Note,
     pub uid: String,
     /// UIDs of this object's owners (`ownerReferences`) — what lets a
     /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
@@ -956,7 +967,7 @@ pub struct GenericRow {
 /// `self`, so this works identically for a typed k8s-openapi struct and
 /// for a `DynamicObject` (used for CRDs, whose `DynamicType` is
 /// `ApiResource` since the schema isn't known at compile time).
-pub fn generic_row<K: kube::Resource>(item: &K) -> GenericRow {
+pub fn generic_row<K: kube::Resource + crate::describe::Extras>(item: &K) -> GenericRow {
     let meta = item.meta();
     let namespace = meta.namespace.clone().unwrap_or_else(|| "-".into());
     let name = meta.name.clone().unwrap_or_default();
@@ -964,7 +975,8 @@ pub fn generic_row<K: kube::Resource>(item: &K) -> GenericRow {
     let uid = meta.uid.clone().unwrap_or_default();
     let owners = meta.owner_references.iter().flatten().map(|o| o.uid.clone()).collect();
     let age_secs = age_seconds(meta.creation_timestamp.as_ref());
-    GenericRow { namespace, name, age, age_secs, uid, owners }
+    let (extras, status) = item.extras();
+    GenericRow { namespace, name, age, age_secs, extras, status, uid, owners }
 }
 
 /// Same live-watch pattern as `watch_pods`/`watch_deployments`, generic
@@ -1009,6 +1021,10 @@ pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
     fn rows(&self) -> Vec<GenericRow>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
+    /// The kind's extra column headers (see `describe`), even with no rows.
+    fn headers(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
 }
 
 pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
@@ -1023,10 +1039,14 @@ impl<K: Resource<DynamicType = ()> + Clone + 'static> WatchedKind<K> {
 
 impl<K> CatalogKind for WatchedKind<K>
 where
-    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
 {
     fn count(&self) -> usize {
         self.store.state().len()
+    }
+
+    fn headers(&self) -> Vec<&'static str> {
+        K::headers()
     }
 
     fn rows(&self) -> Vec<GenericRow> {
@@ -1042,7 +1062,7 @@ where
 /// the one-liner most Catalog entries use.
 pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
-    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
 {
     let (store, handle) = watch_generic::<K>(client);
     (Box::new(WatchedKind::from_store(store)), handle)

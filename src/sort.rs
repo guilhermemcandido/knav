@@ -52,14 +52,14 @@ impl ListSort {
             return false;
         }
         match code {
-            KeyCode::Char(c @ '1'..='9') => {
-                let column = c as usize - '1' as usize;
+            KeyCode::Char(c @ '0'..='9') => {
+                // 1-9 are columns 1-9; 0 is the tenth.
+                let column = (c as usize + 9 - '0' as usize) % 10;
                 if column < columns {
                     self.spec = Some(SortSpec::pressed(self.spec, column));
                 }
                 true
             }
-            KeyCode::Char('0') => true,
             KeyCode::Char('s' | 'q') | KeyCode::Esc => {
                 self.choosing = false;
                 true
@@ -81,21 +81,22 @@ fn text(s: &str) -> Key {
     Key::Text(s.to_lowercase())
 }
 
-pub(crate) const POD_COLUMNS: usize = 8;
+pub(crate) const POD_COLUMNS: usize = 10;
 const DEPLOYMENT_COLUMNS: usize = 6;
-const NODE_COLUMNS: usize = 8;
+const NODE_COLUMNS: usize = 9;
 const CRD_COLUMNS: usize = 3;
 
-/// How many sortable columns the list for `kind` has. Generic tables drop
-/// the namespace column when every row is cluster-scoped.
-pub(crate) fn column_count(kind: ResourceKind, generic_has_namespace: bool) -> usize {
+/// How many sortable columns the list for `kind` has. `generic_columns` is
+/// the current generic table's width (namespace if any, name, the kind's
+/// own columns, age).
+pub(crate) fn column_count(kind: ResourceKind, generic_columns: usize) -> usize {
     match kind {
         ResourceKind::Overview => 0,
         ResourceKind::Pods => POD_COLUMNS,
         ResourceKind::Deployments => DEPLOYMENT_COLUMNS,
         ResourceKind::Nodes => NODE_COLUMNS,
         ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => CRD_COLUMNS,
-        _ => 2 + usize::from(generic_has_namespace),
+        _ => generic_columns,
     }
 }
 
@@ -124,8 +125,10 @@ pub(crate) fn pod_key(row: &k8s::PodRow, column: usize) -> Key {
         2 => Key::Num(ready_fraction(&row.ready)),
         3 => text(&row.phase),
         4 => Key::Num(i64::from(row.restarts)),
-        5 => text(&row.node),
-        6 => Key::Num(row.age_secs),
+        5 => text(&row.controlled_by),
+        6 => text(&row.node),
+        7 => text(&row.qos),
+        8 => Key::Num(row.age_secs),
         _ => Key::Num(row.containers.len() as i64),
     }
 }
@@ -151,19 +154,26 @@ pub(crate) fn node_key(row: &k8s::NodeRow, column: usize) -> Key {
             (true, true) => 2,
         }),
         2 => text(&row.roles),
-        3 => Key::Num(row.cpu_millicores.unwrap_or(-1)),
-        4 => Key::Num(row.memory_bytes.unwrap_or(-1)),
-        5 => Key::Num(row.pod_count as i64),
-        6 => Key::Num(row.age_secs),
+        3 => Key::Num(row.taints as i64),
+        4 => Key::Num(row.cpu_millicores.unwrap_or(-1)),
+        5 => Key::Num(row.memory_bytes.unwrap_or(-1)),
+        6 => Key::Num(row.pod_count as i64),
+        7 => Key::Num(row.age_secs),
         _ => text(&row.version),
     }
 }
 
 pub(crate) fn generic_key(row: &k8s::GenericRow, column: usize, has_namespace: bool) -> Key {
-    // Without the namespace column, everything shifts left by one.
-    match column + usize::from(!has_namespace) {
+    // Without the namespace column, everything shifts left by one:
+    // namespace, name, the kind's own columns, age.
+    let column = column + usize::from(!has_namespace);
+    match column {
         0 => text(&row.namespace),
         1 => text(&row.name),
+        c if c - 2 < row.extras.len() => {
+            let extra = &row.extras[c - 2];
+            extra.sort.map_or_else(|| text(&extra.text), Key::Num)
+        }
         _ => Key::Num(row.age_secs),
     }
 }
@@ -307,6 +317,8 @@ mod tests {
             name: "web".into(),
             age: "1d".into(),
             age_secs: 86400,
+            extras: Vec::new(),
+            status: None,
             uid: String::new(),
             owners: Vec::new(),
         };
@@ -316,11 +328,31 @@ mod tests {
     }
 
     #[test]
+    fn a_kinds_own_columns_sort_between_name_and_age_numerically_when_they_can() {
+        use crate::describe::{Col, Tone};
+        let row = k8s::GenericRow {
+            namespace: "ns".into(),
+            name: "web".into(),
+            age: "1d".into(),
+            age_secs: 5,
+            extras: vec![
+                Col { header: "READY", text: "10".into(), tone: Tone::Good, sort: Some(10) },
+                Col { header: "TYPE", text: "Opaque".into(), tone: Tone::Plain, sort: None },
+            ],
+            status: None,
+            uid: String::new(),
+            owners: Vec::new(),
+        };
+        assert_eq!(generic_key(&row, 2, true), Key::Num(10), "numeric, so 10 sorts after 9");
+        assert_eq!(generic_key(&row, 3, true), Key::Text("opaque".into()));
+        assert_eq!(generic_key(&row, 4, true), Key::Num(5), "age is last");
+    }
+
+    #[test]
     fn column_counts_match_the_tables() {
-        assert_eq!(column_count(ResourceKind::Pods, false), 8);
-        assert_eq!(column_count(ResourceKind::ConfigMaps, true), 3);
-        assert_eq!(column_count(ResourceKind::Nodes, false), 8);
-        assert_eq!(column_count(ResourceKind::ClusterRoles, false), 2);
-        assert_eq!(column_count(ResourceKind::Overview, false), 0);
+        assert_eq!(column_count(ResourceKind::Pods, 0), POD_COLUMNS);
+        assert_eq!(column_count(ResourceKind::ConfigMaps, 5), 5);
+        assert_eq!(column_count(ResourceKind::Nodes, 0), NODE_COLUMNS);
+        assert_eq!(column_count(ResourceKind::Overview, 3), 0);
     }
 }

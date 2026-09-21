@@ -159,6 +159,7 @@ pub(crate) fn run(
         // real index in `generic_rows_full`/the catalog's own live
         // snapshot — needed because `CatalogKind::spec_at` (the 'd' key)
         // takes that real index, not the display one.
+        let generic_headers: Vec<&'static str> = catalog.resolve(current_kind, &client).map(|k| k.headers()).unwrap_or_default();
         let generic_rows_full: Vec<k8s::GenericRow> = catalog.resolve(current_kind, &client).map(|k| k.rows()).unwrap_or_default();
         let mut generic_visible: Vec<usize> = (0..generic_rows_full.len())
             .filter(|&i| {
@@ -172,6 +173,10 @@ pub(crate) fn run(
         // Whether the table will show a namespace column — decides which
         // sort column is which.
         let generic_has_namespace = generic_visible.iter().any(|&i| generic_rows_full[i].namespace != "-");
+        // The generic table's width: namespace (if shown), name, the kind's own
+        // columns, age — what sort digits can reach.
+        let generic_columns =
+            usize::from(generic_has_namespace) + 1 + generic_headers.len() + 1;
         apply(&mut generic_visible, sort, |&i, column| generic_key(&generic_rows_full[i], column, generic_has_namespace));
         let generic_rows: Vec<k8s::GenericRow> = generic_visible.iter().map(|&i| generic_rows_full[i].clone()).collect();
         // The CRD picker, unfiltered or scoped to one API group — each
@@ -228,7 +233,7 @@ pub(crate) fn run(
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, current_kind.label()),
-            _ => ui::Rows::Generic(&generic_rows, current_kind.label()),
+            _ => ui::Rows::Generic(&generic_rows, current_kind.label(), &generic_headers),
         };
 
         let header_now = ui::HeaderInfo {
@@ -495,14 +500,14 @@ pub(crate) fn run(
                     if sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q') | KeyCode::Esc) =>
                 {
                     match key.code {
-                        KeyCode::Char(c @ '1'..='9') => {
-                            let column = c as usize - '1' as usize;
-                            if column < column_count(current_kind, generic_has_namespace) {
+                        KeyCode::Char(c @ '0'..='9') => {
+                            // 1-9 are columns 1-9; 0 is the tenth.
+                            let column = (c as usize + 9 - '0' as usize) % 10;
+                            if column < column_count(current_kind, generic_columns) {
                                 sort = Some(SortSpec::pressed(sort, column));
                                 table_state.select(Some(0));
                             }
                         }
-                        KeyCode::Char('0') => {}
                         _ => sort_choosing = false,
                     }
                 }
@@ -907,7 +912,7 @@ pub(crate) fn run(
                     KeyCode::Right | KeyCode::Char('l') => hscroll += 1,
                     // `s` sorts: the column numbers in the header light up and the
                     // next digit picks one.
-                    KeyCode::Char('s') if column_count(current_kind, generic_has_namespace) > 0 => sort_choosing = true,
+                    KeyCode::Char('s') if column_count(current_kind, generic_columns) > 0 => sort_choosing = true,
                     // `n` gives a namespace one of the number keys 1-9. On the
                     // Namespaces list it acts on the highlighted row right
                     // away; from every other view it first shows the

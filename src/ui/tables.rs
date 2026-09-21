@@ -98,7 +98,9 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
             Cell::from(p.ready.clone()).style(cell_style),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
+            Cell::from(p.controlled_by.clone()).style(cell_style),
             Cell::from(p.node.clone()).style(cell_style),
+            Cell::from(p.qos.clone()).style(cell_style),
             Cell::from(p.age.clone()).style(cell_style),
             Cell::from(containers_cell(&p.containers, dimmed)),
         ]))
@@ -116,7 +118,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_s
     frame.render_stateful_widget(table, area, table_state);
 }
 
-const POD_HEADERS: [&str; 8] = ["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "NODE", "AGE", "CONTAINERS"];
+const POD_HEADERS: [&str; 10] = ["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CONTROLLER", "NODE", "QOS", "AGE", "CONTAINERS"];
 
 /// The pods table's visible columns — shared by drawing and by hover
 /// hit-testing so they can't disagree about where CONTAINERS is.
@@ -128,7 +130,9 @@ fn pod_window(pods: &[PodRow], table_width: u16, hscroll: &mut usize) -> Window 
             cell_width(&p.ready),
             cell_width(&p.phase),
             p.restarts.to_string().len(),
+            cell_width(&p.controlled_by),
             cell_width(&p.node),
+            cell_width(&p.qos),
             cell_width(&p.age),
             p.containers.len() * 2,
         ]
@@ -268,7 +272,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
-    const HEADERS: [&str; 8] = ["NAME", "STATUS", "ROLES", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
+    const HEADERS: [&str; 9] = ["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
     // `[▓▓▓▓▓▓▓▓▓▓] 100%` — the usage bars are a fixed width.
     const BAR_WIDTH: usize = 17;
     let window = layout_table(
@@ -278,6 +282,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
                 cell_width(&n.name),
                 cell_width(&node_status_text(n)),
                 cell_width(&n.roles),
+                n.taints.to_string().len(),
                 BAR_WIDTH,
                 BAR_WIDTH,
                 cell_width(&format!("{}/{}", n.pod_count, n.pod_capacity)),
@@ -306,6 +311,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
             Cell::from(highlight_fuzzy(&n.name, search.text, cell_style)),
             Cell::from(status).style(status_style),
             Cell::from(n.roles.clone()).style(cell_style),
+            Cell::from(n.taints.to_string()).style(cell_style),
             Cell::from(usage_bar(n.cpu_millicores, n.cpu_capacity, dimmed)),
             Cell::from(usage_bar(n.memory_bytes, n.memory_capacity, dimmed)),
             Cell::from(format!("{}/{}", n.pod_count, n.pod_capacity)).style(cell_style),
@@ -337,30 +343,46 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
     let border_style = theme_border(dimmed);
     let cell_style = theme_row(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
-    let headers: &[&str] = if show_namespace { &["NAMESPACE", "NAME", "AGE"] } else { &["NAME", "AGE"] };
+    // NAMESPACE (if any row has one), NAME, the kind's own columns, AGE.
+    let mut headers: Vec<&str> = Vec::new();
+    if show_namespace {
+        headers.push("NAMESPACE");
+    }
+    headers.push("NAME");
+    headers.extend(kind_headers.iter().copied());
+    headers.push("AGE");
+
     let window = layout_table(
-        headers,
+        &headers,
         rows.iter().map(|r| {
-            if show_namespace { vec![cell_width(&r.namespace), cell_width(&r.name), cell_width(&r.age)] } else { vec![cell_width(&r.name), cell_width(&r.age)] }
+            let mut widths = Vec::with_capacity(headers.len());
+            if show_namespace {
+                widths.push(cell_width(&r.namespace));
+            }
+            widths.push(cell_width(&r.name));
+            widths.extend(r.extras.iter().map(|c| cell_width(&c.text)));
+            widths.push(cell_width(&r.age));
+            widths
         }),
         area.width.saturating_sub(2),
         None,
         hscroll,
     );
-    let header = header_row(headers, sort, dimmed, &window);
+    let header = header_row(&headers, sort, dimmed, &window);
 
     let table_rows = rows.iter().map(|r| {
-        let mut cells = Vec::with_capacity(3);
+        let mut cells = Vec::with_capacity(headers.len());
         if show_namespace {
             cells.push(Cell::from(highlight_fuzzy(&r.namespace, search.text, cell_style)));
         }
         cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
+        cells.extend(r.extras.iter().map(|c| Cell::from(c.text.clone()).style(tone_style(c.tone, dimmed))));
         cells.push(Cell::from(r.age.clone()).style(cell_style));
         Row::new(window.slice(cells))
     });
@@ -434,7 +456,7 @@ mod generic_table_tests {
     }
 
     fn row(namespace: &str) -> GenericRow {
-        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, uid: String::new(), owners: Vec::new() }
+        GenericRow { namespace: namespace.to_string(), name: "x".to_string(), age: "1d".to_string(), age_secs: 0, extras: Vec::new(), status: None, uid: String::new(), owners: Vec::new() }
     }
 
     #[test]
