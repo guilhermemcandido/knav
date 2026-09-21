@@ -106,15 +106,16 @@ pub(super) fn draw_mode(
                         [one] => format!("Scale {} to", one.label()),
                         many => format!("Scale {} objects to", many.len()),
                     };
-                    let overlay = ui::Overlay::Prompt { title: &title, value: input };
+                    let overlay = ui::Overlay::Prompt { title: &title, value: input, hint: "" };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
             Mode::Ports { target, input, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let title = format!("Forward {} (local:remote)", target.label());
-                    let overlay = ui::Overlay::Prompt { title: &title, value: input };
+                    let title = format!("Forward {}", target.label());
+                    let hint = target.port_hint();
+                    let overlay = ui::Overlay::Prompt { title: &title, value: input, hint: &hint };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

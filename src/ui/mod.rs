@@ -134,7 +134,7 @@ pub enum Overlay<'a> {
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
     /// A number being typed.
-    Prompt { title: &'a str, value: &'a str },
+    Prompt { title: &'a str, value: &'a str, hint: &'a str },
     /// The `n` namespace picker: every namespace in the cluster with the
     /// number key it already has (if any), for choosing which one to give a
     /// key to. Same table layout as `Context`.
@@ -373,7 +373,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Confirm { text } => draw_confirm_popup(frame, text),
-        Overlay::Prompt { title, value } => draw_prompt_popup(frame, title, value),
+        Overlay::Prompt { title, value, hint } => draw_prompt_popup(frame, title, value, hint),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),

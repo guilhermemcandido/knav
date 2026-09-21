@@ -87,13 +87,40 @@ impl Target {
         Some(format!("{prefix}/{}", self.name))
     }
 
-    /// The first port the object exposes, to pre-fill the forward prompt.
-    pub fn first_port(&self) -> Option<u16> {
-        let spec = self.manifest.get("spec")?;
+    /// Every port the object declares (container ports, or a Service's
+    /// ports), in order and without repeats.
+    pub fn ports(&self) -> Vec<u16> {
+        let Some(spec) = self.manifest.get("spec") else { return Vec::new() };
         let containers = spec.get("containers").or_else(|| spec.get("template")?.get("spec")?.get("containers"));
-        let from_containers = containers.and_then(|c| c.as_sequence()).into_iter().flatten().find_map(|c| c.get("ports")?.as_sequence()?.first()?.get("containerPort")?.as_u64());
-        let from_service = || spec.get("ports")?.as_sequence()?.first()?.get("port")?.as_u64();
-        from_containers.or_else(from_service).and_then(|p| u16::try_from(p).ok())
+        let mut ports: Vec<u64> = containers
+            .and_then(|c| c.as_sequence())
+            .into_iter()
+            .flatten()
+            .flat_map(|c| c.get("ports").and_then(|p| p.as_sequence()).into_iter().flatten())
+            .filter_map(|p| p.get("containerPort")?.as_u64())
+            .collect();
+        ports.extend(spec.get("ports").and_then(|p| p.as_sequence()).into_iter().flatten().filter_map(|p| p.get("port")?.as_u64()));
+        let mut seen = Vec::new();
+        for port in ports.into_iter().filter_map(|p| u16::try_from(p).ok()) {
+            if !seen.contains(&port) {
+                seen.push(port);
+            }
+        }
+        seen
+    }
+
+    /// The first declared port, to pre-fill the forward prompt.
+    pub fn first_port(&self) -> Option<u16> {
+        self.ports().first().copied()
+    }
+
+    /// The line under the forward prompt: what the object declares, or how
+    /// to type a port when it declares none.
+    pub fn port_hint(&self) -> String {
+        match self.ports().as_slice() {
+            [] => "declares no ports; type local:remote, e.g. 8080:80".to_string(),
+            ports => format!("declared: {} (local:remote)", ports.iter().map(u16::to_string).collect::<Vec<_>>().join(", ")),
+        }
     }
 
     /// The desired replica count now, to pre-fill the scale prompt.
@@ -372,6 +399,15 @@ mod tests {
         let svc = target("apiVersion: v1\nkind: Service\nmetadata: {name: s}\nspec: {ports: [{port: 443}]}\n");
         assert_eq!(svc.first_port(), Some(443));
         assert_eq!(target(DEPLOYMENT).first_port(), None);
+    }
+
+    #[test]
+    fn every_declared_port_is_listed_once_and_the_hint_says_when_there_are_none() {
+        let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a, ports: [{containerPort: 80}, {containerPort: 443}]}, {name: b, ports: [{containerPort: 80}]}]}\n");
+        assert_eq!(pod.ports(), [80, 443]);
+        assert_eq!(pod.port_hint(), "declared: 80, 443 (local:remote)");
+        let bare = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a}]}\n");
+        assert!(bare.port_hint().contains("declares no ports"));
     }
 
     #[test]

@@ -237,8 +237,11 @@ pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
     small_popup(frame, "Confirm", Color::Yellow, body);
 }
 
-pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str) {
-    let body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
+pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hint: &str) {
+    let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
+    if !hint.is_empty() {
+        body.push(Line::styled(hint.to_string(), Style::default().fg(Color::DarkGray)));
+    }
     small_popup(frame, title, Color::Cyan, body);
 }
 
