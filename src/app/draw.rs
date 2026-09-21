@@ -42,11 +42,15 @@ pub(super) fn draw_mode(
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
+    // Every mode draws the same base screen, with its own overlay on top.
+    let mut paint = |frame: &mut ratatui::Frame, hover: Option<ui::Hover>, background: Option<ui::Overlay>, overlay: Option<ui::Overlay>, editing: bool| {
+        ui::draw(frame, rows_view(), table_state, hover, background, overlay, hints, show_hints_panel, Some(path), icons, header_now, ui::Search { text: search, editing }, sort_view, hscroll, marked)
+    };
         match mode {
             Mode::List => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), table_state, hovered, None, None, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, hovered, None, None, false);
                 })?;
             }
             Mode::Command { input, selected, .. } => {
@@ -55,7 +59,7 @@ pub(super) fn draw_mode(
                     let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
-                    ui::draw(frame, rows_view(), table_state, hovered, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, hovered, None, Some(overlay), false);
                 })?;
             }
             Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
@@ -64,7 +68,7 @@ pub(super) fn draw_mode(
                     let items: Vec<(String, String, bool)> =
                         filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
                     let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::NamespacePick { names, filter, editing, state, sort: popup_sort, .. } => {
@@ -73,21 +77,21 @@ pub(super) fn draw_mode(
                     let items: Vec<(String, Option<usize>)> =
                         filtered_names(names, filter, *popup_sort, &favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
                     let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Slots { namespace, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Slots { namespace, slots: &favorites.slots, selected: *selected };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Notice { text, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Notice { text, error: *error };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Working { job, .. } => {
@@ -95,14 +99,14 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let (done, total) = job.progress.get();
                     let overlay = job.visible().then_some(ui::Overlay::Working { title: &job.title, elapsed: job.started.elapsed(), done, total, cancellable: true });
-                    ui::draw(frame, rows_view(), table_state, None, None, overlay, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, overlay, false);
                 })?;
             }
             Mode::Confirm { spec, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Confirm { spec };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Settings { tab, settings, state, editing, capture, error, .. } => {
@@ -144,14 +148,14 @@ pub(super) fn draw_mode(
                         Vec::new()
                     };
                     let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, state, error: error.as_deref(), capture: capture_view };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::ThemePicker { entries, state, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ThemePicker { entries, state, saved: &config_preset };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Shell { title, session, .. } => {
@@ -162,7 +166,7 @@ pub(super) fn draw_mode(
                     let exited = session.exited();
                     session.with_screen(|screen| {
                         let overlay = ui::Overlay::Shell { title, screen, exited };
-                        ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                        paint(frame, None, None, Some(overlay), false);
                     });
                 })?;
             }
@@ -171,7 +175,7 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let title = crate::app::mode::object_title(manifest);
                     let overlay = ui::Overlay::Details { title: &title, sections, scroll: *scroll, hscroll: *details_hscroll };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Relations { target, graph, selected, .. } => {
@@ -179,14 +183,14 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let title = crate::app::mode::object_title(target);
                     let overlay = ui::Overlay::Relations { title: &title, graph, selected: *selected };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Yaml { title, text, scroll, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Yaml { title, text, scroll: *scroll };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::OpenUrl { text, url, .. } => {
@@ -196,7 +200,7 @@ pub(super) fn draw_mode(
                     let notes = text.lines().filter(|l| !l.starts_with("Open ")).map(|l| (l.to_string(), false)).collect();
                     let spec = crate::ops::actions::ConfirmSpec { title: "Open it in the browser?".into(), verb: "Open".into(), danger: false, subjects: vec![("URL".into(), url.clone())], notes };
                     let overlay = ui::Overlay::Confirm { spec: &spec };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Scale { targets, input, .. } => {
@@ -207,7 +211,7 @@ pub(super) fn draw_mode(
                         many => format!("Scale {} objects to", many.len()),
                     };
                     let overlay = ui::Overlay::Prompt { title: &title, value: input, hint: "" };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Ports { target, form, .. } => {
@@ -215,13 +219,13 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let title = target.label();
                     let overlay = ui::Overlay::PortForward { title: &title, form };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Search => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    ui::draw(frame, rows_view(), table_state, None, None, None, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: true }, sort_view, hscroll, marked);
+                    paint(frame, None, None, None, true);
                 })?;
             }
             Mode::Menu { selected } => {
@@ -229,7 +233,7 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let sections = menu_sections(crds);
                     let overlay = ui::Overlay::Menu { sections: &sections, selected: *selected };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Spec { title, items, state, viewing, back, .. } => {
@@ -271,7 +275,7 @@ pub(super) fn draw_mode(
                         }
                         None => (node_background, ui::Overlay::Spec { title, items, state }),
                     };
-                    ui::draw(frame, rows_view(), table_state, None, background, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, background, Some(overlay), false);
                 })?;
             }
             Mode::Containers { title, containers, state, sort: popup_sort, back, .. } => {
@@ -304,7 +308,7 @@ pub(super) fn draw_mode(
                     };
                     let shown = sorted_containers(containers, *popup_sort);
                     let overlay = ui::Overlay::Containers { title, containers: &shown, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), table_state, None, background, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, background, Some(overlay), false);
                 })?;
             }
             Mode::NodeDetail { name, state, sort: popup_sort, search: nd_search, editing: nd_editing, .. } => {
@@ -327,14 +331,14 @@ pub(super) fn draw_mode(
                         sort: popup_sort.view(),
                         search: ui::Search { text: nd_search, editing: *nd_editing },
                     };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Events { filter, search: event_search, editing, state, sort: popup_sort } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search: event_search, editing: *editing, state, sort: popup_sort.view() };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::EventDetail { entry, back } => {
@@ -347,14 +351,14 @@ pub(super) fn draw_mode(
                         _ => None,
                     };
                     let overlay = ui::Overlay::EventDetail { entry };
-                    ui::draw(frame, rows_view(), table_state, None, background, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, background, Some(overlay), false);
                 })?;
             }
             Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: node_rows };
-                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::ColumnDetail { col, selected, row_scroll } => {
@@ -362,9 +366,9 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, health: &overview.health, selected: *selected, row_scroll: *row_scroll };
-                        ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                        paint(frame, None, None, Some(overlay), false);
                     } else {
-                        ui::draw(frame, rows_view(), table_state, None, None, None, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                        paint(frame, None, None, None, false);
                     }
                 })?;
             }
@@ -389,7 +393,7 @@ pub(super) fn draw_mode(
                         filter,
                         filter_editing: *filter_editing,
                     };
-                    ui::draw(frame, rows_view(), table_state, None, background, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    paint(frame, None, background, Some(overlay), false);
                 })?;
             }
         }
