@@ -20,7 +20,8 @@ pub(super) fn draw_overview(
 ) {
     let top_h = top_area_height(overview);
     let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
-    draw_top_panel(frame, chunks[0], overview, selection, dimmed);
+    let span = Rect { y: chunks[0].y, height: chunks[0].height, ..columns_span(area, overview.catalog.len()) };
+    draw_top_panel(frame, span, overview, selection, dimmed);
     draw_columns(frame, chunks[2], overview, selection, col_scroll, item_scroll, dimmed, icons);
 }
 

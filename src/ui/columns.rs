@@ -205,6 +205,19 @@ pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rec
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
+/// The strip the visible columns span, which the Resources and Events boxes above line up with.
+pub(super) fn columns_span(area: Rect, total: usize) -> Rect {
+    let inner = columns_inner(area);
+    if total == 0 {
+        return area;
+    }
+    let layout = column_layout(inner, visible_columns(inner.width, total));
+    match (layout.first(), layout.last()) {
+        (Some(first), Some(last)) => Rect { x: first.x, width: last.x + last.width - first.x, ..area },
+        _ => area,
+    }
+}
+
 pub(super) fn column_len(overview: &Overview, col: usize) -> usize {
     overview.catalog.get(col).map(|(_, items)| items.len()).unwrap_or(0)
 }
