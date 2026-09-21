@@ -205,6 +205,26 @@ fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json::Value> {
     }))
 }
 
+/// A Secret's manifest with each `data` value decoded from base64, for
+/// reading it. A value that isn't UTF-8 text shows its size instead.
+pub fn decode_secret(manifest: &serde_yaml::Value) -> serde_yaml::Value {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut decoded = manifest.clone();
+    if let Some(data) = decoded.get_mut("data").and_then(|d| d.as_mapping_mut()) {
+        for (_, value) in data.iter_mut() {
+            let Some(encoded) = value.as_str() else { continue };
+            *value = match STANDARD.decode(encoded.trim()) {
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(text) => serde_yaml::Value::String(text),
+                    Err(e) => serde_yaml::Value::String(format!("<binary, {} bytes>", e.as_bytes().len())),
+                },
+                Err(_) => serde_yaml::Value::String(format!("<not base64: {encoded}>")),
+            };
+        }
+    }
+    decoded
+}
+
 /// Opens an interactive shell in a container by handing the terminal to
 /// `kubectl exec` (bash if the image has it, else sh), and takes it back
 /// when the shell exits.
@@ -294,6 +314,16 @@ mod tests {
         assert!(Action::Cordon(true).confirmation(&t).is_none());
         let ns = target("apiVersion: v1\nkind: Namespace\nmetadata: {name: shop}\n");
         assert!(Action::Delete.confirmation(&ns).unwrap().contains("everything"));
+    }
+
+    #[test]
+    fn secret_values_are_decoded_and_binary_ones_summarised() {
+        let secret: serde_yaml::Value = serde_yaml::from_str("kind: Secret\ndata: {user: YWRtaW4=, blob: gA==, bad: '!!'}\n").unwrap();
+        let decoded = decode_secret(&secret);
+        assert_eq!(decoded["data"]["user"], "admin");
+        assert_eq!(decoded["data"]["blob"], "<binary, 1 bytes>");
+        assert_eq!(decoded["data"]["bad"], "<not base64: !!>");
+        assert_eq!(decoded["kind"], "Secret");
     }
 
     #[test]

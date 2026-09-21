@@ -289,6 +289,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             // Actions on the selected object (see `actions`).
+            // A Secret's values, decoded.
+            KeyCode::Char('x') if st.current_kind == ResourceKind::Secrets => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
+                    && let Some(target) = Target::from_manifest(&manifest)
+                {
+                    let title = format!("{}/{} (decoded)", target.namespace.as_deref().unwrap_or("-"), target.name);
+                    open_spec_value(&mut st.mode, title, actions::decode_secret(&manifest));
+                }
+            }
             // Logs of a pod's container (`p`: the previous run's).
             KeyCode::Char(c @ ('l' | 'p')) if st.current_kind == ResourceKind::Pods => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {

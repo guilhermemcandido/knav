@@ -296,6 +296,7 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
         ResourceKind::DaemonSets => vec![("r", "restart")],
         ResourceKind::Nodes => vec![("c", "cordon")],
         ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],
+        ResourceKind::Secrets => vec![("x", "decode")],
         _ => Vec::new(),
     };
     hints.push(("D", "delete"));
