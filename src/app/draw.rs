@@ -110,12 +110,11 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
-            Mode::Ports { target, input, .. } => {
+            Mode::Ports { target, form, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let title = format!("Forward {}", target.label());
-                    let hint = target.port_hint();
-                    let overlay = ui::Overlay::Prompt { title: &title, value: input, hint: &hint };
+                    let title = target.label();
+                    let overlay = ui::Overlay::PortForward { title: &title, form };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

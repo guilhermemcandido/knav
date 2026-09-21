@@ -56,7 +56,7 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `Space` | Mark the row and move down; `D`, `r` and `S` then act on every marked row. `Esc` clears the marks |
 | `d` / `e` | Show the spec / edit the manifest in `$EDITOR` |
 | `l` / `p` | Logs of a pod's container / the previous run's (in the containers popup too) |
-| `F` | Port-forward a pod, service or deployment (`local:remote`); opens the browser; `:pf` is the list of forwards (`Enter`/`o` open one, `D` stops it). Needs `kubectl` |
+| `F` | Port-forward a pod, service or deployment (a dialog with container port, local port and address; warns when the port is not declared); opens the browser; `:pf` is the list of forwards (`Enter`/`o` open one, `D` stops it). Needs `kubectl` |
 | `x` | Show a Secret's values decoded |
 | `D` | Delete the selected object (asks first) |
 | `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container |

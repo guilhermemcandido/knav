@@ -64,12 +64,120 @@ impl Drop for Forward {
     }
 }
 
-/// `8080:80` (local:remote) or a bare `80` for the same port on both sides.
-pub fn parse_ports(text: &str) -> Result<(u16, u16)> {
-    let port = |s: &str| s.trim().parse::<u16>().ok().filter(|p| *p > 0).with_context(|| format!("'{}' is not a port", s.trim()));
-    match text.split_once(':') {
-        Some((local, remote)) => Ok((port(local)?, port(remote)?)),
-        None => port(text).map(|p| (p, p)),
+fn parse_port(text: &str, what: &str) -> Result<u16> {
+    text.trim().parse::<u16>().ok().filter(|p| *p > 0).with_context(|| format!("{what}: '{}' is not a port (1-65535)", text.trim()))
+}
+
+/// Which part of the dialog has the keyboard.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Field {
+    Container,
+    Local,
+    Address,
+    Ok,
+    Cancel,
+}
+
+/// The port-forward dialog: the container port, the local port, the address
+/// to listen on, and OK / Cancel.
+#[derive(Clone, Debug)]
+pub struct PortForm {
+    pub container: String,
+    pub local: String,
+    pub address: String,
+    pub focus: Field,
+    /// Ports the object declares, to warn when the one typed is not among them.
+    pub declared: Vec<u16>,
+    /// What was wrong with the last attempt to submit.
+    pub error: Option<String>,
+    /// Once the local port is typed by hand it stops following the container port.
+    local_edited: bool,
+}
+
+impl PortForm {
+    pub fn new(declared: Vec<u16>) -> Self {
+        let first = declared.first().copied();
+        PortForm {
+            container: first.map(|p| p.to_string()).unwrap_or_default(),
+            local: first.map(|p| suggested_local(p).to_string()).unwrap_or_default(),
+            address: "localhost".into(),
+            focus: Field::Container,
+            declared,
+            error: None,
+            local_edited: false,
+        }
+    }
+
+    const ORDER: [Field; 5] = [Field::Container, Field::Local, Field::Address, Field::Ok, Field::Cancel];
+
+    fn step(&mut self, by: isize) {
+        let at = Self::ORDER.iter().position(|f| *f == self.focus).unwrap_or(0) as isize;
+        self.focus = Self::ORDER[(at + by).rem_euclid(Self::ORDER.len() as isize) as usize];
+    }
+
+    pub fn next(&mut self) {
+        self.step(1);
+    }
+
+    pub fn prev(&mut self) {
+        self.step(-1);
+    }
+
+    fn field_mut(&mut self) -> Option<&mut String> {
+        match self.focus {
+            Field::Container => Some(&mut self.container),
+            Field::Local => Some(&mut self.local),
+            Field::Address => Some(&mut self.address),
+            Field::Ok | Field::Cancel => None,
+        }
+    }
+
+    pub fn type_char(&mut self, c: char) {
+        self.error = None;
+        let allowed = match self.focus {
+            Field::Container | Field::Local => c.is_ascii_digit() && self.field_mut().is_some_and(|f| f.len() < 5),
+            Field::Address => (c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | ',')) && self.field_mut().is_some_and(|f| f.len() < 64),
+            Field::Ok | Field::Cancel => false,
+        };
+        if allowed && let Some(field) = self.field_mut() {
+            field.push(c);
+        }
+        self.after_edit();
+    }
+
+    pub fn backspace(&mut self) {
+        self.error = None;
+        if let Some(field) = self.field_mut() {
+            field.pop();
+        }
+        self.after_edit();
+    }
+
+    fn after_edit(&mut self) {
+        match self.focus {
+            Field::Local => self.local_edited = true,
+            Field::Container if !self.local_edited => {
+                self.local = self.container.parse::<u16>().map(|p| suggested_local(p).to_string()).unwrap_or_default();
+            }
+            _ => {}
+        }
+    }
+
+    /// What to show under the fields when the port typed is a guess.
+    pub fn warning(&self) -> Option<String> {
+        if self.declared.is_empty() {
+            return Some("No ports declared here; make sure the app listens on it".into());
+        }
+        let typed = self.container.trim().parse::<u16>().ok()?;
+        (!self.declared.contains(&typed)).then(|| format!("Not a declared port (declared: {})", self.declared.iter().map(u16::to_string).collect::<Vec<_>>().join(", ")))
+    }
+
+    /// `(local, container, address)` ready for kubectl, or what to fix.
+    pub fn parse(&self) -> Result<(u16, u16, String)> {
+        let remote = parse_port(&self.container, "Container port")?;
+        let local = if self.local.trim().is_empty() { suggested_local(remote) } else { parse_port(&self.local, "Local port")? };
+        let address = if self.address.trim().is_empty() { "localhost" } else { self.address.trim() };
+        Ok((local, remote, address.to_string()))
     }
 }
 
@@ -79,9 +187,9 @@ pub fn suggested_local(remote: u16) -> u16 {
     if remote >= 1024 { remote } else { remote + 8000 }
 }
 
-pub fn start(context: &str, namespace: &str, resource: &str, local: u16, remote: u16) -> Result<Forward> {
+pub fn start(context: &str, namespace: &str, resource: &str, address: &str, local: u16, remote: u16) -> Result<Forward> {
     let mut child = Command::new("kubectl")
-        .args(["--context", context, "-n", namespace, "port-forward", resource, &format!("{local}:{remote}")])
+        .args(["--context", context, "-n", namespace, "port-forward", "--address", address, resource, &format!("{local}:{remote}")])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -136,17 +244,79 @@ mod tests {
         assert_eq!(forward.label(), "localhost:8080 → shop/pod/web:80");
     }
 
-    #[test]
-    fn ports_parse_as_local_colon_remote_or_one_number() {
-        assert_eq!(parse_ports("8080:80").unwrap(), (8080, 80));
-        assert_eq!(parse_ports(" 3000 ").unwrap(), (3000, 3000));
+    fn form(declared: &[u16]) -> PortForm {
+        PortForm::new(declared.to_vec())
     }
 
     #[test]
-    fn bad_ports_are_rejected() {
-        for bad in ["", "abc", "80:", ":80", "0", "70000", "1:2:3"] {
-            assert!(parse_ports(bad).is_err(), "{bad}");
+    fn the_form_starts_from_the_first_declared_port() {
+        let f = form(&[80, 443]);
+        assert_eq!((f.container.as_str(), f.local.as_str(), f.address.as_str()), ("80", "8080", "localhost"));
+        assert_eq!(f.parse().unwrap(), (8080, 80, "localhost".to_string()));
+        assert!(f.warning().is_none());
+    }
+
+    #[test]
+    fn the_local_port_follows_the_container_port_until_it_is_typed() {
+        let mut f = form(&[]);
+        for c in "3000".chars() {
+            f.type_char(c);
         }
+        assert_eq!(f.local, "3000");
+        f.focus = Field::Local;
+        f.backspace();
+        f.type_char('1');
+        for _ in 0..2 {
+            f.prev();
+        }
+        f.type_char('5');
+        assert_eq!(f.local, "3001", "hand-edited, so it no longer follows");
+    }
+
+    #[test]
+    fn a_guessed_port_gets_a_warning_and_a_declared_one_does_not() {
+        let mut f = form(&[]);
+        assert!(f.warning().unwrap().contains("No ports declared"), "even before anything is typed");
+        f.type_char('9');
+        assert!(f.warning().unwrap().contains("No ports declared"));
+        let mut g = form(&[80]);
+        g.backspace();
+        g.backspace();
+        g.type_char('9');
+        assert!(g.warning().unwrap().contains("declared: 80"));
+    }
+
+    #[test]
+    fn bad_input_is_named_and_blank_fields_fall_back_to_defaults() {
+        let mut f = form(&[]);
+        assert!(f.parse().unwrap_err().to_string().contains("Container port"));
+        f.type_char('8');
+        f.type_char('0');
+        f.address.clear();
+        assert_eq!(f.parse().unwrap(), (8080, 80, "localhost".to_string()));
+        f.container = "70000".into();
+        assert!(f.parse().is_err());
+    }
+
+    #[test]
+    fn tab_cycles_through_the_fields_and_buttons() {
+        let mut f = form(&[]);
+        let mut seen = vec![f.focus];
+        for _ in 0..5 {
+            f.next();
+            seen.push(f.focus);
+        }
+        assert_eq!(seen, [Field::Container, Field::Local, Field::Address, Field::Ok, Field::Cancel, Field::Container]);
+        f.prev();
+        assert_eq!(f.focus, Field::Cancel);
+    }
+
+    #[test]
+    fn only_digits_go_into_port_fields() {
+        let mut f = form(&[]);
+        f.type_char('a');
+        f.type_char('8');
+        assert_eq!(f.container, "8");
     }
 
     #[test]

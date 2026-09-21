@@ -237,6 +237,53 @@ pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
     small_popup(frame, "Confirm", Color::Yellow, body);
 }
 
+/// The port-forward dialog, laid out like k9s's: labelled fields, a warning
+/// when the port is a guess, and OK / Cancel.
+pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &crate::portforward::PortForm) {
+    use crate::portforward::Field;
+    let full = frame.area();
+    let width = (full.width * 3 / 5).clamp(44, full.width.max(1)).min(full.width);
+    let height = 11u16.min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 3, width, height };
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(theme_border(false))
+        .title(Line::styled("<PortForward>", Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let label = Style::default().fg(Color::Rgb(214, 146, 120));
+    let value = Style::default().fg(Color::Rgb(226, 232, 240));
+    let hint = Style::default().fg(MUTED_FG);
+    let field = |name: &str, text: &str, placeholder: &str, focused: bool| {
+        let shown = if text.is_empty() && !focused { Span::styled(placeholder.to_string(), hint) } else { Span::styled(format!("{text}{}", if focused { "▏" } else { "" }), value) };
+        Line::from(vec![Span::styled(format!(" {name:<16}"), label), shown])
+    };
+    let button = |name: &str, focused: bool| {
+        let style = if focused { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) } else { Style::default().fg(value.fg.unwrap_or(Color::White)) };
+        Span::styled(format!(" {name} "), style)
+    };
+    let mut lines = vec![
+        Line::styled(title.to_string(), value.add_modifier(Modifier::BOLD)).centered(),
+        Line::raw(""),
+        field("Container Port:", &form.container, "Enter the container port", form.focus == Field::Container),
+        field("Local Port:", &form.local, "Enter a local port", form.focus == Field::Local),
+        field("Address:", &form.address, "localhost", form.focus == Field::Address),
+        Line::raw(""),
+    ];
+    let note = match (&form.error, form.warning()) {
+        (Some(e), _) => Some(Line::styled(format!(" {e}"), Style::default().fg(BAD_FG))),
+        (None, Some(w)) => Some(Line::styled(format!(" ⚠ {w}"), Style::default().fg(WARN_FG))),
+        _ => None,
+    };
+    lines.push(note.unwrap_or_else(|| Line::raw("")));
+    lines.push(Line::raw(""));
+    lines.push(Line::from(vec![button("OK", form.focus == Field::Ok), Span::raw("   "), button("Cancel", form.focus == Field::Cancel)]).centered());
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hint: &str) {
     let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
     if !hint.is_empty() {

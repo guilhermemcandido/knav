@@ -109,20 +109,6 @@ impl Target {
         seen
     }
 
-    /// The first declared port, to pre-fill the forward prompt.
-    pub fn first_port(&self) -> Option<u16> {
-        self.ports().first().copied()
-    }
-
-    /// The line under the forward prompt: what the object declares, or how
-    /// to type a port when it declares none.
-    pub fn port_hint(&self) -> String {
-        match self.ports().as_slice() {
-            [] => "declares no ports; type local:remote, e.g. 8080:80".to_string(),
-            ports => format!("declared: {} (local:remote)", ports.iter().map(u16::to_string).collect::<Vec<_>>().join(", ")),
-        }
-    }
-
     /// The desired replica count now, to pre-fill the scale prompt.
     pub fn replicas(&self) -> i64 {
         self.manifest.get("spec").and_then(|s| s.get("replicas")).and_then(|r| r.as_i64()).unwrap_or(1)
@@ -393,21 +379,18 @@ mod tests {
     #[test]
     fn the_first_exposed_port_comes_from_containers_or_service_ports() {
         let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a}, {name: b, ports: [{containerPort: 9000}]}]}\n");
-        assert_eq!(pod.first_port(), Some(9000));
+        assert_eq!(pod.ports(), [9000]);
         let dep = target("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: d}\nspec: {template: {spec: {containers: [{name: a, ports: [{containerPort: 80}]}]}}}\n");
-        assert_eq!(dep.first_port(), Some(80));
+        assert_eq!(dep.ports(), [80]);
         let svc = target("apiVersion: v1\nkind: Service\nmetadata: {name: s}\nspec: {ports: [{port: 443}]}\n");
-        assert_eq!(svc.first_port(), Some(443));
-        assert_eq!(target(DEPLOYMENT).first_port(), None);
+        assert_eq!(svc.ports(), [443]);
+        assert!(target(DEPLOYMENT).ports().is_empty());
     }
 
     #[test]
     fn every_declared_port_is_listed_once_and_the_hint_says_when_there_are_none() {
         let pod = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a, ports: [{containerPort: 80}, {containerPort: 443}]}, {name: b, ports: [{containerPort: 80}]}]}\n");
         assert_eq!(pod.ports(), [80, 443]);
-        assert_eq!(pod.port_hint(), "declared: 80, 443 (local:remote)");
-        let bare = target("apiVersion: v1\nkind: Pod\nmetadata: {name: p}\nspec: {containers: [{name: a}]}\n");
-        assert!(bare.port_hint().contains("declares no ports"));
     }
 
     #[test]

@@ -34,8 +34,8 @@ pub(crate) enum Mode {
     Confirm { text: String, targets: Vec<Target>, action: Action, back: Box<Mode> },
     /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
     OpenUrl { text: String, url: String, back: Box<Mode> },
-    /// Asks for the ports to forward (`local:remote`).
-    Ports { target: Target, input: String, back: Box<Mode> },
+    /// The port-forward dialog.
+    Ports { target: Target, form: crate::portforward::PortForm, back: Box<Mode> },
     /// Asks for a replica count (digits only) to scale to.
     Scale { targets: Vec<Target>, input: String, back: Box<Mode> },
     Spec {
