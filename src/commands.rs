@@ -64,6 +64,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
         .chain(std::iter::once(Cmd::Theme))
+        .chain(std::iter::once(Cmd::Settings))
         .chain(std::iter::once(Cmd::Quit))
         .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
         // Every other resource the server lists, by plural or kind (`:flowschemas`),
@@ -110,6 +111,7 @@ impl Suggestion {
             Cmd::Context => ui::SuggestionIcon::Named("switch"),
             Cmd::Events => ui::SuggestionIcon::Named("bell"),
             Cmd::Theme => ui::SuggestionIcon::Named("palette"),
+            Cmd::Settings => ui::SuggestionIcon::Named("gear"),
             Cmd::Quit => ui::SuggestionIcon::Named("door"),
         }
     }
@@ -130,6 +132,7 @@ pub(crate) enum Cmd {
     Context,
     Events,
     Theme,
+    Settings,
     Quit,
 }
 
@@ -152,6 +155,7 @@ impl Cmd {
             }
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
+            Cmd::Settings => fixed(&["config", "settings", "preferences", "prefs", "options"]),
             Cmd::Theme => fixed(&["theme", "themes", "skin", "skins", "colors", "colours"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),
         }

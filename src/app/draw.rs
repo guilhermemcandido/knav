@@ -23,6 +23,7 @@ pub(super) struct View<'a> {
     pub marked: &'a HashSet<String>,
     /// The theme saved in the config, marked in the theme picker.
     pub config_preset: &'a str,
+    pub config: &'a Config,
 }
 
 /// Draws one frame and returns the screen area it used (input handlers
@@ -36,7 +37,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked, config_preset } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, crds, apis, favorites, hints, show_hints_panel, breadcrumb, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -92,6 +93,32 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let overlay = ui::Overlay::Confirm { text };
+                    ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                })?;
+            }
+            Mode::Settings { settings, state, editing, error, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let current_theme = crate::theme::theme();
+                    let rows: Vec<ui::SettingView> = settings
+                        .iter()
+                        .enumerate()
+                        .map(|(i, setting)| {
+                            let is_editing = editing.is_some() && state.selected() == Some(i);
+                            let shown = if is_editing { editing.clone().unwrap_or_default() } else { crate::settings::current(config, &current_theme, setting) };
+                            let swatch = matches!(setting.kind, crate::settings::Kind::Color).then(|| crate::theme::parse_color(&shown).or_else(|| current_theme.get(setting.path.trim_start_matches("theme.colors."))).unwrap_or_default());
+                            ui::SettingView {
+                                section: setting.section,
+                                label: setting.label.clone(),
+                                value: shown,
+                                swatch,
+                                customised: crate::settings::is_customised(config, setting),
+                                restart: setting.restart,
+                                editing: is_editing,
+                            }
+                        })
+                        .collect();
+                    let overlay = ui::Overlay::Settings { rows: &rows, state, error: error.as_deref() };
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }

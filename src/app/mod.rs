@@ -105,6 +105,7 @@ pub(crate) fn run(
             sort_view,
             marked: &st.marked,
             config_preset: &st.config.theme.preset,
+            config: &st.config,
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 

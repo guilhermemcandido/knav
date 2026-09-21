@@ -40,7 +40,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if matches!(highlighted, Some(Cmd::Quit)) || matches!(cmd.as_str(), "q" | "quit" | "exit") {
                     return Ok(Some(Outcome::Quit));
                 }
-                if matches!(highlighted, Some(Cmd::Theme)) || matches!(cmd.as_str(), "theme" | "themes" | "skin" | "skins") {
+                if matches!(highlighted, Some(Cmd::Settings)) || matches!(cmd.as_str(), "config" | "settings" | "preferences" | "prefs" | "options") {
+                    let mut opened = std::mem::replace(&mut **back, Mode::List);
+                    std::mem::swap(&mut st.mode, &mut opened);
+                    super::settings::open(st);
+                } else if matches!(highlighted, Some(Cmd::Theme)) || matches!(cmd.as_str(), "theme" | "themes" | "skin" | "skins") {
                     let mut opened = std::mem::replace(&mut **back, Mode::List);
                     std::mem::swap(&mut st.mode, &mut opened);
                     super::themes::open(st, cx.config);

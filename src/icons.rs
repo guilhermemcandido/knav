@@ -71,6 +71,7 @@ fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
         "bell" => ("bell", include_bytes!("../assets/icons/bell.svg")),
         "switch" => ("switch", include_bytes!("../assets/icons/switch.svg")),
         "palette" => ("palette", include_bytes!("../assets/icons/palette.svg")),
+        "gear" => ("gear", include_bytes!("../assets/icons/gear.svg")),
         _ => return None,
     })
 }

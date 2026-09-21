@@ -97,15 +97,6 @@ pub fn current(config: &Config, theme: &Theme, setting: &Setting) -> String {
     toml::Value::try_from(config).ok().and_then(|v| lookup(&v, &setting.path).map(show)).unwrap_or_default()
 }
 
-/// What `setting` is when the config says nothing about it.
-pub fn default_of(setting: &Setting) -> String {
-    let base = Config::default();
-    let (theme, _) = theme::build(&base.theme.preset, &base.theme.colors);
-    // A colour's default depends on the preset chosen; the caller passes that
-    // through `preset_default` when it matters.
-    current(&base, &theme, setting)
-}
-
 /// Whether the config file sets `setting` itself.
 pub fn is_customised(config: &Config, setting: &Setting) -> bool {
     if let Some(role) = setting.path.strip_prefix("theme.colors.") {
@@ -172,6 +163,18 @@ pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>
             }
             if let Some(table) = table {
                 table.remove(last);
+            }
+            // Don't leave empty `[section]` headers behind.
+            for depth in (1..=parents.len()).rev() {
+                let mut table = Some(doc.as_table_mut());
+                for key in &parents[..depth - 1] {
+                    table = table.and_then(|t| t.get_mut(key)).and_then(|i| i.as_table_mut());
+                }
+                if let Some(table) = table
+                    && table.get(parents[depth - 1]).and_then(|i| i.as_table()).is_some_and(|t| t.is_empty())
+                {
+                    table.remove(parents[depth - 1]);
+                }
             }
         }
     }
@@ -252,6 +255,7 @@ mod tests {
         assert_eq!(config.theme.colors.get("ok").map(String::as_str), Some("#00ff00"));
         let removed = edit_document(&updated, "theme.colors.ok", None).unwrap();
         assert!(toml::from_str::<Config>(&removed).unwrap().theme.colors.is_empty());
+        assert!(!removed.contains("theme"), "the emptied sections are gone: {removed:?}");
         // Removing what is not there is harmless.
         assert!(edit_document("", "ui.border", None).is_ok());
     }

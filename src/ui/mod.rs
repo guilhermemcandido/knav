@@ -136,6 +136,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
     Confirm { text: &'a str },
+    /// The settings screen.
+    Settings { rows: &'a [SettingView], state: &'a mut TableState, error: Option<&'a str> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
@@ -203,6 +205,21 @@ pub(super) fn empty_list_message(label: &str, search: &str, faults_only: bool) -
     } else {
         Line::styled(format!("No {label} found"), Style::default().fg(theme().warn).add_modifier(Modifier::BOLD))
     }
+}
+
+/// One line of the settings screen.
+pub struct SettingView {
+    pub section: &'static str,
+    pub label: String,
+    pub value: String,
+    /// A colour setting's current colour, shown as a swatch.
+    pub swatch: Option<Color>,
+    /// The config file sets this one itself.
+    pub customised: bool,
+    /// Takes effect the next time knav starts.
+    pub restart: bool,
+    /// Being typed right now.
+    pub editing: bool,
 }
 
 /// What a command suggestion shows beside its name.
@@ -285,6 +302,7 @@ pub fn draw(
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
+                | Some(Overlay::Settings { .. })
                 | Some(Overlay::PortForward { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
@@ -480,6 +498,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
             draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::Settings { rows, state, error } => draw_settings(frame, rows, state, error),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),

@@ -378,6 +378,72 @@ pub(super) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::mode::Theme
     frame.render_stateful_widget(table, inner, state);
 }
 
+/// The settings screen: one row per setting under its section, the value in
+/// bold when the config file sets it, and a swatch for colours.
+pub(super) fn draw_settings(frame: &mut Frame, rows: &[SettingView], state: &mut TableState, error: Option<&str>) {
+    let area = body_area(frame.area(), true);
+    frame.render_widget(Clear, area);
+    let bottom = match error {
+        Some(e) => Line::styled(format!(" {e} "), Style::default().fg(theme().bad)),
+        None => Line::styled(" ←→ change   enter edit   r reset   esc close ", Style::default().fg(theme().muted)).right_aligned(),
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(Line::styled(" Settings ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title_bottom(bottom);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut last_section = "";
+    let table_rows: Vec<Row> = rows
+        .iter()
+        .map(|row| {
+            let section = if row.section == last_section { "" } else { row.section };
+            last_section = row.section;
+            let mut value = Vec::new();
+            if let Some(color) = row.swatch {
+                value.push(Span::styled("● ", Style::default().fg(color)));
+            }
+            let style = if row.editing {
+                Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD)
+            } else if row.customised {
+                Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme().desc)
+            };
+            value.push(Span::styled(if row.editing { format!("{}▏", row.value) } else { row.value.clone() }, style));
+            let note = if row.restart { "restart to apply" } else if row.customised { "custom" } else { "" };
+            Row::new(vec![
+                Cell::from(Span::styled(section, Style::default().fg(theme().heading).add_modifier(Modifier::BOLD))),
+                Cell::from(row.label.clone()),
+                Cell::from(Line::from(value)),
+                Cell::from(Span::styled(note, Style::default().fg(theme().muted))),
+            ])
+        })
+        .collect();
+    let table = Table::new(table_rows, [Constraint::Length(14), Constraint::Length(34), Constraint::Length(24), Constraint::Min(10)])
+        .column_spacing(2)
+        .style(theme_row(false))
+        .row_highlight_style(selection_style(crate::describe::Tone::Plain, false));
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(rows.len().saturating_sub(1))));
+    }
+    frame.render_stateful_widget(table, inner, state);
+}
+
+/// Which settings row a click lands on.
+pub fn settings_row_at(frame_area: Rect, len: usize, offset: usize, row: u16) -> Option<usize> {
+    let area = body_area(frame_area, true);
+    let top = area.y + 1;
+    let bottom = area.y + area.height.saturating_sub(1);
+    if row < top || row >= bottom {
+        return None;
+    }
+    let index = offset + usize::from(row - top);
+    (index < len).then_some(index)
+}
+
 /// Which theme row a click lands on.
 pub fn theme_row_at(frame_area: Rect, len: usize, offset: usize, row: u16) -> Option<usize> {
     let area = centered_rect(64, 86, frame_area);

@@ -30,6 +30,8 @@ pub(crate) enum Mode {
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
+    /// The settings screen: every setting, edited in place and saved as it changes.
+    Settings { settings: Vec<crate::settings::Setting>, state: TableState, editing: Option<String>, error: Option<String>, back: Box<Mode> },
     /// The theme list, previewing each theme live as you move through it.
     ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
@@ -135,7 +137,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Settings { editing: Some(_), .. } | Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -260,6 +262,7 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             path
         }
         Mode::ThemePicker { .. } => vec![plain_segment("Themes")],
+        Mode::Settings { .. } => vec![plain_segment("Settings")],
         Mode::Shell { title, back, .. } => {
             let mut path = breadcrumb_path(back);
             path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));
@@ -388,12 +391,15 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("m", "resources"));
             hints.push(("C", "contexts"));
             hints.push(("T", "themes"));
+            hints.push((",", "settings"));
             hints.push(("q/esc", "back"));
             hints
         }
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
+        Mode::Settings { editing: Some(_), .. } => Vec::new(),
+        Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("q/esc", "back")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],
