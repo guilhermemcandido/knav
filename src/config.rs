@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TimestampFormat {
     #[default]
@@ -22,7 +24,7 @@ impl TimestampFormat {
 /// Which way the log view reads: `oldest_first` is a normal top-down
 /// reading order with new lines arriving at the bottom (the default);
 /// `newest_first` puts the latest line at the top.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogOrder {
     #[default]
@@ -39,14 +41,14 @@ impl LogOrder {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct LogsConfig {
     pub timestamp_format: TimestampFormat,
     pub order: LogOrder,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LogsKeybindings {
     pub toggle_timestamp: char,
@@ -59,7 +61,7 @@ impl Default for LogsKeybindings {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct Keybindings {
     pub logs: LogsKeybindings,
@@ -71,7 +73,7 @@ pub struct Keybindings {
 /// always shows the freelens-style cluster picker first, even if there's
 /// only one context. `--context` on the command line bypasses this
 /// entirely regardless of which mode is configured.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StartupMode {
     #[default]
@@ -79,7 +81,7 @@ pub enum StartupMode {
     Menu,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct StartupConfig {
     pub mode: StartupMode,
@@ -88,7 +90,7 @@ pub struct StartupConfig {
 /// Table column sizing. A column is as wide as its content, but never
 /// squeezed below its minimum; when the columns' minimums don't all fit the
 /// screen, the table scrolls sideways (←/→) instead.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TablesConfig {
     /// The minimum width of every column unless overridden below.
@@ -96,16 +98,19 @@ pub struct TablesConfig {
     /// Per-column minimums, keyed by the lowercase header name
     /// (`name = 24`, `namespace = 14`, `"up-to-date" = 12`).
     pub min_widths: std::collections::HashMap<String, usize>,
+    /// Start every list with the wide columns / only the faulty rows.
+    pub wide_by_default: bool,
+    pub faults_by_default: bool,
 }
 
 impl Default for TablesConfig {
     fn default() -> Self {
-        TablesConfig { min_column_width: 10, min_widths: std::collections::HashMap::new() }
+        TablesConfig { min_column_width: 10, min_widths: std::collections::HashMap::new(), wide_by_default: false, faults_by_default: false }
     }
 }
 
 /// What starting a port-forward does besides forwarding.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PortForwardConfig {
     /// Open `http://localhost:<port>` in the browser once it is running;
@@ -119,22 +124,67 @@ impl Default for PortForwardConfig {
     }
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct MouseConfig {
+    pub wheel_rows: usize,
+    pub double_click_ms: u64,
+}
+
+impl Default for MouseConfig {
+    fn default() -> Self {
+        MouseConfig { wheel_rows: 3, double_click_ms: 400 }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ApiConfig {
+    /// Seconds between refreshes of `:api` and custom-resource lists.
+    pub refresh_seconds: u64,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        ApiConfig { refresh_seconds: 2 }
+    }
+}
+
+/// Colours: a preset, and per-role overrides on top of it (`#rrggbb`, a
+/// terminal colour name, or `indexed:N`).
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ThemeConfig {
+    pub preset: String,
+    pub colors: BTreeMap<String, String>,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        ThemeConfig { preset: "knav".into(), colors: BTreeMap::new() }
+    }
+}
+
 /// Look-and-feel options.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct UiConfig {
     /// The line style of every box: `heavy-rounded` (default), `thick`,
     /// `rounded`, `double`, `block` or `arcs`.
     pub border: String,
+    /// How much of its square a command suggestion's icon fills, in percent.
+    pub suggestion_icon_percent: u8,
+    pub idle_redraw_ms: u64,
+    pub shell_redraw_ms: u64,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
-        UiConfig { border: "heavy-rounded".into() }
+        UiConfig { border: "heavy-rounded".into(), suggestion_icon_percent: 78, idle_redraw_ms: 200, shell_redraw_ms: 25 }
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub portforward: PortForwardConfig,
@@ -143,6 +193,9 @@ pub struct Config {
     pub startup: StartupConfig,
     pub tables: TablesConfig,
     pub ui: UiConfig,
+    pub theme: ThemeConfig,
+    pub mouse: MouseConfig,
+    pub api: ApiConfig,
 }
 
 impl Config {
@@ -169,7 +222,7 @@ impl Config {
         }
     }
 
-    fn path() -> PathBuf {
+    pub fn path() -> PathBuf {
         Self::dir().join("config.toml")
     }
 

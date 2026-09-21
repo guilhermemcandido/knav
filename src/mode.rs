@@ -459,9 +459,6 @@ pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, pa
     true
 }
 
-/// Rows the selection moves per wheel notch.
-const WHEEL_ROWS: usize = 3;
-
 /// Moves a table's selection for a mouse wheel notch; false for any other
 /// mouse event.
 pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: usize) -> bool {
@@ -470,7 +467,7 @@ pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: us
         MouseEventKind::ScrollUp => select_prev,
         _ => return false,
     };
-    for _ in 0..WHEEL_ROWS {
+    for _ in 0..crate::tunables::tunables().wheel_rows {
         step(state, len);
     }
     true

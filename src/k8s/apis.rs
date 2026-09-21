@@ -175,8 +175,6 @@ impl Drop for TableKind {
     }
 }
 
-const REFRESH: Duration = Duration::from_secs(2);
-
 impl TableKind {
     pub fn start(client: Client, api: &ApiInfo) -> Self {
         let resource = api.resource();
@@ -192,7 +190,7 @@ impl TableKind {
                             Err(e) => data.error = Some(format!("{e:#}")),
                         }
                     }
-                    tokio::time::sleep(REFRESH).await;
+                    tokio::time::sleep(Duration::from_secs(crate::tunables::tunables().api_refresh_seconds.max(1))).await;
                 }
             })
         };

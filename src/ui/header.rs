@@ -51,8 +51,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
     }
-    let label = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(122, 140, 170)) };
-    let value = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD) };
+    let label = if dimmed { dim_style() } else { Style::default().fg(theme().info_label) };
+    let value = if dimmed { dim_style() } else { Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD) };
 
     let fields = [
         ("Context:", info.context.as_str()),
@@ -88,13 +88,13 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     }
     // Namespace shortcuts: `(0)all` plus each reserved number. The
     // active one is filled in.
-    let key = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)) };
-    let name = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(143, 191, 208)) };
-    let active = if dimmed { dim_style() } else { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) };
+    let key = if dimmed { dim_style() } else { Style::default().fg(theme().warm) };
+    let name = if dimmed { dim_style() } else { Style::default().fg(theme().row) };
+    let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) };
     // In sort mode the digits pick columns, not namespaces — grey the line
     // out so it reads as unavailable.
     let (key, name, active) = if sort_mode && !dimmed {
-        let muted = Style::default().fg(Color::Rgb(78, 88, 104));
+        let muted = Style::default().fg(theme().panel_bg);
         (muted, muted, muted)
     } else {
         (key, name, active)

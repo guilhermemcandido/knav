@@ -144,11 +144,11 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
 
     let lower = message.to_ascii_lowercase();
     let level_color = if ["error", "fatal", "panic", "fail"].iter().any(|kw| lower.contains(kw)) {
-        Color::Red
+        theme().bad
     } else if lower.contains("warn") {
-        Color::Yellow
+        theme().warn
     } else {
-        Color::Gray
+        theme().text_soft
     };
 
     let mut spans = Vec::new();
@@ -157,7 +157,7 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
             TimestampFormat::Short => short_timestamp(ts),
             TimestampFormat::Full => ts.to_string(),
         };
-        spans.push(Span::styled(format!("[{display}] "), Style::default().fg(Color::Cyan)));
+        spans.push(Span::styled(format!("[{display}] "), Style::default().fg(theme().namespace)));
     }
     spans.extend(highlight_matches(message, filter, Style::default().fg(level_color)));
     Line::from(spans)
@@ -237,8 +237,8 @@ mod log_color_tests {
         );
         assert_eq!(line.spans.len(), 2);
         assert_eq!(line.spans[0].content, "[2026-09-16T18:36:38.477289255Z] ");
-        assert_eq!(line.spans[0].style.fg, Some(Color::Cyan));
-        assert_eq!(line.spans[1].style.fg, Some(Color::Red));
+        assert_eq!(line.spans[0].style.fg, Some(theme().namespace));
+        assert_eq!(line.spans[1].style.fg, Some(theme().bad));
     }
 
     #[test]
@@ -250,19 +250,19 @@ mod log_color_tests {
     #[test]
     fn warning_line_colors_yellow() {
         let line = colorize_log_line("2026-09-16T18:36:38.477289255Z WARN: retrying in 5s", TimestampFormat::Full, "");
-        assert_eq!(line.spans[1].style.fg, Some(Color::Yellow));
+        assert_eq!(line.spans[1].style.fg, Some(theme().warn));
     }
 
     #[test]
     fn plain_line_colors_gray() {
         let line = colorize_log_line("2026-09-16T18:36:38.477289255Z line 0", TimestampFormat::Full, "");
-        assert_eq!(line.spans[1].style.fg, Some(Color::Gray));
+        assert_eq!(line.spans[1].style.fg, Some(theme().text_soft));
     }
 
     #[test]
     fn filter_match_is_highlighted_case_insensitively() {
         let line = colorize_log_line("2026-09-16T18:36:38.477289255Z hello World", TimestampFormat::Full, "world");
-        let hl: Vec<_> = line.spans.iter().filter(|s| s.style.bg == Some(Color::Yellow)).collect();
+        let hl: Vec<_> = line.spans.iter().filter(|s| s.style.bg == Some(theme().highlight)).collect();
         assert_eq!(hl.len(), 1);
         assert_eq!(hl[0].content, "World");
     }
@@ -271,7 +271,7 @@ mod log_color_tests {
     fn line_without_timestamp_has_no_timestamp_span() {
         let line = colorize_log_line("[failed to start log stream: connection reset]", TimestampFormat::Short, "");
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].style.fg, Some(Color::Red)); // "failed" matches
+        assert_eq!(line.spans[0].style.fg, Some(theme().bad)); // "failed" matches
     }
 }
 

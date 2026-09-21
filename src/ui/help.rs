@@ -69,9 +69,6 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
     ]
 }
 
-const HEADING_FG: Color = Color::Rgb(96, 160, 72);
-const KEY_FG: Color = Color::Rgb(84, 148, 255);
-const DESC_FG: Color = Color::Rgb(170, 176, 192);
 
 /// Draws the help over the whole body of the screen.
 pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>], shortcuts_line: bool) {
@@ -82,7 +79,7 @@ pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Opti
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(" Help ", Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
+        .title(Line::styled(" Help ", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -90,14 +87,14 @@ pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Opti
     let columns = Layout::horizontal(vec![Constraint::Ratio(1, sections.len() as u32); sections.len()]).split(inner);
     for (section, column) in sections.iter().zip(columns.iter()) {
         let key_width = section.entries.iter().map(|(k, _)| k.chars().count() + 2).max().unwrap_or(0) + 2;
-        let mut lines = vec![Line::styled(section.title, Style::default().fg(HEADING_FG).add_modifier(Modifier::BOLD))];
+        let mut lines = vec![Line::styled(section.title, Style::default().fg(theme().heading).add_modifier(Modifier::BOLD))];
         lines.extend(section.entries.iter().map(|(key, what)| {
             let shown = format!("<{key}>");
             let pad = " ".repeat(key_width.saturating_sub(shown.chars().count()));
             Line::from(vec![
-                Span::styled(shown, Style::default().fg(KEY_FG).add_modifier(Modifier::BOLD)),
+                Span::styled(shown, Style::default().fg(theme().key).add_modifier(Modifier::BOLD)),
                 Span::raw(pad),
-                Span::styled(what.clone(), Style::default().fg(DESC_FG)),
+                Span::styled(what.clone(), Style::default().fg(theme().desc)),
             ])
         }));
         let padded = Rect { x: column.x + 1, width: column.width.saturating_sub(1), ..*column };

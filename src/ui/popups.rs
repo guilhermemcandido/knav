@@ -3,12 +3,9 @@
 use super::*;
 
 /// The command line's calm steel blue (its border and prompt).
-const COMMAND_FG: Color = Color::Rgb(122, 170, 214);
 
 /// Rows each suggestion takes: room for a 6x3 icon beside its name.
 const SUGGESTION_HEIGHT: u16 = 3;
-/// How much of its square a suggestion's icon fills.
-const SUGGESTION_ICON_FILL: f32 = 0.78;
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
 /// The `:` command line, k9s-style: a bar right under the header, above
@@ -18,7 +15,7 @@ const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HE
 /// the cursor.
 pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     frame.render_widget(Clear, bar);
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(COMMAND_FG));
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(theme().command));
     let inner = block.inner(bar);
     frame.render_widget(block, bar);
 
@@ -29,10 +26,10 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
         .and_then(|name| name.strip_prefix(input))
         .unwrap_or("");
     let line = Line::from(vec![
-        Span::styled("> ", Style::default().fg(COMMAND_FG)),
-        Span::styled(input.to_string(), Style::default().fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
-        Span::styled("▏", Style::default().fg(COMMAND_FG)),
-        Span::styled(ghost.to_string(), Style::default().fg(MUTED_FG)),
+        Span::styled("> ", Style::default().fg(theme().command)),
+        Span::styled(input.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)),
+        Span::styled("▏", Style::default().fg(theme().command)),
+        Span::styled(ghost.to_string(), Style::default().fg(theme().muted)),
     ]);
     frame.render_widget(Paragraph::new(line), inner);
 
@@ -49,20 +46,21 @@ pub(super) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, sugge
     let width = (suggestions.iter().map(|s| s.label.chars().count()).max().unwrap_or(0) as u16 + SUGGESTION_ICON.width + 8).max(40).min(bar.width);
     let list = Rect { x: bar.x, y: bar.bottom(), width, height: shown as u16 * SUGGESTION_HEIGHT + 2 };
     frame.render_widget(Clear, list);
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(COMMAND_FG));
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(theme().command));
     let inner = block.inner(list);
     frame.render_widget(block, list);
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
         let row = Rect { x: inner.x, y: inner.y + (n - start) as u16 * SUGGESTION_HEIGHT, width: inner.width, height: SUGGESTION_HEIGHT };
         let chosen = n == selected;
-        let style = if chosen { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) } else { Style::default().fg(ROW_FG) };
+        let style = if chosen { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
         frame.render_widget(Block::default().style(style), row);
         let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
         // All the same size, a little inside the square so they don't crowd the row.
+        let fill = crate::tunables::tunables().suggestion_icon_percent as f32 / 100.0;
         let square = icons.centered_square(icon_area);
         match suggestion.icon {
-            SuggestionIcon::Kind(kind) => icons.draw_kind(frame, square, kind, SUGGESTION_ICON_FILL),
-            SuggestionIcon::Named(name) => icons.draw_named(frame, square, name, SUGGESTION_ICON_FILL),
+            SuggestionIcon::Kind(kind) => icons.draw_kind(frame, square, kind, fill),
+            SuggestionIcon::Named(name) => icons.draw_named(frame, square, name, fill),
         }
         let text = Rect { x: icon_area.right() + 1, y: row.y + 1, width: row.right().saturating_sub(icon_area.right() + 1), height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
@@ -98,7 +96,7 @@ pub(super) fn draw_context_popup(
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
             Cell::from(highlight_fuzzy(cluster, filter, Style::default())),
-            Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(Color::Green)),
+            Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(theme().ok)),
         ]))
     });
 
@@ -107,7 +105,7 @@ pub(super) fn draw_context_popup(
         title.push_span(span);
     }
     if let Some(err) = error {
-        title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(Color::Red)));
+        title.push_span(Span::styled(format!("  —  {err}"), Style::default().fg(theme().bad)));
     }
 
     let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
@@ -165,7 +163,7 @@ pub(super) fn draw_namespace_picker(
     let rows = items.iter().map(|(name, key)| {
         Row::new(window.slice(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
-            Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(Color::Rgb(240, 160, 110))),
+            Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(theme().warm)),
         ]))
     });
 
@@ -177,15 +175,15 @@ pub(super) fn draw_namespace_picker(
     // The number chips: each key, lit when the highlighted namespace has it,
     // orange when another namespace does.
     let selected_key = state.selected().and_then(|i| items.get(i)).and_then(|(_, key)| *key);
-    let mut chips = vec![Span::styled(CHIP_LABEL, Style::default().fg(MUTED_FG))];
+    let mut chips = vec![Span::styled(CHIP_LABEL, Style::default().fg(theme().muted))];
     for key in 1..=9usize {
         let taken = items.iter().any(|(_, k)| *k == Some(key));
         let style = if selected_key == Some(key) {
-            Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD)
+            Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD)
         } else if taken {
-            Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)
+            Style::default().fg(theme().warm).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Rgb(200, 205, 218))
+            Style::default().fg(theme().text_soft)
         };
         chips.push(Span::styled(format!(" {key} "), style));
         chips.push(Span::raw(" "));
@@ -218,8 +216,8 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     frame.render_widget(block, bar);
 
     let rows = Layout::vertical([Constraint::Length(1)].repeat(inner.height.max(1) as usize)).split(inner);
-    let key_style = Style::default().fg(Color::Rgb(240, 160, 110));
-    let fixed = Style::default().fg(Color::DarkGray);
+    let key_style = Style::default().fg(theme().warm);
+    let fixed = Style::default().fg(theme().muted);
 
     if let Some(row) = rows.first() {
         frame.render_widget(
@@ -234,7 +232,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
             None => "—".to_string(),
         };
         let line = if i == selected {
-            let style = Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD);
+            let style = Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD);
             Line::styled(format!("{:<width$}", format!("<{}> {text}", i + 1), width = row.width as usize), style)
         } else {
             Line::from(vec![Span::styled(format!("<{}> ", i + 1), key_style), Span::raw(text)])
@@ -243,7 +241,7 @@ pub(super) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Opti
     }
     if let Some(row) = rows.get(slots.len() + 2) {
         frame.render_widget(
-            Paragraph::new(Line::styled("1-9 assign  d clear", Style::default().fg(Color::DarkGray))),
+            Paragraph::new(Line::styled("1-9 assign  d clear", Style::default().fg(theme().muted))),
             *row,
         );
     }
@@ -264,7 +262,7 @@ pub(super) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
         height,
     };
     frame.render_widget(Clear, area);
-    let color = if error { Color::Red } else { Color::Green };
+    let color = if error { theme().bad } else { theme().ok };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
@@ -285,12 +283,12 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
 }
 
 pub(super) fn draw_confirm_popup(frame: &mut Frame, text: &str) {
-    let key = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+    let key = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
     let body = vec![
         Line::from(text.to_string()),
         Line::from(vec![Span::styled("y", key), Span::raw(" yes   "), Span::styled("n", key), Span::raw(" no")]),
     ];
-    small_popup(frame, "Confirm", Color::Yellow, body);
+    small_popup(frame, "Confirm", theme().highlight, body);
 }
 
 /// The port-forward dialog, laid out like k9s's: labelled fields, a warning
@@ -306,19 +304,19 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled("<PortForward>", Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
+        .title(Line::styled("<PortForward>", Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let label = Style::default().fg(Color::Rgb(214, 146, 120));
-    let value = Style::default().fg(Color::Rgb(226, 232, 240));
-    let hint = Style::default().fg(MUTED_FG);
+    let label = Style::default().fg(theme().label);
+    let value = Style::default().fg(theme().text_strong);
+    let hint = Style::default().fg(theme().muted);
     let field = |name: &str, text: &str, placeholder: &str, focused: bool| {
         let shown = if text.is_empty() && !focused { Span::styled(placeholder.to_string(), hint) } else { Span::styled(format!("{text}{}", if focused { "▏" } else { "" }), value) };
         Line::from(vec![Span::styled(format!(" {name:<16}"), label), shown])
     };
     let button = |name: &str, focused: bool| {
-        let style = if focused { Style::default().bg(SELECT_BG).fg(Color::Black).add_modifier(Modifier::BOLD) } else { Style::default().fg(value.fg.unwrap_or(Color::White)) };
+        let style = if focused { Style::default().bg(theme().select_bg).fg(theme().on_select).add_modifier(Modifier::BOLD) } else { Style::default().fg(value.fg.unwrap_or(theme().text_strong)) };
         Span::styled(format!(" {name} "), style)
     };
     let mut lines = vec![
@@ -330,8 +328,8 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
         Line::raw(""),
     ];
     let note = match (&form.error, form.warning()) {
-        (Some(e), _) => Some(Line::styled(format!(" {e}"), Style::default().fg(BAD_FG))),
-        (None, Some(w)) => Some(Line::styled(format!(" ⚠ {w}"), Style::default().fg(WARN_FG))),
+        (Some(e), _) => Some(Line::styled(format!(" {e}"), Style::default().fg(theme().bad))),
+        (None, Some(w)) => Some(Line::styled(format!(" ⚠ {w}"), Style::default().fg(theme().warn))),
         _ => None,
     };
     lines.push(note.unwrap_or_else(|| Line::raw("")));
@@ -363,8 +361,8 @@ pub(super) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &vt100::S
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" Shell {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered())
-        .title_bottom(Line::styled(bottom, Style::default().fg(if exited { WARN_FG } else { MUTED_FG })).right_aligned());
+        .title(Line::styled(format!(" Shell {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered())
+        .title_bottom(Line::styled(bottom, Style::default().fg(if exited { theme().warn } else { theme().muted })).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let buffer = frame.buffer_mut();
@@ -400,13 +398,13 @@ fn yaml_line(line: &str) -> Line<'static> {
         Some(after) => ("- ", after),
         None => ("", rest),
     };
-    let key_style = Style::default().fg(Color::Rgb(84, 148, 255));
-    let plain = Style::default().fg(Color::Rgb(200, 205, 218));
-    let mut spans = vec![Span::raw(lead.to_string()), Span::styled(dash.to_string(), Style::default().fg(MUTED_FG))];
+    let key_style = Style::default().fg(theme().key);
+    let plain = Style::default().fg(theme().text_soft);
+    let mut spans = vec![Span::raw(lead.to_string()), Span::styled(dash.to_string(), Style::default().fg(theme().muted))];
     match rest.split_once(": ").or_else(|| rest.strip_suffix(':').map(|k| (k, ""))) {
         Some((key, value)) if !key.contains(' ') || key.starts_with('"') => {
             spans.push(Span::styled(key.to_string(), key_style));
-            spans.push(Span::styled(":", Style::default().fg(MUTED_FG)));
+            spans.push(Span::styled(":", Style::default().fg(theme().muted)));
             if !value.is_empty() {
                 spans.push(Span::styled(format!(" {value}"), plain));
             }
@@ -424,7 +422,7 @@ pub(super) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(Line::styled(format!(" {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered());
+        .title(Line::styled(format!(" {title} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)).centered());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(yaml_line).collect();
@@ -432,11 +430,11 @@ pub(super) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll
 }
 
 pub(super) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hint: &str) {
-    let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(Color::Yellow))])];
+    let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(theme().highlight))])];
     if !hint.is_empty() {
-        body.push(Line::styled(hint.to_string(), Style::default().fg(Color::DarkGray)));
+        body.push(Line::styled(hint.to_string(), Style::default().fg(theme().muted)));
     }
-    small_popup(frame, title, Color::Cyan, body);
+    small_popup(frame, title, theme().namespace, body);
 }
 
 /// Freelens-style node drill-down: that node's own CPU/Memory/Pods
@@ -482,7 +480,7 @@ pub(super) fn draw_node_detail_popup(
             draw_meter(frame, lines[2], "Pods", pods.len() as f64, pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
         }
         _ => {
-            let text = Paragraph::new(Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)))
+            let text = Paragraph::new(Line::styled("metrics unavailable", Style::default().fg(theme().muted).add_modifier(Modifier::BOLD)))
                 .alignment(Alignment::Center);
             frame.render_widget(text, chunks[0]);
         }
@@ -510,7 +508,7 @@ pub(super) fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
 /// (healthy conditions included — unlike the Cluster Issues panel, this
 /// is a diagnostic view), and any taints.
 pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo, dimmed: bool) {
-    let label = Style::default().fg(Color::DarkGray);
+    let label = Style::default().fg(theme().muted);
     let value = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let field = |l: &'static str, v: String| vec![Span::styled(format!("{l}: "), label), Span::styled(v, value)];
 
@@ -518,9 +516,9 @@ pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::
     let schedulable_style = if dimmed {
         dim_style()
     } else if info.schedulable {
-        Style::default().fg(Color::Green)
+        Style::default().fg(theme().ok)
     } else {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(theme().highlight)
     };
 
     let mut line1 = field("Roles", info.roles.clone());
@@ -545,11 +543,11 @@ pub(super) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::
     for c in &info.conditions {
         let is_healthy = (c.type_ == "Ready") == (c.status == "True");
         let color = if dimmed {
-            Color::Rgb(40, 40, 40)
+            theme().dim
         } else if is_healthy {
-            Color::Green
+            theme().ok
         } else {
-            Color::Red
+            theme().bad
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{:<20}", c.type_), if dimmed { dim_style() } else { Style::default() }),
@@ -599,12 +597,12 @@ pub(super) fn draw_events_popup(
     let cell_style = theme_row(dimmed);
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
-            Color::Rgb(40, 40, 40)
+            theme().dim
         } else {
             match (e.severity, e.kind.as_str()) {
-                (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
-                (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
-                (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+                (crate::k8s::EventSeverity::Warning, "Node") => theme().bad,
+                (crate::k8s::EventSeverity::Warning, _) => theme().warn,
+                (crate::k8s::EventSeverity::Normal, _) => theme().ok,
             }
         };
         let type_text = match e.severity {
@@ -623,8 +621,8 @@ pub(super) fn draw_events_popup(
 
     // `Events (3/11)  (a) all  (w) warnings  (n) normal`, the active
     // severity highlighted, and `/text` while a search is applied.
-    let active = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
-    let idle = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
+    let active = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
+    let idle = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
     let key_style = |this: EventFilter| if filter == this { active } else { idle };
     let count_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let mut title_spans = vec![
@@ -676,15 +674,15 @@ pub(super) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
     frame.render_widget(Clear, area);
 
     let color = match (entry.severity, entry.kind.as_str()) {
-        (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
-        (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
-        (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+        (crate::k8s::EventSeverity::Warning, "Node") => theme().bad,
+        (crate::k8s::EventSeverity::Warning, _) => theme().warn,
+        (crate::k8s::EventSeverity::Normal, _) => theme().ok,
     };
     let type_text = match entry.severity {
         crate::k8s::EventSeverity::Normal => "Normal",
         crate::k8s::EventSeverity::Warning => "Warning",
     };
-    let label = Style::default().fg(Color::DarkGray);
+    let label = Style::default().fg(theme().muted);
     let bold = Style::default().add_modifier(Modifier::BOLD);
 
     let lines = vec![
@@ -743,8 +741,8 @@ pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview
 
     if !overview.metrics_available {
         let text = vec![
-            Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
-            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(Color::DarkGray)),
+            Line::styled("metrics unavailable", Style::default().fg(theme().muted).add_modifier(Modifier::BOLD)),
+            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(theme().muted)),
         ];
         frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), inner);
         return;

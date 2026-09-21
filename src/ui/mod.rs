@@ -14,6 +14,7 @@ use ratatui::{
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::config::{LogOrder, TimestampFormat};
+use crate::theme::theme;
 use crate::icons::IconCache;
 use crate::k8s::{
     ContainerInfo, ContainerStatusKind, CrdInfo, DeploymentRow, EventEntry, EventFilter, GenericRow, NodeRow, Overview, PodRow, ResourceKind,
@@ -194,11 +195,11 @@ pub struct Hover {
 pub(super) fn empty_list_message(label: &str, search: &str, faults_only: bool) -> Line<'static> {
     let label = label.to_lowercase();
     if !search.is_empty() {
-        Line::styled(format!("No {label} match '{search}'"), Style::default().fg(WARN_FG).add_modifier(Modifier::BOLD))
+        Line::styled(format!("No {label} match '{search}'"), Style::default().fg(theme().warn).add_modifier(Modifier::BOLD))
     } else if faults_only {
-        Line::styled(format!("✔ No {label} need attention"), Style::default().fg(OK_FG).add_modifier(Modifier::BOLD))
+        Line::styled(format!("✔ No {label} need attention"), Style::default().fg(theme().ok).add_modifier(Modifier::BOLD))
     } else {
-        Line::styled(format!("No {label} found"), Style::default().fg(WARN_FG).add_modifier(Modifier::BOLD))
+        Line::styled(format!("No {label} found"), Style::default().fg(theme().warn).add_modifier(Modifier::BOLD))
     }
 }
 
@@ -386,13 +387,13 @@ pub fn draw(
     if !is_overview && (header.faults_only || header.wide || sort.choosing) && !dimmed {
         let mut badges = Vec::new();
         if sort.choosing {
-            badges.push(Span::styled(" sorting ", Style::default().bg(Color::Rgb(120, 230, 230)).fg(Color::Black).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" sorting ", Style::default().bg(theme().accent).fg(theme().on_select).add_modifier(Modifier::BOLD)));
         }
         if header.faults_only {
-            badges.push(Span::styled(" faults ", Style::default().bg(WARN_FG).fg(Color::Black).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" faults ", Style::default().bg(theme().warn).fg(theme().on_select).add_modifier(Modifier::BOLD)));
         }
         if header.wide {
-            badges.push(Span::styled(" wide ", Style::default().bg(Color::Rgb(84, 148, 255)).fg(Color::Black).add_modifier(Modifier::BOLD)));
+            badges.push(Span::styled(" wide ", Style::default().bg(theme().key).fg(theme().on_select).add_modifier(Modifier::BOLD)));
         }
         let width: u16 = badges.iter().map(|b| b.width() as u16 + 1).sum();
         let rect = Rect { x: body.x + body.width.saturating_sub(width + 2), y: body.y, width: width.min(body.width), height: 1 };
@@ -479,9 +480,9 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
 /// text reads as one undifferentiated blob, not a list of distinct
 /// commands.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
-    let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(Color::Gray);
-    let sep_style = Style::default().fg(Color::DarkGray);
+    let key_style = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(theme().text_soft);
+    let sep_style = Style::default().fg(theme().muted);
 
     let indicator = Line::from(vec![
         Span::styled(if open { "close" } else { "commands" }, desc_style),
@@ -549,7 +550,7 @@ mod empty_message_tests {
     fn an_empty_list_says_nothing_was_found_in_yellow() {
         let line = empty_list_message("PVCs", "", false);
         assert_eq!(text(&line), "No pvcs found");
-        assert_eq!(line.style.fg, Some(WARN_FG));
+        assert_eq!(line.style.fg, Some(theme().warn));
     }
 
     #[test]
@@ -561,6 +562,6 @@ mod empty_message_tests {
     fn an_empty_faults_list_is_good_news_in_green() {
         let line = empty_list_message("Pods", "", true);
         assert_eq!(text(&line), "✔ No pods need attention");
-        assert_eq!(line.style.fg, Some(OK_FG));
+        assert_eq!(line.style.fg, Some(theme().ok));
     }
 }

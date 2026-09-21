@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use super::*;
 
@@ -29,19 +29,21 @@ struct ColumnMins {
     per_column: HashMap<String, usize>,
 }
 
-static COLUMN_MINS: OnceLock<ColumnMins> = OnceLock::new();
+static COLUMN_MINS: RwLock<Option<ColumnMins>> = RwLock::new(None);
 
-/// Sets the column minimums from the config, once at startup. Unset (as in
+/// Sets the column minimums from the config (at startup, and when they are edited). Unset (as in
 /// tests), every column's minimum is 10.
 pub fn configure_columns(default: usize, per_column: HashMap<String, usize>) {
     let per_column = per_column.into_iter().map(|(name, width)| (name.to_lowercase(), width)).collect();
-    let _ = COLUMN_MINS.set(ColumnMins { default, per_column });
+    if let Ok(mut mins) = COLUMN_MINS.write() {
+        *mins = Some(ColumnMins { default, per_column });
+    }
 }
 
 fn configured_min(header: &str) -> usize {
-    match COLUMN_MINS.get() {
-        Some(mins) => mins.per_column.get(&header.to_lowercase()).copied().unwrap_or(mins.default),
-        None => 10,
+    match COLUMN_MINS.read().ok().as_deref() {
+        Some(Some(mins)) => mins.per_column.get(&header.to_lowercase()).copied().unwrap_or(mins.default),
+        _ => 10,
     }
 }
 

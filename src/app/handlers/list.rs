@@ -77,7 +77,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                             st.table_state.select(Some(index));
                             let now = std::time::Instant::now();
-                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < DOUBLE_CLICK);
+                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::tunables::tunables().double_click_ms));
                             st.last_click = if again { None } else { Some((now, index)) };
                             open = again;
                         }
@@ -487,9 +487,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     }
     Ok(None)
 }
-
-/// Two clicks on one row this close together are a double-click.
-const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Scrolls the overview's columns so the selected tile is on screen.
 fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Overview, frame_area: Rect) {

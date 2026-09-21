@@ -257,7 +257,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
         draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
     }
 
-    let arrow_style = if dimmed { dim_style() } else { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) };
+    let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
     if col_scroll > 0 {
         let left = Rect { x: area.x, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
         frame.render_widget(Paragraph::new(Span::styled("◀", arrow_style)), left);
@@ -288,7 +288,7 @@ pub(super) fn draw_column(
     icons: &mut IconCache,
 ) {
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
-    let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
     let (border_style, title_style) = if dimmed {
         (dim_style(), dim_style())
@@ -341,14 +341,14 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 /// tinting the background.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
-    let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
         (muted, muted, muted)
     } else if selected {
-        (highlight, highlight, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        (highlight, highlight, Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD))
     } else {
-        (Style::default(), Style::default().add_modifier(Modifier::BOLD), Style::default().fg(Color::Cyan))
+        (Style::default(), Style::default().add_modifier(Modifier::BOLD), Style::default().fg(theme().namespace))
     };
 
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style);

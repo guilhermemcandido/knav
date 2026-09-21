@@ -34,9 +34,9 @@ impl BreadcrumbPod {
 
     pub(super) fn from_node(node: &NodeRow) -> Self {
         let (color, status) = match (node.ready, node.schedulable) {
-            (true, true) => (Color::Green, "Ready"),
-            (true, false) => (Color::Yellow, "Ready, cordoned"),
-            (false, _) => (Color::Red, "NotReady"),
+            (true, true) => (theme().ok, "Ready"),
+            (true, false) => (theme().warn, "Ready, cordoned"),
+            (false, _) => (theme().bad, "NotReady"),
         };
         BreadcrumbPod { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new() }
     }
@@ -48,11 +48,11 @@ impl BreadcrumbPod {
             name: row.name.clone(),
             note: row.status.as_ref().map(|(tone, text)| {
                 let color = match tone {
-                    Tone::Plain => Color::Gray,
-                    Tone::Good => Color::Green,
-                    Tone::Warn => Color::Yellow,
-                    Tone::Bad => Color::Red,
-                    Tone::Muted => Color::DarkGray,
+                    Tone::Plain => theme().text_soft,
+                    Tone::Good => theme().ok,
+                    Tone::Warn => theme().warn,
+                    Tone::Bad => theme().bad,
+                    Tone::Muted => theme().muted,
                 };
                 (color, text.clone())
             }),
@@ -94,9 +94,9 @@ enum Detail {
 }
 
 fn build(segments: &[BreadcrumbSegment], pod: Option<&BreadcrumbPod>, caps: &[usize], detail: Detail) -> Line<'static> {
-    let kind_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let value_style = Style::default().fg(Color::Gray);
-    let punct_style = Style::default().fg(Color::DarkGray);
+    let kind_style = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
+    let value_style = Style::default().fg(theme().text_soft);
+    let punct_style = Style::default().fg(theme().muted);
     let cap = |i: usize, text: &str| middle_ellipsis(text, caps.get(i).copied().unwrap_or(usize::MAX));
 
     let mut spans = vec![Span::raw(" ")];
@@ -188,7 +188,7 @@ mod tests {
             namespace: Some("kube-system".into()),
             name: "local-path-provisioner-5d9d9885bc-f".into(),
             note: None,
-            containers: vec![(Color::Green, "local-path-provisioner".into(), "Running".into())],
+            containers: vec![(theme().ok, "local-path-provisioner".into(), "Running".into())],
         }
     }
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
-        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some((Color::Green, "Ready".into())), containers: Vec::new() };
+        let node = BreadcrumbPod { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
         let wide = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 100));
         assert!(wide.ends_with("worker-1 ● Ready"), "{wide}");
         let tight = text(&breadcrumb_line(&[seg("Nodes", None)], Some(&node), 22));

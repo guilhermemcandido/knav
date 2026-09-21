@@ -74,7 +74,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     let resources_h = resources_box_height(overview);
     let chunks = Layout::vertical([Constraint::Length(resources_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
 
-    let highlight = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let resources_border = if dimmed {
         dim_style()
     } else if selection == OverviewSelection::Resources {
@@ -122,7 +122,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
         }
         if has_more {
             let more = overview.events.len() - shown;
-            let style = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC) };
+            let style = if dimmed { dim_style() } else { Style::default().fg(theme().muted).add_modifier(Modifier::ITALIC) };
             frame.render_widget(Paragraph::new(Line::styled(format!("… and {more} more"), style)).alignment(Alignment::Center), lines[1 + shown]);
         }
     }
@@ -145,8 +145,8 @@ pub(super) fn workloads_pod_count(overview: &Overview) -> usize {
 pub(super) fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overview, dimmed: bool) {
     if !overview.metrics_available {
         let text = vec![
-            Line::styled("metrics unavailable", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
-            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(Color::DarkGray)),
+            Line::styled("metrics unavailable", Style::default().fg(theme().muted).add_modifier(Modifier::BOLD)),
+            Line::styled("install metrics-server to see CPU/Memory usage", Style::default().fg(theme().muted)),
         ];
         frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
         return;
@@ -194,13 +194,13 @@ pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, 
 
     let label_style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let detail_style = if dimmed { dim_style() } else { Style::default() };
-    let bracket = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
+    let bracket = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
 
     let line = Line::from(vec![
         Span::styled(label_text, label_style),
         Span::styled("[", bracket),
         Span::styled("▓".repeat(filled), Style::default().fg(color)),
-        Span::styled("░".repeat(bar_width - filled), Style::default().fg(Color::DarkGray)),
+        Span::styled("░".repeat(bar_width - filled), Style::default().fg(theme().muted)),
         Span::styled("]", bracket),
         Span::styled(format!(" {detail}"), detail_style),
     ]);
@@ -391,7 +391,7 @@ pub(super) fn draw_events_header(frame: &mut Frame, area: Rect, dimmed: bool) {
 }
 
 pub(super) fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
-    let ok_style = if dimmed { dim_style() } else { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) };
+    let ok_style = if dimmed { dim_style() } else { Style::default().fg(theme().ok).add_modifier(Modifier::BOLD) };
     let text = vec![Line::styled("✓ No events", ok_style)];
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
@@ -402,12 +402,12 @@ pub(super) fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
 /// green) is just routine activity, not a problem.
 pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
-        Color::Rgb(40, 40, 40)
+        theme().dim
     } else {
         match (entry.severity, entry.kind.as_str()) {
-            (crate::k8s::EventSeverity::Warning, "Node") => Color::Red,
-            (crate::k8s::EventSeverity::Warning, _) => Color::Yellow,
-            (crate::k8s::EventSeverity::Normal, _) => Color::Green,
+            (crate::k8s::EventSeverity::Warning, "Node") => theme().bad,
+            (crate::k8s::EventSeverity::Warning, _) => theme().warn,
+            (crate::k8s::EventSeverity::Normal, _) => theme().ok,
         }
     };
     let type_text = match entry.severity {

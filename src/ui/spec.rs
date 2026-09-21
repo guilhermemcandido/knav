@@ -16,7 +16,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     let title_line = if dimmed { Line::styled(title.to_string(), dim_style()) } else { colored_slash_title(title) };
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title_line);
 
-    let highlight_style = if dimmed { dim_style() } else { Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD) };
+    let highlight_style = if dimmed { dim_style() } else { Style::default().bg(theme().muted).add_modifier(Modifier::BOLD) };
     let tree = Tree::new(items)
         .expect("pod tree ids are unique per level by construction")
         .block(block)
@@ -98,7 +98,7 @@ pub(super) fn node(id: &str, label: &str, value: &serde_yaml::Value, leaf_values
             let children = children_of(value, id, leaf_values);
             let text = Line::from(Span::styled(
                 label.to_string(),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD),
             ));
             TreeItem::new(id.to_string(), text, children)
                 .expect("child identifiers are unique per level by construction")
@@ -106,7 +106,7 @@ pub(super) fn node(id: &str, label: &str, value: &serde_yaml::Value, leaf_values
         scalar => {
             let full_value = scalar_to_string(scalar);
             leaf_values.insert(id.to_string(), (label.to_string(), full_value.clone()));
-            let text = Line::from(vec![Span::styled(format!("{label}: "), Style::default().fg(Color::Cyan)), Span::raw(full_value)]);
+            let text = Line::from(vec![Span::styled(format!("{label}: "), Style::default().fg(theme().namespace)), Span::raw(full_value)]);
             TreeItem::new_leaf(id.to_string(), text)
         }
     }

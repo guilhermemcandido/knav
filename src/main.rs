@@ -17,8 +17,11 @@ mod mode;
 mod picker;
 mod portforward;
 mod scope;
+mod settings;
 mod shell;
 mod sort;
+mod theme;
+mod tunables;
 mod ui;
 
 use std::collections::{HashMap, HashSet};
@@ -65,8 +68,9 @@ fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
-    ui::configure_border(&config.ui.border);
-    ui::configure_columns(config.tables.min_column_width, config.tables.min_widths.clone());
+    for problem in settings::apply(&config) {
+        eprintln!("warning: {problem}");
+    }
     let cli = Cli::parse(std::env::args().skip(1))?;
     let mut context = resolve_context(&cli, &config)?;
 

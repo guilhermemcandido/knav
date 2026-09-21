@@ -10,11 +10,12 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::{
     layout::{Alignment, Constraint, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
+use crate::theme::theme;
 use crate::fuzzy;
 use crate::k8s::ContextInfo;
 
@@ -104,7 +105,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
     let filter_block = Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title("Select a cluster");
     let filter_line = Line::from(vec![
         Span::styled("🔍 ", Style::default()),
-        Span::styled(filter, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(filter, Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD)),
         Span::styled("▏", Style::default().add_modifier(Modifier::RAPID_BLINK)),
     ]);
     frame.render_widget(Paragraph::new(filter_line).block(filter_block), chunks[0]);
@@ -115,8 +116,8 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
             let marker = if c.is_current { " (current)" } else { "" };
             let line = Line::from(vec![
                 Span::styled(format!("{:<40}", c.name), Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled(c.cluster.clone(), Style::default().fg(Color::DarkGray)),
-                Span::styled(marker, Style::default().fg(Color::Cyan)),
+                Span::styled(c.cluster.clone(), Style::default().fg(theme().muted)),
+                Span::styled(marker, Style::default().fg(theme().namespace)),
             ]);
             ListItem::new(line)
         })
@@ -135,7 +136,7 @@ fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, stat
     let title = format!("Contexts ({})", matches.len());
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title(title))
-        .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
+        .highlight_style(Style::default().bg(theme().namespace).fg(theme().on_select).add_modifier(Modifier::BOLD))
         .highlight_symbol("➤ ");
     frame.render_stateful_widget(list, chunks[1], state);
 }

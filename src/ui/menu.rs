@@ -88,7 +88,7 @@ pub(super) fn draw_menu_popup(frame: &mut Frame, sections: &[MenuSection], selec
             // background instead, unmistakable regardless of terminal
             // theme.
             let (border_style, text_style) = if is_selected {
-                (Style::default().fg(Color::Cyan), Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
+                (Style::default().fg(theme().namespace), Style::default().bg(theme().namespace).fg(theme().on_select).add_modifier(Modifier::BOLD))
             } else {
                 (Style::default(), Style::default())
             };

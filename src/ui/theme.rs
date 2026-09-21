@@ -8,23 +8,19 @@ use super::*;
 /// modifier on top, so a screen sitting behind a popup reads as
 /// unmistakably out of focus rather than just "a bit gray."
 pub(super) fn dim_style() -> Style {
-    Style::default().fg(Color::Rgb(40, 40, 40)).add_modifier(Modifier::DIM)
+    Style::default().fg(theme().dim).add_modifier(Modifier::DIM)
 }
 
 /// The table palette, after k9s: pale-teal rows, a lighter blue header,
 /// a solid pale-blue selection bar with dark text, and a slate border.
 /// Every list/table goes through these so they read as one theme.
-pub(super) const ROW_FG: Color = Color::Rgb(143, 191, 208);
-pub(super) const HEADER_FG: Color = Color::Rgb(137, 180, 250);
-pub(super) const SELECT_BG: Color = Color::Rgb(148, 191, 206);
-pub(super) const BORDER_FG: Color = Color::Rgb(96, 125, 139);
 
 pub(super) fn theme_row(dimmed: bool) -> Style {
-    if dimmed { dim_style() } else { Style::default().fg(ROW_FG) }
+    if dimmed { dim_style() } else { Style::default().fg(theme().row) }
 }
 
 pub(super) fn theme_header(dimmed: bool) -> Style {
-    if dimmed { dim_style() } else { Style::default().fg(HEADER_FG) }
+    if dimmed { dim_style() } else { Style::default().fg(theme().header) }
 }
 
 /// The selected row, after k9s: a solid pale-blue bar with dark bold text,
@@ -37,19 +33,18 @@ pub(super) fn selection_style(tone: crate::describe::Tone, dimmed: bool) -> Styl
     // The bar wears the state of the row it is on, like k9s: red on a broken
     // pod, orange on a pending one, grey on a finished one.
     let bg = match tone {
-        crate::describe::Tone::Plain | crate::describe::Tone::Good => SELECT_BG,
+        crate::describe::Tone::Plain | crate::describe::Tone::Good => theme().select_bg,
         other => tone_color(other),
     };
-    Style::default().bg(bg).fg(Color::Black).add_modifier(Modifier::BOLD)
+    Style::default().bg(bg).fg(theme().on_select).add_modifier(Modifier::BOLD)
 }
 
 /// Rows the user marked (Space) get their own fill, under the cells like the selection bar.
-const MARKED_ROW_BG: Color = Color::Rgb(84, 72, 24);
 
 /// Gives marked rows their own fill; `marked` says, row by row, which are
 /// marked and may be empty (no marks).
 pub(super) fn mark_rows<'a>(rows: impl Iterator<Item = Row<'a>>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
-    let mark = if dimmed { dim_style() } else { Style::default().bg(MARKED_ROW_BG) };
+    let mark = if dimmed { dim_style() } else { Style::default().bg(theme().marked_bg) };
     rows.enumerate().map(|(i, row)| if marked.get(i).copied().unwrap_or(false) { row.style(mark) } else { row }).collect()
 }
 
@@ -58,7 +53,7 @@ pub fn mark_key(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
 
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 /// Heavy straight strokes with the rounded corners only the light weight
 /// has (there is no heavy rounded corner in Unicode).
@@ -99,20 +94,22 @@ pub fn border_set_named(name: &str) -> ratatui::symbols::border::Set<'static> {
     }
 }
 
-static BORDER: OnceLock<ratatui::symbols::border::Set<'static>> = OnceLock::new();
+static BORDER: RwLock<Option<ratatui::symbols::border::Set<'static>>> = RwLock::new(None);
 
 /// Picks the box line style once, at startup, from the config.
 pub fn configure_border(name: &str) {
-    let _ = BORDER.set(border_set_named(name));
+    if let Ok(mut border) = BORDER.write() {
+        *border = Some(border_set_named(name));
+    }
 }
 
 /// The line style every box is drawn with.
 pub fn border_set() -> ratatui::symbols::border::Set<'static> {
-    *BORDER.get_or_init(|| border_set_named(""))
+    BORDER.read().ok().and_then(|b| *b).unwrap_or_else(|| border_set_named(""))
 }
 
 pub(super) fn theme_border(dimmed: bool) -> Style {
-    if dimmed { dim_style() } else { Style::default().fg(BORDER_FG) }
+    if dimmed { dim_style() } else { Style::default().fg(theme().border) }
 }
 
 /// k9s-style table title: the kind as a filled pill, the count in orange.
@@ -121,13 +118,13 @@ pub(super) fn table_title(label: &str, count: usize, search: Search, window: &Wi
         return Line::styled(format!(" {label} ({count}) "), dim_style());
     }
     let mut spans = vec![
-        Span::styled(format!(" {label} "), Style::default().bg(Color::Rgb(50, 56, 72)).fg(Color::Rgb(226, 232, 240)).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("({count})"), Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {label} "), Style::default().bg(theme().pill_bg).fg(theme().text_strong).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("({count})"), Style::default().fg(theme().warm).add_modifier(Modifier::BOLD)),
     ];
     spans.extend(search_span(search.text, search.editing, false));
     // `‹ ›` when columns are scrolled out of view on that side.
     if window.can_left || window.can_right {
-        let hint = Style::default().fg(Color::Rgb(240, 160, 110));
+        let hint = Style::default().fg(theme().warm);
         spans.push(Span::styled(format!("  {}{}", if window.can_left { "‹" } else { " " }, if window.can_right { "›" } else { "" }), hint));
     }
     Line::from(spans)
@@ -140,7 +137,7 @@ pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Spa
     if text.is_empty() && !editing {
         return None;
     }
-    let style = if dimmed { dim_style() } else { Style::default().fg(Color::Yellow) };
+    let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
     Some(Span::styled(format!("  search: {text}{}", if editing { "▏" } else { "" }), style))
 }
 
@@ -151,8 +148,8 @@ pub(super) fn search_span(text: &str, editing: bool, dimmed: bool) -> Option<Spa
 /// defined color pairing rather than a different pick per screen.
 pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
     vec![
-        Span::styled(namespace.to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled(namespace.to_string(), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
+        Span::styled("/", Style::default().fg(theme().muted)),
         Span::styled(name.to_string(), Style::default().add_modifier(Modifier::BOLD)),
     ]
 }
@@ -169,13 +166,13 @@ pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
     if parts.len() < 2 {
         return Line::styled(title.to_string(), Style::default().add_modifier(Modifier::BOLD));
     }
-    let sep = Style::default().fg(Color::DarkGray);
+    let sep = Style::default().fg(theme().muted);
     let plain = Style::default().add_modifier(Modifier::BOLD);
-    let mut spans = vec![Span::styled(parts[0].to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
+    let mut spans = vec![Span::styled(parts[0].to_string(), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD))];
     for (i, part) in parts[1..].iter().enumerate() {
         spans.push(Span::styled("/", sep));
         let is_last = i == parts.len() - 2;
-        let style = if is_last && parts.len() > 2 { Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD) } else { plain };
+        let style = if is_last && parts.len() > 2 { Style::default().fg(theme().container).add_modifier(Modifier::BOLD) } else { plain };
         spans.push(Span::styled((*part).to_string(), style));
     }
     Line::from(spans)
@@ -184,7 +181,7 @@ pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
 /// The look of a matched search character: yellow fill, dark bold text,
 /// underlined so it still shows on the selected row's own fill.
 pub(super) fn match_style() -> Style {
-    Style::default().bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    Style::default().bg(theme().highlight).fg(theme().on_select).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
 }
 
 /// `text` with the characters the fuzzy filter `pattern` matched
@@ -216,7 +213,7 @@ mod highlight_tests {
     use super::*;
 
     fn texts(line: &Line) -> Vec<(String, bool)> {
-        line.spans.iter().map(|s| (s.content.to_string(), s.style.bg == Some(Color::Yellow))).collect()
+        line.spans.iter().map(|s| (s.content.to_string(), s.style.bg == Some(theme().highlight))).collect()
     }
 
     #[test]
@@ -237,7 +234,7 @@ mod highlight_tests {
 /// (ascending) or `AGE ▼` (descending).
 pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: &Window) -> Row<'static> {
     let text = theme_header(dimmed);
-    let number = if dimmed { dim_style() } else { Style::default().fg(Color::Rgb(240, 160, 110)).add_modifier(Modifier::BOLD) };
+    let number = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
     let cells = window.range().map(|i| {
         let name = names[i];
         let mut spans = Vec::new();
@@ -265,19 +262,15 @@ pub(super) fn tone_style(tone: crate::describe::Tone, dimmed: bool) -> Style {
 
 /// The state colours, after k9s: healthy stays the row teal, in-progress
 /// is orange, broken is a soft red, finished is grey.
-pub const OK_FG: Color = Color::Rgb(126, 201, 140);
-pub const WARN_FG: Color = Color::Rgb(255, 167, 64);
-pub const BAD_FG: Color = Color::Rgb(217, 96, 106);
-pub const MUTED_FG: Color = Color::Rgb(122, 128, 148);
 
 pub(super) fn tone_color(tone: crate::describe::Tone) -> Color {
     use crate::describe::Tone;
     match tone {
-        Tone::Plain => ROW_FG,
-        Tone::Good => OK_FG,
-        Tone::Warn => WARN_FG,
-        Tone::Bad => BAD_FG,
-        Tone::Muted => MUTED_FG,
+        Tone::Plain => theme().row,
+        Tone::Good => theme().ok,
+        Tone::Warn => theme().warn,
+        Tone::Bad => theme().bad,
+        Tone::Muted => theme().muted,
     }
 }
 
@@ -293,7 +286,8 @@ mod row_style_tests {
 
     fn marked_bg(row: &Row) -> bool {
         // `Row` keeps its style private; the debug form shows it.
-        format!("{row:?}").contains(&format!("{MARKED_ROW_BG:?}"))
+        let bg = theme().marked_bg;
+        format!("{row:?}").contains(&format!("{bg:?}"))
     }
 
     #[test]
@@ -311,18 +305,18 @@ mod row_style_tests {
     #[test]
     fn the_selection_is_a_pale_bar_with_dark_bold_text() {
         let style = selection_style(crate::describe::Tone::Plain, false);
-        assert_eq!((style.bg, style.fg), (Some(SELECT_BG), Some(Color::Black)));
+        assert_eq!((style.bg, style.fg), (Some(theme().select_bg), Some(theme().on_select)));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
     fn the_bar_takes_the_colour_of_the_rows_state() {
         use crate::describe::Tone;
-        assert_eq!(selection_style(Tone::Bad, false).bg, Some(BAD_FG));
-        assert_eq!(selection_style(Tone::Warn, false).bg, Some(WARN_FG));
-        assert_eq!(selection_style(Tone::Muted, false).bg, Some(MUTED_FG));
-        assert_eq!(selection_style(Tone::Good, false).bg, Some(SELECT_BG));
-        assert_eq!(selection_style(Tone::Bad, false).fg, Some(Color::Black), "text stays dark and readable");
+        assert_eq!(selection_style(Tone::Bad, false).bg, Some(theme().bad));
+        assert_eq!(selection_style(Tone::Warn, false).bg, Some(theme().warn));
+        assert_eq!(selection_style(Tone::Muted, false).bg, Some(theme().muted));
+        assert_eq!(selection_style(Tone::Good, false).bg, Some(theme().select_bg));
+        assert_eq!(selection_style(Tone::Bad, false).fg, Some(theme().on_select), "text stays dark and readable");
     }
 
     #[test]

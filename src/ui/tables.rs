@@ -9,11 +9,11 @@ use super::*;
 /// completion gets the same blue k9s/kubectl use for it.
 pub(super) fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
     match c.status {
-        ContainerStatusKind::Running => ("●", Color::Green),
-        ContainerStatusKind::Waiting => ("●", Color::Yellow),
-        ContainerStatusKind::Terminated if c.reason.as_deref() == Some("Completed") => ("●", Color::Blue),
-        ContainerStatusKind::Terminated => ("●", Color::Red),
-        ContainerStatusKind::Unknown => ("●", Color::Gray),
+        ContainerStatusKind::Running => ("●", theme().ok),
+        ContainerStatusKind::Waiting => ("●", theme().warn),
+        ContainerStatusKind::Terminated if c.reason.as_deref() == Some("Completed") => ("●", theme().key),
+        ContainerStatusKind::Terminated => ("●", theme().bad),
+        ContainerStatusKind::Unknown => ("●", theme().text_soft),
     }
 }
 
@@ -206,16 +206,16 @@ pub fn row_at(frame_area: Rect, pods: &[PodRow], wide: bool, hscroll: usize, tab
 pub(super) fn ready_color(ready: &str) -> Color {
     let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
     match (parts.next(), parts.next()) {
-        (Some(_), Some(0)) => Color::DarkGray,
-        (Some(have), Some(want)) if have >= want => Color::Green,
-        _ => Color::Yellow,
+        (Some(_), Some(0)) => theme().muted,
+        (Some(have), Some(want)) if have >= want => theme().ok,
+        _ => theme().warn,
     }
 }
 
 /// A pod's READY colour: like a Deployment's, except a pod that ran to
 /// completion (a finished Job's `0/1 Succeeded`) is grey, not "not ready".
 pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
-    if matches!(phase, "Succeeded" | "Completed") { MUTED_FG } else { ready_color(ready) }
+    if matches!(phase, "Succeeded" | "Completed") { theme().muted } else { ready_color(ready) }
 }
 
 /// The state of a `have/want` ready count for colouring a whole row.
@@ -290,16 +290,16 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 pub(super) fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
     const WIDTH: usize = 10;
     let Some(used) = used else {
-        return Line::styled("n/a", Style::default().fg(Color::DarkGray));
+        return Line::styled("n/a", Style::default().fg(theme().muted));
     };
     let ratio = if capacity > 0 { (used as f64 / capacity as f64).clamp(0.0, 1.0) } else { 0.0 };
     let filled = (ratio * WIDTH as f64).round() as usize;
     let color = usage_color(ratio, dimmed);
-    let bracket = if dimmed { dim_style() } else { Style::default().fg(Color::DarkGray) };
+    let bracket = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
     Line::from(vec![
         Span::styled("[", bracket),
         Span::styled("▓".repeat(filled), Style::default().fg(color)),
-        Span::styled("░".repeat(WIDTH - filled), Style::default().fg(Color::DarkGray)),
+        Span::styled("░".repeat(WIDTH - filled), Style::default().fg(theme().muted)),
         Span::styled("]", bracket),
         Span::raw(format!(" {:.0}%", ratio * 100.0)),
     ])
@@ -307,13 +307,13 @@ pub(super) fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<
 
 pub(super) fn usage_color(ratio: f64, dimmed: bool) -> Color {
     if dimmed {
-        Color::Rgb(40, 40, 40)
+        theme().dim
     } else if ratio > 0.9 {
-        Color::Red
+        theme().bad
     } else if ratio > 0.7 {
-        Color::Yellow
+        theme().warn
     } else {
-        Color::Green
+        theme().ok
     }
 }
 
@@ -561,20 +561,20 @@ mod generic_table_tests {
 
     #[test]
     fn a_completed_pod_is_grey_not_unready() {
-        assert_eq!(pod_ready_color("0/1", "Completed"), MUTED_FG);
-        assert_eq!(pod_ready_color("0/1", "Succeeded"), MUTED_FG);
-        assert_eq!(pod_ready_color("0/1", "Running"), Color::Yellow);
-        assert_eq!(pod_ready_color("2/2", "Running"), Color::Green);
+        assert_eq!(pod_ready_color("0/1", "Completed"), theme().muted);
+        assert_eq!(pod_ready_color("0/1", "Succeeded"), theme().muted);
+        assert_eq!(pod_ready_color("0/1", "Running"), theme().warn);
+        assert_eq!(pod_ready_color("2/2", "Running"), theme().ok);
     }
 
     #[test]
     fn ready_is_green_when_complete_yellow_when_not_grey_when_nothing_is_wanted() {
-        assert_eq!(ready_color("1/1"), Color::Green);
-        assert_eq!(ready_color("3/3"), Color::Green);
-        assert_eq!(ready_color("0/1"), Color::Yellow);
-        assert_eq!(ready_color("2/3"), Color::Yellow);
-        assert_eq!(ready_color("0/0"), Color::DarkGray);
-        assert_eq!(ready_color("junk"), Color::Yellow);
+        assert_eq!(ready_color("1/1"), theme().ok);
+        assert_eq!(ready_color("3/3"), theme().ok);
+        assert_eq!(ready_color("0/1"), theme().warn);
+        assert_eq!(ready_color("2/3"), theme().warn);
+        assert_eq!(ready_color("0/0"), theme().muted);
+        assert_eq!(ready_color("junk"), theme().warn);
     }
 
     fn row(namespace: &str) -> GenericRow {
