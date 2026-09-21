@@ -43,11 +43,12 @@ pub(super) fn draw_context_popup(
     editing: bool,
     state: &mut TableState,
     error: Option<&str>,
+    sort: SortState,
 ) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let header = Row::new(vec!["CONTEXT", "CLUSTER", "STATUS"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let header = header_row(&["CONTEXT", "CLUSTER", "STATUS"], sort, false);
     let rows = items.iter().map(|(name, cluster, current)| {
         Row::new(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
@@ -55,7 +56,7 @@ pub(super) fn draw_context_popup(
             Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(Color::Green)),
         ])
     });
-    let widths = [Constraint::Fill(2), Constraint::Fill(2), Constraint::Length(9)];
+    let widths = [Constraint::Fill(2), Constraint::Fill(2), Constraint::Length(13)];
 
     let mut title = colored_slash_title(&format!("Contexts ({}/{total})", items.len()));
     if let Some(span) = search_span(filter, editing, false) {
@@ -88,18 +89,19 @@ pub(super) fn draw_namespace_picker(
     filter: &str,
     editing: bool,
     state: &mut TableState,
+    sort: SortState,
 ) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let header = Row::new(vec!["NAMESPACE", "KEY"]).style(Style::default().add_modifier(Modifier::BOLD));
+    let header = header_row(&["NAMESPACE", "KEY"], sort, false);
     let rows = items.iter().map(|(name, key)| {
         Row::new(vec![
             Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
             Cell::from(key.map(|k| k.to_string()).unwrap_or_default()).style(Style::default().fg(Color::Rgb(240, 160, 110))),
         ])
     });
-    let widths = [Constraint::Fill(1), Constraint::Length(5)];
+    let widths = [Constraint::Fill(1), Constraint::Length(10)];
 
     let mut title = colored_slash_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()));
     if let Some(span) = search_span(filter, editing, false) {
@@ -203,6 +205,7 @@ pub(super) fn draw_node_detail_popup(
     info: Option<&crate::k8s::NodeDetailInfo>,
     pods: &[PodRow],
     state: &mut TableState,
+    sort: SortState,
     dimmed: bool,
 ) {
     let area = centered_rect(94, 92, frame.area());
@@ -238,7 +241,7 @@ pub(super) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, Search::default(), SortState::default(), dimmed);
+    draw_table(frame, chunks[2], pods, state, Search::default(), if dimmed { SortState::default() } else { sort }, dimmed);
 }
 
 /// How tall the node-info panel is: three summary lines, a blank
@@ -324,15 +327,15 @@ pub(super) fn draw_events_popup(
     search: &str,
     editing: bool,
     state: &mut TableState,
+    sort: SortState,
     dimmed: bool,
 ) {
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 
-    let filtered = crate::k8s::filter_events(events, filter, search);
+    let filtered = crate::k8s::filter_events(events, filter, search, sort.spec());
 
-    let header_style = theme_header(dimmed);
-    let header = Row::new(vec!["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"]).style(header_style);
+    let header = header_row(&["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"], sort, dimmed);
     let cell_style = theme_row(dimmed);
     let rows = filtered.iter().map(|e| {
         let color = if dimmed {
@@ -359,12 +362,12 @@ pub(super) fn draw_events_popup(
     });
 
     let widths = [
-        Constraint::Length(9),
+        Constraint::Length(10),
         Constraint::Fill(2),
         Constraint::Fill(2),
         Constraint::Length(12),
         Constraint::Fill(4),
-        Constraint::Length(5),
+        Constraint::Length(10),
     ];
 
     // `Events (3/11)  (a) all  (w) warnings  (n) normal`, the active
@@ -519,13 +522,12 @@ pub(super) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview
     draw_gauge_box(frame, chunks[2], "Pods", pod_usage as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
 }
 
-pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, dimmed: bool) {
+pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: &[ContainerInfo], state: &mut TableState, sort: SortState, dimmed: bool) {
     let area = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, area);
 
     let muted = dim_style();
-    let header_style = theme_header(dimmed);
-    let header = Row::new(vec!["", "NAME", "STATE", "RESTARTS"]).style(header_style);
+    let header = header_row(&["", "NAME", "STATE", "RESTARTS"], sort, dimmed);
     let cell_style = theme_row(dimmed);
     let rows = containers.iter().map(|c| {
         let (glyph, color) = container_dot(c);
@@ -545,10 +547,10 @@ pub(super) fn draw_containers_popup(frame: &mut Frame, title: &str, containers: 
     });
 
     let widths = [
-        Constraint::Length(2),
-        Constraint::Percentage(45),
-        Constraint::Percentage(35),
-        Constraint::Percentage(20),
+        Constraint::Length(if sort.choosing { 5 } else { 2 }),
+        Constraint::Fill(1),
+        Constraint::Length(18),
+        Constraint::Length(14),
     ];
 
     let border_style = theme_border(dimmed);
@@ -637,7 +639,7 @@ mod events_popup_tests {
         crash.object = "web-1".into();
         let ok = entry(crate::k8s::EventSeverity::Normal);
         let events = vec![crash, ok];
-        let found = |filter, search: &str| crate::k8s::filter_events(&events, filter, search).len();
+        let found = |filter, search: &str| crate::k8s::filter_events(&events, filter, search, None).len();
         assert_eq!(found(EventFilter::All, ""), 2);
         assert_eq!(found(EventFilter::All, "backoff"), 1); // reason
         assert_eq!(found(EventFilter::All, "WEB-1"), 1); // object

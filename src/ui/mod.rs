@@ -69,7 +69,7 @@ pub struct MenuSection<'a> {
 
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
-    Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState },
+    Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs { title: &'a str, lines: &'a [String], scroll: u16, follow: bool, timestamp_format: TimestampFormat, filter: &'a str, filter_editing: bool },
     Menu { sections: &'a [MenuSection<'a>], selected: (usize, usize) },
     /// A single node's own CPU/Memory/Pods gauges plus the pods actually
@@ -88,6 +88,7 @@ pub enum Overlay<'a> {
         info: Option<&'a crate::k8s::NodeDetailInfo>,
         pods: &'a [PodRow],
         state: &'a mut TableState,
+        sort: SortState,
     },
     /// A vim/k9s-style `:` command line with live autocomplete —
     /// `suggestions` are already fuzzy-matched and sorted (see
@@ -100,11 +101,11 @@ pub enum Overlay<'a> {
     /// table like the Events browser, one row per `(name, cluster,
     /// is_current)`, already filtered. `error` is why the last attempt
     /// to connect to a chosen context failed, if it did.
-    Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str> },
+    Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str>, sort: SortState },
     /// The dedicated Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event (not capped, unlike the
     /// dashboard preview), filterable by severity with a/w/n.
-    Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState },
+    Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// One event's full detail — opened by pressing Enter or clicking a
     /// row in the Events browser, since the browser's own MESSAGE column
     /// clips long messages to fit the table.
@@ -124,7 +125,7 @@ pub enum Overlay<'a> {
     /// The `n` namespace picker: every namespace in the cluster with the
     /// number key it already has (if any), for choosing which one to give a
     /// key to. Same table layout as `Context`.
-    NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState },
+    NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// The key picker: keys 1-9 (and the fixed `0` = all) with what each
     /// currently holds, for choosing where a namespace goes.
     Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
@@ -146,6 +147,12 @@ pub struct SortState {
     pub column: Option<usize>,
     pub descending: bool,
     pub choosing: bool,
+}
+
+impl SortState {
+    pub fn spec(self) -> Option<crate::sort::SortSpec> {
+        self.column.map(|column| crate::sort::SortSpec { column, descending: self.descending })
+    }
 }
 
 /// Mouse hover state: which row it's over, and the raw cursor position
@@ -298,17 +305,17 @@ pub fn draw(
 pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
-        Overlay::Containers { title, containers, state } => draw_containers_popup(frame, title, containers, state, dimmed),
+        Overlay::Containers { title, containers, state, sort } => draw_containers_popup(frame, title, containers, state, sort, dimmed),
         Overlay::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing } => {
             draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, filter, filter_editing)
         }
         Overlay::Menu { sections, selected } => draw_menu_popup(frame, sections, selected),
-        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state } => {
-            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, dimmed)
+        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort } => {
+            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, dimmed)
         }
         Overlay::Command { input, suggestions, selected } => draw_command_bar(frame, input, suggestions, selected),
-        Overlay::Context { items, total, filter, editing, state, error } => draw_context_popup(frame, items, total, filter, editing, state, error),
-        Overlay::Events { events, filter, search, editing, state } => draw_events_popup(frame, events, filter, search, editing, state, dimmed),
+        Overlay::Context { items, total, filter, editing, state, error, sort } => draw_context_popup(frame, items, total, filter, editing, state, error, sort),
+        Overlay::Events { events, filter, search, editing, state, sort } => draw_events_popup(frame, events, filter, search, editing, state, sort, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
         Overlay::ColumnDetail { title, items, selected, row_scroll } => {
@@ -316,7 +323,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
-        Overlay::NamespacePicker { items, total, filter, editing, state } => draw_namespace_picker(frame, items, total, filter, editing, state),
+        Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),
     }
 }

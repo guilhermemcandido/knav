@@ -137,7 +137,7 @@ pub(crate) fn open_context_switcher(mode: &mut Mode, active_context: &str) {
         c.is_current = c.name == active_context;
     }
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, back };
+    *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
 }
 
 /// Whether choosing `name` should reconnect: `Ok(false)` if it's already
@@ -171,22 +171,26 @@ pub(crate) fn key_picker(namespace: String, favorites: &Favorites) -> Mode {
 /// Opens the namespace picker (`n` from any view but the Namespaces list).
 pub(crate) fn open_namespace_picker(mode: &mut Mode, names: Vec<String>) {
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::NamespacePick { names, filter: String::new(), editing: false, state: TableState::default().with_selected(0), back };
+    *mode = Mode::NamespacePick { names, filter: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default(), back };
 }
 
 /// Namespaces matching the picker's filter, best match first.
-pub(crate) fn filtered_names<'a>(names: &'a [String], filter: &str) -> Vec<&'a String> {
+pub(crate) fn filtered_names<'a>(names: &'a [String], filter: &str, sort: ListSort, favorites: &Favorites) -> Vec<&'a String> {
     let mut scored: Vec<(i64, &String)> = names.iter().filter_map(|n| fuzzy::score(filter, n).map(|s| (s, n))).collect();
     scored.sort_by_key(|(score, name)| (std::cmp::Reverse(*score), (*name).clone()));
-    scored.into_iter().map(|(_, n)| n).collect()
+    let mut shown: Vec<&String> = scored.into_iter().map(|(_, n)| n).collect();
+    apply(&mut shown, sort.spec, |name, column| namespace_key(name, favorites.key_of(name), column));
+    shown
 }
 
 /// Contexts matching the browser's filter, best match first.
-pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &str) -> Vec<&'a k8s::ContextInfo> {
+pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &str, sort: ListSort) -> Vec<&'a k8s::ContextInfo> {
     let mut scored: Vec<(i64, &k8s::ContextInfo)> =
         contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, c)| c).collect()
+    let mut shown: Vec<&k8s::ContextInfo> = scored.into_iter().map(|(_, c)| c).collect();
+    apply(&mut shown, sort.spec, |c, column| context_key(c, column));
+    shown
 }
 
 /// Where a `ResourceKind` sits in the menu grid, so opening the menu
@@ -240,9 +244,9 @@ mod tests {
     #[test]
     fn namespace_filter_ranks_matches_and_keeps_alphabetical_order_when_empty() {
         let names: Vec<String> = ["kube-system", "default", "kube-public"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(filtered_names(&names, "").into_iter().cloned().collect::<Vec<_>>(), ["default", "kube-public", "kube-system"]);
-        assert_eq!(filtered_names(&names, "sys").into_iter().cloned().collect::<Vec<_>>(), ["kube-system"]);
-        assert!(filtered_names(&names, "zzz").is_empty());
+        assert_eq!(filtered_names(&names, "", ListSort::default(), &Favorites::empty()).into_iter().cloned().collect::<Vec<_>>(), ["default", "kube-public", "kube-system"]);
+        assert_eq!(filtered_names(&names, "sys", ListSort::default(), &Favorites::empty()).into_iter().cloned().collect::<Vec<_>>(), ["kube-system"]);
+        assert!(filtered_names(&names, "zzz", ListSort::default(), &Favorites::empty()).is_empty());
     }
 
     #[test]
@@ -366,13 +370,14 @@ mod tests {
 
     #[test]
     pub(crate) fn breadcrumb_walks_the_whole_back_chain_oldest_first() {
-        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), back: Box::new(Mode::List) };
+        let node_detail = Mode::NodeDetail { name: "worker-1".into(), state: TableState::default(), sort: ListSort::default(), back: Box::new(Mode::List) };
         let containers = Mode::Containers {
             title: "default/web-1".into(),
             namespace: "default".into(),
             pod: "web-1".into(),
             containers: vec![],
             state: TableState::default(),
+            sort: ListSort::default(),
             back: Box::new(node_detail),
         };
         let rendered: Vec<String> = breadcrumb(&containers, ResourceKind::Overview)

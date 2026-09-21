@@ -587,16 +587,18 @@ impl EventFilter {
 /// The events the browser shows: the severity filter, then the `/` text
 /// search — a case-insensitive substring of the reason, object, kind or
 /// message (prose, so substring rather than fuzzy).
-pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str) -> Vec<&'a EventEntry> {
+pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str, sort: Option<crate::sort::SortSpec>) -> Vec<&'a EventEntry> {
     let needle = search.to_lowercase();
-    events
+    let mut shown: Vec<&EventEntry> = events
         .iter()
         .filter(|e| filter.matches(e))
         .filter(|e| {
             needle.is_empty()
                 || [&e.reason, &e.object, &e.kind, &e.message].iter().any(|field| field.to_lowercase().contains(&needle))
         })
-        .collect()
+        .collect();
+    crate::sort::apply(&mut shown, sort, |e, column| crate::sort::event_key(e, column));
+    shown
 }
 
 /// One row in the Events feed: every cluster Event in chronological

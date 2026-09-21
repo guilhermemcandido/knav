@@ -105,11 +105,12 @@ pub(crate) fn run(
         // mode, so it's still available when NodeDetail is a dimmed
         // background layer behind Containers/Spec/Logs rather than the
         // focused view itself.
-        let node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Some(name) = node_detail_name(&mode) {
+        let mut node_detail_pods: Vec<std::sync::Arc<Pod>> = if let Some(name) = node_detail_name(&mode) {
             pods.iter().filter(|p| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name)).cloned().collect()
         } else {
             Vec::new()
         };
+        apply(&mut node_detail_pods, node_detail_sort(&mode), |p, column| pod_key(&k8s::row_for(p), column));
         let node_detail_rows: Vec<k8s::PodRow> = node_detail_pods.iter().map(|p| k8s::row_for(p)).collect();
         // Nodes get their own specialized rows (CPU/Memory visible right
         // in the list) instead of the generic Namespace/Name/Age table.
@@ -247,21 +248,21 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, hovered, None, Some(overlay), &hints, show_hints_panel, None, &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
-            Mode::Context { contexts, filter, editing, state, error, .. } => {
+            Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let items: Vec<(String, String, bool)> =
-                        filtered_contexts(contexts, filter).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
-                    let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref() };
+                        filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
+                    let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
-            Mode::NamespacePick { names, filter, editing, state, .. } => {
+            Mode::NamespacePick { names, filter, editing, state, sort: popup_sort, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let items: Vec<(String, Option<usize>)> =
-                        filtered_names(names, filter).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
-                    let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state };
+                        filtered_names(names, filter, *popup_sort, &favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
+                    let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state, sort: popup_sort.view() };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
@@ -318,6 +319,7 @@ pub(crate) fn run(
                             info: back_detail_info.as_ref(),
                             pods: &node_detail_rows,
                             state: nd_state,
+                            sort: ui::SortState::default(),
                         })
                     } else {
                         None
@@ -335,7 +337,7 @@ pub(crate) fn run(
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
-            Mode::Containers { title, containers, state, back, .. } => {
+            Mode::Containers { title, containers, state, sort: popup_sort, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let back_node_name: Option<String> = match &**back {
@@ -357,15 +359,17 @@ pub(crate) fn run(
                             info: back_detail_info.as_ref(),
                             pods: &node_detail_rows,
                             state: nd_state,
+                            sort: ui::SortState::default(),
                         })
                     } else {
                         None
                     };
-                    let overlay = ui::Overlay::Containers { title, containers, state };
+                    let shown = sorted_containers(containers, *popup_sort);
+                    let overlay = ui::Overlay::Containers { title, containers: &shown, state, sort: popup_sort.view() };
                     ui::draw(frame, rows_view(), &mut table_state, None, background, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
-            Mode::NodeDetail { name, state, .. } => {
+            Mode::NodeDetail { name, state, sort: popup_sort, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found_node = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str()));
@@ -382,14 +386,15 @@ pub(crate) fn run(
                         info: detail_info.as_ref(),
                         pods: &node_detail_rows,
                         state,
+                        sort: popup_sort.view(),
                     };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
-            Mode::Events { filter, search, editing, state } => {
+            Mode::Events { filter, search, editing, state, sort: popup_sort } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state };
+                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() };
                     ui::draw(frame, rows_view(), &mut table_state, None, None, Some(overlay), &hints, show_hints_panel, breadcrumb_text.as_deref(), &mut icons, &header_now, ui::Search { text: &search, editing: false }, sort_view);
                 })?;
             }
@@ -397,8 +402,8 @@ pub(crate) fn run(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let background = match &mut **back {
-                        Mode::Events { filter, search, editing, state } => {
-                            Some(ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state })
+                        Mode::Events { filter, search, editing, state, sort: popup_sort } => {
+                            Some(ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() })
                         }
                         _ => None,
                     };
@@ -427,8 +432,12 @@ pub(crate) fn run(
             Mode::Logs { title, lines, scroll, follow, timestamp_format, filter, filter_editing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
+                    let shown_containers;
                     let background = match &mut **back {
-                        Mode::Containers { title, containers, state, .. } => Some(ui::Overlay::Containers { title, containers, state }),
+                        Mode::Containers { title, containers, state, sort: popup_sort, .. } => {
+                            shown_containers = sorted_containers(containers, *popup_sort);
+                            Some(ui::Overlay::Containers { title, containers: &shown_containers, state, sort: popup_sort.view() })
+                        }
                         _ => None,
                     };
                     let overlay = ui::Overlay::Logs {
@@ -456,7 +465,11 @@ pub(crate) fn run(
         // and a keypress typed right after (like `q`) sat behind that
         // whole backlog instead of being handled almost immediately.
         loop {
-            match (event::read()?, &mut mode) {
+            let event = event::read()?;
+            // `s` and the digits sort a popup's table when one has focus.
+            let sort_key_used = matches!(&event, Event::Key(key) if popup_sort_key(&mut mode, key.code));
+            match (event, &mut mode) {
+                (Event::Key(_), _) if sort_key_used => {}
                 // Sort mode (`s`): the headers show their column numbers and a
                 // digit sorts by that column — the same one again flips
                 // ascending, descending, off. It stays on until `s`, Esc or
@@ -468,7 +481,7 @@ pub(crate) fn run(
                         KeyCode::Char(c @ '1'..='9') => {
                             let column = c as usize - '1' as usize;
                             if column < column_count(current_kind, generic_has_namespace) {
-                                sort = SortSpec::pressed(sort, column);
+                                sort = Some(SortSpec::pressed(sort, column));
                                 table_state.select(Some(0));
                             }
                         }
@@ -494,15 +507,15 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, back }) => {
+                (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, sort, back }) => {
                     let mut chosen: Option<String> = None;
                     let mut close = false;
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => close = true,
                         KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
-                        KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter).len()),
-                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_names(names, filter).len()),
-                        KeyCode::Enter => chosen = state.selected().and_then(|i| filtered_names(names, filter).get(i).map(|n| (*n).clone())),
+                        KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_names(names, filter, *sort, &favorites).len()),
+                        KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_names(names, filter, *sort, &favorites).len()),
+                        KeyCode::Enter => chosen = state.selected().and_then(|i| filtered_names(names, filter, *sort, &favorites).get(i).map(|n| (*n).clone())),
                         _ => {}
                     }
                     if let Some(name) = chosen {
@@ -518,8 +531,8 @@ pub(crate) fn run(
                         mode = std::mem::replace(&mut **back, Mode::List);
                     }
                 }
-                (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    let matches = filtered_names(names, filter);
+                (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let matches = filtered_names(names, filter, *sort, &favorites);
                     if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
                         let name = matches[idx].clone();
                         let back = std::mem::replace(&mut **back, Mode::List);
@@ -671,6 +684,7 @@ pub(crate) fn run(
                                     filter: k8s::EventFilter::default(),
                                     search: String::new(),
                                     editing: false,
+                                    sort: ListSort::default(),
                                     state: TableState::default().with_selected(if overview.events.is_empty() { None } else { Some(0) }),
                                 };
                             }
@@ -721,29 +735,29 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Events { filter, search, editing, state }) => match key.code {
+                (Event::Key(key), Mode::Events { filter, search, editing, state, sort }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = Mode::List,
                     KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
                     KeyCode::Char('a') => *filter = k8s::EventFilter::All,
                     KeyCode::Char('w') => *filter = k8s::EventFilter::Warnings,
                     KeyCode::Char('n') => *filter = k8s::EventFilter::Normal,
-                    KeyCode::Char('j') | KeyCode::Down => select_next(state, k8s::filter_events(&overview.events, *filter, search).len()),
-                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, k8s::filter_events(&overview.events, *filter, search).len()),
+                    KeyCode::Char('j') | KeyCode::Down => select_next(state, k8s::filter_events(&overview.events, *filter, search, sort.spec).len()),
+                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, k8s::filter_events(&overview.events, *filter, search, sort.spec).len()),
                     KeyCode::Enter => {
-                        let entry = state.selected().and_then(|i| k8s::filter_events(&overview.events, *filter, search).get(i).map(|e| (*e).clone()));
+                        let entry = state.selected().and_then(|i| k8s::filter_events(&overview.events, *filter, search, sort.spec).get(i).map(|e| (*e).clone()));
                         if let Some(entry) = entry {
-                            let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state });
+                            let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state, sort: *sort });
                             mode = Mode::EventDetail { entry, back };
                         }
                     }
                     _ => {}
                 },
-                (Event::Mouse(mouse), Mode::Events { filter, search, state, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    let filtered = k8s::filter_events(&overview.events, *filter, search);
+                (Event::Mouse(mouse), Mode::Events { filter, search, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let filtered = k8s::filter_events(&overview.events, *filter, search, sort.spec);
                     if let Some(idx) = ui::event_row_at(frame_area, filtered.len(), state.offset(), mouse.row) {
                         state.select(Some(idx));
                         let entry = filtered[idx].clone();
-                        let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state });
+                        let back = Box::new(Mode::Events { filter: *filter, search: search.clone(), editing: false, state: *state, sort: *sort });
                         mode = Mode::EventDetail { entry, back };
                     }
                 }
@@ -970,6 +984,7 @@ pub(crate) fn run(
                                 pod: name,
                                 containers,
                                 state: TableState::default().with_selected(0),
+                                sort: ListSort::default(),
                                 back: Box::new(Mode::List),
                             };
                         }
@@ -979,7 +994,7 @@ pub(crate) fn run(
                     KeyCode::Enter if current_kind == ResourceKind::Nodes => {
                         if let Some(node) = table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                             let name = node.metadata.name.clone().unwrap_or_default();
-                            mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), back: Box::new(Mode::List) };
+                            mode = Mode::NodeDetail { name, state: TableState::default().with_selected(0), sort: ListSort::default(), back: Box::new(Mode::List) };
                         }
                     }
                     KeyCode::Char('/') | KeyCode::Char('f') => {
@@ -1006,7 +1021,7 @@ pub(crate) fn run(
                             return Ok(Outcome::Quit);
                         }
                         if matches!(highlighted, Some(Cmd::Events)) {
-                            mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0) };
+                            mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
                         } else if is_context_command(&cmd) || matches!(highlighted, Some(Cmd::Context)) {
                             let mut opened = std::mem::replace(&mut **back, Mode::List);
                             open_context_switcher(&mut opened, active_context);
@@ -1060,13 +1075,13 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Context { contexts, filter, editing, state, error, back }) => match key.code {
+                (Event::Key(key), Mode::Context { contexts, filter, editing, state, error, sort, back }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
-                    KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_contexts(contexts, filter).len()),
-                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter).len()),
+                    KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_contexts(contexts, filter, *sort).len()),
+                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter, *sort).len()),
                     KeyCode::Enter => {
-                        let name = state.selected().and_then(|i| filtered_contexts(contexts, filter).get(i).map(|c| c.name.clone()));
+                        let name = state.selected().and_then(|i| filtered_contexts(contexts, filter, *sort).get(i).map(|c| c.name.clone()));
                         if let Some(name) = name {
                             match switch_target(&name, active_context) {
                                 Ok(true) => return Ok(Outcome::SwitchContext(name)),
@@ -1077,8 +1092,8 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    let matches = filtered_contexts(contexts, filter);
+                (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+                    let matches = filtered_contexts(contexts, filter, *sort);
                     if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
                         state.select(Some(idx));
                         let name = matches[idx].name.clone();
@@ -1185,14 +1200,15 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::Containers { title, namespace, pod, containers, state, back }) => match key.code {
+                (Event::Key(key), Mode::Containers { title, namespace, pod, containers, state, sort, back }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         mode = std::mem::replace(&mut **back, Mode::List);
                     }
                     KeyCode::Char('j') | KeyCode::Down => select_next(state, containers.len()),
                     KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
                     KeyCode::Enter => {
-                        if let Some(container) = state.selected().and_then(|i| containers.get(i)) {
+                        let shown = sorted_containers(containers, *sort);
+                        if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
                             let log_title = format!("{namespace}/{pod}/{}", container.name);
                             let (rx, handle) =
                                 k8s::stream_logs(client.clone(), namespace.clone(), pod.clone(), container.name.clone());
@@ -1202,6 +1218,7 @@ pub(crate) fn run(
                                 pod: pod.clone(),
                                 containers: containers.clone(),
                                 state: *state,
+                                sort: *sort,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             };
                             mode = Mode::Logs {
@@ -1220,7 +1237,7 @@ pub(crate) fn run(
                     }
                     _ => {}
                 },
-                (Event::Key(key), Mode::NodeDetail { name, state, back }) => match key.code {
+                (Event::Key(key), Mode::NodeDetail { name, state, sort, back }) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => mode = std::mem::replace(&mut **back, Mode::List),
                     KeyCode::Char('d') => {
                         if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {
@@ -1234,6 +1251,7 @@ pub(crate) fn run(
                             let back = Box::new(Mode::NodeDetail {
                                 name: name.clone(),
                                 state: *state,
+                                sort: *sort,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             });
                             let outcome = edit::edit_resource(terminal, &client, mouse_capture_enabled, &manifest);
@@ -1251,6 +1269,7 @@ pub(crate) fn run(
                             let node_detail_snapshot = Mode::NodeDetail {
                                 name: name.clone(),
                                 state: *state,
+                                sort: *sort,
                                 back: std::mem::replace(back, Box::new(Mode::List)),
                             };
                             mode = Mode::Containers {
@@ -1259,6 +1278,7 @@ pub(crate) fn run(
                                 pod: pod_name,
                                 containers,
                                 state: TableState::default().with_selected(0),
+                                sort: ListSort::default(),
                                 back: Box::new(node_detail_snapshot),
                             };
                         }

@@ -12,13 +12,59 @@ pub(crate) struct SortSpec {
 }
 
 impl SortSpec {
-    /// What pressing a column's number does, IDE-style: unsorted -> ascending
-    /// -> descending -> unsorted; pressing a different column starts it ascending.
-    pub(crate) fn pressed(current: Option<SortSpec>, column: usize) -> Option<SortSpec> {
+    /// What pressing a column's number does: sort by it ascending; pressing
+    /// the same column again flips it, ascending <-> descending. A
+    /// different column starts ascending.
+    pub(crate) fn pressed(current: Option<SortSpec>, column: usize) -> SortSpec {
         match current {
-            Some(s) if s.column == column && !s.descending => Some(SortSpec { column, descending: true }),
-            Some(s) if s.column == column => None,
-            _ => Some(SortSpec { column, descending: false }),
+            Some(s) if s.column == column => SortSpec { column, descending: !s.descending },
+            _ => SortSpec { column, descending: false },
+        }
+    }
+}
+
+/// Sort state for a popup table (Events, Containers, the pickers, ...):
+/// the column/direction and whether sort mode (`s`) is on. The main lists
+/// keep theirs in `run` directly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ListSort {
+    pub(crate) spec: Option<SortSpec>,
+    pub(crate) choosing: bool,
+}
+
+impl ListSort {
+    pub(crate) fn view(self) -> ui::SortState {
+        ui::SortState { column: self.spec.map(|s| s.column), descending: self.spec.is_some_and(|s| s.descending), choosing: self.choosing }
+    }
+
+    /// Feeds it a key; `true` if it was a sort key (`s` to enter sort
+    /// mode; then digits, and `s`/Esc/`q` to leave). `typing` means a text
+    /// field has focus, so every key is text.
+    pub(crate) fn handle(&mut self, code: KeyCode, columns: usize, typing: bool) -> bool {
+        if typing || columns == 0 {
+            return false;
+        }
+        if !self.choosing {
+            if code == KeyCode::Char('s') {
+                self.choosing = true;
+                return true;
+            }
+            return false;
+        }
+        match code {
+            KeyCode::Char(c @ '1'..='9') => {
+                let column = c as usize - '1' as usize;
+                if column < columns {
+                    self.spec = Some(SortSpec::pressed(self.spec, column));
+                }
+                true
+            }
+            KeyCode::Char('0') => true,
+            KeyCode::Char('s' | 'q') | KeyCode::Esc => {
+                self.choosing = false;
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -35,7 +81,7 @@ fn text(s: &str) -> Key {
     Key::Text(s.to_lowercase())
 }
 
-const POD_COLUMNS: usize = 8;
+pub(crate) const POD_COLUMNS: usize = 8;
 const DEPLOYMENT_COLUMNS: usize = 6;
 const NODE_COLUMNS: usize = 8;
 const CRD_COLUMNS: usize = 3;
@@ -130,9 +176,92 @@ pub(crate) fn crd_key(crd: &k8s::CrdInfo, column: usize) -> Key {
     }
 }
 
+pub(crate) const EVENT_COLUMNS: usize = 6;
+pub(crate) const CONTAINER_COLUMNS: usize = 4;
+pub(crate) const CONTEXT_COLUMNS: usize = 3;
+pub(crate) const NAMESPACE_PICKER_COLUMNS: usize = 2;
+
+pub(crate) fn event_key(e: &k8s::EventEntry, column: usize) -> Key {
+    match column {
+        0 => Key::Num(match e.severity {
+            k8s::EventSeverity::Warning => 0,
+            k8s::EventSeverity::Normal => 1,
+        }),
+        1 => text(&e.reason),
+        2 => text(&e.object),
+        3 => text(&e.kind),
+        4 => text(&e.message),
+        _ => Key::Num(e.age_secs),
+    }
+}
+
+pub(crate) fn container_key(c: &k8s::ContainerInfo, column: usize) -> Key {
+    match column {
+        // The status dot: problems first.
+        0 => Key::Num(match c.status {
+            k8s::ContainerStatusKind::Unknown => 0,
+            k8s::ContainerStatusKind::Terminated => 1,
+            k8s::ContainerStatusKind::Waiting => 2,
+            k8s::ContainerStatusKind::Running => 3,
+        }),
+        1 => text(&c.name),
+        2 => text(c.reason.as_deref().unwrap_or("")),
+        _ => Key::Num(i64::from(c.restarts)),
+    }
+}
+
+pub(crate) fn context_key(c: &k8s::ContextInfo, column: usize) -> Key {
+    match column {
+        0 => text(&c.name),
+        1 => text(&c.cluster),
+        _ => Key::Num(i64::from(!c.is_current)),
+    }
+}
+
+pub(crate) fn namespace_key(name: &str, key: Option<usize>, column: usize) -> Key {
+    match column {
+        0 => text(name),
+        // Namespaces without a key last.
+        _ => Key::Num(key.map(|k| k as i64).unwrap_or(99)),
+    }
+}
+
+/// `containers` in display order for `sort`.
+pub(crate) fn sorted_containers(containers: &[k8s::ContainerInfo], sort: ListSort) -> Vec<k8s::ContainerInfo> {
+    let mut sorted = containers.to_vec();
+    apply(&mut sorted, sort.spec, container_key);
+    sorted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popup_sort_mode_enters_with_s_cycles_digits_and_leaves() {
+        let mut sort = ListSort::default();
+        assert!(!sort.handle(KeyCode::Char('j'), 4, false), "other keys are not ours outside the mode");
+        assert!(sort.handle(KeyCode::Char('s'), 4, false));
+        assert!(sort.choosing);
+        assert!(sort.handle(KeyCode::Char('2'), 4, false));
+        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: false }));
+        assert!(sort.handle(KeyCode::Char('2'), 4, false));
+        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }));
+        // Past the last column: consumed, but nothing changes.
+        assert!(sort.handle(KeyCode::Char('9'), 4, false));
+        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }));
+        assert!(sort.choosing);
+        assert!(sort.handle(KeyCode::Esc, 4, false));
+        assert!(!sort.choosing);
+        assert_eq!(sort.spec, Some(SortSpec { column: 1, descending: true }), "leaving keeps the sort");
+    }
+
+    #[test]
+    fn popup_sort_ignores_keys_while_typing() {
+        let mut sort = ListSort::default();
+        assert!(!sort.handle(KeyCode::Char('s'), 4, true));
+        assert!(!sort.choosing);
+    }
 
     fn sorted(spec: Option<SortSpec>) -> Vec<i64> {
         let mut v = vec![3, 1, 2];
@@ -141,14 +270,14 @@ mod tests {
     }
 
     #[test]
-    fn pressing_a_column_cycles_ascending_descending_off() {
+    fn pressing_a_column_toggles_ascending_and_descending() {
         let asc = SortSpec::pressed(None, 2);
-        assert_eq!(asc, Some(SortSpec { column: 2, descending: false }));
-        let desc = SortSpec::pressed(asc, 2);
-        assert_eq!(desc, Some(SortSpec { column: 2, descending: true }));
-        assert_eq!(SortSpec::pressed(desc, 2), None);
+        assert_eq!(asc, SortSpec { column: 2, descending: false });
+        let desc = SortSpec::pressed(Some(asc), 2);
+        assert_eq!(desc, SortSpec { column: 2, descending: true });
+        assert_eq!(SortSpec::pressed(Some(desc), 2), asc, "back to ascending, never off");
         // A different column starts over ascending.
-        assert_eq!(SortSpec::pressed(desc, 4), Some(SortSpec { column: 4, descending: false }));
+        assert_eq!(SortSpec::pressed(Some(desc), 4), SortSpec { column: 4, descending: false });
     }
 
     #[test]

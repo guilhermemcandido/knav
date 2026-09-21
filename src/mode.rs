@@ -19,11 +19,11 @@ pub(crate) enum Mode {
     /// on a context checks it is reachable, then hands control back to
     /// `main` to reconnect; `/` filters by name. `error` is why the last
     /// attempt failed. Esc returns to `back`.
-    Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
+    Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, sort: ListSort, back: Box<Mode> },
     Menu { selected: (usize, usize) },
     /// The `n` namespace picker, from any view but the Namespaces list:
     /// choose a namespace (`/` filters), then which key it gets.
-    NamespacePick { names: Vec<String>, filter: String, editing: bool, state: TableState, back: Box<Mode> },
+    NamespacePick { names: Vec<String>, filter: String, editing: bool, state: TableState, sort: ListSort, back: Box<Mode> },
     /// The key picker on a namespace: pick which number key (1-9) it goes
     /// on. `selected` is the highlighted key minus one. Esc cancels.
     Slots { namespace: String, selected: usize, back: Box<Mode> },
@@ -57,6 +57,7 @@ pub(crate) enum Mode {
     NodeDetail {
         name: String,
         state: TableState,
+        sort: ListSort,
         // Where Esc returns to — the Nodes list normally, or the
         // Overview's Resources detail if this node was opened from
         // there, same "remember where you came from" pattern as
@@ -65,7 +66,7 @@ pub(crate) enum Mode {
     },
     /// The full Events browser, opened by pressing Enter on the
     /// Overview's Events panel — every event, filterable by severity.
-    Events { filter: k8s::EventFilter, search: String, editing: bool, state: TableState },
+    Events { filter: k8s::EventFilter, search: String, editing: bool, state: TableState, sort: ListSort },
     /// One event's full, untruncated detail — opened from within the
     /// Events browser. `back` restores that browser's filter/scroll
     /// position exactly, same pattern as `Containers`/`Logs`.
@@ -83,6 +84,7 @@ pub(crate) enum Mode {
         pod: String,
         containers: Vec<k8s::ContainerInfo>,
         state: TableState,
+        sort: ListSort,
         // Where Esc returns to — the Pods list normally, or the
         // NodeDetail view if this pod was opened from there.
         back: Box<Mode>,
@@ -136,6 +138,16 @@ pub(crate) fn meta_search_text(meta: &k8s_openapi::apimachinery::pkg::apis::meta
 
 pub(crate) fn meta_search_text_generic(row: &k8s::GenericRow) -> String {
     format!("{} {}", row.namespace, row.name)
+}
+
+/// The sort of whichever `NodeDetail` sits in `mode`'s back-chain — the
+/// pods table behind Containers/Logs keeps its order.
+pub(crate) fn node_detail_sort(mode: &Mode) -> Option<SortSpec> {
+    match mode {
+        Mode::NodeDetail { sort, .. } => sort.spec,
+        Mode::Containers { back, .. } | Mode::Logs { back, .. } | Mode::Spec { back, .. } => node_detail_sort(back),
+        _ => None,
+    }
 }
 
 /// The name of whichever `NodeDetail` sits anywhere in `mode`'s own
@@ -324,4 +336,17 @@ pub(crate) fn select_prev(state: &mut TableState, len: usize) {
     }
     let prev = state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
     state.select(Some(prev));
+}
+
+/// Routes `s` and the digits to whichever popup table has focus; `true`
+/// if the key was a sort key and is used up.
+pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
+    match mode {
+        Mode::Events { sort, editing, .. } => sort.handle(code, EVENT_COLUMNS, *editing),
+        Mode::Containers { sort, .. } => sort.handle(code, CONTAINER_COLUMNS, false),
+        Mode::Context { sort, editing, .. } => sort.handle(code, CONTEXT_COLUMNS, *editing),
+        Mode::NamespacePick { sort, editing, .. } => sort.handle(code, NAMESPACE_PICKER_COLUMNS, *editing),
+        Mode::NodeDetail { sort, .. } => sort.handle(code, POD_COLUMNS, false),
+        _ => false,
+    }
 }
