@@ -286,6 +286,58 @@ pub(super) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &cra
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Where an embedded shell's screen goes: the body of the page, inside its border.
+pub fn shell_inner(frame_area: Rect) -> Rect {
+    let area = body_area(frame_area, true);
+    Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) }
+}
+
+fn shell_color(color: vt100::Color) -> Color {
+    match color {
+        vt100::Color::Default => Color::Reset,
+        vt100::Color::Idx(i) => Color::Indexed(i),
+        vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
+    }
+}
+
+/// An emulated terminal screen over the whole body, cell by cell.
+pub(super) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &vt100::Screen, exited: bool) {
+    let area = body_area(frame.area(), true);
+    frame.render_widget(Clear, area);
+    let bottom = if exited { " the shell ended; press any key " } else { " ctrl-] closes " };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(theme_border(false))
+        .title(Line::styled(format!(" Shell {title} "), Style::default().fg(Color::Rgb(120, 230, 230)).add_modifier(Modifier::BOLD)).centered())
+        .title_bottom(Line::styled(bottom, Style::default().fg(if exited { WARN_FG } else { MUTED_FG })).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let buffer = frame.buffer_mut();
+    for row in 0..inner.height {
+        for column in 0..inner.width {
+            let Some(cell) = screen.cell(row, column) else { continue };
+            if cell.is_wide_continuation() {
+                continue;
+            }
+            let mut style = Style::default().fg(shell_color(cell.fgcolor())).bg(shell_color(cell.bgcolor()));
+            for (on, modifier) in [(cell.bold(), Modifier::BOLD), (cell.italic(), Modifier::ITALIC), (cell.underline(), Modifier::UNDERLINED), (cell.inverse(), Modifier::REVERSED)] {
+                if on {
+                    style = style.add_modifier(modifier);
+                }
+            }
+            let contents = cell.contents();
+            buffer[(inner.x + column, inner.y + row)].set_symbol(if contents.is_empty() { " " } else { &contents }).set_style(style);
+        }
+    }
+    if !exited && !screen.hide_cursor() {
+        let (row, column) = screen.cursor_position();
+        if row < inner.height && column < inner.width {
+            frame.set_cursor_position((inner.x + column, inner.y + row));
+        }
+    }
+}
+
 /// One YAML line coloured by role: keys blue, the rest plain, list dashes muted.
 fn yaml_line(line: &str) -> Line<'static> {
     let indent = line.len() - line.trim_start().len();

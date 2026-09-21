@@ -64,7 +64,7 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `F` | Port-forward a pod, service or deployment (a dialog with container port, local port and address; warns when the port is not declared); opens the browser; `:pf` is the list of forwards (`Enter`/`o` open one, `D` stops it). Needs `kubectl` |
 | `x` | Show a Secret's values decoded |
 | `D` | Delete the selected object (asks first) |
-| `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container |
+| `S` | On a Deployment, StatefulSet or ReplicaSet: scale (type the count). On a pod: a shell in its container, inside knav (`Ctrl-]` closes it; every other key goes to the shell). Needs `kubectl` |
 | `r` | Restart a Deployment, StatefulSet or DaemonSet (asks first) |
 | `c` | Cordon or uncordon a node |
 | `t` / `u` | Trigger a CronJob now / suspend or resume it (both ask first) |

@@ -92,6 +92,18 @@ pub(super) fn draw_mode(
                     ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                 })?;
             }
+            Mode::Shell { title, session, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let inner = ui::shell_inner(frame.area());
+                    session.resize(inner.height, inner.width);
+                    let exited = session.exited();
+                    session.with_screen(|screen| {
+                        let overlay = ui::Overlay::Shell { title, screen, exited };
+                        ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(breadcrumb), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
+                    });
+                })?;
+            }
             Mode::Yaml { title, text, scroll, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

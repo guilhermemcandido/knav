@@ -44,7 +44,21 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
     }
 }
 
+/// Opens a shell in a container inside knav, over whatever screen is up now.
+pub(super) fn open_shell(st: &mut State, cx: &Cx, namespace: &str, pod: &str, container: &str) {
+    let inner = ui::shell_inner(cx.frame_area);
+    let back = std::mem::replace(&mut st.mode, Mode::List);
+    st.mode = match shell::ShellSession::exec(cx.active_context, namespace, pod, container, inner.height, inner.width) {
+        Ok(session) => Mode::Shell { title: format!("{namespace}/{pod}/{container}"), session: Box::new(session), back: Box::new(back) },
+        Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back: Box::new(back) },
+    };
+}
+
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+    // A shell gets every key; only Ctrl-] is ours.
+    if matches!(st.mode, Mode::Shell { .. }) {
+        return inspect::handle(event, st, cx);
+    }
     // While the help is open it takes the keys: `?`, `q` and Esc close it.
     if st.show_hints_panel {
         if let Event::Key(key) = &event
@@ -88,7 +102,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } | Mode::Menu { .. } => pickers::handle(event, st, cx),
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
-        Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
+        Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Shell { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
     }
 }
 

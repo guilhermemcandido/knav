@@ -106,7 +106,9 @@ pub(crate) fn run(
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
-        if !event::poll(Duration::from_millis(200))? {
+        // A shell's output arrives on its own, so redraw quickly while one is open.
+        let wait = if matches!(st.mode, Mode::Shell { .. }) { 25 } else { 200 };
+        if !event::poll(Duration::from_millis(wait))? {
             continue;
         }
 

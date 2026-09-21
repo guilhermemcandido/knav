@@ -30,6 +30,8 @@ pub(crate) enum Mode {
     /// A result message (see `edit`) — any key or click dismisses it,
     /// returning to `back`.
     Notice { text: String, error: bool, back: Box<Mode> },
+    /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
+    Shell { title: String, session: Box<crate::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
     Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
@@ -131,7 +133,7 @@ pub(crate) enum Mode {
 /// `Search` always, `Logs` only while its own `/` filter is actively
 /// being edited.
 pub(crate) fn is_typing(mode: &Mode) -> bool {
-    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
+    matches!(mode, Mode::Command { .. } | Mode::Search | Mode::Slots { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::Shell { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } | Mode::Events { editing: true, .. } | Mode::NodeDetail { editing: true, .. }) || matches!(mode, Mode::Logs { filter_editing: true, .. })
 }
 
 pub(crate) fn title_for(namespace: Option<&str>, name: Option<&str>) -> String {
@@ -234,6 +236,11 @@ pub(crate) fn breadcrumb_path(mode: &Mode) -> Vec<ui::BreadcrumbSegment> {
             // enough here, the pod/node segments already came from `back`.
             let container = title.rsplit('/').next().unwrap_or(title);
             path.push(segment("Logs", container));
+            path
+        }
+        Mode::Shell { title, back, .. } => {
+            let mut path = breadcrumb_path(back);
+            path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));
             path
         }
         Mode::Yaml { title, back, .. } => {
@@ -359,6 +366,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints
         }
         Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
+        Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("enter", "choose"), ("/", "filter"), ("q/esc", "back")],

@@ -1,7 +1,7 @@
 //! Input on the main list (and the overview): sorting, namespaces, drill-down, opening details.
 
 use super::super::*;
-use super::{Cx, logs_mode};
+use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
@@ -528,7 +528,7 @@ fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodView) {
     match (containers.as_slice(), view) {
         ([only], PodView::Shell) => {
             let name = only.name.clone();
-            run_shell(st, cx, &namespace, &target.name, &name);
+            open_shell(st, cx, &namespace, &target.name, &name);
         }
         ([only], PodView::Logs { previous }) => {
             st.mode = logs_mode(cx, &namespace, &target.name, &only.name, previous, Mode::List);
@@ -544,12 +544,6 @@ fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodView) {
                 back: Box::new(Mode::List),
             };
         }
-    }
-}
-
-pub(super) fn run_shell(st: &mut State, cx: &mut Cx, namespace: &str, pod: &str, container: &str) {
-    if let Some(outcome) = actions::shell(cx.terminal, cx.active_context, namespace, pod, container) {
-        st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
     }
 }
 

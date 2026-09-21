@@ -4,12 +4,7 @@
 //! manifest, so it applies to any kind (custom resources included) the same
 //! way.
 
-use std::io::{Write, stdout};
-use std::process::Command;
-
 use anyhow::{Context as _, Result, bail};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::execute;
 use kube::{
     Client,
     api::{Api, ApiResource, DeleteParams, DynamicObject, Patch, PatchParams, PostParams},
@@ -303,32 +298,6 @@ pub fn decode_secret(manifest: &serde_yaml::Value) -> serde_yaml::Value {
         }
     }
     decoded
-}
-
-/// Opens an interactive shell in a container by handing the terminal to
-/// `kubectl exec` (bash if the image has it, else sh), and takes it back
-/// when the shell exits.
-pub fn shell(terminal: &mut ratatui::DefaultTerminal, context: &str, namespace: &str, pod: &str, container: &str) -> Option<Outcome> {
-    let _ = execute!(stdout(), DisableMouseCapture);
-    ratatui::restore();
-    println!("kubectl exec -it {namespace}/{pod} -c {container}");
-    let status = Command::new("kubectl")
-        .args(["--context", context, "exec", "-it", "-n", namespace, pod, "-c", container, "--", "sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"])
-        .status();
-    let failed = !matches!(&status, Ok(s) if s.success());
-    if failed {
-        // Leave whatever kubectl printed on screen long enough to read.
-        match &status {
-            Ok(s) => println!("\nshell exited with {s}. Press Enter to return."),
-            Err(e) => println!("\ncouldn't run kubectl: {e}. Press Enter to return."),
-        }
-        let _ = stdout().flush();
-        let _ = std::io::stdin().read_line(&mut String::new());
-    }
-    *terminal = ratatui::init();
-    let _ = execute!(stdout(), EnableMouseCapture);
-    // A shell that ends normally needs no notice; a launch failure gets one.
-    status.err().map(|e| Outcome { text: format!("couldn't run kubectl: {e}"), error: true })
 }
 
 #[cfg(test)]

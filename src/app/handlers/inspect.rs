@@ -1,7 +1,7 @@
 //! Looking inside one object: spec tree, containers, node detail, logs.
 
 use super::super::*;
-use super::{Cx, logs_mode};
+use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
@@ -10,8 +10,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let client = cx.client;
     let config = cx.config;
     let frame_area = cx.frame_area;
-    let mut failed_shell = None;
+    let mut shell_request: Option<(String, String, String)> = None;
     match (event, &mut st.mode) {
+        // Every key goes to the shell; Ctrl-] (or any key once it has ended) leaves.
+        (Event::Key(key), Mode::Shell { session, back, .. }) => {
+            // Terminals send Ctrl-] as the byte 0x1d, which arrives as Ctrl-5.
+            let leave = matches!(key.code, KeyCode::Char(']' | '5')) && key.modifiers.contains(KeyModifiers::CONTROL);
+            if leave || session.exited() {
+                st.mode = std::mem::replace(&mut **back, Mode::List);
+            } else {
+                let bytes = keys::encode(&key, session.app_cursor());
+                session.send(&bytes);
+            }
+        }
         (Event::Key(key), Mode::Yaml { text, scroll, back, .. }) => {
             let last = text.lines().count().saturating_sub(1);
             let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
@@ -108,7 +119,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('S') => {
                 let shown = sorted_containers(containers, *sort);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
-                    failed_shell = actions::shell(cx.terminal, cx.active_context, namespace, pod, &container.name);
+                    shell_request = Some((namespace.clone(), pod.clone(), container.name.clone()));
                 }
             }
             // Logs of the selected container; `p` reads the previous run's.
@@ -248,9 +259,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         },
         _ => {}
     }
-    if let Some(outcome) = failed_shell {
-        let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+    if let Some((namespace, pod, container)) = shell_request {
+        open_shell(st, cx, &namespace, &pod, &container);
     }
     Ok(None)
 }

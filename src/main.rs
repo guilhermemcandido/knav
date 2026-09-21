@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod catalog;
 mod cli;
+mod keys;
 mod clipboard;
 mod commands;
 mod config;
@@ -16,6 +17,7 @@ mod mode;
 mod picker;
 mod portforward;
 mod scope;
+mod shell;
 mod sort;
 mod ui;
 
