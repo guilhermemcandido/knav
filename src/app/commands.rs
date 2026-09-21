@@ -429,6 +429,6 @@ mod tests {
                 None => s.kind,
             })
             .collect();
-        assert_eq!(rendered.join(">>"), "Overview>>Node[worker-1]>>Pod[default/web-1]");
+        assert_eq!(rendered.join(">>"), "Home>>Node[worker-1]>>Pod[default/web-1]");
     }
 }

@@ -107,6 +107,17 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     {
         return Ok(Some(Outcome::Quit));
     }
+    // `H` goes Home from anywhere, closing whatever is open.
+    if let Event::Key(key) = &event
+        && key.code == KeyCode::Char('H')
+        && !key.modifiers.contains(KeyModifiers::CONTROL)
+        && !owns_keys(&st.mode)
+    {
+        st.switch_kind(ResourceKind::Overview);
+        st.mode = Mode::List;
+        st.show_hints_panel = false;
+        return Ok(None);
+    }
     // While the help is open it takes the keys: `?`, `q` and Esc close it.
     if st.show_hints_panel {
         if let Event::Key(key) = &event

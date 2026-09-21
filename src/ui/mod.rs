@@ -244,7 +244,7 @@ impl SettingsTab {
         match self {
             SettingsTab::General => "General",
             SettingsTab::Keys => "Keys",
-            SettingsTab::Overview => "Overview layout",
+            SettingsTab::Overview => "Home layout",
         }
     }
 

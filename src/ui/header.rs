@@ -83,6 +83,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     }
     let line_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 };
     frame.render_widget(Paragraph::new(Line::from(spans)).alignment(Alignment::Center), line_area);
+    // The namespace line starts under the first line's first character and grows from there.
+    let start_x = line_area.x + line_area.width.saturating_sub(used as u16) / 2;
 
     if !shortcuts_line {
         return;
@@ -100,12 +102,12 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     } else {
         (key, name, active)
     };
-    // The line is centred like the one above. When a scope is shown on the right, both sides keep
-    // that much room so the centred text never reaches it; namespaces that do not fit are left
-    // out (the active one never is) and a `…` says so.
+    // The line starts under "Context:" and grows right; a scope on the right keeps its room and
+    // namespaces that do not fit are cut to their starts (or, last, left out).
     let scope_text = (!info.scope.is_empty()).then(|| format!("Scope: {}", info.scope));
     let scope_room = scope_text.as_ref().map_or(0, |t| cell_width(t) + 3);
-    let max_width = (area.width as usize).saturating_sub(2 * scope_room.max(1) + 2);
+    let start_x = start_x.min(area.x + area.width.saturating_sub(1));
+    let max_width = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(scope_room + 1);
     let all: Vec<(usize, String)> = std::iter::once((0usize, "all".to_string())).chain(info.namespace_slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (i + 1, ns.clone())))).collect();
     let prefix = cell_width("Namespace: ");
     let (entries, trimmed) = fit_namespaces(&all, max_width.saturating_sub(prefix), &info.namespace);
@@ -125,8 +127,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     if trimmed {
         shortcuts.push(Span::styled("  …", key));
     }
-    let shortcut_area = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(1), height: 1 };
-    frame.render_widget(Paragraph::new(Line::from(shortcuts)).alignment(Alignment::Center), shortcut_area);
+    let shortcut_area = Rect { x: start_x, y: area.y + 1, width: (area.x + area.width).saturating_sub(start_x), height: 1 };
+    frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
 
     // What the list is drilled into (`Deployment/web`), right-aligned on the same row.
     if let Some(text) = scope_text {

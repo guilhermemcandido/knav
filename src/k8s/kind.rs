@@ -47,7 +47,7 @@ pub enum ResourceKind {
 impl ResourceKind {
     pub fn label(self) -> &'static str {
         match self {
-            ResourceKind::Overview => "Overview",
+            ResourceKind::Overview => "Home",
             ResourceKind::Pods => "Pods",
             ResourceKind::Deployments => "Deployments",
             ResourceKind::Nodes => "Nodes",

@@ -110,7 +110,7 @@ pub fn describe(setting: &Setting) -> &'static str {
         "logs.timestamp_format" => "short shows the time only, full shows the whole timestamp. t toggles it in the log view.",
         "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
-        "startup.mode" => "direct connects to your current kubeconfig context and opens the Overview, like k9s. menu shows a cluster picker first, even with a single context. --context skips both.",
+        "startup.mode" => "direct connects to your current kubeconfig context and opens Home, like k9s. menu shows a cluster picker first, even with a single context. --context skips both.",
         "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
         "api.refresh_seconds" => "How often the API resources list refreshes in the background.",
         _ => "",

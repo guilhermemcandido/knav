@@ -74,10 +74,11 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `C` | Switch context |
 | `T` / `:theme` | Pick a theme; each one previews live as you move, `Enter` keeps it |
 | `,` / `:config` | The settings screen: every option, colours and key bindings included |
-| `:q` | Quit (a stray `q` never does) |
+| `H` | Home (the start screen) from anywhere; `:home` works too |
+| `Q` / `:q` | Quit (a stray `q` never does) |
 
 The mouse works too (hold Shift, or Option in iTerm2, to select text with the terminal): the wheel moves the selection in every list and popup, a click
-selects a row, a double-click opens it, and clicking a tile on the overview selects it.
+selects a row, a double-click opens it, and clicking a tile on Home selects it.
 
 The bottom bar shows where you are (`Deployment[web]>>ReplicaSets>>...`) and
 the selected row's status, with a green or yellow dot for ready counts.
@@ -158,7 +159,7 @@ the new key and confirm. `r` resets one to its default. Changes save to `config.
 comments and other settings stay) and apply at once, except the few marked "restart to apply".
 
 The settings screen has three tabs, switched with `Tab` / `Shift-Tab` or a click: **General**,
-**Keys** and **Overview layout**. The last one reorders the Overview: `K` / `J` (or `Shift` with the
+**Keys** and **Home layout**. The last one reorders Home (the start screen): `K` / `J` (or `Shift` with the
 arrows) move a category or a kind up and down, `Space` hides or shows it, `r` restores the default.
 Kinds stay inside their category, and the `m` menu keeps its own order. In the file:
 

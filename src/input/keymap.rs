@@ -56,6 +56,7 @@ bindings! {
     ("help", "Help", ALL, &["?"]),
     ("command", "Command line", ALL, &[":"]),
     ("quit", "Quit knav", ALL, &["Q"]),
+    ("home", "Go to Home", ALL, &["H"]),
     ("contexts", "Contexts", ALL, &["C"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
