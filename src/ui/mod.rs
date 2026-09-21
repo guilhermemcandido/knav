@@ -116,7 +116,7 @@ pub enum Overlay<'a> {
     ResourcesDetail { overview: &'a Overview },
     /// One category column opened into a bigger grid of the same cards, for categories
     /// with many kinds.
-    ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], selected: usize, row_scroll: usize },
+    ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], health: &'a std::collections::HashMap<&'static str, crate::k8s::Health>, selected: usize, row_scroll: usize },
     /// A short result message (e.g. after an edit), any key closes it.
     Notice { text: &'a str, error: bool },
     /// A yes/no question about a destructive action.
@@ -480,8 +480,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Events { events, filter, search, editing, state, sort } => draw_events_popup(frame, events, filter, search, editing, state, sort, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview } => draw_resources_detail_popup(frame, overview, dimmed),
-        Overlay::ColumnDetail { title, items, selected, row_scroll } => {
-            draw_column_detail_popup(frame, title, items, selected, row_scroll, icons)
+        Overlay::ColumnDetail { title, items, health, selected, row_scroll } => {
+            draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Settings { rows, state, error, capture } => draw_settings(frame, rows, state, error, capture.as_ref()),

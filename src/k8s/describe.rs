@@ -58,6 +58,11 @@ pub trait Extras {
         (Vec::new(), None)
     }
 
+    /// How this object reads for the Overview's health bars, if the kind has a notion of it.
+    fn tone(&self) -> Option<Tone> {
+        self.extras().1.map(|(tone, _)| tone)
+    }
+
     /// The kind's column headers, known even when its list is empty (so an
     /// empty PVC list still shows STATUS, CAPACITY, ...).
     fn headers() -> Vec<&'static str>
@@ -210,8 +215,11 @@ impl Extras for Service {
             external.extend(ingress.iter().filter_map(|i| i.ip.clone().or_else(|| i.hostname.clone())));
         }
         let external = if external.is_empty() { "<none>".to_string() } else { external.join(",") };
+        // A LoadBalancer without an address yet is still being provisioned.
+        let waiting = kind == "LoadBalancer" && external == "<none>";
+        let note = if waiting { (Tone::Warn, "LoadBalancer pending".to_string()) } else { (Tone::Good, kind.clone()) };
         let cols = vec![Col::plain("TYPE", kind), Col::plain("CLUSTER-IP", cluster_ip), Col::plain("PORTS", ports), Col::plain("EXTERNAL-IP", external)];
-        (cols, None)
+        (cols, Some(note))
     }
 }
 
@@ -232,7 +240,8 @@ impl Extras for Endpoints {
             1..=2 => addresses.join(","),
             n => format!("{},{}, +{}", addresses[0], addresses[1], n - 2),
         };
-        (vec![Col::toned("ENDPOINTS", text, if addresses.is_empty() { Tone::Warn } else { Tone::Plain })], None)
+        let note = if addresses.is_empty() { (Tone::Warn, "No endpoints".to_string()) } else { (Tone::Good, format!("{} endpoints", addresses.len())) };
+        (vec![Col::toned("ENDPOINTS", text, if addresses.is_empty() { Tone::Warn } else { Tone::Plain })], Some(note))
     }
 }
 
@@ -248,6 +257,7 @@ impl Extras for Ingress {
             .map(|i| i.iter().filter_map(|i| i.ip.clone().or_else(|| i.hostname.clone())).collect::<Vec<_>>().join(","))
             .filter(|a| !a.is_empty())
             .unwrap_or_else(|| "-".into());
+        let note = if address == "-" { (Tone::Warn, "No address".to_string()) } else { (Tone::Good, format!("Address {address}")) };
         let ports = if spec.and_then(|s| s.tls.as_ref()).is_some_and(|t| !t.is_empty()) { "80,443" } else { "80" };
         let cols = vec![
             Col::plain("CLASS", spec.and_then(|s| s.ingress_class_name.clone()).unwrap_or_else(|| "<none>".into())),
@@ -255,7 +265,7 @@ impl Extras for Ingress {
             Col::plain("ADDRESS", address),
             Col::plain("PORTS", ports),
         ];
-        (cols, None)
+        (cols, Some(note))
     }
 }
 

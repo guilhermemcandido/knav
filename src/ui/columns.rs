@@ -1,6 +1,7 @@
 //! The Overview's catalog columns and the opened-up column popup, plus hit-testing/scrolling for them.
 
 use super::*;
+use crate::k8s::Health;
 
 /// Column width for the resource-switcher menu's own tile grid (see
 /// `menu_cols`/`draw_menu_popup`), the Overview page no longer uses
@@ -51,10 +52,40 @@ pub(super) fn wrap_label(label: &str, room: usize) -> Option<(String, String)> {
     Some((first, second))
 }
 
+/// Kinds whose card carries a health bar on a second row.
+pub(super) fn shows_health(label: &str) -> bool {
+    matches!(label, "Nodes" | "Namespaces" | "Pods" | "Deployments" | "ReplicaSets" | "StatefulSets" | "DaemonSets" | "Jobs" | "CronJobs" | "HPAs" | "Services" | "Endpoints" | "Ingresses" | "PVCs" | "PVs")
+}
+
+/// A bar `width` cells wide: green for what is fine, yellow for what needs a
+/// look, red for what is broken, the rest muted; then `ok/total`.
+pub(super) fn health_line(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
+    let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
+    if total == 0 {
+        return Line::styled("none", if dimmed { dim_style() } else { Style::default().fg(theme().muted) });
+    }
+    let text = format!(" {}/{}", health.good, total);
+    let bar = width.saturating_sub(text.chars().count()).max(1);
+    // Each state gets its share of the bar, and never disappears if it exists.
+    let share = |n: usize| if n == 0 { 0 } else { (n * bar / total).max(1) };
+    let (bad, warn) = (share(health.bad).min(bar), share(health.warn));
+    let warn = warn.min(bar - bad);
+    let good = share(health.good).min(bar - bad - warn);
+    let rest = bar - bad - warn - good;
+    let text_color = if health.bad > 0 { theme().bad } else if health.warn > 0 { theme().warn } else if health.good == total { theme().ok } else { theme().muted };
+    Line::from(vec![
+        Span::styled("█".repeat(good), paint(theme().ok)),
+        Span::styled("█".repeat(warn), paint(theme().warn)),
+        Span::styled("█".repeat(bad), paint(theme().bad)),
+        Span::styled("░".repeat(rest), paint(theme().muted)),
+        Span::styled(text, paint(text_color)),
+    ])
+}
+
 /// The height every card in a column takes: taller when any of its names
-/// needs two rows at `column_width`.
+/// needs two rows at `column_width`, or any card carries a health bar.
 pub fn item_height(items: &[(&str, usize)], column_width: u16) -> u16 {
-    if items.iter().any(|(label, count)| wrap_label(label, label_room(column_width, *count)).is_some()) {
+    if items.iter().any(|(label, count)| shows_health(label) || wrap_label(label, label_room(column_width, *count)).is_some()) {
         ITEM_HEIGHT_WRAPPED
     } else {
         ITEM_HEIGHT
@@ -229,7 +260,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
+        draw_column(frame, *col_area, col_idx, title, items, &overview.health, selection, scroll, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -253,6 +284,7 @@ pub(super) fn draw_column(
     col_idx: usize,
     title: &str,
     items: &[(&str, usize)],
+    health: &std::collections::HashMap<&'static str, Health>,
     selection: OverviewSelection,
     item_scroll: usize,
     dimmed: bool,
@@ -291,7 +323,7 @@ pub(super) fn draw_column(
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], label, *count, title, selected, dimmed, icons);
+        draw_column_item(frame, rows[slot], label, *count, health.get(label).copied(), title, selected, dimmed, icons);
     }
 }
 
@@ -304,7 +336,7 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 /// One item card: the kind's icon, its name and live count, e.g. `<image> Pods  17`.
 /// Selecting it turns the whole border into the highlight colour.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
+pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, health: Option<Health>, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
@@ -350,7 +382,12 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
             Span::styled(count_text, count_style),
         ])],
     };
-    // A single-row label sits on the card's first row.
+    // Kinds with a health bar show it on the second row, unless the name took it.
+    if lines.len() == 1 && inner.height >= 2 && shows_health(label) {
+        if let Some(health) = health.or((count == 0).then(Health::default)) {
+            lines.push(health_line(health, count, split[1].width as usize, dimmed));
+        }
+    }
     lines.truncate(inner.height as usize);
     frame.render_widget(Paragraph::new(lines), split[1]);
 }
@@ -388,7 +425,7 @@ pub(super) fn icon_for(label: &str) -> &'static str {
 
 /// One category column opened into a bigger grid of the same cards, for categories
 /// with many kinds (Custom Resources). Scrolls by grid row.
-pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usize)], selected: usize, row_scroll: usize, icons: &mut IconCache) {
+pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usize)], health: &std::collections::HashMap<&'static str, Health>, selected: usize, row_scroll: usize, icons: &mut IconCache) {
     let area = column_detail_area(frame.area());
     frame.render_widget(Clear, area);
 
@@ -422,7 +459,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         let col_areas = Layout::horizontal(col_constraints).spacing(1).split(*row_area);
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
-            draw_column_item(frame, *item_area, label, *count, title, idx == selected, false, icons);
+            draw_column_item(frame, *item_area, label, *count, health.get(label).copied(), title, idx == selected, false, icons);
         }
     }
 }
@@ -457,9 +494,38 @@ mod wrap_tests {
     }
 
     #[test]
-    fn a_column_is_tall_only_when_one_of_its_names_needs_two_rows() {
-        assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
+    fn a_column_is_tall_when_a_name_needs_two_rows_or_a_card_has_a_health_bar() {
+        assert_eq!(item_height(&[("ConfigMaps", 3), ("Secrets", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
+        assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT_WRAPPED);
         assert_eq!(item_height(&[("Pods", 3), ("ClusterRoleBindings", 61)], 22), ITEM_HEIGHT_WRAPPED);
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    fn cells(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn the_bar_fills_its_width_and_ends_with_the_ratio() {
+        let line = health_line(Health { good: 15, warn: 1, bad: 1 }, 17, 20, false);
+        assert_eq!(line.width(), 20);
+        assert!(cells(&line).ends_with(" 15/17"));
+    }
+
+    #[test]
+    fn a_broken_object_always_shows_even_among_many() {
+        let line = health_line(Health { good: 199, warn: 0, bad: 1 }, 200, 20, false);
+        assert!(cells(&line).contains('█'));
+        assert_eq!(line.spans[2].content.chars().count(), 1, "one red cell");
+    }
+
+    #[test]
+    fn an_empty_kind_says_none() {
+        assert_eq!(cells(&health_line(Health::default(), 0, 20, false)), "none");
     }
 }
 

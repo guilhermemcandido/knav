@@ -58,6 +58,14 @@ impl Catalog {
         }
     }
 
+    /// Health by kind label for every watched kind that has one, plus the kinds
+    /// the caller computes from its own rows.
+    pub(crate) fn health(&self, extra: impl IntoIterator<Item = (&'static str, k8s::Health)>) -> HashMap<&'static str, k8s::Health> {
+        let mut map: HashMap<&'static str, k8s::Health> = self.entries.iter().filter_map(|(_, label, kind)| kind.health().map(|h| (*label, h))).collect();
+        map.extend(extra);
+        map
+    }
+
     pub(crate) fn count(&self, kind: ResourceKind) -> usize {
         self.get(kind).map(|k| k.count()).unwrap_or(0)
     }

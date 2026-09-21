@@ -19,6 +19,10 @@ pub trait CatalogKind: Send + Sync {
     fn headers(&self) -> Vec<&'static str> {
         Vec::new()
     }
+    /// How the kind's objects are doing, for kinds that have a notion of it.
+    fn health(&self) -> Option<Health> {
+        None
+    }
     /// Whether wide-only columns are wanted (only table-backed kinds have any).
     fn set_wide(&self, _wide: bool) {}
 }
@@ -47,6 +51,18 @@ where
 
     fn rows(&self) -> Vec<GenericRow> {
         snapshot_generic(&self.store).iter().map(|item| generic_row(item.as_ref())).collect()
+    }
+
+    fn health(&self) -> Option<Health> {
+        let mut health = Health::default();
+        let mut any = false;
+        for item in snapshot_generic(&self.store) {
+            if let Some(tone) = item.tone() {
+                any = true;
+                health.add(tone);
+            }
+        }
+        any.then_some(health)
     }
 
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {

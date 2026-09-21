@@ -2,6 +2,7 @@
 //! stores, the namespace/scope/search filters and the sort.
 
 use super::*;
+use crate::k8s::describe::Tone;
 use std::sync::Arc;
 
 /// Everything the frame and the input handlers read, recomputed every
@@ -120,6 +121,10 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 (n, row)
             })
             .collect();
+        let mut node_health = k8s::Health::default();
+        for (_, row) in &node_pairs {
+            node_health.add(if !row.ready { Tone::Bad } else if !row.schedulable { Tone::Warn } else { Tone::Good });
+        }
         if faults && current_kind == ResourceKind::Nodes {
             node_pairs.retain(|(_, row)| !row.ready || !row.schedulable);
         }
@@ -128,7 +133,8 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         }
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
         let catalog_sections = catalog.sections(pod_rows.len(), dep_rows.len());
-        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections);
+        let health = catalog.health([("Pods", k8s::pods_health(&pod_rows)), ("Deployments", k8s::deployments_health(&dep_rows)), ("Nodes", node_health)]);
+        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health);
         // Only filled for the kind on screen. `resolve` starts a CRD's watch the first
         // time it is opened. `generic_visible` maps a display position back to the real
         // index that `CatalogKind::spec_at` needs. Table-backed kinds add wide columns on request.

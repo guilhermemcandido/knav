@@ -407,6 +407,7 @@ mod overview_selection_tests {
             pod_capacity: 0,
             metrics_available: false,
             catalog,
+            health: Default::default(),
         }
     }
 

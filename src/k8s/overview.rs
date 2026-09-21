@@ -18,6 +18,54 @@ pub struct Overview {
     /// caller from whichever watches/pollers it's holding; this function
     /// just bundles it in alongside everything else.
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
+    /// Health by kind label, for the kinds that have a notion of it.
+    pub health: std::collections::HashMap<&'static str, Health>,
+}
+
+/// How many of a kind's objects are healthy, need attention or are broken.
+/// Objects with a neutral state (finished, nothing wanted) count in none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Health {
+    pub good: usize,
+    pub warn: usize,
+    pub bad: usize,
+}
+
+impl Health {
+    pub fn add(&mut self, tone: crate::k8s::describe::Tone) {
+        use crate::k8s::describe::Tone;
+        match tone {
+            Tone::Good => self.good += 1,
+            Tone::Warn => self.warn += 1,
+            Tone::Bad => self.bad += 1,
+            Tone::Plain | Tone::Muted => {}
+        }
+    }
+}
+
+/// Pods: running and ready or finished are fine, pending or short of ready
+/// need a look, crashing or erroring are broken.
+pub fn pods_health(rows: &[PodRow]) -> Health {
+    use crate::k8s::describe::Tone;
+    let mut health = Health::default();
+    for row in rows {
+        health.add(match status_tone(&row.phase) {
+            Tone::Plain if ready_is_short(&row.ready) => Tone::Warn,
+            Tone::Plain | Tone::Muted => Tone::Good,
+            other => other,
+        });
+    }
+    health
+}
+
+/// Deployments: fine when every wanted replica is ready.
+pub fn deployments_health(rows: &[DeploymentRow]) -> Health {
+    use crate::k8s::describe::Tone;
+    let mut health = Health::default();
+    for row in rows {
+        health.add(if ready_is_short(&row.ready) { Tone::Warn } else { Tone::Good });
+    }
+    health
 }
 
 pub(super) fn node_allocatable_sum(nodes: &[Arc<Node>], key: &str, parse: impl Fn(&str) -> i64) -> i64 {
@@ -33,6 +81,7 @@ pub fn overview(
     events: &[Arc<Event>],
     usage: Option<&crate::k8s::metrics::ClusterUsage>,
     catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
+    health: std::collections::HashMap<&'static str, Health>,
 ) -> Overview {
     let mut feed: Vec<EventEntry> = nodes.iter().flat_map(|n| node_warnings(n)).chain(events.iter().map(|e| event_entry(e))).collect();
     feed.sort_by_key(|e| e.age_secs);
@@ -46,5 +95,6 @@ pub fn overview(
         pod_capacity: node_allocatable_sum(nodes, "pods", |s| s.parse().unwrap_or(0)),
         metrics_available: usage.is_some(),
         catalog,
+        health,
     }
 }

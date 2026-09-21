@@ -328,7 +328,7 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     if let Some((title, items)) = overview.catalog.get(*col) {
-                        let overlay = ui::Overlay::ColumnDetail { title, items, selected: *selected, row_scroll: *row_scroll };
+                        let overlay = ui::Overlay::ColumnDetail { title, items, health: &overview.health, selected: *selected, row_scroll: *row_scroll };
                         ui::draw(frame, rows_view(), table_state, None, None, Some(overlay), &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);
                     } else {
                         ui::draw(frame, rows_view(), table_state, None, None, None, &hints, show_hints_panel, Some(path), icons, &header_now, ui::Search { text: &search, editing: false }, sort_view, hscroll, marked);

@@ -1025,6 +1025,7 @@ mod events_popup_tests {
             pod_capacity: 0,
             metrics_available: false,
             catalog: vec![("Workloads", vec![("Pods", 17), ("Deployments", 4)])],
+            health: Default::default(),
         };
         assert_eq!(workloads_pod_count(&overview), 17);
     }
