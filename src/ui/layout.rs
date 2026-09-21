@@ -155,7 +155,7 @@ static WIDTHS: std::sync::Mutex<Vec<(WidthKey, Vec<usize>)>> = std::sync::Mutex:
 
 /// Width of a cell's text, in terminal cells.
 pub(super) fn cell_width(text: &str) -> usize {
-    text.chars().count()
+    unicode_width::UnicodeWidthStr::width(text)
 }
 
 /// The one call every table makes: fit the columns to the content, then

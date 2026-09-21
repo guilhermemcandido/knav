@@ -68,7 +68,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
     for (name, v) in fields.iter().filter(|(_, v)| !v.is_empty()) {
-        let width = name.chars().count() + 1 + v.chars().count();
+        let width = cell_width(name) + 1 + cell_width(v);
         let gap = if spans.is_empty() { 0 } else { 3 };
         if used + gap + width > available {
             break;
@@ -124,7 +124,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, info: &HeaderInfo, shor
     // the fixed first line around.
     if !info.scope.is_empty() {
         let text = format!("Scope: {}", info.scope);
-        let width = text.chars().count() as u16;
+        let width = cell_width(&text) as u16;
         if shortcuts_width + 3 + width <= shortcut_area.width {
             let scope_area = Rect { x: shortcut_area.x + shortcut_area.width - width, y: shortcut_area.y, width, height: 1 };
             frame.render_widget(Paragraph::new(Line::from(vec![Span::styled("Scope: ", label), Span::styled(info.scope.clone(), value)])), scope_area);

@@ -8,7 +8,7 @@ pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, error: boo
     let full = frame.area();
     let width = (full.width * 3 / 5).max(30).min(full.width);
     let inner_w = width.saturating_sub(2).max(1) as usize;
-    let lines: usize = text.lines().map(|l| l.chars().count().div_ceil(inner_w).max(1)).sum::<usize>().max(1);
+    let lines: usize = text.lines().map(|l| cell_width(l).div_ceil(inner_w).max(1)).sum::<usize>().max(1);
     let height = (lines as u16 + 2).min(full.height);
     let area = Rect {
         x: full.x + full.width.saturating_sub(width) / 2,
@@ -46,7 +46,7 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
     let inner_w = usize::from(width).saturating_sub(6);
     let muted = Style::default().fg(theme().muted);
     let mut lines: Vec<Line> = vec![Line::raw("")];
-    let kind_w = spec.subjects.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0).min(20);
+    let kind_w = spec.subjects.iter().map(|(k, _)| cell_width(k)).max().unwrap_or(0).min(20);
     for (kind, place) in &spec.subjects {
         let mut spans = Vec::new();
         if !kind.is_empty() {

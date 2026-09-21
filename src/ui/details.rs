@@ -28,7 +28,7 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         let chip = chunk.style.is_chip();
         let text = if chip { format!(" {} ", chunk.text) } else { chunk.text.clone() };
         let gap = usize::from(chip && previous_chip);
-        let w = text.chars().count();
+        let w = cell_width(&text);
         // Only pills wrap; text stays on its line and is reached by scrolling sideways.
         if chip && used + gap + w > width && used > indent {
             lines.push(Line::from(std::mem::take(&mut spans)));

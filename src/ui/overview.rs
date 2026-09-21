@@ -166,7 +166,7 @@ pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, 
     let detail = format!("{} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
 
     let label_text = format!("{label:<8}");
-    let reserved = label_text.chars().count() as u16 + detail.chars().count() as u16 + 5;
+    let reserved = cell_width(&label_text) as u16 + cell_width(&detail) as u16 + 5;
     let bar_width = area.width.saturating_sub(reserved).max(4) as usize;
     let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
 
@@ -388,12 +388,23 @@ pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry,
 
 pub(super) fn truncate(s: &str, max: usize) -> String {
     if max == 0 {
-        String::new()
-    } else if s.chars().count() > max {
-        format!("{}…", s.chars().take(max - 1).collect::<String>())
-    } else {
-        s.to_string()
+        return String::new();
     }
+    if cell_width(s) <= max {
+        return s.to_string();
+    }
+    // Leave a cell for the ellipsis, cutting on whole characters.
+    let (mut out, mut used) = (String::new(), 0);
+    for ch in s.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > max - 1 {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    out.push('…');
+    out
 }
 
 #[cfg(test)]
@@ -550,5 +561,20 @@ mod overview_selection_tests {
         let two_cols_width = COLUMN_WIDTH * 2 + 1;
         assert_eq!(visible_columns(two_cols_width, 5), 2);
         assert_eq!(visible_columns(two_cols_width - 1, 5), 1);
+    }
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+
+    #[test]
+    fn truncate_counts_terminal_cells_not_characters() {
+        assert_eq!(cell_width("日本語"), 6);
+        let cut = truncate("日本語日本語", 7);
+        assert!(cell_width(&cut) <= 7 && cut.ends_with('…'), "{cut}");
+        assert_eq!(truncate("abc", 5), "abc");
+        assert_eq!(truncate("abcdef", 4), "abc…");
+        assert_eq!(truncate("abc", 0), "");
     }
 }

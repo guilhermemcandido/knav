@@ -129,7 +129,7 @@ pub(super) fn health_legend(health: Health, total: usize, width: usize, dimmed: 
             })
             .collect()
     };
-    let fits = |parts: &[(String, Color)]| parts.iter().map(|(t, _)| t.chars().count()).sum::<usize>() + 2 * parts.len().saturating_sub(1) <= width;
+    let fits = |parts: &[(String, Color)]| parts.iter().map(|(t, _)| cell_width(t)).sum::<usize>() + 2 * parts.len().saturating_sub(1) <= width;
     let parts = [(true, false), (false, false), (true, true), (false, true)].into_iter().map(|(w, s)| build(w, s)).find(|p| fits(p)).unwrap_or_default();
     if parts.is_empty() {
         return Line::styled(format!("{} total", compact(total)), paint(theme().muted));
@@ -444,7 +444,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
     }
 
     let count_text = count.to_string();
-    let label_width = (split[1].width as usize).saturating_sub(count_text.chars().count() + 1).max(1);
+    let label_width = (split[1].width as usize).saturating_sub(cell_width(&count_text) + 1).max(1);
     // A name too long for the row wraps onto a second one when the card is
     // tall enough to have it; otherwise it's cut with an ellipsis.
     let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };

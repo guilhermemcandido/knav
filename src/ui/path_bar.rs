@@ -149,9 +149,9 @@ pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, wi
         }
     }
     // Then shorten the longest value/name a character at a time.
-    let mut texts: Vec<usize> = segments.iter().map(|s| s.value.as_ref().map_or(0, |v| v.chars().count())).collect();
-    texts.push(pod.and_then(|p| p.namespace.as_ref()).map_or(0, |n| n.chars().count()));
-    texts.push(pod.map_or(0, |p| p.name.chars().count()));
+    let mut texts: Vec<usize> = segments.iter().map(|s| s.value.as_ref().map_or(0, |v| cell_width(v))).collect();
+    texts.push(pod.and_then(|p| p.namespace.as_ref()).map_or(0, |n| cell_width(n)));
+    texts.push(pod.map_or(0, |p| cell_width(&p.name)));
     let mut caps = texts.clone();
     loop {
         let line = build(segments, pod, &caps, Detail::None);
