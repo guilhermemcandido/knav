@@ -76,6 +76,18 @@ pub fn border_set() -> ratatui::symbols::border::Set<'static> {
     BORDER.read().ok().and_then(|b| *b).unwrap_or_else(|| border_set_named(""))
 }
 
+static LIST_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the list has the keys while a panel is open beside it (its border lights up).
+pub fn set_list_focused(focused: bool) {
+    LIST_FOCUSED.store(focused, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The border of a list: bright while it has the keys next to an open panel.
+pub(super) fn list_border(dimmed: bool) -> Style {
+    if !dimmed && LIST_FOCUSED.load(std::sync::atomic::Ordering::Relaxed) { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(dimmed) }
+}
+
 pub(super) fn theme_border(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(theme().border) }
 }

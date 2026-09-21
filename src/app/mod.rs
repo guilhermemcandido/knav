@@ -110,6 +110,8 @@ pub(crate) fn run(
         } else {
             ui::set_side_panel(None);
         }
+        // With a panel open, the border of whichever side has the keys is lit.
+        ui::set_list_focused(st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview && !st.info_focus);
         // Marks belong to the list they were made in.
         if st.marked_kind != st.current_kind {
             st.marked.clear();

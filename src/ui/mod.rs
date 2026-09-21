@@ -37,6 +37,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
+pub use self::style::set_list_focused;
 pub use self::details::{SidePanel, side_panel_max_scroll, details_line_count, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{Move, layout as graph_layout, neighbor as graph_neighbor};
 pub use self::header::*;

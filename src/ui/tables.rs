@@ -70,7 +70,7 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
 }
 
 pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[PodRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
-    let border_style = theme_border(dimmed);
+    let border_style = list_border(dimmed);
 
     let window = pod_window(pods, area.width, hscroll, wide);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
@@ -234,7 +234,7 @@ pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
 }
 
 pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[DeploymentRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
-    let border_style = theme_border(dimmed);
+    let border_style = list_border(dimmed);
 
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
     if wide {
@@ -350,7 +350,7 @@ fn generic_row_tone(r: &GenericRow) -> crate::k8s::describe::Tone {
 }
 
 pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
-    let border_style = theme_border(dimmed);
+    let border_style = list_border(dimmed);
 
     let mut headers = vec!["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
     if wide {
@@ -429,7 +429,7 @@ pub(super) fn any_row_has_namespace(rows: &[GenericRow]) -> bool {
 }
 
 pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericRow], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
-    let border_style = theme_border(dimmed);
+    let border_style = list_border(dimmed);
 
     let show_namespace = any_row_has_namespace(rows);
 
@@ -502,7 +502,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[GenericR
 /// same-group kinds sit together. Enter starts watching the kind; nothing is
 /// live-watched until then.
 pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
-    let border_style = theme_border(dimmed);
+    let border_style = list_border(dimmed);
     let cell_style = theme_row(dimmed);
 
     const HEADERS: [&str; 3] = ["GROUP", "KIND", "SCOPE"];
