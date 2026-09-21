@@ -61,6 +61,18 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     if matches!(st.mode, Mode::Shell { .. }) {
         return inspect::handle(event, st, cx);
     }
+    // Your key bindings: the key pressed becomes the built-in key of the
+    // action it is bound to (or is dropped if that action moved elsewhere).
+    let event = match event {
+        Event::Key(key) => match crate::keymap::screen_of(&st.mode, st.current_kind) {
+            Some(screen) => match st.keymap.translate(screen, &key) {
+                Some(translated) => Event::Key(translated),
+                None => return Ok(None),
+            },
+            None => Event::Key(key),
+        },
+        other => other,
+    };
     // While the help is open it takes the keys: `?`, `q` and Esc close it.
     if st.show_hints_panel {
         if let Event::Key(key) = &event

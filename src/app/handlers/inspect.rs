@@ -8,7 +8,6 @@ use crate::app::derive::Derived;
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
     let Derived { nodes, node_detail_pods, node_detail_rows, .. } = cx.d;
     let client = cx.client;
-    let config = cx.config;
     let frame_area = cx.frame_area;
     let mut shell_request: Option<(String, String, String)> = None;
     match (event, &mut st.mode) {
@@ -237,10 +236,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *order, follow, scroll),
             KeyCode::Char('G') => *follow = true,
             KeyCode::Char('/') => *filter_editing = true,
-            KeyCode::Char(c) if c == config.keybindings.logs.toggle_timestamp => {
+            KeyCode::Char('t') => {
                 *timestamp_format = timestamp_format.toggled();
             }
-            KeyCode::Char(c) if c == config.keybindings.logs.toggle_order => {
+            KeyCode::Char('o') => {
                 *order = order.toggled();
                 *follow = true;
             }

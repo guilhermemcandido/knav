@@ -16,6 +16,21 @@ const GENERAL_KEYS: [&str; 10] = ["?", "n", "0-9", "s", "/", "m", "C", "q/esc", 
 /// columns and adds the keys that work everywhere.
 pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) -> Vec<Section> {
     let entry = |key: &str, what: &str| (key.to_string(), what.to_string());
+    // An action's keys as they are now: `default` when untouched.
+    let shown = |default: &str, id: &str, what: &str| {
+        let keys = crate::keymap::keys_now(id);
+        let untouched = crate::keymap::BINDINGS.iter().find(|b| b.id == id).is_some_and(|b| keys.iter().map(String::as_str).eq(b.defaults.iter().copied()));
+        (if untouched { default.to_string() } else { keys.iter().map(|k| crate::keymap::glyph(k)).collect::<Vec<_>>().join(" / ") }, what.to_string())
+    };
+    // Two actions' keys side by side.
+    let pair = |default: &str, first: &str, second: &str, what: &str| {
+        let a = crate::keymap::keys_now(first);
+        let b = if second.is_empty() { Vec::new() } else { crate::keymap::keys_now(second) };
+        let untouched = |id: &str, keys: &[String]| crate::keymap::BINDINGS.iter().find(|x| x.id == id).is_none_or(|x| keys.iter().map(String::as_str).eq(x.defaults.iter().copied()));
+        let both_default = untouched(first, &a) && (second.is_empty() || untouched(second, &b));
+        let text = if both_default { default.to_string() } else { a.iter().chain(b.iter()).map(|k| crate::keymap::glyph(k)).collect::<Vec<_>>().join(" ") };
+        (text, what.to_string())
+    };
     let resource: Vec<(String, String)> = hints
         .iter()
         .filter(|(key, _)| !GENERAL_KEYS.contains(key) && !NAVIGATION_KEYS.iter().any(|n| key.contains(n)))
@@ -34,32 +49,34 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         Section {
             title: "GENERAL",
             entries: vec![
-                entry(":cmd", "Command mode"),
-                entry("/term", "Filter mode"),
-                entry("s", "Sort by column"),
-                entry("n", "Namespaces"),
-                entry("m", "Resources menu"),
-                entry("C", "Contexts"),
-                entry("space", "Mark"),
-                entry("ctrl-z", "Faults only"),
-                entry("ctrl-w", "Wide columns"),
-                entry("[ ]", "History back / forward"),
-                entry("minus", "Last view"),
-                entry("esc", "Back / clear marks"),
-                entry("?", "Help"),
+                shown(":cmd", "command", "Command mode"),
+                shown("/term", "search", "Filter mode"),
+                shown("s", "sort", "Sort by column"),
+                shown("n", "namespaces", "Namespaces"),
+                shown("m", "menu", "Resources menu"),
+                shown("C", "contexts", "Contexts"),
+                shown("T", "themes", "Themes"),
+                shown(",", "settings", "Settings"),
+                shown("space", "mark", "Mark"),
+                shown("ctrl-z", "faults", "Faults only"),
+                shown("ctrl-w", "wide", "Wide columns"),
+                pair("[ ]", "history_back", "history_forward", "History back / forward"),
+                shown("minus", "last_view", "Last view"),
+                shown("esc", "cancel", "Back / clear marks"),
+                shown("?", "help", "Help"),
                 entry(":q", "Quit"),
             ],
         },
         Section {
             title: "NAVIGATION",
             entries: vec![
-                entry("j / ↓", "Down"),
-                entry("k / ↑", "Up"),
-                entry("g", "Go to top"),
-                entry("G", "Go to bottom"),
-                entry("ctrl-f", "Page down"),
-                entry("ctrl-b", "Page up"),
-                entry("← →", "Scroll columns"),
+                pair("j / ↓", "move_down", "", "Down"),
+                pair("k / ↑", "move_up", "", "Up"),
+                shown("g", "top", "Go to top"),
+                shown("G", "bottom", "Go to bottom"),
+                shown("ctrl-f", "page_down", "Page down"),
+                shown("ctrl-b", "page_up", "Page up"),
+                shown("← →", "scroll_left", "Scroll columns"),
                 entry("click", "Select row"),
                 entry("dbl-click", "Open row"),
                 entry("wheel", "Scroll"),

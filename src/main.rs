@@ -12,6 +12,7 @@ mod favorites;
 mod fuzzy;
 mod icons;
 mod k8s;
+mod keymap;
 mod metrics;
 mod mode;
 mod picker;
@@ -68,7 +69,7 @@ fn main() -> Result<()> {
     // Read before the TUI takes over the screen — a parse error needs to
     // print somewhere a human can actually see it.
     let config = Config::load();
-    for problem in settings::apply(&config) {
+    for problem in settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1) {
         eprintln!("warning: {problem}");
     }
     let cli = Cli::parse(std::env::args().skip(1))?;

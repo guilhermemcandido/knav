@@ -15,6 +15,8 @@ const HISTORY_LIMIT: usize = 50;
 pub(super) struct State {
     /// The config as it stands now: the config screen edits it while knav runs.
     pub config: Config,
+    /// Turns the keys you press into the built-in keys the handlers know.
+    pub keymap: crate::keymap::Keymap,
     pub table_state: TableState,
     pub mode: Mode,
     pub hovered: Option<ui::Hover>,
@@ -73,7 +75,10 @@ impl State {
     /// `icons` must be detected after raw mode is on (it queries the
     /// terminal) and before the event loop starts reading stdin.
     pub fn new(icons: icons::IconCache, favorites: Favorites, config: Config) -> Self {
+        let keymap = crate::keymap::Keymap::from_app_config(&config).0;
+        crate::keymap::set_current(&keymap);
         State {
+            keymap,
             faults_only: config.tables.faults_by_default,
             wide: config.tables.wide_by_default,
             config,
@@ -102,6 +107,14 @@ impl State {
             overview_col_scroll: 0,
             overview_item_scroll: 0,
         }
+    }
+
+    /// Takes a changed config into use: colours, box lines, numbers and keys.
+    pub fn reload(&mut self, config: Config) {
+        self.config = config;
+        crate::settings::apply(&self.config);
+        self.keymap = crate::keymap::Keymap::from_app_config(&self.config).0;
+        crate::keymap::set_current(&self.keymap);
     }
 
     fn here(&self) -> View {

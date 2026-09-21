@@ -14,7 +14,7 @@ pub(super) struct View<'a> {
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],
     pub favorites: &'a Favorites,
-    pub hints: &'a [(&'static str, &'static str)],
+    pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
     pub breadcrumb: &'a [ui::BreadcrumbSegment],
     pub header_now: &'a ui::HeaderInfo,

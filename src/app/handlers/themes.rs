@@ -61,10 +61,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     }
     if close {
         // Kept: the saved config is the new one. Cancelled or failed: back to the old.
-        if let Some(config) = saved {
-            st.config = config;
+        match saved {
+            Some(config) => st.reload(config),
+            None => {
+                crate::settings::apply(&st.config);
+            }
         }
-        crate::settings::apply(&st.config);
     }
     Ok(None)
 }

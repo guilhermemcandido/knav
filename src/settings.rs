@@ -16,6 +16,8 @@ pub enum Kind {
     Number { min: i64, max: i64 },
     Bool,
     Color,
+    /// Key bindings for an action, typed as `x, ctrl-d`.
+    Keys,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +59,9 @@ pub fn registry() -> Vec<Setting> {
     for (role, label) in theme::ROLES {
         add(&format!("theme.colors.{role}"), "Colours", label, Kind::Color, false);
     }
+    for binding in crate::keymap::BINDINGS {
+        add(&format!("keys.{}", binding.id), "Keys", binding.label, Kind::Keys, false);
+    }
     settings
 }
 
@@ -91,6 +96,10 @@ fn show(value: &toml::Value) -> String {
 
 /// The value in effect for `setting`, as text.
 pub fn current(config: &Config, theme: &Theme, setting: &Setting) -> String {
+    if let Some(id) = setting.path.strip_prefix("keys.") {
+        // The comma key is written `comma` here, since commas separate the keys.
+        return crate::keymap::keys_now(id).iter().map(|k| if k == "," { "comma" } else { k.as_str() }).collect::<Vec<_>>().join(", ");
+    }
     if let Some(role) = setting.path.strip_prefix("theme.colors.") {
         return theme.get(role).map(theme::format_color).unwrap_or_default();
     }
@@ -99,6 +108,9 @@ pub fn current(config: &Config, theme: &Theme, setting: &Setting) -> String {
 
 /// Whether the config file sets `setting` itself.
 pub fn is_customised(config: &Config, setting: &Setting) -> bool {
+    if let Some(id) = setting.path.strip_prefix("keys.") {
+        return config.keys.contains_key(id);
+    }
     if let Some(role) = setting.path.strip_prefix("theme.colors.") {
         return config.theme.colors.contains_key(role);
     }
@@ -111,9 +123,29 @@ pub fn is_customised(config: &Config, setting: &Setting) -> bool {
 }
 
 /// A typed value for the file, checked against the setting's kind.
-pub fn typed_value(setting: &Setting, text: &str) -> Result<toml_edit::Value> {
+pub fn typed_value(config: &Config, setting: &Setting, text: &str) -> Result<toml_edit::Value> {
     let text = text.trim();
     Ok(match &setting.kind {
+        Kind::Keys => {
+            let id = setting.path.strip_prefix("keys.").context("a key setting")?;
+            let list: Vec<String> = text.split(',').map(|k| k.trim()).filter(|k| !k.is_empty()).map(|k| if k.eq_ignore_ascii_case("comma") { ",".to_string() } else { k.to_string() }).collect();
+            if list.is_empty() {
+                bail!("give at least one key (for example x, ctrl-d)");
+            }
+            // The whole set of bindings, checked as the config loader would.
+            let mut keys = config.keys.clone();
+            keys.insert(id.to_string(), list.clone());
+            let (_, problems) = crate::keymap::overrides_from_config(&keys);
+            let prefix = format!("keys.{id}: ");
+            if let Some(problem) = problems.iter().find_map(|p| p.strip_prefix(&prefix)) {
+                bail!("{problem}");
+            }
+            let mut array = toml_edit::Array::new();
+            for key in list {
+                array.push(key);
+            }
+            toml_edit::Value::Array(array)
+        }
         Kind::Choice(options) => {
             if !options.iter().any(|o| o == text) {
                 bail!("{text} is not one of {}", options.join(", "));
@@ -221,21 +253,44 @@ mod tests {
         for setting in registry() {
             let now = current(&config, &theme, &setting);
             assert!(!now.is_empty(), "{} has no current value", setting.path);
-            assert!(typed_value(&setting, &now).is_ok(), "{}: default '{now}' is rejected", setting.path);
+            assert!(typed_value(&config, &setting, &now).is_ok(), "{}: default '{now}' is rejected", setting.path);
         }
     }
 
     #[test]
     fn values_are_checked_against_the_kind() {
-        assert!(typed_value(&find("ui.border"), "thick").is_ok());
-        assert!(typed_value(&find("ui.border"), "wavy").is_err());
-        assert!(typed_value(&find("mouse.wheel_rows"), "5").is_ok());
-        assert!(typed_value(&find("mouse.wheel_rows"), "0").is_err());
-        assert!(typed_value(&find("mouse.wheel_rows"), "many").is_err());
-        assert!(typed_value(&find("portforward.open_browser"), "off").is_ok());
-        assert!(typed_value(&find("portforward.open_browser"), "maybe").is_err());
-        assert!(typed_value(&find("theme.colors.ok"), "#00ff00").is_ok());
-        assert!(typed_value(&find("theme.colors.ok"), "lime").is_err());
+        assert!(typed_value(&Config::default(), &find("ui.border"), "thick").is_ok());
+        assert!(typed_value(&Config::default(), &find("ui.border"), "wavy").is_err());
+        assert!(typed_value(&Config::default(), &find("mouse.wheel_rows"), "5").is_ok());
+        assert!(typed_value(&Config::default(), &find("mouse.wheel_rows"), "0").is_err());
+        assert!(typed_value(&Config::default(), &find("mouse.wheel_rows"), "many").is_err());
+        assert!(typed_value(&Config::default(), &find("portforward.open_browser"), "off").is_ok());
+        assert!(typed_value(&Config::default(), &find("portforward.open_browser"), "maybe").is_err());
+        assert!(typed_value(&Config::default(), &find("theme.colors.ok"), "#00ff00").is_ok());
+        assert!(typed_value(&Config::default(), &find("theme.colors.ok"), "lime").is_err());
+    }
+
+    #[test]
+    fn key_settings_are_lists_checked_for_conflicts() {
+        let config = Config::default();
+        let delete = find("keys.delete");
+        let ok = typed_value(&config, &delete, "X, ctrl-d").unwrap();
+        assert_eq!(ok.to_string().replace(' ', ""), "[\"X\",\"ctrl-d\"]");
+        assert!(typed_value(&config, &delete, "").is_err());
+        assert!(typed_value(&config, &delete, "nonsense").is_err());
+        let clash = typed_value(&config, &delete, "r").unwrap_err().to_string();
+        assert!(clash.contains("already 'Restart'"), "{clash}");
+        assert!(typed_value(&config, &delete, "D").is_ok(), "its own current key is fine");
+    }
+
+    #[test]
+    fn every_action_has_a_key_setting_that_reads_back_its_defaults() {
+        let config = Config::default();
+        let (theme, _) = theme::build("knav", &Default::default());
+        for binding in crate::keymap::BINDINGS {
+            let setting = find(&format!("keys.{}", binding.id));
+            assert_eq!(current(&config, &theme, &setting), binding.defaults.iter().map(|k| if *k == "," { "comma" } else { k }).collect::<Vec<_>>().join(", "), "{}", binding.id);
+        }
     }
 
     #[test]

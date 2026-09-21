@@ -150,6 +150,18 @@ impl Default for ApiConfig {
     }
 }
 
+/// A key binding written as `"x"` or `["x", "ctrl-d"]`.
+fn one_or_many<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<BTreeMap<String, Vec<String>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Keys {
+        One(String),
+        Many(Vec<String>),
+    }
+    let raw = BTreeMap::<String, Keys>::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(|(id, keys)| (id, match keys { Keys::One(k) => vec![k], Keys::Many(list) => list })).collect())
+}
+
 /// Colours: a preset, and per-role overrides on top of it (`#rrggbb`, a
 /// terminal colour name, or `indexed:N`).
 #[derive(Clone, Deserialize, Serialize)]
@@ -196,6 +208,9 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub mouse: MouseConfig,
     pub api: ApiConfig,
+    /// Key bindings by action id; each is one key or a list (see `keymap`).
+    #[serde(deserialize_with = "one_or_many")]
+    pub keys: BTreeMap<String, Vec<String>>,
 }
 
 impl Config {

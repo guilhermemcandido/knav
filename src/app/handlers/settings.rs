@@ -26,7 +26,7 @@ fn stepped(setting: &Setting, current: &str, direction: i64, big: bool) -> Optio
             let step = if big { 10 } else { 1 };
             Some((value + direction * step).clamp(*min, *max).to_string())
         }
-        Kind::Color => None,
+        Kind::Color | Kind::Keys => None,
     }
 }
 
@@ -48,7 +48,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         // Drop the live preview of what was being typed.
                         settings::apply(cx.config);
                     }
-                    KeyCode::Enter => match setting.as_ref().map(|s| (s, settings::typed_value(s, input))) {
+                    KeyCode::Enter => match setting.as_ref().map(|s| (s, settings::typed_value(cx.config, s, input))) {
                         Some((s, Ok(_))) => {
                             change = Some(Change::Set(s.path.clone(), input.trim().to_string()));
                             *editing = None;
@@ -95,7 +95,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         if let Some(s) = &setting {
                             match &s.kind {
-                                Kind::Number { .. } | Kind::Color => *editing = Some(current.clone()),
+                                Kind::Number { .. } | Kind::Color | Kind::Keys => *editing = Some(current.clone()),
                                 _ => {
                                     if let Some(next) = stepped(s, &current, 1, false) {
                                         change = Some(Change::Set(s.path.clone(), next));
@@ -128,10 +128,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         }
     }
     if let Some(change) = change {
+        let config_before = st.config.clone();
         let result = match &change {
             Change::Set(path, text) => {
                 let setting = settings::registry().into_iter().find(|s| &s.path == path);
-                match setting.map(|s| settings::typed_value(&s, text)) {
+                match setting.map(|s| settings::typed_value(&config_before, &s, text)) {
                     Some(Ok(value)) => settings::save(&Config::path(), path, Some(value)),
                     Some(Err(e)) => Err(e),
                     None => Err(anyhow::anyhow!("unknown setting {path}")),
@@ -140,10 +141,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             Change::Reset(path) => settings::save(&Config::path(), path, None),
         };
         match result {
-            Ok(config) => {
-                st.config = config;
-                settings::apply(&st.config);
-            }
+            Ok(config) => st.reload(config),
             Err(e) => {
                 if let Mode::Settings { error, .. } = &mut st.mode {
                     *error = Some(format!("{e:#}"));
