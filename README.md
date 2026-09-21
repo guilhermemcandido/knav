@@ -56,7 +56,7 @@ Press `?` on any screen for the keys that apply there. The common ones:
 | `g` `G` / `Ctrl-f` `Ctrl-b` | Top or bottom of the list / page down or up (also `Home` `End` `PageUp` `PageDown`) |
 | `y` / `Y` | The manifest as YAML text (`c` there copies it) / copy the row's `namespace/name` to the clipboard |
 | `O` | Jump to the owner (pod → ReplicaSet → Deployment), or click a pod's CONTROLLER; `Esc` comes back |
-| `R` | Related objects as a diagram: owners and callers on the left, the object in the middle, what it uses on the right. Arrows or `hjkl` move between boxes, `Enter` recentres on one, `o` opens its list, `Backspace` goes back, `Esc` closes |
+| `R` | Related objects as a diagram: arrows run from what provides to what depends (node → pod, config map → pod, deployment → replica set → pod), callers, owners and what it uses on the left, the object in the middle, what it owns or what uses it on the right. Arrows or `hjkl` move between boxes, `Enter` recentres on one, `o` opens its list, `Backspace` goes back, `Esc` closes |
 | `[` `]` `-` | View history back, forward, and the view before this one |
 | `Ctrl-z` | List only the rows that need a look (broken or unready) |
 | `Ctrl-w` | Wide columns: IP and images for pods, address/OS/kernel/runtime for nodes, images for deployments, labels for the rest |

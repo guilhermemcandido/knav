@@ -395,8 +395,9 @@ pub struct Graph {
     pub edges: Vec<(usize, usize)>,
 }
 
-/// Lays `groups` out as a flow from left to right: callers and owners on the left,
-/// the object in the middle, what it owns and uses on the right.
+/// Lays `groups` out as a flow from left to right, arrows pointing from what provides
+/// to what depends: callers, owners and what the object uses on the left, the object
+/// in the middle, what it owns, selects or what uses it on the right.
 pub fn graph(target: &Value, groups: &[Group]) -> Graph {
     let mut g = Graph::default();
     let Some(t) = obj(target) else { return g };
@@ -420,7 +421,9 @@ pub fn graph(target: &Value, groups: &[Group]) -> Graph {
                     previous = at;
                 }
             }
-            "Used by" => {
+            // Arrows run from what provides to what depends: a Node, ConfigMap or
+            // Secret points at the pod that uses it.
+            "Uses" => {
                 for e in &group.entries {
                     let at = node(&mut g, e, -1);
                     g.edges.push((at, 0));
@@ -590,12 +593,23 @@ mod tests {
         assert_eq!(layer("Deployment"), Some(-2));
         assert_eq!(layer("Ingress"), Some(-2));
         assert_eq!(layer("Service"), Some(-1));
-        assert_eq!(layer("ConfigMap"), Some(1));
+        assert_eq!(layer("ConfigMap"), Some(-1), "what it uses feeds into it");
+        assert_eq!(layer("Node"), Some(-1));
         let at = |kind: &str| g.nodes.iter().position(|n| n.kind == kind).unwrap();
         assert!(g.edges.contains(&(at("Deployment"), at("ReplicaSet"))), "owner points at what it owns");
         assert!(g.edges.contains(&(at("ReplicaSet"), 0)));
         assert!(g.edges.contains(&(at("Ingress"), at("Service"))));
-        assert!(g.edges.contains(&(0, at("ConfigMap"))));
+        assert!(g.edges.contains(&(at("ConfigMap"), 0)));
+        assert!(g.edges.contains(&(at("Node"), 0)), "node -> pod");
+    }
+
+    #[test]
+    fn what_uses_a_config_map_is_on_its_right() {
+        let target = config_map();
+        let g = graph(&target, &relations(&target, &world()));
+        let deployment = g.nodes.iter().position(|n| n.kind == "Deployment").unwrap();
+        assert_eq!(g.nodes[deployment].layer, 1);
+        assert!(g.edges.contains(&(0, deployment)), "config map -> what uses it");
     }
 
     #[test]
