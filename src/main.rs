@@ -110,8 +110,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
     let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
-    let crds = k8s::discover_crds(&client).await;
-    let apis = k8s::discover_apis(&client).await;
+    let (apis, crds) = k8s::discover(&client).await;
     let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed, crds, apis);
 
     // Block until each reflector's initial list-and-watch has populated
@@ -119,7 +118,6 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     pod_store.store.wait_until_ready().await?;
     dep_store.store.wait_until_ready().await?;
     node_store.wait_until_ready().await?;
-    event_store.wait_until_ready().await?;
 
     let mut terminal = ratatui::init();
     let _ = execute!(stdout(), EnableMouseCapture);

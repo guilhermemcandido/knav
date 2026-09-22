@@ -66,10 +66,42 @@ fn leak(text: &str) -> &'static str {
     leaked
 }
 
-/// Everything the API server lets us list, one entry per resource (its
-/// recommended version), sorted by group then kind. Empty if discovery fails.
-pub async fn discover_apis(client: &Client) -> Vec<ApiInfo> {
-    let Ok(discovery) = Discovery::new(client.clone()).run().await else { return Vec::new() };
+/// The names (`plural.group`) of every installed CRD. Only metadata is listed, in pages: a
+/// full CRD carries its whole schema, which on a big cluster is hundreds of megabytes.
+async fn crd_names(client: &Client) -> std::collections::HashSet<String> {
+    use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+    use kube::{ResourceExt, api::{Api, ListParams}, core::PartialObjectMeta};
+    let api: Api<PartialObjectMeta<CustomResourceDefinition>> = Api::all(client.clone());
+    let mut names = std::collections::HashSet::new();
+    let mut token: Option<String> = None;
+    loop {
+        let mut params = ListParams::default().limit(500);
+        params.continue_token = token.take();
+        let Ok(page) = api.list_metadata(&params).await else { break };
+        names.extend(page.items.iter().map(|crd| crd.name_any()));
+        match page.metadata.continue_.filter(|t| !t.is_empty()) {
+            Some(next) => token = Some(next),
+            None => break,
+        }
+    }
+    names
+}
+
+/// Runs discovery with the aggregated API (two requests for every group) when the server has
+/// it, else group by group, which costs one round trip per group.
+async fn run_discovery(client: &Client) -> Option<Discovery> {
+    match Discovery::new(client.clone()).run_aggregated().await {
+        Ok(found) => Some(found),
+        Err(_) => Discovery::new(client.clone()).run().await.ok(),
+    }
+}
+
+/// Everything the API server lets us list, one entry per resource (its recommended version),
+/// and the custom resources among them, each at its preferred served version. Both sorted by
+/// group then kind; empty if discovery fails. Custom resources are found in the same pass.
+pub async fn discover(client: &Client) -> (Vec<ApiInfo>, Vec<CrdInfo>) {
+    let (found, names) = tokio::join!(run_discovery(client), crd_names(client));
+    let Some(discovery) = found else { return (Vec::new(), Vec::new()) };
     let mut apis: Vec<ApiInfo> = discovery
         .groups()
         .flat_map(|group| group.recommended_resources())
@@ -85,7 +117,25 @@ pub async fn discover_apis(client: &Client) -> Vec<ApiInfo> {
         .collect();
     apis.sort_by(|a, b| (a.group, a.kind).cmp(&(b.group, b.kind)));
     apis.dedup_by(|a, b| a.group == b.group && a.plural == b.plural);
-    apis
+
+    let mut crds = Vec::new();
+    for group in discovery.groups().filter(|g| !g.name().is_empty()) {
+        // A CRD served in several versions is listed once, at the preferred one when it has it.
+        let preferred = group.preferred_version_or_latest();
+        let mut versions: Vec<&str> = group.versions().collect();
+        versions.sort_by_key(|v| *v != preferred);
+        let mut seen = std::collections::HashSet::new();
+        for version in versions {
+            for (resource, caps) in group.versioned_resources(version) {
+                if resource.plural.contains('/') || !names.contains(&format!("{}.{}", resource.plural, resource.group)) || !seen.insert(resource.plural.clone()) {
+                    continue;
+                }
+                crds.push(CrdInfo { group: leak(&resource.group), kind: leak(&resource.kind), plural: resource.plural.clone(), version: resource.version.clone(), namespaced: caps.scope == Scope::Namespaced });
+            }
+        }
+    }
+    crds.sort_by(|a, b| (a.group, a.kind).cmp(&(b.group, b.kind)));
+    (apis, crds)
 }
 
 /// The list of every resource type (`:api`); Enter on a row opens it.
@@ -587,5 +637,21 @@ mod tests {
         assert_eq!(rows[0].uid, "deployments.apps");
         assert_eq!(rows[0].extras[0].text, "apps");
         assert_eq!(rows[0].extras.len(), list.headers().len());
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// Against the current kubeconfig context: `cargo test live_discovery -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_discovery() {
+        let client = kube::Client::try_default().await.unwrap();
+        let started = std::time::Instant::now();
+        let (apis, crds) = super::discover(&client).await;
+        println!("{} types, {} custom resources in {:?}", apis.len(), crds.len(), started.elapsed());
+        for crd in crds.iter().take(5) {
+            println!("  {}/{} {}", crd.group, crd.version, crd.kind);
+        }
     }
 }

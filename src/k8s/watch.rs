@@ -114,6 +114,9 @@ where
     items
 }
 
+/// How many counting watches may still be on their first list.
+static STARTUP: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+
 /// How many `K` exist, kept up to date from a metadata-only watch: no spec or data is
 /// downloaded or held (even a Secret's annotations are dropped), so it is cheap to run
 /// for every kind just to show a count.
@@ -136,8 +139,13 @@ where
         .reflect(writer);
     let seen = Arc::clone(&count);
     tokio::spawn(async move {
+        // Only a few first lists run at once, so opening a cluster does not send dozens together.
+        let mut turn = STARTUP.acquire().await.ok();
         let mut stream = stream.boxed();
-        while stream.next().await.is_some() {
+        while let Some(event) = stream.next().await {
+            if turn.is_some() && !matches!(event, Ok(watcher::Event::Init | watcher::Event::InitApply(_))) {
+                turn = None;
+            }
             seen.store(reader.len(), Ordering::Relaxed);
             CHANGES.fetch_add(1, Ordering::Relaxed);
         }

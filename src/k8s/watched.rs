@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use kube::{
     Client, Resource,
-    api::Api,
     runtime::reflector,
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -128,36 +127,4 @@ pub struct CrdInfo {
     pub plural: String,
     pub version: String,
     pub namespaced: bool,
-}
-
-/// Lists the installed CRDs. Prefers the storage version, and skips CRDs with no
-/// served version. `group` and `kind` are leaked to `&'static str` once at startup
-/// so `ResourceKind::CustomResource` can carry plain labels.
-pub async fn discover_crds(client: &Client) -> Vec<CrdInfo> {
-    use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-
-    let api: Api<CustomResourceDefinition> = Api::all(client.clone());
-    let crds = match api.list(&Default::default()).await {
-        Ok(list) => list.items,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut infos: Vec<CrdInfo> = crds
-        .into_iter()
-        .filter_map(|crd| {
-            let spec = crd.spec;
-            let version =
-                spec.versions.iter().find(|v| v.storage).or_else(|| spec.versions.iter().find(|v| v.served))?.name.clone();
-            Some(CrdInfo {
-                group: Box::leak(spec.group.into_boxed_str()),
-                kind: Box::leak(spec.names.kind.into_boxed_str()),
-                plural: spec.names.plural,
-                version,
-                namespaced: spec.scope == "Namespaced",
-            })
-        })
-        .collect();
-
-    infos.sort_by(|a, b| (a.group, a.kind).cmp(&(b.group, b.kind)));
-    infos
 }
