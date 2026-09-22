@@ -3,7 +3,7 @@
 use super::*;
 
 /// The relations diagram in a full-size frame.
-pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crate::k8s::relations::Graph, selected: usize) {
+pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crate::k8s::relations::Graph, selected: usize, zoom: usize) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -11,14 +11,16 @@ pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crat
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(pill_title(&format!("Related to {title}"), false, theme_border(false)))
-        .title_bottom(hint_strip(&[("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("m", "copy as Mermaid"), ("q/esc", "close")]).right_aligned());
+        // A plain hyphen next to the closing `>` ligatures into an arrow in fonts like Fira
+        // Code, reading as a keyboard arrow; the minus sign (U+2212) looks the same but doesn't.
+        .title_bottom(hint_strip(&[("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("+/\u{2212}", "zoom"), ("m", "copy as Mermaid"), ("q/esc", "close")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if graph.nodes.len() <= 1 {
         frame.render_widget(Paragraph::new("Nothing else is related to this object.").style(Style::default().fg(theme().muted)).alignment(Alignment::Center), inner);
         return;
     }
-    super::graph::draw_graph(frame, inner, graph, selected);
+    super::graph::draw_graph(frame, inner, graph, selected, zoom);
 }
 
 /// A bar `width` cells wide filled to `ratio`.

@@ -7,10 +7,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut open: Option<(ResourceKind, Option<String>, String)> = None;
     let mut info: Option<serde_yaml::Value> = None;
     let mut copy_note: Option<actions::Outcome> = None;
-    if let Mode::Relations { target, all, graph, selected, previous, back } = &mut st.mode {
-        let layout = ui::graph_layout(graph);
+    if let Mode::Relations { target, all, graph, selected, previous, zoom, back } = &mut st.mode {
+        let layout = ui::graph_layout(graph, *zoom);
         let go = |direction: ui::Move, selected: &mut usize| {
-            if let Some(to) = ui::graph_neighbor(graph, &layout, *selected, direction) {
+            if let Some(to) = ui::graph_neighbor(graph, &layout, *selected, direction, *zoom) {
                 *selected = to;
             }
         };
@@ -35,6 +35,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
                 KeyCode::Backspace => restore = true,
+                // Zoom the boxes out (more fit on screen) or back in (more detail per box).
+                KeyCode::Char('-') | KeyCode::Char('_') => *zoom = ui::zoom_out(*zoom),
+                KeyCode::Char('+') | KeyCode::Char('=') => *zoom = ui::zoom_in(*zoom),
                 // `m` copies the diagram as Mermaid text.
                 KeyCode::Char('m') => copy_note = Some(match clipboard::copy(&k8s::relations::mermaid(graph)) {
                     Ok(how) => actions::Outcome { text: format!("Copied the diagram as Mermaid with {how}"), error: false },
@@ -56,12 +59,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 _ => {}
             },
+            // Ctrl+wheel zooms (a pinch on a trackpad reaches the terminal this way too); a plain
+            // wheel moves the selection.
+            Event::Mouse(mouse) if mouse.modifiers.contains(KeyModifiers::CONTROL) => match mouse.kind {
+                MouseEventKind::ScrollUp => *zoom = ui::zoom_in(*zoom),
+                MouseEventKind::ScrollDown => *zoom = ui::zoom_out(*zoom),
+                _ => {}
+            },
             Event::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::ScrollDown => go(ui::Move::Down, selected),
                 MouseEventKind::ScrollUp => go(ui::Move::Up, selected),
                 // A click selects a box; a second click on it soon after shows its info.
                 MouseEventKind::Down(_) => {
-                    if let Some(hit) = ui::graph_hit(ui::relations_inner(cx.frame_area), graph, *selected, mouse.column, mouse.row) {
+                    if let Some(hit) = ui::graph_hit(ui::relations_inner(cx.frame_area), graph, *selected, mouse.column, mouse.row, *zoom) {
                         let again = state::double_click(&mut st.last_click, 1000 + hit);
                         *selected = hit;
                         if again && let Some(node) = graph.nodes.get(hit) {

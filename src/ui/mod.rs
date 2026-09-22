@@ -50,7 +50,7 @@ pub fn relations_inner(frame_area: Rect) -> Rect {
 use self::health::*;
 pub use self::style::{set_content_unfocused, set_list_focused, set_title_reserve};
 pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
-pub use self::graph::{Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor};
+pub use self::graph::{DEFAULT_ZOOM, Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor, zoom_in, zoom_out};
 pub use self::header::*;
 pub use self::loading::{Loading, draw_loading};
 use self::help::draw_help;
@@ -143,7 +143,7 @@ pub enum Overlay<'a> {
     /// A readable summary of one object.
     Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
     /// What an object relates to, one group at a time.
-    Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize },
+    Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize, zoom: usize },
     /// The settings screen.
     Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
@@ -410,7 +410,10 @@ pub fn draw(
         Rows::Overview(overview, ..) => columns_span(body_area(full, false), overview.catalog.len()).x,
         _ => body_area(full, true).x,
     };
-    draw_header(frame, full, header_left, header, shortcuts_line, sort.choosing, dimmed);
+    // The digit shortcuts only switch namespace on the plain list; anywhere an overlay
+    // is open (Relations, Details, a popup, ...) or a sort column is being picked, they
+    // do something else or nothing, so the line should read as unavailable there too.
+    draw_header(frame, full, header_left, header, shortcuts_line, sort.choosing || overlay.is_some(), dimmed);
     // The keyboard-selected row, shown at the end of the path bar
     // (only while nothing is open on top of the list).
     let selected_row = table_state.selected();
@@ -574,7 +577,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         }
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Details { title, sections, scroll, hscroll } => details::draw_details(frame, title, sections, scroll, hscroll),
-        Overlay::Relations { title, graph, selected } => draw_relations(frame, title, graph, selected),
+        Overlay::Relations { title, graph, selected, zoom } => draw_relations(frame, title, graph, selected, zoom),
         Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, tab, rows, layout, state, error, capture.as_ref()),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),

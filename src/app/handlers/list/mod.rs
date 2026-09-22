@@ -319,7 +319,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
                     let graph = k8s::relations::graph(&manifest, &k8s::relations::relations(&manifest, &all));
                     let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), back: Box::new(back) };
+                    st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), zoom: ui::DEFAULT_ZOOM, back: Box::new(back) };
                 }
             }
             // Copy the row's name (`namespace/name`) to the clipboard.

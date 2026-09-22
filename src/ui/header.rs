@@ -48,7 +48,7 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
 }
 
 /// `left` is the column the lines start at: the left edge of what is drawn below.
-pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &HeaderInfo, shortcuts_line: bool, sort_mode: bool, dimmed: bool) {
+pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &HeaderInfo, shortcuts_line: bool, namespace_keys_disabled: bool, dimmed: bool) {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
     }
@@ -93,9 +93,9 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     let key = if dimmed { dim_style() } else { Style::default().fg(theme().warm) };
     let name = if dimmed { dim_style() } else { Style::default().fg(theme().row) };
     let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) };
-    // In sort mode the digits pick columns, not namespaces, grey the line
-    // out so it reads as unavailable.
-    let (key, name, active) = if sort_mode && !dimmed {
+    // The digits pick something else here (a sort column) or do nothing at all (any
+    // screen but the plain list), so grey the line out to read as unavailable.
+    let (key, name, active) = if namespace_keys_disabled && !dimmed {
         let muted = Style::default().fg(theme().panel_bg);
         (muted, muted, muted)
     } else {

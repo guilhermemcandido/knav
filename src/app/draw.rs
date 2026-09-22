@@ -178,11 +178,11 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
-            Mode::Relations { target, graph, selected, .. } => {
+            Mode::Relations { target, graph, selected, zoom, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let title = crate::app::mode::object_title(target);
-                    let overlay = ui::Overlay::Relations { title: &title, graph, selected: *selected };
+                    let overlay = ui::Overlay::Relations { title: &title, graph, selected: *selected, zoom: *zoom };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

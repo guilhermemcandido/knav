@@ -78,7 +78,9 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Settings { tab: ui::SettingsTab::Overview, .. } => vec![("↑↓/jk", "move"), ("1-9", "place"), ("J/K", "nudge"), ("space", "show/hide"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Details { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("enter", "open list"), ("y", "yaml"), ("q/esc", "back")],
-        Mode::Relations { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("m", "copy as Mermaid"), ("q/esc", "close")],
+        // The minus sign (U+2212), not a hyphen: next to the closing `>` a hyphen
+        // ligatures into an arrow in fonts like Fira Code.
+        Mode::Relations { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("+/\u{2212}", "zoom"), ("m", "copy as Mermaid"), ("q/esc", "close")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::Context { editing: true, .. } | Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],

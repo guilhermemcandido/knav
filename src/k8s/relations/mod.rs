@@ -25,9 +25,6 @@ pub fn slim(mut manifest: Value) -> Value {
     manifest
 }
 
-/// Groups show at most this many entries, then "+N more".
-const CAP: usize = 12;
-
 /// One related object.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -38,8 +35,6 @@ pub struct Entry {
     pub detail: String,
     /// Indentation for chains (owner of an owner).
     pub depth: usize,
-    /// Can be opened (the "+N more" line can't).
-    pub openable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,17 +110,7 @@ fn owners<'a>(o: &Obj<'a>) -> Vec<(&'a str, &'a str, &'a str, bool)> {
 }
 
 fn entry(kind: &str, namespace: Option<&str>, name: &str, detail: impl Into<String>, depth: usize) -> Entry {
-    Entry { kind: kind.to_string(), namespace: namespace.map(String::from), name: name.to_string(), detail: detail.into(), depth, openable: true }
-}
-
-/// Keeps a group to `CAP` entries and says how many were left out.
-fn capped(mut entries: Vec<Entry>) -> Vec<Entry> {
-    if entries.len() > CAP {
-        let more = entries.len() - CAP;
-        entries.truncate(CAP);
-        entries.push(Entry { kind: String::new(), namespace: None, name: format!("+{more} more"), detail: String::new(), depth: 0, openable: false });
-    }
-    entries
+    Entry { kind: kind.to_string(), namespace: namespace.map(String::from), name: name.to_string(), detail: detail.into(), depth }
 }
 
 struct Index<'a> {
@@ -178,7 +163,7 @@ fn by_top_owner(index: &Index, objects: &[&Obj], reason: &str) -> Vec<Entry> {
                 1 => "1 pod".to_string(),
                 n => format!("{n} pods"),
             };
-            Entry { kind, namespace, name, detail, depth: 0, openable: true }
+            Entry { kind, namespace, name, detail, depth: 0 }
         })
         .collect()
 }
@@ -191,7 +176,7 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut push = |title: &'static str, entries: Vec<Entry>| {
         if !entries.is_empty() {
-            groups.push(Group { title, entries: capped(entries) });
+            groups.push(Group { title, entries });
         }
     };
 
@@ -229,7 +214,7 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     for (kind, namespace, name, why) in uses(&t) {
         used.entry((kind, namespace, name)).or_default().insert(why);
     }
-    let uses_entries: Vec<Entry> = used.into_iter().map(|((kind, namespace, name), why)| Entry { kind, namespace, name, detail: why.into_iter().collect::<Vec<_>>().join(", "), depth: 0, openable: true }).collect();
+    let uses_entries: Vec<Entry> = used.into_iter().map(|((kind, namespace, name), why)| Entry { kind, namespace, name, detail: why.into_iter().collect::<Vec<_>>().join(", "), depth: 0 }).collect();
     push("Uses", uses_entries);
 
     // Used by: who refers to it, folded up to the top of their owner chain.
@@ -401,15 +386,15 @@ mod tests {
     }
 
     #[test]
-    fn a_long_group_is_capped() {
+    fn a_long_group_shows_every_entry() {
         let mut world = world();
         for i in 0..20 {
             world.push(v(json!({"kind": "Pod", "metadata": {"name": format!("lone-{i}"), "namespace": "shop", "uid": format!("l{i}")}, "spec": {"containers": [{"name": "c", "envFrom": [{"configMapRef": {"name": "app-config"}}]}]}})));
         }
         let groups = relations(&config_map(), &world);
         let used = group(&groups, "Used by");
-        assert_eq!(used.entries.len(), CAP + 1);
-        assert!(!used.entries.last().unwrap().openable);
+        // The folded "Deployment web" plus all 20 unowned pods; nothing is left out.
+        assert_eq!(used.entries.len(), 21);
     }
 
     #[test]

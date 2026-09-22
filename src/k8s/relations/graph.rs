@@ -11,7 +11,6 @@ pub struct GraphNode {
     pub detail: String,
     /// Columns left (negative) and right (positive) of the object in the middle.
     pub layer: i32,
-    pub openable: bool,
 }
 
 /// The relations as boxes and arrows (from, to). Node 0 is the object itself.
@@ -27,14 +26,12 @@ pub struct Graph {
 pub fn graph(target: &Value, groups: &[Group]) -> Graph {
     let mut g = Graph::default();
     let Some(t) = obj(target) else { return g };
-    g.nodes.push(GraphNode { kind: t.kind.to_string(), namespace: t.namespace.map(String::from), name: t.name.to_string(), detail: String::new(), layer: 0, openable: true });
+    g.nodes.push(GraphNode { kind: t.kind.to_string(), namespace: t.namespace.map(String::from), name: t.name.to_string(), detail: String::new(), layer: 0 });
     fn node(g: &mut Graph, e: &Entry, layer: i32) -> usize {
-        if e.openable
-            && let Some(at) = g.nodes.iter().position(|n| n.openable && n.kind == e.kind && n.name == e.name && n.namespace == e.namespace)
-        {
+        if let Some(at) = g.nodes.iter().position(|n| n.kind == e.kind && n.name == e.name && n.namespace == e.namespace) {
             return at;
         }
-        g.nodes.push(GraphNode { kind: e.kind.clone(), namespace: e.namespace.clone(), name: e.name.clone(), detail: e.detail.clone(), layer, openable: e.openable });
+        g.nodes.push(GraphNode { kind: e.kind.clone(), namespace: e.namespace.clone(), name: e.name.clone(), detail: e.detail.clone(), layer });
         g.nodes.len() - 1
     }
     for group in groups {
@@ -102,7 +99,7 @@ mod mermaid_tests {
 
     #[test]
     fn boxes_and_arrows_become_mermaid_lines() {
-        let node = |kind: &str, name: &str, detail: &str| GraphNode { kind: kind.into(), namespace: Some("shop".into()), name: name.into(), detail: detail.into(), layer: 0, openable: true };
+        let node = |kind: &str, name: &str, detail: &str| GraphNode { kind: kind.into(), namespace: Some("shop".into()), name: name.into(), detail: detail.into(), layer: 0 };
         let graph = Graph { nodes: vec![node("Pod", "web", ""), node("ConfigMap", "cfg", "volume")], edges: vec![(1, 0)] };
         let text = mermaid(&graph);
         assert!(text.starts_with("flowchart LR\n"));

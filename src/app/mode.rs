@@ -54,7 +54,7 @@ pub(crate) enum Mode {
     /// A readable summary of one object (name, labels, status, containers, ...).
     Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, hscroll: usize, back: Box<Mode> },
     /// What the selected object is related to (owners, what it uses, what uses it, ...).
-    Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, back: Box<Mode> },
+    Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, zoom: usize, back: Box<Mode> },
     /// Asks before a destructive action (`y`/Enter does it, `n`/Esc cancels).
     /// A background job (an action, a connection check, a port-forward) is running.
     Working { job: crate::app::jobs::Job, back: Box<Mode> },
