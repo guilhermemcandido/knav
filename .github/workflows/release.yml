@@ -51,6 +51,11 @@ jobs:
           cp README.md LICENSE-MIT LICENSE-APACHE "$name"/
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          rm -rf "$name"
+          # Bare, uncompressed, alongside the archive: what `knav update` fetches, so it
+          # only has to verify a checksum and rename a file, not unpack an archive.
+          cp target/${{ matrix.target }}/release/knav "$name"
+          shasum -a 256 "$name" > "$name.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -58,6 +63,8 @@ jobs:
           path: |
             knav-${{ matrix.target }}.tar.gz
             knav-${{ matrix.target }}.tar.gz.sha256
+            knav-${{ matrix.target }}
+            knav-${{ matrix.target }}.sha256
 
   release:
     needs: build

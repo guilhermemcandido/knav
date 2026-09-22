@@ -13,7 +13,7 @@ use config::{favorites, settings};
 use input::{keymap, keys};
 use k8s::{catalog, metrics, scope, sort};
 use ops::{actions, clipboard, edit, portforward, shell};
-use startup::{cli, fuzzy, picker};
+use startup::{cli, fuzzy, picker, update};
 use ui::icons;
 
 use std::collections::{HashMap, HashSet};
@@ -57,11 +57,23 @@ pub(crate) enum Outcome {
 }
 
 fn main() -> Result<()> {
+    let context_query = match Cli::parse(std::env::args().skip(1))? {
+        Cli::Version => {
+            println!("knav {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Cli::Help => {
+            print!("{}", cli::USAGE);
+            return Ok(());
+        }
+        Cli::Update { yes } => return update::run(yes),
+        Cli::Launch { context_query } => context_query,
+    };
+
     // Problems with the config are kept and shown in the app, since the screen clears when it starts.
     let (config, mut notes) = Config::load_reporting();
     notes.extend(settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1));
-    let cli = Cli::parse(std::env::args().skip(1))?;
-    let mut context = resolve_context(&cli, &config)?;
+    let mut context = resolve_context(context_query.as_deref(), &config)?;
 
     // One runtime per connected session: dropping it kills every watch and
     // log-stream task spawned against the old cluster, which switching

@@ -59,6 +59,10 @@ Then:
 ```
 knav                      # uses your current kubeconfig context
 knav -c prod              # fuzzy-matches a context by name
+knav update                # updates itself to the latest release (installed with the script or
+                            # built from source; a Homebrew or Nix install says so and stops)
+knav version               # or -v, --version
+knav help                  # or -h, --help
 ```
 
 It needs a kubeconfig with access to a cluster. `kubectl` is only needed for port-forwards and the

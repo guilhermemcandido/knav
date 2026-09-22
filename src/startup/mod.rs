@@ -3,3 +3,4 @@
 pub mod cli;
 pub mod fuzzy;
 pub mod picker;
+pub mod update;
