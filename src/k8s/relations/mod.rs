@@ -129,17 +129,35 @@ impl<'a> Index<'a> {
         self.all.iter().find(|o| o.kind == kind && o.name == name && (cluster_scoped(kind) || o.namespace == namespace))
     }
 
-    /// The object at the top of an object's owner chain (itself if it has no owner).
-    fn top<'s>(&'s self, start: &'s Obj<'a>) -> (&'s str, Option<&'s str>, &'s str) {
+    /// Walks upward from `start` (inclusive) through single-controller owner
+    /// references, stopping as soon as `stop` says so (or the chain runs out);
+    /// returns wherever it stopped.
+    fn walk_up<'s>(&'s self, start: &'s Obj<'a>, mut stop: impl FnMut((&str, Option<&str>, &str)) -> bool) -> (&'s str, Option<&'s str>, &'s str) {
         let mut current: (&str, Option<&str>, &str) = (start.kind, start.namespace, start.name);
+        if stop(current) {
+            return current;
+        }
         let mut object = Some(start);
         for _ in 0..8 {
             let Some(o) = object else { break };
             let Some((kind, name, uid, _)) = owners(o).into_iter().min_by_key(|(_, _, _, controller)| !*controller) else { break };
             current = (kind, o.namespace, name);
             object = self.by_uid.get(uid).map(|i| &self.all[*i]).or_else(|| self.find(kind, o.namespace, name));
+            if stop(current) {
+                break;
+            }
         }
         current
+    }
+
+    /// The object at the top of an object's owner chain (itself if it has no owner).
+    fn top<'s>(&'s self, start: &'s Obj<'a>) -> (&'s str, Option<&'s str>, &'s str) {
+        self.walk_up(start, |_| false)
+    }
+
+    /// Whether walking up from `start` (inclusive) ever reaches `target`.
+    fn chain_includes(&self, start: &Obj<'a>, target: (&str, Option<&str>, &str)) -> bool {
+        self.walk_up(start, |current| current == target) == target
     }
 }
 
@@ -271,6 +289,22 @@ pub fn find_manifest(all: &[Value], kind: &str, namespace: Option<&str>, name: &
     Index::new(all).find(kind, namespace, name).map(|o| o.manifest.clone())
 }
 
+/// Every Pod among `manifests` downstream of `target` (whose owner chain passes
+/// through it), and `target`'s own kind and name for the title. A Pod has nothing
+/// downstream of itself, so a Pod target walks up to its own top instead — "this
+/// pod's siblings" means its whole workload, not literally just this one pod. This
+/// distinction matters for a ReplicaSet specifically: mid-rollout a Deployment can
+/// briefly own two of them, and selecting one should show only its own pods, not
+/// the sibling generation's too. Used to aggregate a workload's logs.
+pub fn sibling_pods(target: &Value, manifests: &[Value]) -> (Vec<Value>, String, String) {
+    let Some(t) = obj(target) else { return (Vec::new(), String::new(), String::new()) };
+    let index = Index::new(manifests);
+    let Some(start) = index.find(t.kind, t.namespace, t.name) else { return (vec![target.clone()], t.kind.to_string(), t.name.to_string()) };
+    let root: (&str, Option<&str>, &str) = if t.kind == "Pod" { index.top(start) } else { (start.kind, start.namespace, start.name) };
+    let pods = index.all.iter().filter(|o| o.kind == "Pod" && index.chain_includes(o, root)).map(|o| o.manifest.clone()).collect();
+    (pods, root.0.to_string(), root.2.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,6 +429,46 @@ mod tests {
         let used = group(&groups, "Used by");
         // The folded "Deployment web" plus all 20 unowned pods; nothing is left out.
         assert_eq!(used.entries.len(), 21);
+    }
+
+    #[test]
+    fn sibling_pods_are_every_pod_under_the_same_top_owner() {
+        let world = world();
+        let (siblings, owner_kind, owner_name) = sibling_pods(&pod("web-x", "p1"), &world);
+        let mut names: Vec<&str> = siblings.iter().filter_map(|p| p.get("metadata")?.get("name")?.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["web-x", "web-y"]);
+        assert_eq!((owner_kind.as_str(), owner_name.as_str()), ("Deployment", "web"));
+    }
+
+    #[test]
+    fn sibling_pods_of_an_ownerless_pod_is_just_itself() {
+        let lone = v(json!({"kind": "Pod", "metadata": {"name": "lone", "namespace": "shop", "uid": "lo1"}}));
+        let (siblings, owner_kind, owner_name) = sibling_pods(&lone, std::slice::from_ref(&lone));
+        assert_eq!(siblings.len(), 1);
+        assert_eq!((owner_kind.as_str(), owner_name.as_str()), ("Pod", "lone"));
+    }
+
+    #[test]
+    fn a_replica_set_mid_rollout_only_gets_its_own_pods() {
+        let mut world = world();
+        // A second ReplicaSet under the same Deployment (a rollout in progress), with its own pod.
+        world.push(v(json!({"kind": "ReplicaSet", "metadata": {"name": "web-old", "namespace": "shop", "uid": "r2", "ownerReferences": [{"kind": "Deployment", "name": "web", "uid": "d1", "controller": true}]}})));
+        world.push(v(json!({"kind": "Pod", "metadata": {"name": "web-old-z", "namespace": "shop", "uid": "p3", "ownerReferences": [{"kind": "ReplicaSet", "name": "web-old", "uid": "r2", "controller": true}]}})));
+
+        // Selecting the (still current) ReplicaSet directly must not pull in the other generation's pod.
+        let (siblings, owner_kind, owner_name) = sibling_pods(&replica_set(), &world);
+        let mut names: Vec<&str> = siblings.iter().filter_map(|p| p.get("metadata")?.get("name")?.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["web-x", "web-y"]);
+        assert_eq!((owner_kind.as_str(), owner_name.as_str()), ("ReplicaSet", "web-5d9d"));
+
+        // Selecting a Pod still means "the whole workload", both generations.
+        let (siblings, owner_kind, owner_name) = sibling_pods(&pod("web-x", "p1"), &world);
+        let mut names: Vec<&str> = siblings.iter().filter_map(|p| p.get("metadata")?.get("name")?.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["web-old-z", "web-x", "web-y"]);
+        assert_eq!((owner_kind.as_str(), owner_name.as_str()), ("Deployment", "web"));
     }
 
     #[test]

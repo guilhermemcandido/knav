@@ -189,16 +189,26 @@ impl AgeRow for PodRow {
 
 /// Streams one container's log over an unbounded channel. The caller must abort
 /// the returned handle when done. `previous` reads the last terminated run.
-pub fn stream_logs(
-    client: Client,
-    namespace: String,
-    pod: String,
-    container: String,
-    previous: bool,
-) -> (mpsc::UnboundedReceiver<String>, JoinHandle<()>) {
+pub fn stream_logs(client: Client, namespace: String, pod: String, container: String, previous: bool) -> (mpsc::UnboundedReceiver<String>, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_log_stream(client, namespace, pod, container, previous, None, tx);
+    (rx, handle)
+}
 
-    let handle = tokio::spawn(async move {
+/// Streams every `(pod, container, tag)` in `targets` into one shared channel, live
+/// (aggregating "the previous run" of several pods at once isn't a meaningful thing to
+/// ask for). Each line is tagged `\u{200B}[tag]` right after its timestamp — the
+/// zero-width space can't appear in a real log line, so `ui::logs::colorize_log_line`
+/// can tell an aggregated line from a plain one unambiguously. One task per container;
+/// the caller must abort them all when the view closes.
+pub fn stream_logs_many(client: Client, namespace: String, targets: Vec<(String, String, String)>) -> (mpsc::UnboundedReceiver<String>, Vec<JoinHandle<()>>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handles = targets.into_iter().map(|(pod, container, tag)| spawn_log_stream(client.clone(), namespace.clone(), pod, container, false, Some(tag), tx.clone())).collect();
+    (rx, handles)
+}
+
+fn spawn_log_stream(client: Client, namespace: String, pod: String, container: String, previous: bool, tag: Option<String>, tx: mpsc::UnboundedSender<String>) -> JoinHandle<()> {
+    tokio::spawn(async move {
         let api: Api<Pod> = Api::namespaced(client, &namespace);
         let lp = LogParams {
             container: Some(container),
@@ -220,6 +230,13 @@ pub fn stream_logs(
         loop {
             match lines.next().await {
                 Some(Ok(line)) => {
+                    let line = match &tag {
+                        Some(tag) => match line.split_once(' ') {
+                            Some((ts, rest)) => format!("{ts} \u{200B}[{tag}] {rest}"),
+                            None => format!("\u{200B}[{tag}] {line}"),
+                        },
+                        None => line,
+                    };
                     if tx.send(line).is_err() {
                         break; // receiver dropped, view was closed
                     }
@@ -231,9 +248,7 @@ pub fn stream_logs(
                 None => break, // stream ended (container exited)
             }
         }
-    });
-
-    (rx, handle)
+    })
 }
 
 #[cfg(test)]

@@ -278,7 +278,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
     if wide {
-        headers.push("IMAGES");
+        headers.extend(["IMAGES", "SELECTOR"]);
     }
     let window = layout_list(
         &headers,
@@ -286,7 +286,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         deployments.iter().map(|d| {
             let mut widths = vec![cell_width(&d.namespace), cell_width(&d.name), cell_width(&d.ready), d.up_to_date.to_string().len(), d.available.to_string().len(), cell_width(&d.age)];
             if wide {
-                widths.push(cell_width(&d.images));
+                widths.extend([cell_width(&d.images), cell_width(&d.selector)]);
             }
             widths
         }),
@@ -311,6 +311,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
         ];
         if wide {
             cells.push(Cell::from(d.images.clone()).style(cell_style));
+            cells.push(Cell::from(d.selector.clone()).style(cell_style));
         }
         Row::new(window.slice(cells))
     });

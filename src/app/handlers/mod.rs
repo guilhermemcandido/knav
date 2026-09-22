@@ -66,7 +66,7 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
         timestamp_format: cx.config.logs.timestamp_format,
         order: cx.config.logs.order,
         rx,
-        handle: crate::mode::AbortOnDrop(handle),
+        handles: vec![crate::mode::AbortOnDrop(handle)],
         filter: String::new(),
         filter_editing: false,
         back: Box::new(back),

@@ -38,7 +38,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
                 KeyCode::Char('c') => {
                     let outcome = match clipboard::copy(text) {
-                        Ok(how) => actions::Outcome { text: format!("Copied the YAML with {how}"), error: false },
+                        Ok(how) => actions::Outcome { text: format!("Copied the YAML{}", clipboard::how_note(how)), error: false },
                         Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
                     };
                     let back = std::mem::replace(&mut st.mode, Mode::List);
@@ -224,7 +224,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let text = ui::logs_text(lines, filter, *order);
                 let count = text.lines().count();
                 let outcome = match clipboard::copy(&text) {
-                    Ok(how) => actions::Outcome { text: format!("Copied {count} log lines with {how}"), error: false },
+                    Ok(how) => actions::Outcome { text: format!("Copied {count} log lines{}", clipboard::how_note(how)), error: false },
                     Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
                 };
                 let back = std::mem::replace(&mut st.mode, Mode::List);

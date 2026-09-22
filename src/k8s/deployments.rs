@@ -12,6 +12,8 @@ pub struct DeploymentRow {
     pub available: i32,
     /// The images it runs, for the wide view.
     pub images: String,
+    /// The pod label selector, for the wide view.
+    pub selector: String,
     pub age: String,
     pub age_secs: i64,
 }
@@ -45,7 +47,14 @@ pub fn row_for_deployment(dep: &Deployment) -> DeploymentRow {
         .map(|p| p.containers.iter().filter_map(|c| c.image.clone()).collect::<Vec<_>>().join(","))
         .filter(|i| !i.is_empty())
         .unwrap_or_else(|| "-".into());
-    DeploymentRow { namespace, name, ready, up_to_date, available, images, age, age_secs }
+    let selector = dep
+        .spec
+        .as_ref()
+        .and_then(|s| s.selector.match_labels.as_ref())
+        .map(|labels| labels.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "-".into());
+    DeploymentRow { namespace, name, ready, up_to_date, available, images, selector, age, age_secs }
 }
 
 impl AgeRow for DeploymentRow {

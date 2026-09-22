@@ -7,12 +7,13 @@ use crate::*;
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
-        ResourceKind::Pods => vec![("l", "logs"), ("p", "previous logs"), ("S", "shell"), ("F", "forward")],
-        ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("F", "forward")],
-        ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart")],
+        ResourceKind::Pods => vec![("l", "logs"), ("L", "workload logs"), ("p", "previous logs"), ("S", "shell"), ("F", "forward")],
+        ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("F", "forward"), ("L", "pod logs")],
+        ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart"), ("L", "pod logs")],
         ResourceKind::Services => vec![("F", "forward")],
-        ResourceKind::ReplicaSets => vec![("S", "scale")],
-        ResourceKind::DaemonSets => vec![("r", "restart")],
+        ResourceKind::ReplicaSets => vec![("S", "scale"), ("L", "pod logs")],
+        ResourceKind::DaemonSets => vec![("r", "restart"), ("L", "pod logs")],
+        ResourceKind::Jobs => vec![("L", "pod logs")],
         ResourceKind::Nodes => vec![("c", "cordon")],
         ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],
         ResourceKind::Secrets => vec![("x", "decode")],

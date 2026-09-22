@@ -194,9 +194,16 @@ pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, format
 /// error/fatal/panic/fail, yellow for warn, else gray. A substring guess, since the
 /// API merges stdout and stderr.
 pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, filter: &str) -> Line<'static> {
-    let (timestamp, message) = match raw.split_once(' ') {
+    let (timestamp, rest) = match raw.split_once(' ') {
         Some((ts, rest)) if looks_like_timestamp(ts) => (Some(ts), rest),
         _ => (None, raw),
+    };
+    // An aggregated view (`k8s::stream_logs_many`) tags each line `\u{200B}[pod/container] `
+    // right after the timestamp; the zero-width space can't appear in a real log line, so
+    // this can't misfire on an app's own bracketed text (e.g. a line starting `[INFO] `).
+    let (tag, message) = match rest.strip_prefix('\u{200B}').and_then(|r| r.strip_prefix('[')).and_then(|r| r.split_once("] ")) {
+        Some((tag, message)) => (Some(tag), message),
+        None => (None, rest),
     };
 
     let lower = message.to_ascii_lowercase();
@@ -215,6 +222,9 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
             TimestampFormat::Full => ts.to_string(),
         };
         spans.push(Span::styled(format!("[{display}] "), Style::default().fg(theme().namespace)));
+    }
+    if let Some(tag) = tag {
+        spans.push(Span::styled(format!("[{tag}] "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)));
     }
     spans.extend(highlight_matches(message, filter, Style::default().fg(level_color)));
     Line::from(spans)
@@ -323,6 +333,24 @@ mod log_color_tests {
         let line = colorize_log_line("[failed to start log stream: connection reset]", TimestampFormat::Short, "");
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].style.fg, Some(theme().bad)); // "failed" matches
+    }
+
+    #[test]
+    fn an_aggregated_lines_tag_gets_its_own_span() {
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z \u{200B}[web-x/app] line 0", TimestampFormat::Short, "");
+        assert_eq!(line.spans.len(), 3);
+        assert_eq!(line.spans[0].content, "[18:36:38.477] ");
+        assert_eq!(line.spans[1].content, "[web-x/app] ");
+        assert_eq!(line.spans[2].content, "line 0");
+    }
+
+    #[test]
+    fn a_real_line_starting_with_brackets_is_not_mistaken_for_a_tag() {
+        // No zero-width space: an app logging its own `[INFO] ...` prefix must not be
+        // stripped out as if it were an aggregated view's tag.
+        let line = colorize_log_line("2026-09-16T18:36:38.477289255Z [INFO] starting up", TimestampFormat::Full, "");
+        assert_eq!(line.spans.len(), 2);
+        assert_eq!(line.spans[1].content, "[INFO] starting up");
     }
 }
 

@@ -93,7 +93,7 @@ pub(crate) fn column_count(kind: ResourceKind, generic_columns: usize, wide: boo
     match kind {
         ResourceKind::Overview => 0,
         ResourceKind::Pods => POD_COLUMNS + if wide { 2 } else { 0 },
-        ResourceKind::Deployments => DEPLOYMENT_COLUMNS + usize::from(wide),
+        ResourceKind::Deployments => DEPLOYMENT_COLUMNS + if wide { 2 } else { 0 },
         ResourceKind::Nodes => NODE_COLUMNS + if wide { 4 } else { 0 },
         ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => CRD_COLUMNS,
         _ => generic_columns,

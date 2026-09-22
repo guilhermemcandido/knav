@@ -327,7 +327,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let name = target.namespace.as_deref().map(|ns| format!("{ns}/{}", target.name)).unwrap_or_else(|| target.name.clone());
                     let outcome = match clipboard::copy(&name) {
-                        Ok(how) => actions::Outcome { text: format!("Copied {name} with {how}"), error: false },
+                        Ok(how) => actions::Outcome { text: format!("Copied {name}{}", clipboard::how_note(how)), error: false },
                         Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
                     };
                     st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(Mode::List) };
@@ -346,6 +346,56 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char(c @ ('l' | 'p')) if st.current_kind == ResourceKind::Pods => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     open_pod(st, cx, &target, PodView::Logs { previous: c == 'p' });
+                }
+            }
+            // Every pod behind the selected workload (or, on a Pod itself, its
+            // siblings), tailed as one merged stream.
+            KeyCode::Char('L') if matches!(st.current_kind, ResourceKind::Pods | ResourceKind::Deployments | ResourceKind::ReplicaSets | ResourceKind::StatefulSets | ResourceKind::DaemonSets | ResourceKind::Jobs) => {
+                for kind in RELATED_KINDS {
+                    catalog.ensure(kind);
+                }
+                // The first time, the kinds are still loading (the ReplicaSet needs to be
+                // in hand to walk from a Pod up to its Deployment): wait, then press L again.
+                if !catalog.all_ready(&RELATED_KINDS) {
+                    let waits: Vec<_> = RELATED_KINDS.iter().filter_map(|k| catalog.get(*k)).map(|k| k.wait_ready()).collect();
+                    crate::app::jobs::wait_then_replay(st, "Loading the workload's pods", waits, key);
+                } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
+                    let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
+                    let (pods, _owner_kind, owner_name) = k8s::relations::sibling_pods(&manifest, &all);
+                    let namespace = manifest.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
+                    let mut targets: Vec<(String, String, String)> = Vec::new();
+                    for pod_value in &pods {
+                        let Ok(pod) = serde_yaml::from_value::<k8s_openapi::api::core::v1::Pod>(pod_value.clone()) else { continue };
+                        let name = pod.metadata.name.clone().unwrap_or_default();
+                        let containers = k8s::containers_for(&pod);
+                        let single = containers.len() <= 1;
+                        for c in containers {
+                            let tag = if single { name.clone() } else { format!("{name}/{}", c.name) };
+                            targets.push((name.clone(), c.name, tag));
+                        }
+                    }
+                    if targets.is_empty() {
+                        // A ReplicaSet scaled to 0, a completed Job, ... there's a manifest but
+                        // no live pods behind it right now; say so instead of doing nothing silently.
+                        st.mode = Mode::Notice { text: format!("{namespace}/{owner_name} has no running pods right now"), error: false, back: Box::new(Mode::List) };
+                    } else {
+                        let title = format!("{namespace}/{owner_name} ({} pod{})", pods.len(), if pods.len() == 1 { "" } else { "s" });
+                        let (rx, handles) = k8s::stream_logs_many(client.clone(), namespace, targets);
+                        let back = std::mem::replace(&mut st.mode, Mode::List);
+                        st.mode = Mode::Logs {
+                            title,
+                            lines: Vec::new(),
+                            scroll: 0,
+                            follow: true,
+                            timestamp_format: cx.config.logs.timestamp_format,
+                            order: cx.config.logs.order,
+                            rx,
+                            handles: handles.into_iter().map(crate::mode::AbortOnDrop).collect(),
+                            filter: String::new(),
+                            filter_editing: false,
+                            back: Box::new(back),
+                        };
+                    }
                 }
             }
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {

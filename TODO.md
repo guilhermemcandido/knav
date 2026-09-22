@@ -161,7 +161,7 @@ Adjacent / inspiration (not direct competitors, but relevant features):
       Running, Pending (`shop/oversized`, impossible resource request),
       Failed (`payments/migration-job`, `restartPolicy: Never` exiting 1),
       and a crash-looping one (`staging/flaky`, restarts climbing).
-- [ ] **Found while doing that, worth remembering:** `staging/flaky` is
+- [x] **Found while doing that, worth remembering:** `staging/flaky` is
       crash-looping (3 restarts and climbing) but its `.status.phase` is
       still `Running` — Kubernetes' pod phase doesn't have a distinct
       CrashLoopBackOff state, that's a container-status *reason*, not the
@@ -173,6 +173,9 @@ Adjacent / inspiration (not direct competitors, but relevant features):
       as it would in any k9s-style tool. Worth fixing the color logic to
       also check `container_statuses[].state.waiting.reason` before this
       goes much further.
+      **Fixed a few rounds later** (2026-09-16, later still #2, below):
+      per-container status dots read `container_statuses[].state`
+      directly, so CrashLoopBackOff shows its own color, not green.
 
 ## Done since last update (2026-09-16, later same day)
 
@@ -1863,36 +1866,85 @@ This round bundled a lot of separate feedback; grouping by area:
 
 ## Open questions / next steps
 
-- [ ] Audit Pods/Deployments/Services/ConfigMaps/Secrets/etc. against
-      Freelens the same way this round did for Nodes — likely gaps:
-      Services (TYPE, CLUSTER-IP, EXTERNAL-IP, PORT(S)), Pods (QoS class,
-      pod IP), Deployments (strategy, selector). "Roles is just an
-      example" was the user's own framing — Nodes was only the first pass.
+This whole section was the original bootstrap TODO from before knav had any
+navigation, live watches, or more than a Pod table. Everything it asked for
+has since been built (see the dated rounds above) except the two items kept
+below; the rest is removed rather than left unchecked and stale.
 
-- [ ] **Human: run `cd ~/Desktop/Work/knav && cargo run` in a real
-      terminal against the still-running `knav-test` k3d cluster and
-      confirm the table actually looks right.** Good things to check
-      given the dummy data now in place: does `staging/flaky` really show
-      green despite crash-looping (confirming the gap above), do colors
-      look right for Pending/Failed, does the restarts column update live
-      as `flaky` keeps restarting.
-- [ ] Dig into `kdash` specifically — it's the highest-starred Rust entry
-      and we haven't checked its navigation model yet. Could already cover
-      what we think is open ground.
-- [ ] Decide: is this project justified by (a) the hierarchy-nav +
-      diagnosis combo being a genuine unmet niche, or (b) purely as a
-      Rust/ratatui/kube-rs learning project regardless of competition?
-      Be honest about which — it changes how much the "differentiator"
-      needs to be airtight before starting.
-- [ ] Design the actual navigation model — Miller columns (like `lfk`) is
-      the known-working pattern, but we should decide if we're copying that
-      structure or trying something else, given `lfk` already does Miller
-      columns well. Right now v0.1 has no navigation at all — it's a
-      single flat pod table across all namespaces, nothing more.
-- [ ] Decide how "diagnosis" actually surfaces in the UI (a dedicated
-      pane? inline annotations on the resource list? something like k9s's
-      `:pulse` but with causes attached?)
-- [ ] Replace the one-shot `r`-to-refetch with a live kube-rs
-      watcher/reflector so the view updates in real time
-- [ ] Support more resource kinds than just Pods
-- [ ] Namespace filtering (currently always all-namespaces)
+- [x] Design the actual navigation model. Answer: not Miller columns like
+      `lfk` — a persistent sidebar tree (`src/app/sidebar.rs`) plus a
+      generic, kind-agnostic relations diagram (`src/k8s/relations/`,
+      ownership/usage matched by UID and label selector, works the same for
+      CRDs) that you can zoom, pan, and follow (`space`) or jump into
+      (`o`/`Enter`), all backed by one real backtrack stack so `q`/`Esc`
+      always undoes the exact steps taken, however deep or mixed with
+      detours.
+- [x] Decide how "diagnosis" surfaces in the UI. Answer: no separate
+      "diagnosis pane" — it's woven into the existing views instead:
+      per-container status dots read real container state (not just pod
+      phase), the relations diagram surfaces what a broken object depends
+      on and what depends on it, and the Cluster Issues panel + Events
+      view carry the causes.
+
+### Audit against Freelens (2026-09-22)
+
+Re-checked the specific gaps this section used to list — Services
+(TYPE/CLUSTER-IP/EXTERNAL-IP/PORT(S)), Pods (QoS class/pod IP), Deployments
+(strategy/selector) — against the current code, not assumption.
+
+- [x] Services, ConfigMaps, Secrets and everything else outside
+      Pods/Deployments/Nodes go through the server's own Table view now
+      (`src/k8s/apis.rs`, the same `Accept: application/json;as=Table`
+      content negotiation `kubectl get` uses), so they already carry
+      whatever columns the server/CRD defines — Services already shows
+      TYPE/CLUSTER-IP/PORTS/EXTERNAL-IP, Secrets already shows TYPE/KEYS.
+      This wasn't true when this item was written; the architecture moved
+      on since.
+- [x] Pods already had QoS and pod IP (`ctrl-w` wide view) — also already
+      built since this was written.
+- [x] Deployments' wide view was missing SELECTOR (had IMAGES only, not the
+      third column `kubectl get deployments -o wide` shows). Fixed: added
+      `DeploymentRow.selector` (`spec.selector.matchLabels`, kubectl's
+      `k=v,k=v` format) and wired it into the wide header/row/sort-column
+      count the same way IMAGES already was.
+
+### kdash investigation (2026-09-22)
+
+Checked what this section always meant to check: fetched kdash's own
+README/keybindings from source rather than guessing. It's still active
+(2,540★, pushed within the last day). Its navigation model is a flat tab
+bar — `←`/`→`/numbered keys switch resource tabs, `Tab` cycles main views,
+`Ctrl-h` resets to root — with `Enter` drilling into a resource and a
+generic action menu (`m`) for scale/restart/port-forward/shell/etc., most
+of which knav already has as direct single-key actions. **It does not
+already cover the ground knav is built on**: no persistent hierarchical
+tree, no ownership/relations graph, no unified backtrack stack — it's
+closer to k9s's model with a visible tab bar than to `lfk`'s Miller
+columns or knav's own approach.
+
+- [x] **One real gap found:** kdash's `Shift+L` merges logs from every pod
+      behind a workload into one tailed stream; knav's logs were strictly
+      per-pod, per-container. Built, from the Pods list (`L` on a pod):
+  - `k8s::relations::sibling_pods` (new) walks a Pod up to its top owner
+    (same `Index::top` machinery `by_top_owner` already uses, generic —
+    works for a ReplicaSet-owned Deployment pod, a StatefulSet's, a
+    DaemonSet's, ...) and returns every Pod among the surrounding
+    manifests that shares it, plus the owner's kind/name for the title.
+    The handler `catalog.ensure`s/waits on `RELATED_KINDS` first (same
+    "still loading, press again" pattern `R` already uses) so the
+    ReplicaSet needed for the Pod→Deployment hop is actually in hand.
+  - `k8s::stream_logs_many` spawns one `stream_logs`-style task per
+    `(pod, container)`, all feeding one shared channel, each line tagged
+    `\u{200B}[pod/container]` right after its server timestamp — the
+    zero-width space can't appear in a real log line, so
+    `ui::logs::colorize_log_line` can always tell an aggregated line from
+    a plain one, never misreading an app's own `[INFO] ...`-style prefix.
+    `Mode::Logs.handle: AbortOnDrop` became `handles: Vec<AbortOnDrop>` so
+    every task stops when the view closes, single or aggregated alike —
+    the existing scroll/filter/follow/order/timestamp-toggle logs UI
+    needed no other changes, it already just reads `lines: Vec<String>`.
+  - Verified live against the `kitchen-sink` Deployment (3 pods, 2
+    containers each): title resolves to `shop/kitchen-sink (3 pods)`,
+    lines from all three pods' `app` containers interleave in one merged,
+    tagged, following view.
+  - Build/tests(323, 8 new)/clippy all clean.

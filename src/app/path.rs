@@ -166,7 +166,7 @@ mod path_tests {
             order: Default::default(),
             filter: String::new(),
             filter_editing: false,
-            handle: AbortOnDrop(runtime.spawn(async {})),
+            handles: vec![AbortOnDrop(runtime.spawn(async {}))],
             back: Box::new(containers_mode(1)),
         };
         assert_eq!(text(&mode_path(&logs)), ["Pod[default/web]", "Logs[sidecar]"]);

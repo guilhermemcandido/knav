@@ -127,9 +127,10 @@ pub(crate) enum Mode {
         timestamp_format: TimestampFormat,
         order: LogOrder,
         rx: mpsc::UnboundedReceiver<String>,
-        // Held so the stream stops with the view.
+        // Held so the stream(s) stop with the view: one for a single container,
+        // several for an aggregated workload view (`k8s::stream_logs_many`).
         #[allow(dead_code)]
-        handle: AbortOnDrop,
+        handles: Vec<AbortOnDrop>,
         // `/` filters the log lines by substring (log lines are prose, not identifiers).
         // `filter_editing` is true only while typing; Enter keeps the filter, Esc clears it.
         filter: String,
