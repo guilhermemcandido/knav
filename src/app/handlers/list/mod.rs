@@ -393,18 +393,31 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     select_next(&mut st.table_state, row_count);
                 }
             }
-            // Open the resource type under the cursor as a list of its own.
+            // Open the resource type under the cursor as a list of its own, remembering
+            // this list so q/Esc returns to it (not just to whichever list is hardcoded
+            // as "usually" the one before it).
             KeyCode::Enter if st.current_kind == ResourceKind::ApiResources => {
                 let api = st.table_state.selected().and_then(|i| generic_visible.get(i).copied()).and_then(|real| catalog.apis.get(real).map(|a| (real, a.plural)));
                 if let Some((index, plural)) = api {
-                    st.switch_kind(ResourceKind::Api(index, plural));
+                    let selected = st.table_state.selected().unwrap_or(0);
+                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), selected));
+                    st.current_kind = ResourceKind::Api(index, plural);
+                    st.sort = None;
+                    st.hscroll = 0;
+                    st.table_state.select(Some(0));
+                    st.search.clear();
                 }
             }
             KeyCode::Enter if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => {
                 if let Some(index) = st.table_state.selected()
                     && let Some((real_index, crd)) = crd_rows.get(index)
                 {
-                    st.switch_kind(ResourceKind::CustomResource(*real_index, crd.kind));
+                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), index));
+                    st.current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
+                    st.sort = None;
+                    st.hscroll = 0;
+                    st.table_state.select(Some(0));
+                    st.search.clear();
                 }
             }
             KeyCode::Enter if st.current_kind == ResourceKind::Pods => {
