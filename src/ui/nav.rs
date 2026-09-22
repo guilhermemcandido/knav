@@ -4,11 +4,12 @@ use super::*;
 
 /// Selection on the Overview: the Resources box, the Events box, a column header,
 /// or an item in a column. Resources and Events sit above the columns: Up from a
-/// header lands on Events, Down from Events returns to the first header.
+/// header or item lands on Events, remembering that column, so Down from Events
+/// returns to wherever it was left rather than always the first one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OverviewSelection {
     Resources,
-    Events,
+    Events(usize),
     Header(usize),
     Item(usize, usize),
 }
@@ -27,13 +28,13 @@ pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection
     let total = overview.catalog.len();
     match selection {
         OverviewSelection::Resources => match dir {
-            Direction::Down => OverviewSelection::Events,
+            Direction::Down => OverviewSelection::Events(0),
             _ => selection,
         },
-        OverviewSelection::Events => match dir {
+        OverviewSelection::Events(back_to) => match dir {
             Direction::Up => OverviewSelection::Resources,
             Direction::Down => {
-                if total == 0 { selection } else { OverviewSelection::Header(0) }
+                if total == 0 { selection } else { OverviewSelection::Header(back_to.min(total - 1)) }
             }
             _ => selection,
         },
@@ -46,7 +47,7 @@ pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection
                 Direction::Down => {
                     if column_len(overview, col) > 0 { OverviewSelection::Item(col, 0) } else { selection }
                 }
-                Direction::Up => OverviewSelection::Events,
+                Direction::Up => OverviewSelection::Events(col),
                 Direction::Left => if col > 0 { OverviewSelection::Header(col - 1) } else { selection },
                 Direction::Right => if col + 1 < total { OverviewSelection::Header(col + 1) } else { selection },
             }

@@ -33,7 +33,7 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                 ui::OverviewSelection::Resources => {
                     st.mode = Mode::ResourcesDetail;
                 }
-                ui::OverviewSelection::Events => {
+                ui::OverviewSelection::Events(_) => {
                     st.mode = Mode::Events {
                         filter: k8s::EventFilter::default(),
                         search: String::new(),

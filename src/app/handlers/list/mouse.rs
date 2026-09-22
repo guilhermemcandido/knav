@@ -11,7 +11,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
         if st.current_kind == ResourceKind::Overview {
             let active_col = match st.overview_selection {
                 ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
-                ui::OverviewSelection::Resources | ui::OverviewSelection::Events => usize::MAX,
+                ui::OverviewSelection::Resources | ui::OverviewSelection::Events(_) => usize::MAX,
             };
             match mouse.kind {
                 MouseEventKind::Down(_) => {
@@ -20,7 +20,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                         // A second click on the same tile soon after opens it.
                         let id = match hit {
                             ui::OverviewSelection::Resources => 0,
-                            ui::OverviewSelection::Events => 1,
+                            ui::OverviewSelection::Events(_) => 1,
                             ui::OverviewSelection::Header(c) => 10 + c * 100,
                             ui::OverviewSelection::Item(c, i) => 11 + c * 100 + i,
                         };

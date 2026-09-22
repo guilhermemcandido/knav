@@ -81,7 +81,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     // border. Each event line keeps its own severity colour.
     let events_border = if dimmed {
         dim_style()
-    } else if selection == OverviewSelection::Events {
+    } else if matches!(selection, OverviewSelection::Events(_)) {
         highlight
     } else {
         Style::default()
@@ -304,18 +304,27 @@ mod overview_selection_tests {
     }
 
     #[test]
-    fn up_from_any_column_header_goes_to_events() {
+    fn up_from_any_column_header_goes_to_events_remembering_that_column() {
         let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)])]);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(0), Direction::Up), OverviewSelection::Events);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(1), Direction::Up), OverviewSelection::Events);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(0), Direction::Up), OverviewSelection::Events(0));
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Header(1), Direction::Up), OverviewSelection::Events(1));
+    }
+
+    #[test]
+    fn down_from_events_returns_to_the_column_it_was_left_from_not_always_the_first() {
+        let overview = test_overview(vec![("A", vec![("a1", 0)]), ("B", vec![("b1", 0)]), ("C", vec![("c1", 0)])]);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events(2), Direction::Down), OverviewSelection::Header(2));
+        // Round-tripping through Events (Up then Down) is a no-op on the column.
+        let up = move_overview_selection(&overview, OverviewSelection::Header(1), Direction::Up);
+        assert_eq!(move_overview_selection(&overview, up, Direction::Down), OverviewSelection::Header(1));
     }
 
     #[test]
     fn events_and_resources_navigate_vertically_into_each_other_and_the_columns() {
         let overview = test_overview(vec![("A", vec![("a1", 0)])]);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Down), OverviewSelection::Events);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Up), OverviewSelection::Resources);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Down), OverviewSelection::Header(0));
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Down), OverviewSelection::Events(0));
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events(0), Direction::Up), OverviewSelection::Resources);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events(0), Direction::Down), OverviewSelection::Header(0));
     }
 
     #[test]
@@ -323,7 +332,7 @@ mod overview_selection_tests {
         let overview = test_overview(vec![("A", vec![("a1", 0)])]);
         assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Up), OverviewSelection::Resources);
         assert_eq!(move_overview_selection(&overview, OverviewSelection::Resources, Direction::Left), OverviewSelection::Resources);
-        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events, Direction::Right), OverviewSelection::Events);
+        assert_eq!(move_overview_selection(&overview, OverviewSelection::Events(0), Direction::Right), OverviewSelection::Events(0));
     }
 
     #[test]
@@ -373,12 +382,14 @@ mod overview_selection_tests {
         // The columns are centred, so ask the layout where the first one is.
         let x0 = column_layout(columns_inner(columns_area(frame_area, &overview)), 1)[0].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events));
-        // Row 0 of the columns area is the column box's top border (the
-        // header); rows 1-3 are the first item card (border/content/border).
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events(0)));
+        // Row 0 of the columns area is the column box's top border (the header);
+        // row 1 is the ▲ lane (blank, nothing to hit, since there's nothing above
+        // yet); rows 2-5 are the first item card (border/content/content/border).
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h), Some(OverviewSelection::Header(0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 1), Some(OverviewSelection::Item(0, 0)));
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 4), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 1), None);
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 2), Some(OverviewSelection::Item(0, 0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 6), Some(OverviewSelection::Item(0, 1)));
     }
 
     #[test]
@@ -390,11 +401,11 @@ mod overview_selection_tests {
         let x0 = layout[0].x + 1;
         // Column 0 is active with item_scroll 1: its first visible card is
         // actually item index 1, not 0.
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, x0, top_h + 1), Some(OverviewSelection::Item(0, 1)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, x0, top_h + 2), Some(OverviewSelection::Item(0, 1)));
         // Column 1 isn't active, so it renders from item 0. The columns area has a 1-cell
         // left scroll-arrow gutter.
         let col1_x = layout[1].x + 1;
-        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 1), Some(OverviewSelection::Item(1, 0)));
+        assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 2), Some(OverviewSelection::Item(1, 0)));
     }
 
     #[test]

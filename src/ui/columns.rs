@@ -8,19 +8,13 @@ use crate::k8s::Health;
 pub(super) const COLUMN_WIDTH: u16 = 28;
 /// The widest a column grows to when the screen has room to spare.
 const MAX_COLUMN_WIDTH: u16 = 46;
-/// An item card's height: a rounded-border top edge, one content row (icon
-/// on the left, name + live count filling the rest), and a rounded-border
-/// bottom edge.
-pub(super) const ITEM_HEIGHT: u16 = 3;
-/// The taller card for a column with a name too long for one row. Every card in
-/// that column uses it so they stay aligned.
-pub(super) const ITEM_HEIGHT_WRAPPED: u16 = 4;
-
-/// Room for a card's label on one row at a given column width: the column
-/// and card borders (2 + 2), the icon (3) and the count with its space.
-fn label_room(column_width: u16, count: usize) -> usize {
-    (usize::from(column_width)).saturating_sub(7 + count.to_string().len() + 1).max(1)
-}
+/// An item card's height: a rounded-border top edge, one content row (icon on the
+/// left, name + live count filling the rest, wrapped onto a second row when a name
+/// doesn't fit), and a rounded-border bottom edge. Fixed everywhere rather than
+/// per column, so every category's cards are the same size regardless of what kinds
+/// it happens to hold — a category with only short names looks the same as one with
+/// long ones, and a newly added category can't end up a different shape than the rest.
+pub(super) const ITEM_HEIGHT: u16 = 4;
 
 /// Splits a name over two rows at a capital, e.g. `ClusterRoleBindings` becomes
 /// `ClusterRole` and ` Bindings`. Falls back to a `.` boundary, then a hard split.
@@ -64,19 +58,17 @@ pub(super) fn detail_card(_items: &[(&str, usize)]) -> (u16, u16) {
     (DETAIL_WIDTH, DETAIL_HEIGHT)
 }
 
-/// The height every card in a column takes: taller when any of its names
-/// needs two rows at `column_width`.
-pub fn item_height(items: &[(&str, usize)], column_width: u16) -> u16 {
-    if items.iter().any(|(label, count)| wrap_label(label, label_room(column_width, *count)).is_some()) {
-        ITEM_HEIGHT_WRAPPED
-    } else {
-        ITEM_HEIGHT
-    }
+/// The height every card in a column takes. Fixed (see `ITEM_HEIGHT`); kept as a
+/// function, taking the same inputs as `wrap_label` needs, so callers don't have to
+/// know that — `column_width` only decides how a name wraps inside a card, not the
+/// card's own size.
+pub fn item_height(_items: &[(&str, usize)], _column_width: u16) -> u16 {
+    ITEM_HEIGHT
 }
 
 /// `item_height` for one Overview column.
-pub fn column_item_height(overview: &Overview, col: usize) -> u16 {
-    overview.catalog.get(col).map(|(_, items)| item_height(items, COLUMN_WIDTH)).unwrap_or(ITEM_HEIGHT)
+pub fn column_item_height(_overview: &Overview, _col: usize) -> u16 {
+    ITEM_HEIGHT
 }
 /// Width of the left/right scroll-affordance gutters flanking the
 /// columns area (see `columns_inner`), just wide enough for a single
@@ -110,8 +102,14 @@ pub fn visible_columns(width: u16, total_columns: usize) -> usize {
 }
 
 /// How many item cards fit vertically in one column. All columns share the height.
+/// How many item cards fit vertically in one column. All columns share the height.
+/// Besides the box's own top/bottom border, this reserves one row above the cards
+/// (so they start a short, constant distance down rather than flush against the
+/// border) and one below (for a ▼ when there's more below) — always, whether or not
+/// a given column ends up needing them, so cards start at the same place and an
+/// indicator never has to fight a card for the same row.
 pub fn visible_items_per_column(columns_area_height: u16, item_height: u16) -> usize {
-    (columns_area_height.saturating_sub(2) / item_height).max(1) as usize
+    (columns_area_height.saturating_sub(2 + 2) / item_height).max(1) as usize
 }
 
 /// The shared column-rect layout, `draw_columns` and `column_hit` must
@@ -159,11 +157,13 @@ pub fn column_detail_cols(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     ((inner.width + 1) / (detail_card(items).0 + 1)).max(1) as usize
 }
 
-/// How many grid rows of item cards fit vertically in a column-detail
-/// popup at once.
+/// How many grid rows of item cards fit vertically in a column-detail popup at
+/// once. Reserves a row above and below for the ▲/▼ indicators, same as
+/// `draw_column_detail_popup` itself and for the same reason (see its comment) —
+/// this and that must agree, or keyboard scrolling and what's on screen drift apart.
 pub fn column_detail_visible_rows(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
-    (inner.height / detail_card(items).1).max(1) as usize
+    (inner.height.saturating_sub(2) / detail_card(items).1).max(1) as usize
 }
 
 /// Movement for a column-detail popup's item grid: `move_selection` with one
@@ -206,7 +206,9 @@ pub fn column_hit(
     }
     let events_start = resources_h + 1;
     if rel >= events_start && rel < events_start + events_box_height(overview) {
-        return Some(OverviewSelection::Events);
+        // Clicking Events directly, same as arrowing up into it, remembers whichever
+        // column was active so Down still returns there instead of resetting to the first.
+        return Some(OverviewSelection::Events(if active_col == usize::MAX { 0 } else { active_col }));
     }
 
     let area = columns_inner(columns_area(frame_area, overview));
@@ -231,9 +233,13 @@ pub fn column_hit(
     if row < inner.y || row >= inner.y + inner.height {
         return None;
     }
+    // The first row is the ▲ lane (see `visible_items_per_column`), never a card.
+    if row == inner.y {
+        return None;
+    }
     let scroll = if col_idx == active_col { item_scroll } else { 0 };
     let (_, items) = &overview.catalog[col_idx];
-    let item_i = ((row - inner.y) / item_height(items, COLUMN_WIDTH)) as usize + scroll;
+    let item_i = ((row - inner.y - 1) / item_height(items, COLUMN_WIDTH)) as usize + scroll;
     if item_i < items.len() { Some(OverviewSelection::Item(col_idx, item_i)) } else { None }
 }
 
@@ -251,7 +257,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
     let areas = column_layout(inner, cols_visible);
     let active_col = match selection {
         OverviewSelection::Header(c) | OverviewSelection::Item(c, _) => c,
-        OverviewSelection::Resources | OverviewSelection::Events => usize::MAX,
+        OverviewSelection::Resources | OverviewSelection::Events(_) => usize::MAX,
     };
     for (i, col_area) in areas.iter().enumerate() {
         let col_idx = col_scroll + i;
@@ -297,6 +303,12 @@ pub(super) fn draw_column(
         (Style::default(), Style::default().add_modifier(Modifier::BOLD))
     };
 
+    let item_h = item_height(items, COLUMN_WIDTH);
+    let visible = if items.is_empty() { 0 } else { visible_items_per_column(area.height, item_h) };
+    let scroll = item_scroll.min(items.len().saturating_sub(visible));
+    let more_above = !dimmed && scroll > 0;
+    let more_below = !dimmed && scroll + visible < items.len();
+
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
@@ -305,21 +317,34 @@ pub(super) fn draw_column(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let item_h = item_height(items, COLUMN_WIDTH);
     if items.is_empty() || inner.height < item_h {
         return;
     }
 
-    let visible = visible_items_per_column(area.height, item_h);
-    let scroll = item_scroll.min(items.len().saturating_sub(visible));
     let shown: Vec<(usize, &(&str, usize))> = items.iter().enumerate().skip(scroll).take(visible).collect();
 
+    // Cards always start the same short, fixed distance from the top (the row the ▲
+    // lane reserves, see `visible_items_per_column`) instead of drifting up or down
+    // depending on how many cards this particular category happens to have; the ▼
+    // then sits right under the actual last card, in the row that lane's counterpart
+    // below reserves, rather than floating at the box's own border far away from it.
+    let items_area = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
     let constraints: Vec<Constraint> = shown.iter().map(|_| Constraint::Length(item_h)).collect();
-    let rows = Layout::vertical(constraints).split(inner);
+    let rows = Layout::vertical(constraints).split(items_area);
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
         draw_column_item(frame, rows[slot], label, *count, None, title, selected, dimmed, icons);
+    }
+    // Same affordance as the columns' own ◀/▶: cards hidden above or below get a ▲/▼.
+    if more_above {
+        let arrow_area = Rect { y: inner.y, height: 1, ..inner };
+        frame.render_widget(Paragraph::new(Line::styled("▲", highlight)).alignment(Alignment::Center), arrow_area);
+    }
+    let arrow_y = items_area.y + visible.min(items.len()) as u16 * item_h;
+    if more_below && arrow_y < inner.y + inner.height {
+        let arrow_area = Rect { y: arrow_y, height: 1, ..inner };
+        frame.render_widget(Paragraph::new(Line::styled("▼", highlight)).alignment(Alignment::Center), arrow_area);
     }
 }
 
@@ -352,11 +377,13 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
     }
 
     // Roomy cards (the opened-up view) get a bigger icon, a gap after it and
-    // one cell of padding on the right.
+    // one cell of padding on the right. Every card gets a one-cell gap between
+    // the icon and the name so the two don't run together.
     let roomy = inner.height >= 4;
     let icon_w = if roomy { 7 } else { 3 }.min(inner.width);
-    let parts = Layout::horizontal([Constraint::Length(icon_w), Constraint::Min(0), Constraint::Length(u16::from(roomy))]).split(inner);
-    let split = [Rect { width: icon_w.saturating_sub(u16::from(roomy) * 2), x: parts[0].x + u16::from(roomy), ..parts[0] }, parts[1]];
+    let icon_gap = 1u16.min(inner.width.saturating_sub(icon_w));
+    let parts = Layout::horizontal([Constraint::Length(icon_w), Constraint::Length(icon_gap), Constraint::Min(0), Constraint::Length(u16::from(roomy))]).split(inner);
+    let split = [Rect { width: icon_w.saturating_sub(u16::from(roomy) * 2), x: parts[0].x + u16::from(roomy), ..parts[0] }, parts[2]];
 
     // A vendored image where the terminal can render one, else a small emoji glyph.
     // Skipped while dimmed, since an emoji can't be muted with ANSI styling.
@@ -446,12 +473,16 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
     let (card_w, item_h) = detail_card(items);
     let cols = ((inner.width + 1) / (card_w + 1)).max(1) as usize;
     let total_rows = items.len().div_ceil(cols);
-    let visible_rows = (inner.height / item_h).max(1) as usize;
+    // One row reserved above the grid and one below, always, for the same reason
+    // `visible_items_per_column` reserves them: rows start the same short, fixed
+    // distance down every time, and a ▲/▼ never has to fight a card for its row.
+    let visible_rows = (inner.height.saturating_sub(2) / item_h).max(1) as usize;
     let row_scroll = row_scroll.min(total_rows.saturating_sub(visible_rows));
     let rows_shown = visible_rows.min(total_rows.saturating_sub(row_scroll));
 
+    let grid_area = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
     let row_constraints: Vec<Constraint> = (0..rows_shown).map(|_| Constraint::Length(item_h)).collect();
-    let row_areas = Layout::vertical(row_constraints).split(inner);
+    let row_areas = Layout::vertical(row_constraints).split(grid_area);
 
     for (slot, row_area) in row_areas.iter().enumerate() {
         let row_idx = row_scroll + slot;
@@ -463,6 +494,17 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
             let idx = start + i;
             draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label) && *count > 0), title, idx == selected, false, icons);
         }
+    }
+    // Same affordance as the columns' own ◀/▶: rows hidden above or below get a ▲/▼.
+    let arrow_style = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
+    if row_scroll > 0 {
+        let arrow_area = Rect { y: inner.y, height: 1, ..inner };
+        frame.render_widget(Paragraph::new(Line::styled("▲", arrow_style)).alignment(Alignment::Center), arrow_area);
+    }
+    let arrow_y = grid_area.y + rows_shown as u16 * item_h;
+    if row_scroll + rows_shown < total_rows && arrow_y < inner.y + inner.height {
+        let arrow_area = Rect { y: arrow_y, height: 1, ..inner };
+        frame.render_widget(Paragraph::new(Line::styled("▼", arrow_style)).alignment(Alignment::Center), arrow_area);
     }
 }
 
@@ -496,9 +538,10 @@ mod wrap_tests {
     }
 
     #[test]
-    fn a_column_is_tall_only_when_one_of_its_names_needs_two_rows() {
+    fn every_column_has_the_same_card_height_regardless_of_its_names() {
         assert_eq!(item_height(&[("Pods", 3), ("Jobs", 1)], COLUMN_WIDTH), ITEM_HEIGHT);
-        assert_eq!(item_height(&[("Pods", 3), ("ClusterRoleBindings", 61)], 22), ITEM_HEIGHT_WRAPPED);
+        assert_eq!(item_height(&[("Pods", 3), ("ClusterRoleBindings", 61)], 22), ITEM_HEIGHT);
+        assert_eq!(item_height(&[], COLUMN_WIDTH), ITEM_HEIGHT);
     }
 }
 
