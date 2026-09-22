@@ -41,10 +41,13 @@ impl Count {
     }
 }
 
-/// The counts found so far, shared with the lists that show them.
+/// The counts found so far, shared with the lists that show them. They are kept per namespace,
+/// so going back to one shows its numbers at once.
 #[derive(Clone, Default)]
 pub struct InstanceCounts {
-    map: Arc<Mutex<HashMap<String, (Count, Instant)>>>,
+    map: Arc<Mutex<HashMap<(Option<String>, String), (Count, Instant)>>>,
+    /// The namespace the lists show (`None`: all).
+    scope: Arc<Mutex<Option<String>>>,
 }
 
 pub fn count_key(group: &str, plural: &str) -> String {
@@ -52,12 +55,18 @@ pub fn count_key(group: &str, plural: &str) -> String {
 }
 
 impl InstanceCounts {
+    fn scope(&self) -> Option<String> {
+        self.scope.lock().ok().and_then(|s| s.clone())
+    }
+
     pub fn get(&self, group: &str, plural: &str) -> Count {
-        self.map.lock().ok().and_then(|m| m.get(&count_key(group, plural)).map(|(c, _)| *c)).unwrap_or(Count::Loading)
+        let key = (self.scope(), count_key(group, plural));
+        self.map.lock().ok().and_then(|m| m.get(&key).map(|(c, _)| *c)).unwrap_or(Count::Loading)
     }
 
     fn stale(&self, key: &str) -> bool {
-        self.map.lock().ok().and_then(|m| m.get(key).map(|(_, at)| at.elapsed() > FRESH)).unwrap_or(true)
+        let key = (self.scope(), key.to_string());
+        self.map.lock().ok().and_then(|m| m.get(&key).map(|(_, at)| at.elapsed() > FRESH)).unwrap_or(true)
     }
 }
 
@@ -78,7 +87,7 @@ impl Drop for Counter {
 }
 
 /// How many types are asked about at once.
-const CONCURRENCY: usize = 4;
+const CONCURRENCY: usize = 8;
 /// How long a count is trusted before it is asked for again.
 const FRESH: Duration = Duration::from_secs(60);
 /// How often the wanted types are looked at again when nothing changed.
@@ -111,7 +120,7 @@ impl Counter {
                         async move {
                             let found = fetch_count(&client, api, namespace.as_deref()).await;
                             if let Ok(mut map) = counts.map.lock() {
-                                map.insert(count_key(api.group, api.plural), (found, Instant::now()));
+                                map.insert((namespace.clone(), count_key(api.group, api.plural)), (found, Instant::now()));
                             }
                         }
                     });
@@ -142,8 +151,8 @@ impl Counter {
             && scope.as_deref() != namespace
         {
             *scope = namespace.map(str::to_string);
-            if let Ok(mut map) = counts.map.lock() {
-                map.clear();
+            if let Ok(mut shown) = counts.scope.lock() {
+                *shown = scope.clone();
             }
             self.changed.notify_one();
         }

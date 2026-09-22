@@ -84,6 +84,21 @@ fn main() -> Result<()> {
 
 pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>) -> Result<Outcome> {
     let client = k8s::connect_to_context(context).await?;
+    // Everything that loads starts now, beside the reachability check and the loading screen.
+    let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
+    let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());
+    let (node_store, node_feed, _node_watch_handle) = k8s::watch_live::<Node>(client.clone());
+    let pod_store = k8s::PodKept::new(pod_reader, pod_feed, k8s::row_for);
+    let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
+    let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
+    let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
+    // Discovery runs beside the first lists; the loading screen waits for all of them.
+    let discovery = tokio::spawn({
+        let client = client.clone();
+        async move { k8s::discover(&client).await }
+    });
+    let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed);
+
     let k8s_version = k8s::ensure_reachable(&client, context).await?;
     let active_context = match context {
         Some(name) => name.to_string(),
@@ -103,24 +118,14 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         faults_only: false,
         wide: false,
     };
-    let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
-    let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());
-    let (node_store, node_feed, _node_watch_handle) = k8s::watch_live::<Node>(client.clone());
-    let pod_store = k8s::PodKept::new(pod_reader, pod_feed, k8s::row_for);
-    let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
-    let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
-    let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
-    let (apis, crds) = k8s::discover(&client).await;
-    let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed, crds, apis);
-
-    // Block until each reflector's initial list-and-watch has populated
-    // its store at least once, so the first frame isn't just empty.
-    pod_store.store.wait_until_ready().await?;
-    dep_store.store.wait_until_ready().await?;
-    node_store.wait_until_ready().await?;
-
     let mut terminal = ratatui::init();
     let _ = execute!(stdout(), EnableMouseCapture);
+    let stores = (&pod_store.store, &dep_store.store, &node_store);
+    if let app::boot::Boot::Quit = app::boot::wait(&mut terminal, &active_context, &header.k8s_version, stores, discovery, &mut catalog).await? {
+        let _ = execute!(stdout(), DisableMouseCapture);
+        ratatui::restore();
+        return Ok(Outcome::Quit);
+    }
 
     let result = run(
         &mut terminal,

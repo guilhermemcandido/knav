@@ -84,6 +84,10 @@ selects a row, a double-click opens it, and clicking a tile on Home selects it.
 The bottom bar shows where you are (`Deployment[web]>>ReplicaSets>>...`) and
 the selected row's status, with a green or yellow dot for ready counts.
 
+## Opening a cluster
+
+knav shows a loading screen (wordmark, the context and a step list) while the first lists and API discovery arrive, all started at once; `q` quits from it. Type lists opened with `:api` or from the sidebar follow the server with a watch instead of being read again every few seconds, so even a type with 100k objects stays current.
+
 ## Config
 
 `$XDG_CONFIG_HOME/knav/config.toml` (default `~/.config/knav/config.toml`). Every

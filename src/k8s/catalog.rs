@@ -35,7 +35,7 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, node_feed: Arc<k8s::Feed>, crds: Vec<k8s::CrdInfo>, apis: Vec<k8s::ApiInfo>) -> Self {
+    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, node_feed: Arc<k8s::Feed>) -> Self {
         macro_rules! kind {
             ($variant:ident, $label:literal, $ty:ty) => {
                 Entry {
@@ -78,14 +78,22 @@ impl Catalog {
                 kind!(ClusterRoles, "ClusterRoles", ClusterRole),
                 kind!(ClusterRoleBindings, "ClusterRoleBindings", ClusterRoleBinding),
             ],
-            crds,
+            crds: Vec::new(),
             crd_watches: HashMap::new(),
-            api_list: k8s::ApiList { apis: apis.clone(), counts: counts.clone() },
+            api_list: k8s::ApiList { apis: Vec::new(), counts: counts.clone() },
             counts,
             counter: None,
-            apis,
+            apis: Vec::new(),
             api_tables: HashMap::new(),
         }
+    }
+
+    /// Fills in what discovery found. It runs while the built-in kinds already load, and
+    /// nothing reads these before it is done (the loading screen waits for it).
+    pub(crate) fn set_types(&mut self, apis: Vec<k8s::ApiInfo>, crds: Vec<k8s::CrdInfo>) {
+        self.api_list.apis = apis.clone();
+        self.apis = apis;
+        self.crds = crds;
     }
 
     /// Starts counting the objects of every type (once), and follows the namespace shown.

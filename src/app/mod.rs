@@ -1,5 +1,6 @@
 //! The interactive loop: draws the current `Mode` and handles keyboard/mouse input.
 
+pub(crate) mod boot;
 mod derive;
 pub mod commands;
 mod draw;

@@ -16,6 +16,7 @@ use serde_json::Value;
 use tokio::task::JoinHandle;
 
 use super::*;
+use super::tablewatch;
 use crate::k8s::describe::{Col, Tone};
 
 /// One listable resource type, from discovery.
@@ -196,33 +197,33 @@ impl CatalogKind for ApiList {
 }
 
 #[derive(Clone)]
-struct TableColumn {
-    name: &'static str,
+pub(super) struct TableColumn {
+    pub(super) name: &'static str,
     /// 0 is shown always; higher is wide-only (`kubectl get -o wide`).
-    priority: i64,
-    numeric: bool,
+    pub(super) priority: i64,
+    pub(super) numeric: bool,
 }
 
-struct TableRow {
-    cells: Vec<String>,
-    namespace: String,
-    name: String,
-    uid: String,
-    owners: Vec<String>,
-    created: Option<k8s_openapi::jiff::Timestamp>,
-    labels: String,
+pub(super) struct TableRow {
+    pub(super) cells: Vec<String>,
+    pub(super) namespace: String,
+    pub(super) name: String,
+    pub(super) uid: String,
+    pub(super) owners: Vec<String>,
+    pub(super) created: Option<k8s_openapi::jiff::Timestamp>,
+    pub(super) labels: String,
 }
 
 #[derive(Default)]
-struct TableData {
-    columns: Vec<TableColumn>,
-    rows: Vec<TableRow>,
-    error: Option<String>,
+pub(super) struct TableData {
+    pub(super) columns: Vec<TableColumn>,
+    pub(super) rows: Vec<TableRow>,
+    pub(super) error: Option<String>,
     /// More pages of the first load are still coming.
-    loading: bool,
+    pub(super) loading: bool,
     /// The namespace the rows were fetched for (`None`: all of them), and whether that is all of them.
-    scope: Option<String>,
-    complete: bool,
+    pub(super) scope: Option<String>,
+    pub(super) complete: bool,
 }
 
 impl TableData {
@@ -232,8 +233,8 @@ impl TableData {
     }
 }
 
-/// One resource type shown through the server's Table view, refreshed every
-/// couple of seconds in the background for as long as it is open. With a namespace
+/// One resource type shown through the server's Table view, kept current by a watch
+/// in the background for as long as it is open. With a namespace
 /// selected only that namespace is fetched.
 pub struct TableKind {
     data: Arc<Mutex<TableData>>,
@@ -270,15 +271,26 @@ impl TableKind {
                     let started = std::time::Instant::now();
                     let wanted = if namespaced { scope.lock().ok().and_then(|s| s.clone()) } else { None };
                     // A change of namespace drops the fetch in flight and starts over.
-                    tokio::select! {
-                        _ = refresh_table(&client, &resource, &data, wanted.as_deref()) => {}
+                    let listed = tokio::select! {
+                        listed = refresh_table(&client, &resource, &data, wanted.as_deref()) => listed,
                         _ = changed.notified() => continue,
+                    };
+                    // Then the watch keeps the rows current, until it cannot (the version is too old,
+                    // the connection fails) or the namespace changes; then the list is read again.
+                    let mut ended = listed.is_none();
+                    if let Some(mut version) = listed {
+                        ended = tokio::select! {
+                            end = tablewatch::watch_table(&client, &resource, &data, wanted.as_deref(), &mut version) => end,
+                            _ = changed.notified() => false,
+                        };
                     }
-                    // A big list takes long to fetch, so wait in proportion and never hammer the server.
-                    let pause = Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1)).max(started.elapsed() * 3);
-                    tokio::select! {
-                        _ = tokio::time::sleep(pause) => {}
-                        _ = changed.notified() => {}
+                    if ended {
+                        // Failing over and over must not hammer the server with whole lists.
+                        let pause = Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1)).max(started.elapsed() * 3);
+                        tokio::select! {
+                            _ = tokio::time::sleep(pause) => {}
+                            _ = changed.notified() => {}
+                        }
                     }
                 }
             })
@@ -296,12 +308,20 @@ impl TableKind {
 const PAGE: usize = 500;
 
 /// One page of the Table view of `resource`, and the token for the next page if there is one.
-async fn fetch_page(client: &Client, resource: &ApiResource, namespace: Option<&str>, token: Option<&str>) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>, Option<String>)> {
+/// The path of `resource`'s list, in `namespace` or across all of them.
+pub(super) fn list_path(resource: &ApiResource, namespace: Option<&str>) -> String {
     let root = if resource.group.is_empty() { format!("/api/{}", resource.version) } else { format!("/apis/{}/{}", resource.group, resource.version) };
-    let base = match namespace {
+    match namespace {
         Some(ns) => format!("{root}/namespaces/{}/{}", percent_encode(ns), resource.plural),
         None => format!("{root}/{}", resource.plural),
-    };
+    }
+}
+
+/// A page of rows, with the token for the next and the version of the list they belong to.
+type Page = (Vec<TableColumn>, Vec<TableRow>, Option<String>, Option<String>);
+
+async fn fetch_page(client: &Client, resource: &ApiResource, namespace: Option<&str>, token: Option<&str>) -> anyhow::Result<Page> {
+    let base = list_path(resource, namespace);
     let path = match token {
         Some(token) => format!("{base}?limit={PAGE}&continue={}", percent_encode(token)),
         None => format!("{base}?limit={PAGE}"),
@@ -309,18 +329,20 @@ async fn fetch_page(client: &Client, resource: &ApiResource, namespace: Option<&
     let request = http::Request::get(path).header(http::header::ACCEPT, "application/json;as=Table;g=meta.k8s.io;v=v1").body(Vec::new())?;
     let table: Value = serde_json::from_str(&client.request_text(request).await?)?;
     let next = table.get("metadata").and_then(|m| m.get("continue")).and_then(|c| c.as_str()).filter(|c| !c.is_empty()).map(str::to_string);
+    let version = table.get("metadata").and_then(|m| m.get("resourceVersion")).and_then(|v| v.as_str()).map(str::to_string);
     let (columns, rows) = parse_table(&table)?;
-    Ok((columns, rows, next))
+    Ok((columns, rows, next, version))
 }
 
-fn percent_encode(text: &str) -> String {
+pub(super) fn percent_encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// Reads every page of `namespace` (all when `None`). When what is held cannot stand in for the
 /// new list, rows show up as pages arrive so a long list appears at once; otherwise the whole
 /// snapshot is gathered and swapped in, so rows never jump around mid-fetch.
-async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) {
+/// Returns the version of the list, where a watch can carry on from; `None` when it failed.
+async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) -> Option<String> {
     let in_place = data.lock().map(|d| d.columns.is_empty() || !d.covers(namespace)).unwrap_or(true);
     if in_place && let Ok(mut d) = data.lock() {
         d.rows.clear();
@@ -328,9 +350,11 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
         d.scope = namespace.map(str::to_string);
     }
     let (mut columns, mut rows, mut token) = (Vec::new(), Vec::new(), None::<String>);
+    let mut version = None;
     loop {
         match fetch_page(client, resource, namespace, token.as_deref()).await {
-            Ok((page_columns, page_rows, next)) => {
+            Ok((page_columns, page_rows, next, page_version)) => {
+                version = page_version.or(version);
                 if in_place {
                     if let Ok(mut d) = data.lock() {
                         if d.columns.is_empty() {
@@ -356,17 +380,20 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
                     d.error = Some(format!("{e:#}"));
                     d.loading = false;
                 }
-                return;
+                return None;
             }
         }
     }
     if let Ok(mut d) = data.lock() {
         if in_place {
+            tablewatch::ensure_ordered(&mut d.rows);
             d.complete = true;
         } else {
+            tablewatch::ensure_ordered(&mut rows);
             *d = TableData { columns, rows, error: None, loading: false, scope: namespace.map(str::to_string), complete: true };
         }
     }
+    version
 }
 
 fn cell_text(cell: &Value) -> String {
@@ -377,7 +404,7 @@ fn cell_text(cell: &Value) -> String {
     }
 }
 
-fn parse_table(table: &Value) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>)> {
+pub(super) fn parse_table(table: &Value) -> anyhow::Result<(Vec<TableColumn>, Vec<TableRow>)> {
     let columns = table
         .get("columnDefinitions")
         .and_then(|c| c.as_array())
@@ -653,5 +680,30 @@ mod live {
         for crd in crds.iter().take(5) {
             println!("  {}/{} {}", crd.group, crd.version, crd.kind);
         }
+    }
+}
+
+#[cfg(test)]
+mod live_table {
+    use super::*;
+
+    /// Against the current context: `cargo test live_table_follows -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_table_follows_changes() {
+        let client = Client::try_default().await.unwrap();
+        let api = ApiInfo { group: "", version: "v1".into(), kind: "ConfigMap", plural: "configmaps", namespaced: true, verbs: vec!["list".into()] };
+        let kind = TableKind::start(client, &api);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let before = kind.count();
+        let name = format!("knav-watch-{}", std::process::id());
+        std::process::Command::new("kubectl").args(["create", "configmap", &name, "-n", "default"]).output().unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let during = kind.count();
+        std::process::Command::new("kubectl").args(["delete", "configmap", &name, "-n", "default"]).output().unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        println!("rows before {before}, with the new one {during}, after delete {}", kind.count());
+        assert_eq!(during, before + 1);
+        assert_eq!(kind.count(), before);
     }
 }

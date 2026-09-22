@@ -21,11 +21,11 @@ Pods, deployments and every typed kind (`WatchedKind`) use it; nodes and the on-
 
 Timed on a local cluster, calls look free; on a big remote one each costs 50 to 300 ms. Done: discovery uses the aggregated API (2 requests instead of one per group, run in series before); custom resources are found from a paged metadata-only CRD list plus discovery (the full list carried every schema, hundreds of MB on a Crossplane cluster, in one request); the first frame no longer waits for the Events list; the ~20 counting watches start 4 at a time.
 
-- [ ] Type tables (`TableKind`) poll: every cycle re-reads all pages (500 rows each), so a 100k-object type is 200 requests per refresh, and the pause grows to keep the load down (rows go stale for minutes). Replace the polling with a watch that asks for the Table format, or a metadata watch plus one fetch per changed object.
-- [ ] The counting watches keep every object's metadata just to know how many there are; count events instead of holding a store.
-- [ ] Count requests (4 at a time, `limit=1`): with 150 ms round trips a screen of 50 types takes about 2 s. Try 8 at a time, and keep counts per namespace instead of clearing them on a namespace change.
-- [ ] Startup still shows nothing until pods, deployments and nodes have listed once; draw the screen with a "loading" state instead.
-- [ ] Keep discovery results on disk per context (short life), so a restart opens at once and refreshes in the background.
+- [x] Type tables (`TableKind`) follow a watch that asks for the Table format (`k8s/tablewatch.rs`): the list is read once, then added, changed and deleted rows arrive as events (reopened every ~5 minutes, and the list is read again only when the version is too old or the connection fails). Checked against the local cluster (a created and deleted ConfigMap appear within a second).
+- [x] The counting watches hold only each object's uid, not its metadata.
+- [x] Counts: 8 requests at a time, and kept per namespace, so returning to a namespace shows its numbers at once.
+- [x] Startup: the loading screen (`ui/loading.rs`, `app/boot.rs`) opens as soon as the cluster answers; pods, deployments, nodes, events, metrics, namespaces, the counting watches and discovery all start right after connecting, before the reachability check returns. It waits for pods, deployments, nodes and discovery (at most 45 s, `q` quits).
+- [-] Discovery on disk: dropped. Discovery is now 2 requests plus a paged name list, so a cache would cost more in stale-index risk (custom resources are opened by position) than it saves.
 
 ## Review follow-ups (worked through in this order)
 

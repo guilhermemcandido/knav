@@ -17,6 +17,11 @@ use tokio::task::JoinHandle;
 /// Bumped on every change any watch sees, so the UI can tell when to recompute.
 static CHANGES: AtomicU64 = AtomicU64::new(0);
 
+/// Tells the UI something changed that no reflector reported (a table kind's watch).
+pub fn note_change() {
+    CHANGES.fetch_add(1, Ordering::Relaxed);
+}
+
 pub fn changes() -> u64 {
     CHANGES.load(Ordering::Relaxed)
 }
@@ -118,35 +123,43 @@ where
 static STARTUP: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
 /// How many `K` exist, kept up to date from a metadata-only watch: no spec or data is
-/// downloaded or held (even a Secret's annotations are dropped), so it is cheap to run
-/// for every kind just to show a count.
+/// downloaded, and only each object's uid is held (a Secret's contents never arrive), so it
+/// is cheap to run for every kind just to show a count.
 pub fn watch_count<K>(client: Client) -> Arc<std::sync::atomic::AtomicUsize>
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
 {
     use kube::core::PartialObjectMeta;
+    use std::collections::HashSet;
     let api: Api<PartialObjectMeta<K>> = Api::all(client);
     let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (reader, writer) = reflector::store::<PartialObjectMeta<K>>();
-    let stream = watcher(api, watcher::Config::default())
-        .default_backoff()
-        .modify(|object| {
-            object.metadata.annotations = None;
-            object.metadata.managed_fields = None;
-            object.metadata.labels = None;
-        })
-        // Raw events, so the end of the first list (which fills the store) counts too.
-        .reflect(writer);
+    let stream = watcher(api, watcher::Config::default()).default_backoff();
     let seen = Arc::clone(&count);
     tokio::spawn(async move {
         // Only a few first lists run at once, so opening a cluster does not send dozens together.
         let mut turn = STARTUP.acquire().await.ok();
+        let (mut live, mut listing): (HashSet<String>, HashSet<String>) = Default::default();
+        let uid = |object: &PartialObjectMeta<K>| object.metadata.uid.clone().unwrap_or_else(|| format!("{:?}/{:?}", object.metadata.namespace, object.metadata.name));
         let mut stream = stream.boxed();
         while let Some(event) = stream.next().await {
             if turn.is_some() && !matches!(event, Ok(watcher::Event::Init | watcher::Event::InitApply(_))) {
                 turn = None;
             }
-            seen.store(reader.len(), Ordering::Relaxed);
+            match event {
+                Ok(watcher::Event::Init) => listing.clear(),
+                Ok(watcher::Event::InitApply(object)) => {
+                    listing.insert(uid(&object));
+                }
+                Ok(watcher::Event::InitDone) => std::mem::swap(&mut live, &mut listing),
+                Ok(watcher::Event::Apply(object)) => {
+                    live.insert(uid(&object));
+                }
+                Ok(watcher::Event::Delete(object)) => {
+                    live.remove(&uid(&object));
+                }
+                Err(_) => continue,
+            }
+            seen.store(live.len(), Ordering::Relaxed);
             CHANGES.fetch_add(1, Ordering::Relaxed);
         }
     });
