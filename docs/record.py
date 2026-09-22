@@ -4,21 +4,25 @@ docs/demo.gif and the pictures in docs/ (needs `agg` and `ffmpeg`, and a cluster
 
     cargo build --release && python3 docs/record.py
 """
-import codecs, fcntl, json, os, pty, select, struct, subprocess, sys, termios, time
+import codecs, fcntl, json, os, pty, select, signal, struct, subprocess, sys, termios, time
 
 ROWS, COLS = 40, 140
 ENTER, ESC, DOWN = "\r", "\x1b", "\x1b[B"
 # (what to send, seconds to wait after, name of a picture to keep from that moment)
 SCRIPT = [
     ("", 0.7, "loading"), ("", 3.3, "home"),
-    ("b", 1.6, "sidebar"), ("b", 0.6, None),
+    # A throwaway keypress first: the pty seems to drop the very first key sent
+    # after a long idle wait, so warm it up with a no-op round trip (Down then
+    # Up lands back on Resources, same as where "home" was captured) before
+    # the real navigation below, or ":" ends up silently eaten.
+    (DOWN, 1.1, None), ("\x1b[A", 1.1, None),
     (":", 0.4, None), ("pods", 0.4, None), (ENTER, 2.2, "pods"),
+    # The sidebar only toggles cleanly from inside a list; from the Overview
+    # itself it renders wrong, so it's shown here rather than from "home".
+    ("b", 1.6, "sidebar"),
     (DOWN, 0.4, None), (DOWN, 0.4, None), ("i", 2.2, "info"), ("i", 0.6, None),
     ("R", 2.4, "related"), (ESC, 0.8, None),
-    ("/", 0.4, None), ("work", 0.5, None), (ENTER, 1.6, "search"), (ESC, 0.5, None),
-    ("A", 1.4, None),
-    (":", 0.4, None), ("api", 0.4, None), (ENTER, 3.2, "api"),
-    ("Q", 0.5, None),
+    ("/", 0.4, None), ("work", 0.5, None), (ENTER, 1.6, "search"),
 ]
 
 
@@ -54,6 +58,9 @@ def main():
             break
         if name:
             marks[name] = round(time.time() - start, 2)
+    # Killed rather than quit normally: knav dims the screen on its way out,
+    # and that fade is the last thing agg would otherwise hold on the still frame.
+    os.kill(pid, signal.SIGKILL)
     docs = os.path.join(root, "docs")
     with open(os.path.join(docs, "demo.cast"), "w") as cast:
         cast.write(json.dumps({"version": 2, "width": COLS, "height": ROWS, "env": {"TERM": "xterm-256color"}}) + "\n")
