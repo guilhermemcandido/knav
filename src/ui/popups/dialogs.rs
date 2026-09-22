@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// The width most dialogs in this file settle on: 3/5 of the terminal, kept readable.
+fn narrow_dialog_width(full_width: u16) -> u16 {
+    (full_width * 3 / 5).clamp(44, 72)
+}
+
 /// A small centered message box, green-bordered for success, red for
 /// an error. Sized to the text so a one-liner doesn't get a huge box.
 pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
@@ -42,7 +47,7 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
 pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::actions::ConfirmSpec) {
     let full = frame.area();
     let color = if spec.danger { theme().bad } else { theme().accent };
-    let width = (full.width * 3 / 5).clamp(44, 72).min(full.width);
+    let width = narrow_dialog_width(full.width).min(full.width);
     let inner_w = usize::from(width).saturating_sub(6);
     let muted = Style::default().fg(theme().muted);
     let mut lines: Vec<Line> = vec![Line::raw("")];
@@ -154,7 +159,7 @@ pub(in crate::ui) fn draw_working_popup(frame: &mut Frame, title: &str, elapsed:
     let mut body = vec![Line::raw(""), Line::from(vec![Span::styled(format!("  {spinner} "), Style::default().fg(theme().accent)), Span::styled(title.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)), Span::styled(format!("   {:.1}s", elapsed.as_secs_f32()), muted)])];
     if total > 1 {
         let full = frame.area();
-        let bar = usize::from((full.width * 3 / 5).clamp(44, 72)).saturating_sub(16);
+        let bar = usize::from(narrow_dialog_width(full.width)).saturating_sub(16);
         let filled = (done * bar / total).min(bar);
         body.push(Line::from(vec![Span::raw("    "), Span::styled("█".repeat(filled), Style::default().fg(theme().ok)), Span::styled("░".repeat(bar - filled), muted), Span::styled(format!("  {done}/{total}"), muted)]));
     }

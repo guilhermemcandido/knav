@@ -69,7 +69,7 @@ It needs a kubeconfig with access to a cluster. `kubectl` is only needed for por
 shell (`F`, `S` on a pod).
 
 A tagged push (`git tag v0.1.0 && git push origin v0.1.0`) builds and publishes the release
-binaries for macOS (arm64, Intel) and Linux (x86_64, arm64) — see `.github/workflows/release.yml`.
+binaries for macOS (arm64, Intel) and Linux (x86_64, arm64); see `.github/workflows/release.yml`.
 
 ## Try it
 

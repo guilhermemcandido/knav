@@ -58,9 +58,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 // A click selects a box; a second click on it soon after shows its info.
                 MouseEventKind::Down(_) => {
                     if let Some(hit) = ui::graph_hit(ui::relations_inner(cx.frame_area), graph, *selected, mouse.column, mouse.row) {
-                        let now = std::time::Instant::now();
-                        let again = st.last_click.is_some_and(|(at, prev)| prev == 1000 + hit && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
-                        st.last_click = if again { None } else { Some((now, 1000 + hit)) };
+                        let again = state::double_click(&mut st.last_click, 1000 + hit);
                         *selected = hit;
                         if again && let Some(node) = graph.nodes.get(hit) {
                             info = if hit == 0 { Some(target.clone()) } else { k8s::relations::find_manifest(all, &node.kind, node.namespace.as_deref(), &node.name) };

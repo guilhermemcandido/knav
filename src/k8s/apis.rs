@@ -338,10 +338,9 @@ pub(super) fn percent_encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-/// Reads every page of `namespace` (all when `None`). When what is held cannot stand in for the
-/// new list, rows show up as pages arrive so a long list appears at once; otherwise the whole
-/// snapshot is gathered and swapped in, so rows never jump around mid-fetch.
-/// Returns the version of the list, where a watch can carry on from; `None` when it failed.
+/// Reads every page of `namespace` (all when `None`), returning the list's version for a watch
+/// to carry on from (`None` on failure). Rows show up as pages arrive when what is held cannot
+/// stand in for the new list; otherwise the whole snapshot is gathered and swapped in at once.
 async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) -> Option<String> {
     let in_place = data.lock().map(|d| d.columns.is_empty() || !d.covers(namespace)).unwrap_or(true);
     if in_place && let Ok(mut d) = data.lock() {

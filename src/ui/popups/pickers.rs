@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// Every picker in this file (context, namespace) and its chip hit-testing share this size, so
+/// they all have to agree on it.
+fn picker_area(frame: Rect) -> Rect {
+    centered_rect(94, 88, frame)
+}
+
 /// The `:ctx` / `C` context browser, same full-size table as the
 /// Events browser (and the same geometry, so `event_row_at` hit-tests
 /// its rows too). `/` live-filters by name.
@@ -15,7 +21,7 @@ pub(in crate::ui) fn draw_context_popup(
     error: Option<&str>,
     sort: SortState,
 ) {
-    let area = centered_rect(94, 88, frame.area());
+    let area = picker_area(frame.area());
     frame.render_widget(Clear, area);
 
     const HEADERS: [&str; 3] = ["CONTEXT", "CLUSTER", "STATUS"];
@@ -58,14 +64,14 @@ pub(in crate::ui) fn draw_context_popup(
 /// `1`..`9`, each three cells wide, one cell apart.
 const CHIP_LABEL: &str = " assign to key: ";
 
-fn chips_origin(picker_area: Rect) -> u16 {
-    picker_area.x + 1 + CHIP_LABEL.chars().count() as u16
+fn chips_origin(area: Rect) -> u16 {
+    area.x + 1 + CHIP_LABEL.chars().count() as u16
 }
 
 /// Which number chip (1-9) a click on the namespace picker's bottom border
 /// lands on.
 pub fn slot_chip_at(frame_area: Rect, column: u16, row: u16) -> Option<usize> {
-    let area = centered_rect(94, 88, frame_area);
+    let area = picker_area(frame_area);
     if row != area.y + area.height.saturating_sub(1) || column < chips_origin(area) {
         return None;
     }
@@ -83,7 +89,7 @@ pub(in crate::ui) fn draw_namespace_picker(
     state: &mut TableState,
     sort: SortState,
 ) {
-    let area = centered_rect(94, 88, frame.area());
+    let area = picker_area(frame.area());
     frame.render_widget(Clear, area);
 
     const HEADERS: [&str; 2] = ["NAMESPACE", "KEY"];
@@ -232,7 +238,7 @@ mod chip_tests {
     #[test]
     fn a_click_on_a_chip_gives_its_number() {
         let frame = Rect { x: 0, y: 0, width: 120, height: 40 };
-        let area = centered_rect(94, 88, frame);
+        let area = picker_area(frame);
         let bottom = area.y + area.height - 1;
         let origin = chips_origin(area);
         assert_eq!(slot_chip_at(frame, origin, bottom), Some(1));
@@ -244,7 +250,7 @@ mod chip_tests {
     #[test]
     fn the_gaps_the_label_and_other_rows_are_not_chips() {
         let frame = Rect { x: 0, y: 0, width: 120, height: 40 };
-        let area = centered_rect(94, 88, frame);
+        let area = picker_area(frame);
         let bottom = area.y + area.height - 1;
         let origin = chips_origin(area);
         assert_eq!(slot_chip_at(frame, origin + 3, bottom), None, "the gap between chips");

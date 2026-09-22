@@ -90,6 +90,18 @@ pub(super) struct State {
     pub overview_item_scroll: usize,
 }
 
+/// Whether a click on `id` follows another click on it soon enough to count as a double click,
+/// updating `last_click` either way (armed for next time, or cleared once used). A free function
+/// on just the field, not a method on `State`, so a handler already holding `&mut st.mode` (a
+/// different field) can still call it.
+pub(super) fn double_click(last_click: &mut Option<(std::time::Instant, usize)>, id: usize) -> bool {
+    let now = std::time::Instant::now();
+    let ms = crate::config::tunables::tunables().double_click_ms;
+    let again = last_click.is_some_and(|(at, prev)| prev == id && now.duration_since(at) < std::time::Duration::from_millis(ms));
+    *last_click = if again { None } else { Some((now, id)) };
+    again
+}
+
 impl State {
     /// `icons` must be detected after raw mode is on (it queries the
     /// terminal) and before the event loop starts reading stdin.
@@ -249,6 +261,21 @@ mod tests {
 
     fn state() -> State {
         State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default())
+    }
+
+    #[test]
+    fn a_second_click_on_the_same_id_right_after_is_a_double_click() {
+        let mut last: Option<(std::time::Instant, usize)> = None;
+        assert!(!double_click(&mut last, 7), "the first click never is");
+        assert!(double_click(&mut last, 7), "the second, on the same id, right after, is");
+        assert!(last.is_none(), "used up, so a third click starts over");
+    }
+
+    #[test]
+    fn a_click_on_a_different_id_is_not_a_double_click() {
+        let mut last: Option<(std::time::Instant, usize)> = None;
+        double_click(&mut last, 1);
+        assert!(!double_click(&mut last, 2));
     }
 
     #[test]

@@ -24,10 +24,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                             ui::OverviewSelection::Header(c) => 10 + c * 100,
                             ui::OverviewSelection::Item(c, i) => 11 + c * 100 + i,
                         };
-                        let now = std::time::Instant::now();
-                        let again = st.last_click.is_some_and(|(at, prev)| prev == id && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
-                        st.last_click = if again { None } else { Some((now, id)) };
-                        open = again;
+                        open = state::double_click(&mut st.last_click, id);
                     }
                 }
                 MouseEventKind::ScrollDown => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Down),
@@ -76,10 +73,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                             st.last_click = None;
                             to_owner = true;
                         } else {
-                            let now = std::time::Instant::now();
-                            let again = st.last_click.is_some_and(|(at, row)| row == index && now.duration_since(at) < std::time::Duration::from_millis(crate::config::tunables::tunables().double_click_ms));
-                            st.last_click = if again { None } else { Some((now, index)) };
-                            open = again;
+                            open = state::double_click(&mut st.last_click, index);
                         }
                     }
                 }
