@@ -1,42 +1,63 @@
 # knav
 
-A Kubernetes TUI. Not another k9s command-bar clone — the thesis is combining
-two ideas that already exist separately, in two different mature tools, but
-nowhere together:
+A fast, mouse-friendly Kubernetes TUI for big clusters: a browsable sidebar, an info panel that
+explains any object, a diagram of what is related to what, and lists that stay live with tens of
+thousands of objects. Think k9s with an IDE's explorer, built in Rust (`ratatui` and `kube-rs`).
 
-1. **Persistent structural navigation** instead of typing `:pods` every time
-   (the way `lfk` does it with Miller columns) — the tree/hierarchy is always
-   visible, you move through it, you don't recall-and-type resource names.
-2. **Proactive "why is this broken" diagnosis** instead of just a status
-   table (the way `sofka` and `kwatch` do it) — surfacing cause + suggested
-   next step, not just a red/yellow/green cell.
+![knav in use](docs/demo.gif)
 
-Built in Rust: `ratatui` for rendering, `kube-rs` for the Kubernetes API
-client, `tokio` for async (watches/reflectors so views update live instead
-of polling).
+## What it does
 
-## Why this, given what already exists
+| | |
+| --- | --- |
+| ![Home](docs/home.png) | **Home** shows cluster load, the latest events and every kind with its live count. `H` gets you back from anywhere. |
+| ![Sidebar](docs/sidebar.png) | **Browse sidebar** (`b` or `m`): every category and kind, custom resources included, with counts. `Shift-←` gives it the keys; `a` folds every category. |
+| ![Pods](docs/pods.png) | **Lists** with the columns you would get from `kubectl get -o wide`, sorted by any column (`s` then a digit, or `A` for age), searched with `/`, narrowed with `0`-`9` namespace keys. |
+| ![Info](docs/info.png) | **Info panel** (`i`): a readable summary that follows the selection: status, containers, volumes, conditions, events. Roles list their rules, Secrets are decoded. |
+| ![Related](docs/related.png) | **Related** (`R`): what provides to, and depends on, the selected object, as a diagram you can walk (`Space` follows, `m` copies it as Mermaid). |
+| ![API resources](docs/api.png) | **API resources** (`:api`): every type the server has, with how many objects each holds, so a type is never opened blind. Any of them opens with the server's own columns. |
 
-See `TODO.md` for the full prior-art research — several serious, mature
-tools already cover pieces of this. This project only makes sense if it
-either (a) actually nails the hierarchy-nav + diagnosis combo nobody's
-merged yet, or (b) is worth building anyway as a Rust/ratatui/kube-rs
-learning project regardless of competition. Worth being honest with
-ourselves about which of those it is as it develops.
+## Built for big clusters
 
-## Status
+Thousands of pods, hundreds of CRDs (Crossplane, Upbound), a cluster far away:
 
-Working: a live, k9s-style browser for a cluster, with a Freelens-style set of
-columns per resource kind. Read-write (edit with `e`); no delete/scale yet.
+- The screen opens with a loading step list at once, while pods, deployments, nodes, events and
+  API discovery all load side by side.
+- Each watched kind is kept sorted with its rows built once; a watch event touches only its own
+  entry. At 100k pods a change costs about 0.02 ms, a search 8 ms and a sort 3 ms.
+- Discovery is two requests, not one per API group; custom resources come from a paged name list.
+- Type lists follow a watch instead of being read again every few seconds, and object counts are
+  fetched only for the types on screen.
+- Anything slow (a delete, a shell, fetching a big object) runs in the background, never freezing the UI.
 
-## Running
+## Install
+
+There are no packages yet, so build it (Rust 1.85 or newer):
 
 ```
-cargo run -- [-c|--context <name>]
+git clone https://github.com/guilhermemcandido/knav
+cd knav
+cargo install --path .
+knav                      # uses your current kubeconfig context
+knav -c prod              # fuzzy-matches a context by name
 ```
 
-It checks the cluster is reachable and says so cleanly if not. `-c` fuzzy-matches
-a kubeconfig context and connects straight to it.
+It needs a kubeconfig with access to a cluster. `kubectl` is only needed for port-forwards and the
+shell (`F`, `S` on a pod).
+
+## Try it
+
+```
+:pods            open a list (any resource the cluster serves: :svc, :leases, a custom resource...)
+/text            filter the list (fuzzy)
+i                the info panel of the selected row
+R                what is related to it
+l                its logs (p: the previous run's)
+y                the YAML;  e  edit it in $EDITOR;  D  delete (asks first)
+:api             every resource type, with counts
+b                the sidebar
+?                every key for the screen you are on
+```
 
 ## Keys
 
@@ -83,10 +104,6 @@ selects a row, a double-click opens it, and clicking a tile on Home selects it.
 
 The bottom bar shows where you are (`Deployment[web]>>ReplicaSets>>...`) and
 the selected row's status, with a green or yellow dot for ready counts.
-
-## Opening a cluster
-
-knav shows a loading screen (wordmark, the context and a step list) while the first lists and API discovery arrive, all started at once. It stays up for at least a second and a half so it can be seen (any key skips it once everything is in); `q` quits from it. Type lists opened with `:api` or from the sidebar follow the server with a watch instead of being read again every few seconds, so even a type with 100k objects stays current.
 
 ## Config
 
