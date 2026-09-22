@@ -111,12 +111,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // Nodes have their own rows (CPU/Memory in the list). They are filtered here so
         // the handlers indexing into `sorted_nodes` match what is displayed.
         // Every pod counts toward its node's PODS, whatever the list is narrowed to.
-        let mut pods_per_node: HashMap<&str, usize> = HashMap::new();
-        for (pod, _) in all_pods.iter() {
-            if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.as_deref()) {
-                *pods_per_node.entry(node).or_default() += 1;
-            }
-        }
+        let pods_per_node = pods_per_node(&all_pods);
         let mut node_pairs: Vec<(std::sync::Arc<Node>, k8s::NodeRow)> = k8s::snapshot_generic(node_store)
             .into_iter()
             .filter(|n| row_matches(&search, &n.metadata.name.clone().unwrap_or_default()))
@@ -171,16 +166,17 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
     } else {
         catalog.resolve(current_kind, client).map(|k| k.rows()).unwrap_or_default()
     };
-        let mut generic_visible: Vec<usize> = (0..generic_rows_full.len())
-            .filter(|&i| {
-                let row = &generic_rows_full[i];
-                // Cluster-scoped rows (namespace "-") are never hidden by a namespace.
-                ns_filter.is_none_or(|ns| row.namespace == "-" || row.namespace == ns)
-                    && scope.is_none_or(|s| s.matches_row(row))
-            })
-            .filter(|&i| generic_matches(&search, &generic_rows_full[i]))
-            .filter(|&i| !faults || matches!(&generic_rows_full[i].status, Some((crate::k8s::describe::Tone::Warn | crate::k8s::describe::Tone::Bad, _))))
-            .collect();
+        // Checked across the cores: a fuzzy search over 100k rows is the slow part.
+        let candidates: Vec<usize> = (0..generic_rows_full.len()).collect();
+        let keep = k8s::par_map(&candidates, |&i| {
+            let row = &generic_rows_full[i];
+            // Cluster-scoped rows (namespace "-") are never hidden by a namespace.
+            (ns_filter.is_none_or(|ns| row.namespace == "-" || row.namespace == ns))
+                && scope.is_none_or(|s| s.matches_row(row))
+                && generic_matches(&search, row)
+                && (!faults || matches!(&row.status, Some((crate::k8s::describe::Tone::Warn | crate::k8s::describe::Tone::Bad, _))))
+        });
+        let mut generic_visible: Vec<usize> = candidates.into_iter().zip(keep).filter(|(_, keep)| *keep).map(|(i, _)| i).collect();
         // Whether the table will show a namespace column, decides which
         // sort column is which.
         let generic_has_namespace = generic_visible.iter().any(|&i| generic_rows_full[i].namespace != "-");
@@ -218,6 +214,34 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let (crd_rows, crd_counts): (Vec<(usize, k8s::CrdInfo)>, Vec<k8s::Count>) = with_counts.into_iter().unzip();
 
     Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts }
+}
+
+/// How many pods each node runs, counted on several threads for big clusters.
+fn pods_per_node(pods: &[k8s::Item<Pod, k8s::PodRow>]) -> HashMap<&str, usize> {
+    fn count(part: &[k8s::Item<Pod, k8s::PodRow>]) -> HashMap<&str, usize> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for (pod, _) in part {
+            if let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.as_deref()) {
+                *counts.entry(node).or_default() += 1;
+            }
+        }
+        counts
+    }
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
+    if pods.len() < 20_000 || threads == 1 {
+        return count(pods);
+    }
+    let parts: Vec<HashMap<&str, usize>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = pods.chunks(pods.len().div_ceil(threads)).map(|part| scope.spawn(|| count(part))).collect();
+        workers.into_iter().map(|w| w.join().expect("count worker panicked")).collect()
+    });
+    let mut total = HashMap::new();
+    for part in parts {
+        for (node, n) in part {
+            *total.entry(node).or_default() += n;
+        }
+    }
+    total
 }
 
 /// The last derivation and what it was made from, so idle iterations (a mouse move,
@@ -316,6 +340,13 @@ mod bench {
         let visible: Vec<usize> = (0..rows.len()).collect();
         let cloned: Vec<k8s::GenericRow> = visible.iter().map(|&i| rows[i].clone()).collect();
         println!("clone of all rows            {:?}", t.elapsed());
+        let t = Instant::now();
+        let serial = rows.iter().filter(|r| generic_matches("cm-9", r)).count();
+        println!("search 100k rows (serial)    {:?}", t.elapsed());
+        let t = Instant::now();
+        let parallel = k8s::par_map(&rows, |r| generic_matches("cm-9", r)).into_iter().filter(|k| *k).count();
+        println!("search 100k rows (parallel)  {:?}", t.elapsed());
+        assert_eq!(serial, parallel);
         assert_eq!(rows2.len() + cloned.len(), 200_000);
     }
 
@@ -349,6 +380,9 @@ mod bench {
         let t = Instant::now();
         let kept_rows = k8s::par_map(&all, |(p, _)| meta_matches("web-9", &p.metadata)).into_iter().filter(|k| *k).count();
         println!("fuzzy search ({kept_rows})            {:?}", t.elapsed());
+        let t = Instant::now();
+        let per_node = pods_per_node(&all);
+        println!("pods per node ({})            {:?}", per_node.len(), t.elapsed());
         let t = Instant::now();
         kept.items();
         println!("nothing changed                {:?}", t.elapsed());

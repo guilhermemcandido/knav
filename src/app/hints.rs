@@ -64,7 +64,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("0-9", "namespace"));
             hints.push(("s", "sort"));
             hints.push(("/", "search"));
-            hints.push(("m", "resources"));
+            hints.push(("b/m", "sidebar"));
             hints.push(("C", "contexts"));
             hints.push(("T", "themes"));
             hints.push((",", "settings"));

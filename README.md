@@ -86,7 +86,7 @@ the selected row's status, with a green or yellow dot for ready counts.
 
 ## Opening a cluster
 
-knav shows a loading screen (wordmark, the context and a step list) while the first lists and API discovery arrive, all started at once; `q` quits from it. Type lists opened with `:api` or from the sidebar follow the server with a watch instead of being read again every few seconds, so even a type with 100k objects stays current.
+knav shows a loading screen (wordmark, the context and a step list) while the first lists and API discovery arrive, all started at once. It stays up for at least a second and a half so it can be seen (any key skips it once everything is in); `q` quits from it. Type lists opened with `:api` or from the sidebar follow the server with a watch instead of being read again every few seconds, so even a type with 100k objects stays current.
 
 ## Config
 

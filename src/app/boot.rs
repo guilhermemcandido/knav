@@ -5,6 +5,8 @@ use futures::FutureExt;
 
 /// Waiting longer than this for a step gets a hint on the screen.
 const SLOW: Duration = Duration::from_secs(10);
+/// The screen stays at least this long, even when everything is in, so it can be seen (any key skips it).
+const MIN_SHOW: Duration = Duration::from_millis(1500);
 /// After this long the app opens anyway, with whatever has loaded (a list that is forbidden never arrives).
 const GIVE_UP: Duration = Duration::from_secs(45);
 
@@ -45,7 +47,7 @@ pub(crate) async fn wait(
         }
         let steps = [("Connected", true), ("API types", discovered), ("Pods", ready(stores.0)), ("Deployments", ready(stores.1)), ("Nodes", ready(stores.2))];
         let waiting: Vec<String> = steps.iter().filter(|(_, done)| !done).map(|(label, _)| label.to_lowercase()).collect();
-        if waiting.is_empty() || started.elapsed() > GIVE_UP {
+        if started.elapsed() > GIVE_UP || (waiting.is_empty() && started.elapsed() >= MIN_SHOW) {
             return Ok(Boot::Ready);
         }
         let hint = (started.elapsed() > SLOW).then(|| format!("Still waiting for {}", waiting.join(", ")));
@@ -54,9 +56,14 @@ pub(crate) async fn wait(
         if event::poll(Duration::from_millis(80))?
             && let Event::Key(key) = event::read()?
             && key.kind == event::KeyEventKind::Press
-            && (matches!(key.code, KeyCode::Char('q' | 'Q')) || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)))
         {
-            return Ok(Boot::Quit);
+            if matches!(key.code, KeyCode::Char('q' | 'Q')) || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+                return Ok(Boot::Quit);
+            }
+            // Any other key skips the wait for the screen's own sake once everything is in.
+            if waiting.is_empty() {
+                return Ok(Boot::Ready);
+            }
         }
     }
 }

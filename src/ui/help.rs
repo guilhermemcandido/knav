@@ -10,7 +10,7 @@ pub(super) struct Section {
 }
 
 const NAVIGATION_KEYS: [&str; 5] = ["↑↓", "g/G", "hjkl", "←↑↓→", "jk"];
-const GENERAL_KEYS: [&str; 11] = ["?", "n", "0-9", "s", "A", "/", "m", "C", "q/esc", "esc", "space"];
+const GENERAL_KEYS: [&str; 12] = ["?", "n", "0-9", "s", "A", "/", "m", "b/m", "C", "q/esc", "esc", "space"];
 
 /// Splits the screen's own `hints` (see `mode::hints_for`) into the help
 /// columns and adds the keys that work everywhere.
@@ -54,7 +54,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 entries: vec![
                     shown(":cmd", "command", "Command mode"),
                     shown("n", "namespaces", "Namespaces"),
-                    shown("b", "browse", "Show or hide the resource sidebar"),
+                    shown("b / m", "menu", "Show or hide the sidebar (Shift-← focuses it)"),
                     shown("C", "contexts", "Contexts"),
                     shown("T", "themes", "Themes"),
                     shown(",", "settings", "Settings"),
@@ -79,7 +79,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown("s", "sort", "Sort by column"),
                 shown("A", "age", "Sort by age"),
                 shown("n", "namespaces", "Namespaces"),
-                shown("b", "browse", "Show or hide the resource sidebar"),
+                shown("b / m", "menu", "Show or hide the sidebar (Shift-← focuses it)"),
                 shown("C", "contexts", "Contexts"),
                 shown("T", "themes", "Themes"),
                 shown(",", "settings", "Settings"),
@@ -175,5 +175,13 @@ mod tests {
         let slots = [Some("kube-system".to_string()), None, Some("shop".to_string())];
         let hotkeys = &help_sections(&[], &slots)[3];
         assert_eq!(hotkeys.entries, [("0".to_string(), "All namespaces".to_string()), ("1".to_string(), "kube-system".to_string()), ("3".to_string(), "shop".to_string())]);
+    }
+
+    #[test]
+    fn the_sidebar_key_is_listed_with_both_of_its_keys() {
+        for hints in [&[][..], &[("enter", "open")][..]] {
+            let sections = help_sections(hints, &[]);
+            assert!(sections[1].entries.iter().any(|(k, what)| k == "b / m" && what.contains("sidebar")));
+        }
     }
 }

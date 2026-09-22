@@ -45,7 +45,8 @@ where
     let feed = Arc::new(Feed::default());
     let noted = Arc::clone(&feed);
     // After the reflector, so a queued key always finds its object in the store.
-    let stream = watcher(api, watcher::Config::default()).default_backoff().reflect(writer).inspect(move |event| {
+    // managedFields are often a third to a half of an object and nothing here shows them.
+    let stream = watcher(api, watcher::Config::default()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer).inspect(move |event| {
         if let Ok(event) = event {
             noted.note(event);
         }
