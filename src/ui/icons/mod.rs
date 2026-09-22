@@ -157,3 +157,22 @@ impl IconCache {
         }
     }
 }
+
+#[cfg(test)]
+mod debug_dump {
+    use super::*;
+
+    /// Not a real test: dumps a few icons to PNG at full res and at a tile's rough
+    /// resolution, to inspect by eye. `cargo test dump_icons -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn dump_icons() {
+        for kind in [ResourceKind::Pods, ResourceKind::Nodes, ResourceKind::ConfigMaps, ResourceKind::Services, ResourceKind::Deployments] {
+            let (key, svg) = icon_asset(kind);
+            let full = rasterize(svg, 1.0).unwrap();
+            full.save(format!("/tmp/icon-{key}-full.png")).unwrap();
+            let tiny = full.resize_exact(8, 16, image::imageops::FilterType::Lanczos3);
+            tiny.save(format!("/tmp/icon-{key}-tile.png")).unwrap();
+        }
+    }
+}

@@ -49,6 +49,9 @@ pub(super) struct State {
     /// How to get back out of a drill-down, one level per entry: the kind,
     /// scope and selected row we came from.
     pub nav_stack: Vec<(ResourceKind, Option<Scope>, usize)>,
+    /// A mode (e.g. Relations) to restore once `nav_stack` runs out, for a jump into the
+    /// list from somewhere that isn't itself a list, so `q`/`Esc` end up back there.
+    pub list_back: Option<Box<Mode>>,
     /// The list's sort column/direction (`s` then a column number).
     pub sort: Option<SortSpec>,
     /// Whether the next digit is choosing a sort column.
@@ -132,6 +135,7 @@ impl State {
             namespace: None,
             scope: None,
             nav_stack: Vec::new(),
+            list_back: None,
             sort: None,
             sort_choosing: false,
             sort_cursor: 0,
@@ -248,6 +252,7 @@ impl State {
         self.current_kind = kind;
         self.scope = None;
         self.nav_stack.clear();
+        self.list_back = None;
         self.sort = None;
         self.hscroll = 0;
         self.table_state.select(Some(0));

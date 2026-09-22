@@ -9,8 +9,8 @@ pub(in crate::ui) fn draw_settings(frame: &mut Frame, tab: SettingsTab, rows: &[
     frame.render_widget(Clear, area);
     let bottom = match error {
         Some(e) => Line::styled(format!(" {e} "), Style::default().fg(theme().bad)),
-        None if tab == SettingsTab::Overview => Line::styled(" J/K move   space show/hide   r reset   tab next   esc close ", Style::default().fg(theme().muted)).right_aligned(),
-        None => Line::styled(" ←→ change   enter edit   r reset   tab next   esc close ", Style::default().fg(theme().muted)).right_aligned(),
+        None if tab == SettingsTab::Overview => hint_strip(&[("J/K", "move"), ("space", "show/hide"), ("r", "reset"), ("tab", "next"), ("esc", "close")]).right_aligned(),
+        None => hint_strip(&[("←→", "change"), ("enter", "edit"), ("r", "reset"), ("tab", "next"), ("esc", "close")]).right_aligned(),
     };
     let block = Block::default()
         .borders(Borders::ALL)

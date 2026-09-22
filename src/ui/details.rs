@@ -106,7 +106,7 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(pill_title(title, false, theme_border(false)))
-        .title_bottom(Line::styled(" ↑↓←→ scroll   enter open list   y yaml   esc close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(hint_strip(&[("g/G", "top/bottom"), ("enter", "open list"), ("y", "yaml"), ("q/esc", "close")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
@@ -173,7 +173,14 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
         .border_set(border_set())
         .border_style(if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) })
         .title(pill_title(&panel.title, false, if panel.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(false) }))
-        .title_bottom(Line::styled(if panel.focused { " ↑↓←→ scroll   enter full screen   shift-← list   i close " } else { " shift-→ focus   i close " }, Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(
+            if panel.focused {
+                hint_strip(&[("enter", "full screen"), ("shift-←", "list"), ("i", "close")])
+            } else {
+                hint_strip(&[("shift-→", "focus"), ("i", "close")])
+            }
+            .right_aligned(),
+        );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let padded = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };

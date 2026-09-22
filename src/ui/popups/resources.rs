@@ -11,7 +11,7 @@ pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crat
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(pill_title(&format!("Related to {title}"), false, theme_border(false)))
-        .title_bottom(Line::styled(" ←↑↓→ move   enter info   o open list   space follow   backspace back   esc close ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(hint_strip(&[("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("m", "copy as Mermaid"), ("q/esc", "close")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if graph.nodes.len() <= 1 {

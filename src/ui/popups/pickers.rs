@@ -189,7 +189,7 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app:
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(pill_title(&format!("Themes ({})", entries.len()), false, theme_border(false)))
-        .title_bottom(Line::styled(" enter keeps  ·  esc cancels ", Style::default().fg(theme().muted)).right_aligned());
+        .title_bottom(hint_strip(&[("enter", "keeps"), ("esc", "cancels")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     // The first two colours are the theme's background and text, which the live

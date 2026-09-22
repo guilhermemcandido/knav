@@ -113,6 +113,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 st.search.clear();
             }
+            // A jump into the list from somewhere else (Relations' `o`) leaves this to
+            // return to once the drill-down itself is exhausted.
+            KeyCode::Char('q') | KeyCode::Esc if st.list_back.is_some() => {
+                if let Some(back) = st.list_back.take() {
+                    st.mode = *back;
+                }
+            }
             KeyCode::Char('q') | KeyCode::Esc => {
                 st.current_kind = match st.current_kind {
                     ResourceKind::CustomResource(index, _) => catalog

@@ -19,7 +19,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         let mut restore = false;
         match event {
             Event::Key(key) => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => close = true,
+                KeyCode::Char('q') => close = true,
+                // Esc steps back through what Space followed, same as Backspace; only
+                // closes once there is nothing left to step back through.
+                KeyCode::Esc if !previous.is_empty() => restore = true,
+                KeyCode::Esc => close = true,
                 KeyCode::Left | KeyCode::Char('h') => go(ui::Move::Left, selected),
                 KeyCode::Right | KeyCode::Char('l') => go(ui::Move::Right, selected),
                 KeyCode::Up | KeyCode::Char('k') => go(ui::Move::Up, selected),
@@ -91,9 +95,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
     }
     if let Some((kind, namespace, name)) = open {
-        // Back at the list the way the owner jump does, so Esc returns to where this began.
-        st.mode = Mode::List;
+        // The diagram itself (not just the list it came from) is what q/Esc should end up
+        // back at, once the jumped-to list's own drill-down history is exhausted.
+        st.list_back = Some(Box::new(std::mem::replace(&mut st.mode, Mode::List)));
         st.jump_to_object(kind, namespace.as_deref(), &name);
+        // `jump_to_object` also pushes the pre-Relations list onto the drill-down stack;
+        // `list_back` is what should be returned to instead, so drop that entry.
+        st.nav_stack.pop();
     }
     Ok(None)
 }

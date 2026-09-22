@@ -371,3 +371,22 @@ pub(super) fn pill_title(title: &str, dimmed: bool, border: Style) -> Line<'stat
 pub(super) fn pill_title_centered(title: &str, dimmed: bool) -> Line<'static> {
     Line::from(pill_spans(title, dimmed)).centered()
 }
+
+/// A box's own key hints, set in its bottom border: `<key>` bold and coloured so it stands
+/// out from its muted description, e.g. `<o> open list`. Movement (arrows, hjkl) is left out,
+/// since it is assumed everywhere.
+pub(super) fn hint_strip(hints: &[(&str, &str)]) -> Line<'static> {
+    let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(theme().desc);
+    let mut spans = vec![Span::raw(" ")];
+    for (i, (key, what)) in hints.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("   "));
+        }
+        spans.push(Span::styled(format!("<{key}>"), key_style));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled((*what).to_string(), desc_style));
+    }
+    spans.push(Span::raw(" "));
+    Line::from(spans)
+}
