@@ -12,6 +12,49 @@ pub(super) struct View {
 
 const HISTORY_LIMIT: usize = 50;
 
+/// One step `q`/`Esc` undoes, in the order taken: a list drilled into (its kind, scope
+/// and selection to return to), or a whole other mode (Relations, Details, ...) left
+/// behind by a jump into a fresh list, with the list's own fields as they stood right
+/// before the jump so those come back too, not just the mode. One stack for both, so
+/// they unwind in the order they actually happened, however they interleave.
+pub(crate) enum Step {
+    List(ResourceKind, Option<Scope>, usize),
+    Mode(Box<Mode>, ListSnapshot),
+}
+
+/// Enough of the list's state to put it back exactly as it was before a jump away from it.
+pub(crate) struct ListSnapshot {
+    pub kind: ResourceKind,
+    pub scope: Option<Scope>,
+    pub search: String,
+    pub sort: Option<SortSpec>,
+    pub hscroll: usize,
+    pub selected: usize,
+}
+
+impl State {
+    pub(crate) fn list_snapshot(&self) -> ListSnapshot {
+        ListSnapshot {
+            kind: self.current_kind,
+            scope: self.scope.clone(),
+            search: self.search.clone(),
+            sort: self.sort,
+            hscroll: self.hscroll,
+            selected: self.table_state.selected().unwrap_or(0),
+        }
+    }
+
+    /// Restores what `list_snapshot` captured.
+    pub(crate) fn restore_list(&mut self, snap: ListSnapshot) {
+        self.current_kind = snap.kind;
+        self.scope = snap.scope;
+        self.search = snap.search;
+        self.sort = snap.sort;
+        self.hscroll = snap.hscroll;
+        self.table_state.select(Some(snap.selected));
+    }
+}
+
 pub(super) struct State {
     /// The config as it stands now: the config screen edits it while knav runs.
     pub config: Config,
@@ -46,12 +89,9 @@ pub(super) struct State {
     /// What the current list is drilled into (a Deployment's ReplicaSets,
     /// a Service's Pods, ...).
     pub scope: Option<Scope>,
-    /// How to get back out of a drill-down, one level per entry: the kind,
-    /// scope and selected row we came from.
-    pub nav_stack: Vec<(ResourceKind, Option<Scope>, usize)>,
-    /// A mode (e.g. Relations) to restore once `nav_stack` runs out, for a jump into the
-    /// list from somewhere that isn't itself a list, so `q`/`Esc` end up back there.
-    pub list_back: Option<Box<Mode>>,
+    /// How to get back out of a drill-down or a detour into another mode, `q`/`Esc`
+    /// undoing one entry at a time in the order they happened.
+    pub back_stack: Vec<Step>,
     /// The list's sort column/direction (`s` then a column number).
     pub sort: Option<SortSpec>,
     /// Whether the next digit is choosing a sort column.
@@ -134,8 +174,7 @@ impl State {
             current_kind: ResourceKind::Overview,
             namespace: None,
             scope: None,
-            nav_stack: Vec::new(),
-            list_back: None,
+            back_stack: Vec::new(),
             sort: None,
             sort_choosing: false,
             sort_cursor: 0,
@@ -189,7 +228,7 @@ impl State {
         self.last_view = Some(self.here());
         self.current_kind = view.kind;
         self.scope = view.scope;
-        self.nav_stack.clear();
+        self.back_stack.clear();
         self.sort = None;
         self.hscroll = 0;
         self.table_state.select(Some(0));
@@ -230,7 +269,7 @@ impl State {
     /// Goes to `kind` filtered to `search`, remembering where it came from so Esc returns.
     pub fn jump_to(&mut self, kind: ResourceKind, search: String) {
         let selected = self.table_state.selected().unwrap_or(0);
-        self.nav_stack.push((self.current_kind, self.scope.take(), selected));
+        self.back_stack.push(Step::List(self.current_kind, self.scope.take(), selected));
         self.current_kind = kind;
         self.sort = None;
         self.hscroll = 0;
@@ -251,8 +290,7 @@ impl State {
     pub fn switch_kind(&mut self, kind: ResourceKind) {
         self.current_kind = kind;
         self.scope = None;
-        self.nav_stack.clear();
-        self.list_back = None;
+        self.back_stack.clear();
         self.sort = None;
         self.hscroll = 0;
         self.table_state.select(Some(0));
@@ -287,7 +325,7 @@ mod tests {
     fn switching_kind_clears_drill_down_sort_scroll_and_search() {
         let mut st = state();
         st.scope = Some(Scope::Namespace { name: "kube-system".into() });
-        st.nav_stack.push((ResourceKind::Deployments, None, 2));
+        st.back_stack.push(Step::List(ResourceKind::Deployments, None, 2));
         st.sort = Some(SortSpec::pressed(None, 1));
         st.hscroll = 3;
         st.search = "core".into();
@@ -296,7 +334,7 @@ mod tests {
         st.switch_kind(ResourceKind::Services);
 
         assert_eq!(st.current_kind, ResourceKind::Services);
-        assert!(st.scope.is_none() && st.nav_stack.is_empty() && st.sort.is_none());
+        assert!(st.scope.is_none() && st.back_stack.is_empty() && st.sort.is_none());
         assert_eq!((st.hscroll, st.search.as_str(), st.table_state.selected()), (0, "", Some(0)));
     }
 

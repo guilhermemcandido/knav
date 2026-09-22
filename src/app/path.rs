@@ -1,6 +1,7 @@
 //! The breadcrumb path shown above the list.
 
 use crate::*;
+use crate::app::Step;
 
 /// The path for the path bar, oldest first, e.g. `Node[worker-1]`, `Pod[default/web-1]`,
 /// `Logs[nginx]`. Empty for the plain list and for modes that don't chain back.
@@ -84,11 +85,15 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
 
 /// Where you are, for the bottom bar: what you drilled through, then the list, e.g.
 /// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`.
-pub(crate) fn location(current_kind: ResourceKind, trail: &[(ResourceKind, Option<Scope>, usize)], scope: Option<&Scope>) -> Vec<ui::PathSegment> {
-    // Every level's scope names the thing it's inside; together they are the path.
+pub(crate) fn location(current_kind: ResourceKind, trail: &[Step], scope: Option<&Scope>) -> Vec<ui::PathSegment> {
+    // Every drilled-into level's scope names the thing it's inside; together they are the
+    // path. A detour into another mode (Relations, Details, ...) contributes nothing here.
     let mut segments: Vec<ui::PathSegment> = trail
         .iter()
-        .filter_map(|(_, sc, _)| sc.as_ref())
+        .filter_map(|step| match step {
+            Step::List(_, sc, _) => sc.as_ref(),
+            Step::Mode(..) => None,
+        })
         .chain(scope)
         .map(|sc| {
             let (kind, name) = sc.parts();

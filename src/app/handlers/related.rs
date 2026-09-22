@@ -95,13 +95,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
     }
     if let Some((kind, namespace, name)) = open {
-        // The diagram itself (not just the list it came from) is what q/Esc should end up
-        // back at, once the jumped-to list's own drill-down history is exhausted.
-        st.list_back = Some(Box::new(std::mem::replace(&mut st.mode, Mode::List)));
+        // The diagram itself is one of the steps q/Esc undoes, same as any drill-down.
+        let snap = st.list_snapshot();
+        st.back_stack.push(Step::Mode(Box::new(std::mem::replace(&mut st.mode, Mode::List)), snap));
         st.jump_to_object(kind, namespace.as_deref(), &name);
-        // `jump_to_object` also pushes the pre-Relations list onto the drill-down stack;
-        // `list_back` is what should be returned to instead, so drop that entry.
-        st.nav_stack.pop();
+        // `jump_to_object` also pushes the pre-Relations list; the step just pushed already
+        // covers getting back there, so drop that redundant entry.
+        st.back_stack.pop();
     }
     Ok(None)
 }

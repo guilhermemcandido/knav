@@ -99,27 +99,26 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             key.code
         } {
-            // `q` and Esc go back one level everywhere except the Overview: to the Overview,
-            // or to the CRD group a custom resource came from. `:q` quits.
+            // `q` and Esc undo one step: back out of a drill-down, or return to whatever
+            // mode a jump into this list (Relations' `o`, Details' Enter) left behind,
+            // in the order these actually happened. Once there is nothing left: to the
+            // Overview, or to the CRD group a custom resource came from. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
-            KeyCode::Char('q') | KeyCode::Esc if !st.nav_stack.is_empty() => {
-                // Back out of a drill-down to the list it came from.
-                if let Some((kind, previous_scope, selected)) = st.nav_stack.pop() {
+            KeyCode::Char('q') | KeyCode::Esc if !st.back_stack.is_empty() => match st.back_stack.pop() {
+                Some(Step::List(kind, previous_scope, selected)) => {
                     st.current_kind = kind;
                     st.scope = previous_scope;
                     st.sort = None;
                     st.hscroll = 0;
                     st.table_state.select(Some(selected));
+                    st.search.clear();
                 }
-                st.search.clear();
-            }
-            // A jump into the list from somewhere else (Relations' `o`) leaves this to
-            // return to once the drill-down itself is exhausted.
-            KeyCode::Char('q') | KeyCode::Esc if st.list_back.is_some() => {
-                if let Some(back) = st.list_back.take() {
-                    st.mode = *back;
+                Some(Step::Mode(mode, snap)) => {
+                    st.restore_list(snap);
+                    st.mode = *mode;
                 }
-            }
+                None => unreachable!("just checked back_stack is not empty"),
+            },
             KeyCode::Char('q') | KeyCode::Esc => {
                 st.current_kind = match st.current_kind {
                     ResourceKind::CustomResource(index, _) => catalog
@@ -164,7 +163,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }),
                 };
                 if new_scope.is_some() {
-                    st.nav_stack.push((st.current_kind, st.scope.take(), selected));
+                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), selected));
                     st.scope = new_scope;
                     st.sort = None;
                     st.hscroll = 0;

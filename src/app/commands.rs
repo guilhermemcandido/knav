@@ -209,6 +209,7 @@ pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::Step;
 
     fn top(input: &str) -> Suggestion {
         command_suggestions(input, &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
@@ -377,15 +378,15 @@ mod tests {
     fn location_names_each_drilled_thing_once_then_the_list() {
         let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into() };
         let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into() };
-        let trail = [(ResourceKind::Deployments, None, 0), (ResourceKind::ReplicaSets, Some(deployment), 1)];
+        let trail = [Step::List(ResourceKind::Deployments, None, 0), Step::List(ResourceKind::ReplicaSets, Some(deployment.clone()), 1)];
         let render = |segments: Vec<ui::PathSegment>| -> String {
             segments.into_iter().map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind }).collect::<Vec<_>>().join(">>")
         };
         assert_eq!(render(location(ResourceKind::Pods, &trail, Some(&replicaset))), "Deployment[web]>>ReplicaSet[web-5d9d]>>Pods");
-        assert_eq!(render(location(ResourceKind::ReplicaSets, &trail[..1], trail[1].1.as_ref())), "Deployment[web]>>ReplicaSets");
+        assert_eq!(render(location(ResourceKind::ReplicaSets, &trail[..1], Some(&deployment))), "Deployment[web]>>ReplicaSets");
         assert_eq!(render(location(ResourceKind::Nodes, &[], None)), "Nodes");
         let ns = Scope::Namespace { name: "kube-system".into() };
-        assert_eq!(render(location(ResourceKind::Pods, &[(ResourceKind::Namespaces, None, 0)], Some(&ns))), "Namespace[kube-system]>>Pods");
+        assert_eq!(render(location(ResourceKind::Pods, &[Step::List(ResourceKind::Namespaces, None, 0)], Some(&ns))), "Namespace[kube-system]>>Pods");
     }
 
     #[test]

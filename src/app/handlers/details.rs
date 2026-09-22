@@ -57,8 +57,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         }
     }
     if let Some((kind, namespace, name)) = open {
-        st.mode = Mode::List;
+        // The details view (and whatever it was itself opened from, via its own `back`)
+        // is one of the steps q/Esc undoes, same as any drill-down.
+        let snap = st.list_snapshot();
+        st.back_stack.push(Step::Mode(Box::new(std::mem::replace(&mut st.mode, Mode::List)), snap));
         st.jump_to_object(kind, namespace.as_deref(), &name);
+        // `jump_to_object` also pushes the pre-details list; the step just pushed already
+        // covers getting back there, so drop that redundant entry.
+        st.back_stack.pop();
     }
     if to_yaml && let Mode::Details { manifest, .. } = &st.mode {
         let title = crate::app::mode::object_title(manifest);
