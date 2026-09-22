@@ -32,18 +32,40 @@ Thousands of pods, hundreds of CRDs (Crossplane, Upbound), a cluster far away:
 
 ## Install
 
-There are no packages yet, so build it (Rust 1.85 or newer):
+**Script (macOS and Linux, Apple silicon or Intel/arm64):**
+
+```
+curl -fsSL https://raw.githubusercontent.com/guilhermemcandido/knav/main/install.sh | sh
+```
+
+Downloads the right binary from the latest [release](https://github.com/guilhermemcandido/knav/releases),
+checks its checksum, and installs it to `~/.local/bin` (set `KNAV_INSTALL_DIR` to change that, or
+`KNAV_VERSION=v0.1.0` to pin a version instead of the latest).
+
+**Manual:** download the archive for your platform from the
+[releases page](https://github.com/guilhermemcandido/knav/releases/latest), `tar xzf` it, and put
+the `knav` binary on your `PATH`.
+
+**From source** (Rust 1.85 or newer):
 
 ```
 git clone https://github.com/guilhermemcandido/knav
 cd knav
 cargo install --path .
+```
+
+Then:
+
+```
 knav                      # uses your current kubeconfig context
 knav -c prod              # fuzzy-matches a context by name
 ```
 
 It needs a kubeconfig with access to a cluster. `kubectl` is only needed for port-forwards and the
 shell (`F`, `S` on a pod).
+
+A tagged push (`git tag v0.1.0 && git push origin v0.1.0`) builds and publishes the release
+binaries for macOS (arm64, Intel) and Linux (x86_64, arm64) — see `.github/workflows/release.yml`.
 
 ## Try it
 

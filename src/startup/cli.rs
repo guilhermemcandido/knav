@@ -22,8 +22,12 @@ impl Cli {
                 }
                 "-h" | "--help" => {
                     println!(
-                        "knav [-c|--context <name>]\n\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -h, --help            show this help"
+                        "knav [-c|--context <name>]\n\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -h, --help            show this help\n  -v, --version         show the version"
                     );
+                    std::process::exit(0);
+                }
+                "-v" | "--version" => {
+                    println!("knav {}", env!("CARGO_PKG_VERSION"));
                     std::process::exit(0);
                 }
                 other => anyhow::bail!("unrecognized argument: {other} (try --help)"),
