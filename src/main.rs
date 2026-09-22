@@ -57,7 +57,7 @@ pub(crate) enum Outcome {
 }
 
 fn main() -> Result<()> {
-    let context_query = match Cli::parse(std::env::args().skip(1))? {
+    let (context_query, pick) = match Cli::parse(std::env::args().skip(1))? {
         Cli::Version => {
             println!("knav {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
@@ -67,13 +67,13 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Cli::Update { yes } => return update::run(yes),
-        Cli::Launch { context_query } => context_query,
+        Cli::Launch { context_query, pick } => (context_query, pick),
     };
 
     // Problems with the config are kept and shown in the app, since the screen clears when it starts.
     let (config, mut notes) = Config::load_reporting();
     notes.extend(settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1));
-    let mut context = resolve_context(context_query.as_deref(), &config)?;
+    let mut context = resolve_context(context_query.as_deref(), pick, &config)?;
 
     // One runtime per connected session: dropping it kills every watch and
     // log-stream task spawned against the old cluster, which switching
