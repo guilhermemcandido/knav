@@ -37,7 +37,7 @@ pub(in crate::ui) fn draw_settings(frame: &mut Frame, view: SettingsView, state:
     let help = if tab == SettingsTab::Overview {
         "Give each category its place from the left: press a number to put the selected one there, or K and J to nudge it. Space hides or shows it."
     } else if tab == SettingsTab::Extensions {
-        "Off by default: an extension only adds its category and kinds once turned on here. ACTIVE shows how many of its resource kinds this cluster actually has, found/total — 0/2 means it's on but nothing it looks for is installed here. Space or Enter toggles the selected one."
+        "Space or Enter toggles the selected one, off by default. ACTIVE is found/total: how many of its resource kinds this cluster has installed."
     } else {
         state.selected().and_then(|i| rows.get(i)).map(|r| r.help).unwrap_or("")
     };
