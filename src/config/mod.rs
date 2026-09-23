@@ -210,6 +210,14 @@ impl Default for UiConfig {
     }
 }
 
+/// Which extensions (see `crate::extensions`) are turned on, by id. An
+/// extension is inert data until its id is here.
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct ExtensionsConfig {
+    pub enabled: Vec<String>,
+}
+
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct Config {
@@ -223,6 +231,7 @@ pub struct Config {
     pub mouse: MouseConfig,
     pub api: ApiConfig,
     pub overview: OverviewConfig,
+    pub extensions: ExtensionsConfig,
     /// Key bindings by action id; each is one key or a list (see `keymap`).
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,

@@ -1,5 +1,6 @@
 //! The resource catalog: one live watch per built-in kind, plus lazily-watched CRDs.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 use crate::*;
@@ -32,6 +33,9 @@ pub(crate) struct Catalog {
     pub(crate) counts: k8s::InstanceCounts,
     counter: Option<k8s::Counter>,
     api_tables: HashMap<usize, k8s::TableKind>,
+    /// Every loaded extension (bundled and from `~/.config/knav/extensions/`),
+    /// enabled or not; `sections` only uses the enabled ones.
+    pub(crate) extensions: crate::extensions::Registry,
 }
 
 impl Catalog {
@@ -85,6 +89,7 @@ impl Catalog {
             counter: None,
             apis: Vec::new(),
             api_tables: HashMap::new(),
+            extensions: crate::extensions::Registry::load(&crate::config::Config::dir()),
         }
     }
 
@@ -183,9 +188,11 @@ impl Catalog {
     }
 
     /// Merges in the live-reflector counts for Pods/Deployments so
-    /// callers get one complete catalog instead of two partial ones.
-    pub(crate) fn sections(&self, pod_count: usize, deployment_count: usize) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
-        vec![
+    /// callers get one complete catalog instead of two partial ones, plus
+    /// one section per category an enabled extension asked for (see
+    /// `extension_sections`), for CRD kinds the cluster actually has.
+    pub(crate) fn sections(&self, pod_count: usize, deployment_count: usize, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
+        let mut sections = vec![
             (
                 "Cluster",
                 vec![("Nodes", self.count(ResourceKind::Nodes)), ("Namespaces", self.count(ResourceKind::Namespaces)), ("API Resources", self.apis.len())],
@@ -245,7 +252,41 @@ impl Catalog {
                     .chain(self.crd_groups().into_iter().map(|group| (group, self.crds.iter().filter(|c| c.group == group).count())))
                     .collect(),
             ),
-        ]
+        ];
+        // Ahead of "Custom Resources", not after: an extension's whole point is
+        // giving its kinds a real home instead of that catch-all picker, so it
+        // should read as a peer of Cluster/Workloads/..., not a straggler past it.
+        let custom_resources = sections.pop().expect("Custom Resources is always pushed above");
+        sections.extend(self.extension_sections(extensions_enabled));
+        sections.push(custom_resources);
+        sections
+    }
+
+    /// One section per distinct category an enabled extension declared, listing
+    /// only the kinds among them that the cluster actually has installed (an
+    /// extension whose CRD isn't present contributes nothing, not an error).
+    /// Counts come from the same background instance-counter the Custom
+    /// Resources/API pickers use, so opening one doesn't start a new watch.
+    fn extension_sections(&self, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
+        let mut by_category: BTreeMap<&'static str, Vec<(&'static str, usize)>> = BTreeMap::new();
+        for ext_kind in self.extensions.enabled_kinds(extensions_enabled) {
+            let Some(crd) = self.crds.iter().find(|c| c.group == ext_kind.group && c.kind == ext_kind.kind) else { continue };
+            let category = k8s::leak(&ext_kind.category);
+            let count = self.counts.get(crd.group, &crd.plural).known_or(0);
+            by_category.entry(category).or_default().push((crd.kind, count));
+        }
+        by_category.into_iter().collect()
+    }
+
+    /// Extension kinds are counted the same lazy, budgeted way as any other
+    /// CRD type: only while something wants them. The Overview always wants
+    /// them, so they don't sit at "…" on the one screen most people leave open.
+    pub(crate) fn want_extension_counts(&self, extensions_enabled: &[String]) -> Vec<String> {
+        self.extensions
+            .enabled_kinds(extensions_enabled)
+            .filter_map(|ext_kind| self.crds.iter().find(|c| c.group == ext_kind.group && c.kind == ext_kind.kind))
+            .map(|crd| k8s::count_key(crd.group, &crd.plural))
+            .collect()
     }
 
     /// Every distinct API group among the CRDs, in the order `discover_crds` sorted
@@ -261,8 +302,12 @@ impl Catalog {
     }
 
     /// Resolves an Overview tile or menu label to its `ResourceKind`: a fixed kind
-    /// first, else a discovered CRD group's tile.
+    /// first, else a discovered CRD group's tile, else one CRD kind an extension
+    /// placed directly on the Overview (matched by its own `kind`, e.g.
+    /// `Kustomization`, rather than by group like the Custom Resources picker).
     pub(crate) fn kind_for_tile_label(&self, label: &str) -> Option<ResourceKind> {
-        ResourceKind::from_label(label).or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))
+        ResourceKind::from_label(label)
+            .or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))
+            .or_else(|| self.crds.iter().position(|c| c.kind == label).map(|i| ResourceKind::CustomResource(i, self.crds[i].kind)))
     }
 }

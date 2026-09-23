@@ -145,7 +145,7 @@ pub enum Overlay<'a> {
     /// What an object relates to, one group at a time.
     Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize, zoom: usize },
     /// The settings screen.
-    Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
+    Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], extensions: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
     /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
@@ -240,16 +240,18 @@ pub enum SettingsTab {
     General,
     Keys,
     Overview,
+    Extensions,
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 3] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview];
+    pub const ALL: [SettingsTab; 4] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview, SettingsTab::Extensions];
 
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::General => "General",
             SettingsTab::Keys => "Keys",
             SettingsTab::Overview => "Layout",
+            SettingsTab::Extensions => "Extensions",
         }
     }
 
@@ -268,6 +270,21 @@ pub struct LayoutRow {
     /// Its place from the left, counting from 1.
     pub number: usize,
     pub hidden: bool,
+}
+
+/// One extension in the Extensions settings tab.
+pub struct ExtensionRow {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    /// Bundled with knav, versus added from `~/.config/knav/extensions/`.
+    pub bundled: bool,
+    /// How many of this extension's kinds the cluster actually has installed,
+    /// out of how many it declares; `None` while disabled or on an error, where
+    /// asking "does the cluster have these" isn't a meaningful question yet.
+    pub found: Option<(usize, usize)>,
+    /// Set when the manifest failed to parse; shown instead of a toggle.
+    pub error: Option<String>,
 }
 
 /// The "press a key" popup on the settings screen.
@@ -578,7 +595,9 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Details { title, sections, scroll, hscroll } => details::draw_details(frame, title, sections, scroll, hscroll),
         Overlay::Relations { title, graph, selected, zoom } => draw_relations(frame, title, graph, selected, zoom),
-        Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, tab, rows, layout, state, error, capture.as_ref()),
+        Overlay::Settings { tab, rows, layout, extensions, state, error, capture } => {
+            draw_settings(frame, popups::SettingsView { tab, rows, layout, extensions, error, capture: capture.as_ref() }, state)
+        }
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),

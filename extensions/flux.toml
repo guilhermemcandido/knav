@@ -1,0 +1,44 @@
+# Flux — GitOps reconciliation status, view-only.
+# Bundled with knav, off by default; enable in Settings > Extensions.
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "flux"
+name = "Flux"
+description = "Kustomizations, HelmReleases and sources, with reconciliation status"
+
+[[extension.kind]]
+group = "kustomize.toolkit.fluxcd.io"
+kind = "Kustomization"
+category = "GitOps"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "helm.toolkit.fluxcd.io"
+kind = "HelmRelease"
+category = "GitOps"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "source.toolkit.fluxcd.io"
+kind = "GitRepository"
+category = "GitOps"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "source.toolkit.fluxcd.io"
+kind = "OCIRepository"
+category = "GitOps"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"

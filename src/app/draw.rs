@@ -14,6 +14,7 @@ pub(super) struct View<'a> {
     pub node_rows: &'a [k8s::NodeRow],
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],
+    pub extensions: &'a [extensions::Loaded],
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
@@ -38,7 +39,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -147,7 +148,20 @@ pub(super) fn draw_mode(
                     } else {
                         Vec::new()
                     };
-                    let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, state, error: error.as_deref(), capture: capture_view };
+                    let extension_rows: Vec<ui::ExtensionRow> = if *tab == ui::SettingsTab::Extensions {
+                        extensions
+                            .iter()
+                            .map(|l| {
+                                let enabled = config.extensions.enabled.iter().any(|e| e == &l.id);
+                                let found = (enabled && l.error.is_none())
+                                    .then(|| (l.kinds.iter().filter(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)).count(), l.kinds.len()));
+                                ui::ExtensionRow { name: l.name.clone(), description: l.description.clone(), enabled, bundled: l.bundled, found, error: l.error.clone() }
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, extensions: &extension_rows, state, error: error.as_deref(), capture: capture_view };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

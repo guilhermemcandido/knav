@@ -42,6 +42,8 @@ pub(super) struct Query<'a> {
     pub wide: bool,
     /// The Overview's category order and hidden entries.
     pub layout: &'a crate::config::OverviewConfig,
+    /// Ids of the enabled extensions (see `crate::extensions`).
+    pub extensions_enabled: &'a [String],
 }
 
 pub(super) struct Sources<'a> {
@@ -57,7 +59,7 @@ pub(super) struct Sources<'a> {
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
-    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // `search` only applies to the kind it was typed against (it is cleared on every
@@ -136,7 +138,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column, wide));
         }
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
-        let catalog_sections = k8s::layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len()), layout);
+        let catalog_sections = k8s::layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len(), extensions_enabled), layout);
         // Only the opened-up category view shows it, so only work it out then.
         let health = if let Mode::ColumnDetail { col, .. } = mode {
             // Health needs the objects themselves, so start watching this category's kinds.
@@ -205,8 +207,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 .collect(),
             _ => Vec::new(),
         };
-        // Lists of types show how many objects each has; the counting starts when one is opened.
-        if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
+        // Lists of types show how many objects each has; the counting starts when one is
+        // opened. The Overview starts it too, so an extension's category isn't stuck at 0.
+        if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources | ResourceKind::Overview) {
             catalog.count_instances(namespace.as_deref());
         }
         let mut with_counts: Vec<((usize, k8s::CrdInfo), k8s::Count)> = crd_rows.into_iter().map(|row| { let count = catalog.counts.get(row.1.group, &row.1.plural); (row, count) }).collect();

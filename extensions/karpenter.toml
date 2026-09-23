@@ -1,0 +1,28 @@
+# Karpenter — node provisioning status (NodePools and the NodeClaims they've
+# provisioned). Core kinds only (karpenter.sh); the cloud-specific NodeClass
+# (e.g. EC2NodeClass on AWS) isn't included since it varies by provider.
+# Bundled with knav, off by default; enable in Settings > Extensions.
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "karpenter"
+name = "Karpenter"
+description = "NodePools and the NodeClaims they've provisioned"
+
+[[extension.kind]]
+group = "karpenter.sh"
+kind = "NodePool"
+category = "Karpenter"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "karpenter.sh"
+kind = "NodeClaim"
+category = "Karpenter"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"

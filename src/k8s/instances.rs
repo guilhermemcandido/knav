@@ -32,6 +32,14 @@ impl Count {
         }
     }
 
+    /// The number to show before it's actually known.
+    pub fn known_or(self, default: usize) -> usize {
+        match self {
+            Count::Known(n) => n,
+            _ => default,
+        }
+    }
+
     /// The number to sort by; unknown counts sort first.
     pub fn sort_key(self) -> i64 {
         match self {

@@ -56,7 +56,7 @@ impl From<&CrdInfo> for ApiInfo {
 /// Strings shown as column headers or kind labels are `&'static str` all over
 /// the UI, so each distinct one is leaked once (a bounded set: the cluster's
 /// resource names and column titles).
-fn leak(text: &str) -> &'static str {
+pub(crate) fn leak(text: &str) -> &'static str {
     static INTERNED: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
     let mut map = INTERNED.get_or_init(Default::default).lock().expect("interner lock");
     if let Some(found) = map.get(text) {

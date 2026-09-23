@@ -51,7 +51,17 @@ pub(crate) fn run(
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows };
-        let query = derive::Query { current_kind: st.current_kind, namespace: st.namespace.as_deref(), scope: st.scope.as_ref(), search: &st.search, sort: st.sort, faults: st.faults_only, wide: st.wide, layout: &st.config.overview };
+        let query = derive::Query {
+            current_kind: st.current_kind,
+            namespace: st.namespace.as_deref(),
+            scope: st.scope.as_ref(),
+            search: &st.search,
+            sort: st.sort,
+            faults: st.faults_only,
+            wide: st.wide,
+            layout: &st.config.overview,
+            extensions_enabled: &st.config.extensions.enabled,
+        };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();
         let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, .. } = derived;
@@ -64,17 +74,20 @@ pub(crate) fn run(
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
             _ => generic_rows.len(),
         };
-        // Only the object counts of the types on screen (and one screen further) are fetched.
+        // Only the object counts of the types on screen (and one screen further) are fetched,
+        // plus whatever an enabled extension put on the Overview (a small, fixed set, unlike
+        // a whole picker's worth of types, so it's always worth asking for).
+        let mut wanted_counts = catalog.want_extension_counts(&st.config.extensions.enabled);
         if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
             let reach = usize::from(terminal.size().map(|s| s.height).unwrap_or(40)) * 2;
             let from = st.table_state.offset();
-            let keys: Vec<String> = if st.current_kind == ResourceKind::ApiResources {
-                generic_rows.iter().skip(from).take(reach).map(|r| k8s::count_key(r.extras.first().map_or("", |g| if g.text == "core" { "" } else { g.text.as_str() }), &r.name)).collect()
+            if st.current_kind == ResourceKind::ApiResources {
+                wanted_counts.extend(generic_rows.iter().skip(from).take(reach).map(|r| k8s::count_key(r.extras.first().map_or("", |g| if g.text == "core" { "" } else { g.text.as_str() }), &r.name)));
             } else {
-                crd_rows.iter().skip(from).take(reach).map(|(_, c)| k8s::count_key(c.group, &c.plural)).collect()
-            };
-            catalog.want_counts(keys);
+                wanted_counts.extend(crd_rows.iter().skip(from).take(reach).map(|(_, c)| k8s::count_key(c.group, &c.plural)));
+            }
         }
+        catalog.want_counts(wanted_counts);
         // Selection can't outrun the list as rows come and go. The Overview has no
         // selectable row, so this only matters for lists.
         if st.current_kind != ResourceKind::Overview && row_count > 0 {
@@ -167,6 +180,7 @@ pub(crate) fn run(
             usage: usage.as_ref(),
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,
+            extensions: &catalog.extensions.loaded,
             apis: &catalog.apis,
             favorites: &st.favorites,
             hints: &hints,
