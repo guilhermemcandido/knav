@@ -10,7 +10,7 @@ fn picker_area(frame: Rect) -> Rect {
 
 /// The `:ctx` / `C` context browser, same full-size table as the
 /// Events browser (and the same geometry, so `event_row_at` hit-tests
-/// its rows too). `/` live-filters by name.
+/// its rows too). Typing filters immediately, no `/` needed.
 pub(in crate::ui) fn draw_context_popup(
     frame: &mut Frame,
     items: &[(String, String, bool)],
@@ -46,11 +46,13 @@ pub(in crate::ui) fn draw_context_popup(
         title.push_span(Span::styled(format!("  -  {err}"), Style::default().fg(theme().bad)));
     }
 
+    let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title), filter, editing, false)
+        .title_bottom(hint_strip(&[("type", "filter"), ("↑↓", "move"), ("enter", "connect"), ("esc", "back")]).right_aligned());
     let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(false))
         .header(header)
-        .block(with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title), filter, editing, false))
+        .block(block)
         .highlight_symbol("")
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
 

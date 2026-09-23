@@ -20,17 +20,56 @@ fn style_of(style: DStyle) -> Style {
     }
 }
 
+/// `text` cut into `width`-cell pieces on whole characters, never splitting one
+/// in half.
+fn wrap_at(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut pieces = Vec::new();
+    let (mut piece, mut used) = (String::new(), 0);
+    for ch in text.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > width && !piece.is_empty() {
+            pieces.push(std::mem::take(&mut piece));
+            used = 0;
+        }
+        piece.push(ch);
+        used += w;
+    }
+    if !piece.is_empty() {
+        pieces.push(piece);
+    }
+    pieces
+}
+
 /// A run of chunks starting after `indent` cells, wrapping under that indent.
 fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut spans = first_prefix;
     let mut used = indent;
     let mut previous_chip = false;
+    // A pill wider than a whole fresh line could ever hold (a long annotation
+    // value, say) would otherwise just run off the edge forever, reached only
+    // by scrolling sideways — one giant colour bar, and no way to read the
+    // rest of it without hunting for it. Wrapped, its own background still
+    // reads as one pill; it's just not one physically impossible line.
+    let usable = width.saturating_sub(indent).max(1);
     for chunk in chunks {
         let chip = chunk.style.is_chip();
         let text = if chip { format!(" {} ", chunk.text) } else { chunk.text.clone() };
         let gap = usize::from(chip && previous_chip);
         let w = cell_width(&text);
+        if chip && w > usable {
+            if used > indent {
+                lines.push(Line::from(std::mem::take(&mut spans)));
+            }
+            for piece in wrap_at(&text, usable) {
+                lines.push(Line::from(vec![Span::raw(" ".repeat(indent)), Span::styled(piece, style_of(chunk.style))]));
+            }
+            spans = vec![Span::raw(" ".repeat(indent))];
+            used = indent;
+            previous_chip = false;
+            continue;
+        }
         // Only pills wrap; text stays on its line and is reached by scrolling sideways.
         if chip && used + gap + w > width && used > indent {
             lines.push(Line::from(std::mem::take(&mut spans)));
@@ -54,7 +93,12 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         used += w;
         previous_chip = chip;
     }
-    lines.push(Line::from(spans));
+    // Skip a final line that's nothing but the indent: the oversized-chip branch
+    // above already pushed its own real lines and left this placeholder behind
+    // in case something followed it, but nothing did.
+    if used > indent || lines.is_empty() {
+        lines.push(Line::from(spans));
+    }
     lines
 }
 
@@ -188,4 +232,59 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect) {
     let scroll = panel.scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     let hscroll = panel.hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+
+    fn chip(text: &str) -> Chunk {
+        Chunk { text: text.into(), style: DStyle::Chip }
+    }
+
+    fn pair(key: &str, value: &str) -> Chunk {
+        Chunk { text: format!("{key}={value}"), style: DStyle::PairChip }
+    }
+
+    #[test]
+    fn a_chip_that_fits_stays_on_one_line() {
+        let lines = flow(vec![Span::raw("Labels ")], 7, &[chip("role")], 40);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].width() <= 40);
+    }
+
+    #[test]
+    fn a_pill_wider_than_the_line_wraps_instead_of_running_off_the_edge() {
+        // A 40-cell-wide value: nothing this test's width (20) could ever hold on one line.
+        let long = "a".repeat(40);
+        let lines = flow(vec![Span::raw("Annotations ")], 12, &[pair("some.thing.io/key", &long)], 20);
+        assert!(lines.len() > 1, "expected the oversized pill to wrap across lines, got {}", lines.len());
+        for line in &lines {
+            assert!(line.width() <= 20, "line {line:?} is {} cells wide, wider than the 20-cell limit", line.width());
+        }
+        // Nothing of the value was dropped: every 'a' from the value shows up somewhere
+        // (can't just concatenate spans and look for the run intact, since each wrapped
+        // line's own indent padding sits between pieces of it).
+        let count = lines.iter().flat_map(|l| l.spans.iter()).flat_map(|s| s.content.chars()).filter(|&c| c == 'a').count();
+        assert_eq!(count, 40);
+    }
+
+    #[test]
+    fn an_oversized_pill_followed_by_nothing_leaves_no_stray_blank_line() {
+        let long = "b".repeat(40);
+        let lines = flow(vec![Span::raw("Labels ")], 7, &[pair("k", &long)], 20);
+        let last_has_content = lines.last().unwrap().spans.iter().any(|s| !s.content.trim().is_empty());
+        assert!(last_has_content, "trailing line should carry real content, not be blank");
+    }
+
+    #[test]
+    fn an_empty_value_pair_is_a_bare_chip_not_a_blank_pill() {
+        // What properties() does for an annotation like `objectset.rio.cattle.io/id: ""`:
+        // a short chip of just the key, not a pill stretched wide by a blank value.
+        let bare = chip("objectset.rio.cattle.io/id");
+        let lines = flow(vec![Span::raw("Annotations ")], 12, &[bare], 60);
+        assert_eq!(lines.len(), 1, "a chip that fits shouldn't wrap");
+        // The whole line is the prefix plus the key itself, nothing padded on beyond that.
+        assert_eq!(lines[0].width(), cell_width("Annotations ") + cell_width(" objectset.rio.cattle.io/id "));
+    }
 }

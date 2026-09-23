@@ -170,7 +170,10 @@ pub(crate) fn open_context_switcher(mode: &mut Mode, active_context: &str) {
         c.is_current = c.name == active_context;
     }
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Context { contexts, filter: String::new(), editing: false, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
+    // Always "editing": there's no separate typing mode here, letters filter
+    // immediately (see the Context handler), so this just keeps global
+    // shortcuts and the search-box cursor active the whole time it's open.
+    *mode = Mode::Context { contexts, filter: String::new(), editing: true, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
 }
 
 /// The key picker for `namespace`, starting on the key it already has, or

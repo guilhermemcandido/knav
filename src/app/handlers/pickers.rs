@@ -98,18 +98,22 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
             st.mode = std::mem::replace(&mut **back, Mode::List)
         }
-        (Event::Key(key), Mode::Context { filter, editing: true, state, error, .. }) => match key.code {
+        // No separate typing mode: any letter filters immediately, arrows/wheel/click
+        // scroll, same as typing into a search engine's box instead of a command
+        // line. Esc clears the filter first, then (pressed again) backs out; `q`
+        // only backs out on an empty filter, since a context can contain a 'q'.
+        (Event::Key(key), Mode::Context { contexts, filter, editing: _, state, error, sort, back }) => match key.code {
             KeyCode::Esc => {
-                filter.clear();
-                if let Mode::Context { editing, .. } = &mut st.mode {
-                    *editing = false;
+                if filter.is_empty() {
+                    st.mode = std::mem::replace(&mut **back, Mode::List);
+                } else {
+                    filter.clear();
+                    state.select(Some(0));
                 }
             }
-            KeyCode::Enter => {
-                if let Mode::Context { editing, .. } = &mut st.mode {
-                    *editing = false;
-                }
-            }
+            KeyCode::Char('q') if filter.is_empty() => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter, *sort).len()),
+            KeyCode::Down => select_next(state, filtered_contexts(contexts, filter, *sort).len()),
             KeyCode::Backspace => {
                 filter.pop();
                 state.select(Some(0));
@@ -120,13 +124,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 state.select(Some(0));
                 *error = None;
             }
-            _ => {}
-        },
-        (Event::Key(key), Mode::Context { contexts, filter, editing, state, error, sort, back }) => match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
-            KeyCode::Char('/') | KeyCode::Char('f') => *editing = true,
-            KeyCode::Char('j') | KeyCode::Down => select_next(state, filtered_contexts(contexts, filter, *sort).len()),
-            KeyCode::Char('k') | KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter, *sort).len()),
             KeyCode::Enter => {
                 let name = state.selected().and_then(|i| filtered_contexts(contexts, filter, *sort).get(i).map(|c| c.name.clone()));
                 if let Some(name) = name {
