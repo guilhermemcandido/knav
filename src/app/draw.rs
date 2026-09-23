@@ -148,20 +148,23 @@ pub(super) fn draw_mode(
                     } else {
                         Vec::new()
                     };
-                    let extension_rows: Vec<ui::ExtensionRow> = if *tab == ui::SettingsTab::Extensions {
-                        extensions
-                            .iter()
-                            .map(|l| {
-                                let enabled = config.extensions.enabled.iter().any(|e| e == &l.id);
-                                let found = (enabled && l.error.is_none())
-                                    .then(|| (l.kinds.iter().filter(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)).count(), l.kinds.len()));
-                                ui::ExtensionRow { name: l.name.clone(), description: l.description.clone(), enabled, bundled: l.bundled, found, error: l.error.clone() }
-                            })
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
-                    let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, extensions: &extension_rows, state, error: error.as_deref(), capture: capture_view };
+                    let overlay = ui::Overlay::Settings { tab: *tab, rows: &rows, layout: &layout_rows, state, error: error.as_deref(), capture: capture_view };
+                    paint(frame, None, None, Some(overlay), false);
+                })?;
+            }
+            Mode::Extensions { filter, filter_editing, state, error, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let extension_rows: Vec<ui::ExtensionRow> = crate::extensions::visible_order(extensions, filter)
+                        .into_iter()
+                        .map(|i| {
+                            let l = &extensions[i];
+                            let enabled = config.extensions.enabled.iter().any(|e| e == &l.id);
+                            let present = (enabled && l.error.is_none()).then(|| l.kinds.iter().any(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)));
+                            ui::ExtensionRow { name: l.name.clone(), description: l.description.clone(), enabled, bundled: l.bundled, present, error: l.error.clone() }
+                        })
+                        .collect();
+                    let overlay = ui::Overlay::Extensions { rows: &extension_rows, state, error: error.as_deref(), filter, filter_editing: *filter_editing };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

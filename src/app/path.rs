@@ -49,6 +49,7 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
         }
         Mode::ThemePicker { .. } => vec![plain_segment("Themes")],
         Mode::Settings { .. } => vec![plain_segment("Settings")],
+        Mode::Extensions { .. } => vec![plain_segment("Extensions")],
         Mode::Shell { title, back, .. } => {
             let mut path = mode_path(back);
             path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));

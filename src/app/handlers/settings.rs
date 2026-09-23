@@ -21,7 +21,7 @@ fn tab_settings(tab: ui::SettingsTab) -> Vec<Setting> {
         .filter(|s| match tab {
             ui::SettingsTab::General => !s.path.starts_with("keys."),
             ui::SettingsTab::Keys => s.path.starts_with("keys."),
-            ui::SettingsTab::Overview | ui::SettingsTab::Extensions => false,
+            ui::SettingsTab::Overview => false,
         })
         .collect()
 }
@@ -60,7 +60,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         let mut layout = crate::k8s::layout::resolve(&cx.config.overview);
         let len = match *tab {
             ui::SettingsTab::Overview => layout.len(),
-            ui::SettingsTab::Extensions => cx.catalog.extensions.loaded.len().max(1),
             _ => settings.len(),
         };
         let setting = state.selected().and_then(|i| settings.get(i)).cloned();
@@ -121,36 +120,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         KeyCode::Char('r') => change = Some(Change::Save(vec![("overview".to_string(), None)])),
                         _ => {}
                     }
-                }
-            }
-            // Extensions: space/enter turns the selected one on or off. Off by
-            // default; a bad manifest has no toggle, just its error shown.
-            Event::Key(key) if *tab == ui::SettingsTab::Extensions => {
-                *error = None;
-                let at = state.selected().unwrap_or(0).min(cx.catalog.extensions.loaded.len().saturating_sub(1));
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => close = true,
-                    KeyCode::Char('j') | KeyCode::Down => select_next(state, len),
-                    KeyCode::Char('k') | KeyCode::Up => select_prev(state, len),
-                    KeyCode::Char('g') | KeyCode::Home => state.select(Some(0)),
-                    KeyCode::Char('G') | KeyCode::End => state.select(Some(len.saturating_sub(1))),
-                    KeyCode::Char(' ') | KeyCode::Enter => {
-                        if let Some(loaded) = cx.catalog.extensions.loaded.get(at) {
-                            if loaded.error.is_some() {
-                                *error = Some(format!("{}: {}", loaded.id, loaded.error.as_deref().unwrap_or("")));
-                            } else {
-                                let mut enabled = cx.config.extensions.enabled.clone();
-                                match enabled.iter().position(|e| e == &loaded.id) {
-                                    Some(pos) => {
-                                        enabled.remove(pos);
-                                    }
-                                    None => enabled.push(loaded.id.clone()),
-                                }
-                                change = Some(Change::Save(vec![("extensions.enabled".to_string(), (!enabled.is_empty()).then(|| names_array(enabled)))]));
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
             // The key popup: a menu of what to do with the keys, then (to add or
@@ -285,14 +254,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             Event::Mouse(mouse) if !wheel_select(mouse.kind, state, len) && matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                let clicked = if *tab == ui::SettingsTab::Extensions {
-                    let loaded = &cx.catalog.extensions.loaded;
-                    let bundled_count = loaded.iter().take_while(|e| e.bundled).count();
-                    ui::extension_row_at(cx.frame_area, bundled_count, loaded.len(), state.offset(), mouse.row)
-                } else {
-                    ui::settings_row_at(cx.frame_area, len, state.offset(), mouse.row)
-                };
-                if let Some(index) = clicked {
+                if let Some(index) = ui::settings_row_at(cx.frame_area, len, state.offset(), mouse.row) {
                     state.select(Some(index));
                 }
             }

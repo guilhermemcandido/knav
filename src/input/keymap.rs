@@ -24,6 +24,7 @@ pub enum Screen {
     Spec,
     Yaml,
     Settings,
+    Extensions,
     Themes,
     /// Read-only popups: they only have the shared keys.
     Other,
@@ -31,11 +32,11 @@ pub enum Screen {
 
 use Screen::*;
 
-const ALL: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes, Other];
-const NAV: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Themes];
-const TABLES: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings];
+const ALL: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Extensions, Themes, Other];
+const NAV: &[Screen] = &[List, Overview, Column, Events, Namespaces, Contexts, Containers, NodeDetail, Logs, Spec, Yaml, Settings, Extensions, Themes];
+const TABLES: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail, Themes, Settings, Extensions];
 const SORTABLE: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail];
-const SEARCHABLE: &[Screen] = &[List, Events, Namespaces, Contexts, NodeDetail, Logs];
+const SEARCHABLE: &[Screen] = &[List, Events, Namespaces, Contexts, NodeDetail, Logs, Extensions];
 
 /// One bindable action.
 pub struct Binding {
@@ -57,6 +58,7 @@ bindings! {
     ("quit", "Quit knav", ALL, &["Q"]),
     ("home", "Go to Home", ALL, &["H"]),
     ("contexts", "Contexts", ALL, &["C"]),
+    ("extensions", "Extensions", ALL, &["E"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
     ("move_down", "Move down", NAV, &["j", "down"]),
@@ -239,6 +241,7 @@ pub fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<Screen> {
         Mode::Spec { viewing: None, .. } => Spec,
         Mode::Yaml { .. } => Yaml,
         Mode::Settings { editing: None, capture: None, .. } => Settings,
+        Mode::Extensions { filter_editing: false, .. } => Extensions,
         Mode::ThemePicker { .. } => Themes,
         Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::Relations { .. } | Mode::Details { .. } => Other,
         _ => return None,

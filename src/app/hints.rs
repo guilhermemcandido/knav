@@ -67,6 +67,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("/", "search"));
             hints.push(("b/m", "sidebar"));
             hints.push(("C", "contexts"));
+            hints.push(("E", "extensions"));
             hints.push(("T", "themes"));
             hints.push((",", "settings"));
             hints.push(("q/esc", "back"));
@@ -77,8 +78,8 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),
         Mode::Settings { tab: ui::SettingsTab::Overview, .. } => vec![("↑↓/jk", "move"), ("1-9", "place"), ("J/K", "nudge"), ("space", "show/hide"), ("tab", "next tab"), ("q/esc", "back")],
-        Mode::Settings { tab: ui::SettingsTab::Extensions, .. } => vec![("↑↓/jk", "move"), ("space/enter", "on/off"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
+        Mode::Extensions { .. } => vec![("↑↓/jk", "move"), ("space/enter", "on/off"), ("/", "filter"), ("q/esc", "back")],
         Mode::Details { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("enter", "open list"), ("y", "yaml"), ("q/esc", "back")],
         // The minus sign (U+2212), not a hyphen: next to the closing `>` a hyphen
         // ligatures into an arrow in fonts like Fira Code.

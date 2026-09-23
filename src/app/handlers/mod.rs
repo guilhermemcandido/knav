@@ -3,6 +3,7 @@
 //! session by returning an `Outcome`).
 
 mod command;
+mod extensions;
 mod inspect;
 mod list;
 pub(crate) use list::selected_manifest;
@@ -257,6 +258,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Confirm { .. } | Mode::Working { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
+        Mode::Extensions { .. } => extensions::handle(event, st, cx),
         Mode::Relations { .. } => related::handle(event, st, cx),
         Mode::Details { .. } => details::handle(event, st, cx),
         Mode::Spec { .. } | Mode::Yaml { .. } | Mode::Shell { .. } | Mode::Containers { .. } | Mode::NodeDetail { .. } | Mode::Logs { .. } => inspect::handle(event, st, cx),
@@ -301,6 +303,7 @@ fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<boo
             st.mode = Mode::Command { input: String::new(), selected: 0, back };
         }
         KeyCode::Char('C') => open_context_switcher(&mut st.mode, active_context),
+        KeyCode::Char('E') => extensions::open(st),
         _ => return Ok(false),
     }
     Ok(true)
@@ -356,5 +359,12 @@ mod key_tests {
     fn c_is_left_to_the_screens_that_use_it() {
         let mut st = State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default());
         assert!(!global_key(KeyCode::Char('c'), &mut st, "ctx").unwrap());
+    }
+
+    #[test]
+    fn shift_e_opens_the_extensions_browser_from_anywhere() {
+        let mut st = State::new(icons::IconCache::halfblocks(), Favorites::default(), Config::default());
+        assert!(global_key(KeyCode::Char('E'), &mut st, "ctx").unwrap());
+        assert!(matches!(st.mode, Mode::Extensions { .. }));
     }
 }

@@ -45,6 +45,11 @@ pub(crate) enum Mode {
     Notice { text: String, error: bool, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
     Settings { tab: ui::SettingsTab, settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, capture: Option<KeyCapture>, error: Option<String>, back: Box<Mode> },
+    /// The extensions browser (`E`), reachable from anywhere the same way
+    /// `C` reaches the context switcher — not a Settings tab, its own
+    /// screen. `filter`/`filter_editing` are `/` to type, Enter keeps it,
+    /// Esc clears it, same shape as `Logs`'s.
+    Extensions { filter: String, filter_editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     /// The theme list, previewing each theme live as you move through it.
     ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
@@ -149,6 +154,7 @@ pub(crate) fn owns_keys(mode: &Mode) -> bool {
         mode,
         Mode::Settings { editing: Some(_), .. }
             | Mode::Settings { capture: Some(_), .. }
+            | Mode::Extensions { filter_editing: true, .. }
             | Mode::Command { .. }
             | Mode::Search
             | Mode::Slots { .. }

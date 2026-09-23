@@ -74,6 +74,17 @@ impl Registry {
     }
 }
 
+/// The Extensions tab's display order: `loaded` narrowed to whatever
+/// fuzzy-matches `filter` on its name (everything, when `filter` is empty),
+/// bundled ones first, alphabetical by name within each group. Indexes into
+/// `loaded`, so both the tab's rows and a toggle's lookup of the actual
+/// `Loaded` it acted on come from the same list.
+pub fn visible_order(loaded: &[Loaded], filter: &str) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || crate::startup::fuzzy::positions(filter, &loaded[i].name).is_some()).collect();
+    order.sort_by_key(|&i| (!loaded[i].bundled, loaded[i].name.to_lowercase()));
+    order
+}
+
 fn from_text(fallback_id: &str, text: &str, bundled: bool) -> Loaded {
     match Manifest::parse(text) {
         Ok(m) => Loaded { id: m.extension.id, name: m.extension.name, description: m.extension.description, bundled, error: None, kinds: m.extension.kinds },
@@ -94,6 +105,26 @@ mod tests {
             assert!(loaded.error.is_none(), "{}: {:?}", loaded.id, loaded.error);
             assert!(!loaded.kinds.is_empty(), "{} declares no kinds", loaded.id);
         }
+    }
+
+    fn stub(id: &str, name: &str, bundled: bool) -> Loaded {
+        Loaded { id: id.into(), name: name.into(), description: String::new(), bundled, error: None, kinds: Vec::new() }
+    }
+
+    #[test]
+    fn bundled_sorts_first_then_external_each_alphabetical() {
+        let loaded = vec![stub("z", "Zeta", true), stub("a", "Alpha External", false), stub("k", "Karpenter", true), stub("b", "Beta External", false)];
+        let order = visible_order(&loaded, "");
+        let names: Vec<&str> = order.iter().map(|&i| loaded[i].name.as_str()).collect();
+        assert_eq!(names, ["Karpenter", "Zeta", "Alpha External", "Beta External"]);
+    }
+
+    #[test]
+    fn a_filter_narrows_by_name_and_keeps_the_grouping() {
+        let loaded = vec![stub("flux", "Flux", true), stub("argocd", "Argo CD", true), stub("mine", "My Argo Thing", false)];
+        let order = visible_order(&loaded, "argo");
+        let names: Vec<&str> = order.iter().map(|&i| loaded[i].name.as_str()).collect();
+        assert_eq!(names, ["Argo CD", "My Argo Thing"], "matches by name regardless of bundled/external");
     }
 
     #[test]

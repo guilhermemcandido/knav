@@ -145,7 +145,9 @@ pub enum Overlay<'a> {
     /// What an object relates to, one group at a time.
     Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize, zoom: usize },
     /// The settings screen.
-    Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], extensions: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
+    Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
+    /// The extensions browser (`E`): on/off, presence on this cluster, search.
+    Extensions { rows: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, filter: &'a str, filter_editing: bool },
     /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
@@ -240,18 +242,16 @@ pub enum SettingsTab {
     General,
     Keys,
     Overview,
-    Extensions,
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 4] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview, SettingsTab::Extensions];
+    pub const ALL: [SettingsTab; 3] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview];
 
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::General => "General",
             SettingsTab::Keys => "Keys",
             SettingsTab::Overview => "Layout",
-            SettingsTab::Extensions => "Extensions",
         }
     }
 
@@ -279,10 +279,10 @@ pub struct ExtensionRow {
     pub enabled: bool,
     /// Bundled with knav, versus added from `~/.config/knav/extensions/`.
     pub bundled: bool,
-    /// How many of this extension's kinds the cluster actually has installed,
-    /// out of how many it declares; `None` while disabled or on an error, where
-    /// asking "does the cluster have these" isn't a meaningful question yet.
-    pub found: Option<(usize, usize)>,
+    /// Whether any of this extension's kinds are actually installed on the
+    /// cluster; `None` while disabled or on an error, where asking "does the
+    /// cluster have these" isn't a meaningful question yet.
+    pub present: Option<bool>,
     /// Set when the manifest failed to parse; shown instead of a toggle.
     pub error: Option<String>,
 }
@@ -384,6 +384,7 @@ pub fn draw(
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
                 | Some(Overlay::Settings { .. })
+                | Some(Overlay::Extensions { .. })
                 | Some(Overlay::PortForward { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
@@ -595,9 +596,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
         Overlay::Details { title, sections, scroll, hscroll } => details::draw_details(frame, title, sections, scroll, hscroll),
         Overlay::Relations { title, graph, selected, zoom } => draw_relations(frame, title, graph, selected, zoom),
-        Overlay::Settings { tab, rows, layout, extensions, state, error, capture } => {
-            draw_settings(frame, popups::SettingsView { tab, rows, layout, extensions, error, capture: capture.as_ref() }, state)
-        }
+        Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, popups::SettingsView { tab, rows, layout, error, capture: capture.as_ref() }, state),
+        Overlay::Extensions { rows, state, error, filter, filter_editing } => draw_extensions_popup(frame, rows, filter, filter_editing, error, state),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
