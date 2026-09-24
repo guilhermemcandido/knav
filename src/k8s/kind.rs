@@ -27,6 +27,9 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
+    /// Helm releases, decoded from the Secrets Helm itself writes — not tied
+    /// to any particular distribution.
+    HelmReleases,
     /// The running port-forwards, knav's own, not a cluster resource.
     PortForwards,
     /// The Custom Resources picker, every discovered CRD kind
@@ -73,6 +76,7 @@ impl ResourceKind {
             ResourceKind::RoleBindings => "RoleBindings",
             ResourceKind::ClusterRoles => "ClusterRoles",
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
+            ResourceKind::HelmReleases => "Helm Releases",
             ResourceKind::CustomResourceList => "Custom Resources",
             ResourceKind::CustomResourceGroup(group) => group,
             ResourceKind::CustomResource(_, label) | ResourceKind::Api(_, label) => label,
@@ -139,6 +143,7 @@ impl ResourceKind {
             "RoleBindings" => Some(ResourceKind::RoleBindings),
             "ClusterRoles" => Some(ResourceKind::ClusterRoles),
             "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
+            "Helm Releases" => Some(ResourceKind::HelmReleases),
             "Port-forwards" => Some(ResourceKind::PortForwards),
             "API Resources" => Some(ResourceKind::ApiResources),
             "Custom Resources" => Some(ResourceKind::CustomResourceList),

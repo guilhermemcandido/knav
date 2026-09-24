@@ -43,6 +43,7 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
                 ResourceKind::ClusterRoleBindings,
             ],
         },
+        ui::MenuSection { title: "Helm", tiles: vec![ResourceKind::HelmReleases] },
         ui::MenuSection { title: "Custom Resources", tiles: custom },
     ]
 }
@@ -321,6 +322,7 @@ mod tests {
             ResourceKind::RoleBindings,
             ResourceKind::ClusterRoles,
             ResourceKind::ClusterRoleBindings,
+            ResourceKind::HelmReleases,
             ResourceKind::PortForwards,
             ResourceKind::ApiResources,
             ResourceKind::CustomResourceList,

@@ -35,6 +35,25 @@ where
     (store, handle)
 }
 
+/// As `watch_store`, but only objects matching `field_selector` (e.g. Helm's release
+/// Secrets, `type=helm.sh/release.v1`) — for a kind that would otherwise mean pulling
+/// down everything of that type just to keep the handful that matter.
+pub fn watch_store_selected<K>(client: Client, field_selector: &str) -> (reflector::Store<K>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
+    let api: Api<K> = Api::all(client);
+    let (reader, writer) = reflector::store();
+    let stream = watcher(api, watcher::Config::default().fields(field_selector)).default_backoff().reflect(writer);
+    let handle = tokio::spawn(async move {
+        let mut stream = stream.applied_objects().boxed();
+        while stream.next().await.is_some() {
+            CHANGES.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    (reader, handle)
+}
+
 /// As `watch_store`, plus the queue of which objects changed since it was last taken.
 pub fn watch_live<K>(client: Client) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
 where

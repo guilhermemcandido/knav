@@ -36,6 +36,10 @@ pub(crate) struct Catalog {
     /// Every loaded extension (bundled and from `~/.config/knav/extensions/`),
     /// enabled or not; `sections` only uses the enabled ones.
     pub(crate) extensions: crate::extensions::Registry,
+    /// Helm releases, watched only once opened (see `resolve`) — a field-selected
+    /// watch of Secrets, not one of the fixed `entries` above, since it has no
+    /// cheap metadata-only count to start eagerly.
+    helm: Option<Box<dyn k8s::CatalogKind>>,
 }
 
 impl Catalog {
@@ -90,6 +94,7 @@ impl Catalog {
             apis: Vec::new(),
             api_tables: HashMap::new(),
             extensions: crate::extensions::Registry::load(&crate::config::Config::dir()),
+            helm: None,
         }
     }
 
@@ -152,12 +157,18 @@ impl Catalog {
     }
 
     pub(crate) fn count(&self, kind: ResourceKind) -> usize {
+        if kind == ResourceKind::HelmReleases {
+            return self.helm.as_ref().map_or(0, |h| h.count());
+        }
         self.entries.iter().find(|e| e.kind == kind).map(|e| e.full.as_ref().map_or_else(|| e.count.load(Ordering::Relaxed), |f| f.count())).unwrap_or(0)
     }
 
     /// The live watch for a built-in kind. `None` for Overview, Pods, Deployments and
     /// CRDs, which are not in `entries` (CRDs go through `resolve`).
     pub(crate) fn get(&self, kind: ResourceKind) -> Option<&dyn k8s::CatalogKind> {
+        if kind == ResourceKind::HelmReleases {
+            return self.helm.as_deref();
+        }
         self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_deref())
     }
 
@@ -171,6 +182,12 @@ impl Catalog {
                     self.crd_watches.insert(index, Box::new(k8s::TableKind::start(client.clone(), &api)));
                 }
                 self.crd_watches.get(&index).map(|b| b.as_ref())
+            }
+            ResourceKind::HelmReleases => {
+                if self.helm.is_none() {
+                    self.helm = Some(Box::new(k8s::HelmStore::start(client.clone())));
+                }
+                self.helm.as_deref()
             }
             ResourceKind::ApiResources => Some(&self.api_list),
             ResourceKind::Api(index, _) => {
@@ -256,7 +273,11 @@ impl Catalog {
         // Ahead of "Custom Resources", not after: an extension's whole point is
         // giving its kinds a real home instead of that catch-all picker, so it
         // should read as a peer of Cluster/Workloads/..., not a straggler past it.
+        // Helm sits with them for the same reason, and for the same reason its
+        // count reads 0 until opened (see `resolve`): a live pre-count would mean
+        // downloading every Secret on the cluster just to show the Overview.
         let custom_resources = sections.pop().expect("Custom Resources is always pushed above");
+        sections.push(("Helm", vec![("Helm Releases", self.count(ResourceKind::HelmReleases))]));
         sections.extend(self.extension_sections(extensions_enabled));
         sections.push(custom_resources);
         sections
