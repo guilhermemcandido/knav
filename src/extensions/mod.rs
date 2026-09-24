@@ -1,4 +1,4 @@
-//! Third-party integrations (Flux, Argo CD, Karpenter, ...) as data, not code: an
+//! Third-party integrations (Flux, Argo CD, Helm, Karpenter, ...) as data, not code: an
 //! extension is a TOML manifest (see `manifest`) that attaches a category,
 //! and eventually a view, to CRD kinds the cluster already has. Extensions
 //! are read-only: knav is a viewer, not a controller, so a manifest has no
@@ -37,14 +37,15 @@ pub struct Registry {
     pub loaded: Vec<Loaded>,
 }
 
-/// `(id, manifest text)` for every extension shipped with knav. Helm isn't
-/// here: real Helm releases aren't a CRD (they're Secrets), so knav reads
-/// them natively (see `k8s::helm`) instead of through a manifest — the old
-/// `helm.cattle.io/HelmChart` entry only ever covered Rancher/k3s's own
-/// declarative controller, not universal Helm releases.
+/// `(id, manifest text)` for every extension shipped with knav. Helm's
+/// manifest declares no `[[extension.kind]]` at all — real Helm releases
+/// aren't a CRD (they're Secrets), so knav reads them natively (see
+/// `k8s::helm`) instead of matching a group+kind; the toggle still lives
+/// here so it shows and behaves like any other extension.
 const BUNDLED: &[(&str, &str)] = &[
     ("flux", include_str!("../../extensions/flux.toml")),
     ("argocd", include_str!("../../extensions/argocd.toml")),
+    ("helm", include_str!("../../extensions/helm.toml")),
     ("karpenter", include_str!("../../extensions/karpenter.toml")),
 ];
 
@@ -106,7 +107,11 @@ mod tests {
         assert_eq!(registry.loaded.len(), BUNDLED.len());
         for loaded in &registry.loaded {
             assert!(loaded.error.is_none(), "{}: {:?}", loaded.id, loaded.error);
-            assert!(!loaded.kinds.is_empty(), "{} declares no kinds", loaded.id);
+            // Helm is native code (see `k8s::helm`), not CRD-kind-matched, so its
+            // manifest declares none on purpose.
+            if loaded.id != "helm" {
+                assert!(!loaded.kinds.is_empty(), "{} declares no kinds", loaded.id);
+            }
         }
     }
 
@@ -138,7 +143,7 @@ mod tests {
         let flux_only: Vec<String> = vec!["flux".into()];
         let kinds: Vec<&ExtKind> = registry.enabled_kinds(&flux_only).collect();
         assert!(kinds.iter().any(|k| k.group == "kustomize.toolkit.fluxcd.io" && k.kind == "Kustomization" && k.category == "GitOps"));
-        assert!(!kinds.iter().any(|k| k.group == "helm.cattle.io"), "helm isn't enabled");
+        assert!(!kinds.iter().any(|k| k.group == "argoproj.io"), "argocd isn't enabled");
     }
 
     #[test]

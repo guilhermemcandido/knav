@@ -1,0 +1,11 @@
+# Helm — real releases (chart, revision, status), decoded from the Secrets
+# Helm itself writes. Native code, not a CRD (Helm releases aren't a
+# Kubernetes API type), so it has no [[extension.kind]] entries; enabling it
+# turns on knav's own Helm Releases view instead of matching CRD kinds.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "helm"
+name = "Helm"
+description = "Real Helm releases: chart, revision, status"

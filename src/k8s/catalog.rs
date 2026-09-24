@@ -36,9 +36,10 @@ pub(crate) struct Catalog {
     /// Every loaded extension (bundled and from `~/.config/knav/extensions/`),
     /// enabled or not; `sections` only uses the enabled ones.
     pub(crate) extensions: crate::extensions::Registry,
-    /// Helm releases, watched only once opened (see `resolve`) — a field-selected
-    /// watch of Secrets, not one of the fixed `entries` above, since it has no
-    /// cheap metadata-only count to start eagerly.
+    /// Helm releases: a field-selected watch of Secrets (see `k8s::HelmStore`),
+    /// started once "helm" is enabled (see `ensure_helm`) — not one of the
+    /// fixed `entries` above, since whether it runs at all is a toggle, not
+    /// "has anything asked for it yet".
     helm: Option<Box<dyn k8s::CatalogKind>>,
 }
 
@@ -172,6 +173,17 @@ impl Catalog {
         self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_deref())
     }
 
+    /// Starts the Helm watch as soon as "helm" is enabled, not just once its
+    /// list is opened — cheap (a field-selected watch of the release Secrets
+    /// only, see `k8s::HelmStore`), so its Overview count is never a stale or
+    /// misleading 0 for something that's actually on. Call every tick, like
+    /// `want_extension_counts`/`want_counts` for the CRD-backed extensions.
+    pub(crate) fn ensure_helm(&mut self, client: &Client, extensions_enabled: &[String]) {
+        if self.helm.is_none() && extensions_enabled.iter().any(|e| e == "helm") {
+            self.helm = Some(Box::new(k8s::HelmStore::start(client.clone())));
+        }
+    }
+
     /// Like `get`, but also covers CRD kinds, starting their watch on first use.
     pub(crate) fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn k8s::CatalogKind> {
         match kind {
@@ -202,6 +214,15 @@ impl Catalog {
                 self.get(kind)
             }
         }
+    }
+
+    /// Every category and kind name `sections` would currently show, counts
+    /// dropped — what the Layout tab reorders/hides. `layout::resolve` uses
+    /// this instead of its own fixed default so a category that only exists
+    /// once an extension is enabled (Helm, Flux, ...) is still editable, not
+    /// just the built-in set.
+    pub(crate) fn layout_names(&self, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
+        self.sections(0, 0, extensions_enabled).into_iter().map(|(category, items)| (category, items.into_iter().map(|(name, _)| name).collect())).collect()
     }
 
     /// Merges in the live-reflector counts for Pods/Deployments so
@@ -270,16 +291,15 @@ impl Catalog {
                     .collect(),
             ),
         ];
-        // Ahead of "Custom Resources", not after: an extension's whole point is
-        // giving its kinds a real home instead of that catch-all picker, so it
-        // should read as a peer of Cluster/Workloads/..., not a straggler past it.
-        // Helm sits with them for the same reason, and for the same reason its
-        // count reads 0 until opened (see `resolve`): a live pre-count would mean
-        // downloading every Secret on the cluster just to show the Overview.
-        let custom_resources = sections.pop().expect("Custom Resources is always pushed above");
-        sections.push(("Helm", vec![("Helm Releases", self.count(ResourceKind::HelmReleases))]));
+        // After "Custom Resources": these are optional, opt-in categories, not
+        // built-ins, so they read as an addition past the fixed set rather than
+        // interrupting it. Helm is native code (Secrets aren't a CRD, so the
+        // extension system's group+kind matching can't describe it), but it's
+        // toggled the same way and sits in the same place.
+        if extensions_enabled.iter().any(|e| e == "helm") {
+            sections.push(("Helm", vec![("Helm Releases", self.count(ResourceKind::HelmReleases))]));
+        }
         sections.extend(self.extension_sections(extensions_enabled));
-        sections.push(custom_resources);
         sections
     }
 

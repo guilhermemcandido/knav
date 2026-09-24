@@ -77,6 +77,7 @@ pub(crate) fn run(
         // Only the object counts of the types on screen (and one screen further) are fetched,
         // plus whatever an enabled extension put on the Overview (a small, fixed set, unlike
         // a whole picker's worth of types, so it's always worth asking for).
+        catalog.ensure_helm(&client, &st.config.extensions.enabled);
         let mut wanted_counts = catalog.want_extension_counts(&st.config.extensions.enabled);
         if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
             let reach = usize::from(terminal.size().map(|s| s.height).unwrap_or(40)) * 2;
@@ -181,6 +182,8 @@ pub(crate) fn run(
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,
             extensions: &catalog.extensions.loaded,
+            helm_present: catalog.count(ResourceKind::HelmReleases) > 0,
+            layout_names: &catalog.layout_names(&st.config.extensions.enabled),
             apis: &catalog.apis,
             favorites: &st.favorites,
             hints: &hints,

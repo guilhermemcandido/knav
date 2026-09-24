@@ -57,7 +57,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut close = false;
     let current_theme = crate::theme::theme();
     if let Mode::Settings { tab, settings, state, editing, capture, error, back } = &mut st.mode {
-        let mut layout = crate::k8s::layout::resolve(&cx.config.overview);
+        let mut layout = crate::k8s::layout::resolve(&cx.config.overview, &cx.catalog.layout_names(&cx.config.extensions.enabled));
         let len = match *tab {
             ui::SettingsTab::Overview => layout.len(),
             _ => settings.len(),

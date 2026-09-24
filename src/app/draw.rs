@@ -15,6 +15,15 @@ pub(super) struct View<'a> {
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],
     pub extensions: &'a [extensions::Loaded],
+    /// Whether Helm has found any releases, for the Extensions screen's
+    /// PRESENT column — "helm" declares no CRD kinds to match against
+    /// `crds` (see `extensions/helm.toml`), so its presence can't come from
+    /// the same check every other extension's row uses.
+    pub helm_present: bool,
+    /// Every category/kind name the catalog currently has, for the Settings
+    /// Layout tab (see `k8s::layout::resolve`) — includes whatever's enabled
+    /// (Helm, Flux, ...), not just the built-in set.
+    pub layout_names: &'a [(&'static str, Vec<&'static str>)],
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
@@ -39,7 +48,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -144,7 +153,7 @@ pub(super) fn draw_mode(
                         Some(ui::CaptureView { label: setting.label.clone(), keys, stage, problem: c.problem.clone() })
                     });
                     let layout_rows: Vec<ui::LayoutRow> = if *tab == ui::SettingsTab::Overview {
-                        crate::k8s::layout::resolve(&config.overview).into_iter().enumerate().map(|(i, s)| ui::LayoutRow { name: s.name, number: i + 1, hidden: s.hidden }).collect()
+                        crate::k8s::layout::resolve(&config.overview, layout_names).into_iter().enumerate().map(|(i, s)| ui::LayoutRow { name: s.name, number: i + 1, hidden: s.hidden }).collect()
                     } else {
                         Vec::new()
                     };
@@ -160,7 +169,9 @@ pub(super) fn draw_mode(
                         .map(|i| {
                             let l = &extensions[i];
                             let enabled = config.extensions.enabled.iter().any(|e| e == &l.id);
-                            let present = (enabled && l.error.is_none()).then(|| l.kinds.iter().any(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)));
+                            let present = (enabled && l.error.is_none()).then(|| {
+                                if l.id == "helm" { *helm_present } else { l.kinds.iter().any(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)) }
+                            });
                             ui::ExtensionRow { name: l.name.clone(), description: l.description.clone(), enabled, bundled: l.bundled, present, error: l.error.clone() }
                         })
                         .collect();

@@ -34,9 +34,17 @@ fn rank(order: &[String], name: &str) -> usize {
     order.iter().position(|n| n == name).unwrap_or(usize::MAX)
 }
 
-/// The full layout, hidden entries included, in the configured order.
-pub fn resolve(config: &OverviewConfig) -> Vec<LayoutSection> {
-    let mut sections: Vec<LayoutSection> = DEFAULT_LAYOUT
+/// The full layout, hidden entries included, in the configured order. `live`
+/// is every category and its kinds as the catalog currently has them —
+/// built-ins plus whatever's enabled (Helm, Flux, ...) — so a category that
+/// only exists once its extension is turned on still shows up here to be
+/// reordered or hidden, not just the fixed built-in set. Falls back to
+/// `DEFAULT_LAYOUT` only when `live` is empty (e.g. before the catalog's
+/// first read).
+pub fn resolve(config: &OverviewConfig, live: &[(&str, Vec<&str>)]) -> Vec<LayoutSection> {
+    let fallback: Vec<(&str, Vec<&str>)> = DEFAULT_LAYOUT.iter().map(|(n, items)| (*n, items.to_vec())).collect();
+    let source = if live.is_empty() { &fallback } else { live };
+    let mut sections: Vec<LayoutSection> = source
         .iter()
         .map(|(name, items)| {
             let mut items: Vec<LayoutItem> = items.iter().map(|i| LayoutItem { name: (*i).to_string(), hidden: config.hidden.contains(&format!("{name}/{i}")) }).collect();
@@ -107,7 +115,7 @@ mod tests {
 
     #[test]
     fn the_default_layout_is_the_built_in_order() {
-        let layout = resolve(&OverviewConfig::default());
+        let layout = resolve(&OverviewConfig::default(), &[]);
         assert_eq!(names(&layout)[..3], ["Cluster", "Workloads", "Config"]);
         assert!(!any_hidden(&layout));
     }
@@ -119,7 +127,7 @@ mod tests {
     #[test]
     fn listed_names_come_first_and_the_rest_keep_their_order() {
         let config = OverviewConfig { sections: vec!["Storage".into(), "Cluster".into()], ..Default::default() };
-        let layout = resolve(&config);
+        let layout = resolve(&config, &[]);
         assert_eq!(names(&layout)[..4], ["Storage", "Cluster", "Workloads", "Config"]);
     }
 
@@ -127,18 +135,18 @@ mod tests {
     fn items_are_ordered_within_their_category() {
         let mut config = OverviewConfig::default();
         config.items.insert("Config".into(), vec!["HPAs".into(), "Secrets".into()]);
-        let layout = resolve(&config);
+        let layout = resolve(&config, &[]);
         let config_section = layout.iter().find(|s| s.name == "Config").unwrap();
         assert_eq!(config_section.items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["HPAs", "Secrets", "ConfigMaps"]);
     }
 
     #[test]
     fn a_layout_survives_a_round_trip_through_the_config() {
-        let mut layout = resolve(&OverviewConfig::default());
+        let mut layout = resolve(&OverviewConfig::default(), &[]);
         layout.swap(1, 2);
         layout[0].hidden = true;
         layout[2].items[1].hidden = true;
-        assert_eq!(resolve(&to_config(&layout)), layout);
+        assert_eq!(resolve(&to_config(&layout), &[]), layout);
     }
 
     #[test]
@@ -157,8 +165,19 @@ mod tests {
     }
 
     #[test]
+    fn a_category_that_only_exists_once_enabled_is_still_editable() {
+        // Helm, Flux, ... aren't in DEFAULT_LAYOUT: they only exist in what the
+        // catalog currently has, so the editor has to read that, not the fixed set.
+        let live: Vec<(&str, Vec<&str>)> = vec![("Cluster", vec!["Nodes"]), ("Helm", vec!["Helm Releases"])];
+        let layout = resolve(&OverviewConfig::default(), &live);
+        assert_eq!(names(&layout), ["Cluster", "Helm"]);
+        let helm = layout.iter().find(|s| s.name == "Helm").unwrap();
+        assert_eq!(helm.items[0].name, "Helm Releases");
+    }
+
+    #[test]
     fn a_category_can_be_put_at_a_numbered_place() {
-        let mut layout = resolve(&OverviewConfig::default());
+        let mut layout = resolve(&OverviewConfig::default(), &[]);
         assert_eq!(move_section_to(&mut layout, 3, 0), 0);
         assert_eq!(names(&layout)[..3], ["Network", "Cluster", "Workloads"]);
         assert_eq!(move_section_to(&mut layout, 0, 99), layout.len() - 1, "clamped to the last place");
@@ -166,7 +185,7 @@ mod tests {
 
     #[test]
     fn hiding_everything_is_detected() {
-        let mut layout = resolve(&OverviewConfig::default());
+        let mut layout = resolve(&OverviewConfig::default(), &[]);
         for s in layout.iter_mut() {
             s.hidden = true;
         }
