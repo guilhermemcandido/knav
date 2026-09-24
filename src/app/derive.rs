@@ -226,7 +226,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // category and hands it a context to read from.
         let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
             extensions::dashboards::find(category, &catalog.extensions).map(|found| {
-                let mut ctx = extensions::dashboards::DashboardContext { catalog, client, nodes: &sorted_nodes, node_rows: &node_rows, events: &overview.events };
+                let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events);
                 (found.title(), found.lines(&mut ctx))
             })
         } else {

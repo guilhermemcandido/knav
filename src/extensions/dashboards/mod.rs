@@ -9,45 +9,16 @@
 //! through the exact same [`Dashboard`] trait — `Catalog`/`derive`/`ui` never
 //! know which kind of dashboard they're holding.
 
+mod context;
 mod declarative;
 mod gitops;
 mod karpenter;
 
-use std::sync::Arc;
-
-use k8s_openapi::api::core::v1::Node;
-use kube::Client;
 use ratatui::text::Line;
 
-use crate::Catalog;
 use crate::extensions::Registry;
-use crate::k8s::{EventEntry, NodeRow};
 
-/// What a dashboard reads to build its page: the catalog, to pull whatever
-/// CRD kinds it needs (starting each one's watch on first use, exactly like
-/// opening that kind's own list would), plus the cluster-wide data already
-/// gathered this frame that doesn't belong to any one CRD.
-pub struct DashboardContext<'a> {
-    pub catalog: &'a mut Catalog,
-    pub client: &'a Client,
-    pub nodes: &'a [Arc<Node>],
-    pub node_rows: &'a [NodeRow],
-    pub events: &'a [EventEntry],
-}
-
-impl DashboardContext<'_> {
-    /// One CRD kind's manifests — empty if it isn't installed. The one door
-    /// a dashboard has into the catalog; it never touches CRD watches directly.
-    pub fn fetch(&mut self, group: &str, kind: &str) -> Vec<serde_yaml::Value> {
-        self.catalog.resolve_crd(group, kind, self.client).map(|w| w.manifests(None)).unwrap_or_default()
-    }
-
-    /// Like `fetch`, when only the count is needed (cheaper to read, though
-    /// the watch behind it is the same either way).
-    pub fn count(&mut self, group: &str, kind: &str) -> usize {
-        self.catalog.resolve_crd(group, kind, self.client).map(|w| w.count()).unwrap_or(0)
-    }
-}
+pub use context::DashboardContext;
 
 /// One dashboard, native or declarative alike. `category` must match the
 /// `category` its extension's manifest gives the CRD kinds it covers (that's
