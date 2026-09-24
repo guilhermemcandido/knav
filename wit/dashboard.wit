@@ -1,0 +1,57 @@
+// The whole API a WASM-backed extension dashboard gets: this file, nothing
+// more. No imports — a guest component has no way to call back into the
+// host, so there's nothing here that could reach a live kube::Client, the
+// filesystem, or the network. Everything the guest needs is handed to it as
+// plain data in `lines`'s argument, already fetched by the host from
+// whichever CRD kinds the extension's own manifest declares (see
+// `extensions::manifest::ExtensionMeta::wasm_dashboard`); the guest can't
+// ask for anything it wasn't handed.
+//
+// See src/extensions/dashboards/wasm.rs for the host side, and
+// docs/wasm-extensions.md for how to write and build one of these.
+package knav:extension;
+
+interface types {
+    record kind-data {
+        group: string,
+        kind: string,
+        objects: list<string>,
+    }
+
+    record line {
+        spans: list<span>,
+    }
+
+    record span {
+        text: string,
+        style: style-hint,
+    }
+
+    /// A closed, semantic palette, not a raw color: the guest picks what a
+    /// span *means*, this crate (via `theme()`) decides what it looks like —
+    /// the same split `extensions::dashboards::declarative` already draws
+    /// for TOML widgets, carried over here so a WASM dashboard can't be
+    /// styled to spoof another part of the UI.
+    enum style-hint {
+        plain,
+        muted,
+        ok,
+        warn,
+        bad,
+        accent,
+        bold,
+        heading,
+    }
+}
+
+world dashboard {
+    use types.{kind-data, line, span, style-hint};
+
+    /// Called once per render, while this dashboard is the visible screen.
+    /// `data` is one entry per `(group, kind)` the extension's manifest
+    /// declared, in declaration order, each with every matching object's
+    /// full manifest as a JSON string. Real Rust runs here — loops,
+    /// conditionals, joins across the given kinds — anything except a way
+    /// out of this sandbox.
+    export lines: func(data: list<kind-data>) -> list<line>;
+}

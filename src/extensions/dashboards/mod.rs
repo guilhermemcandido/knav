@@ -3,16 +3,26 @@
 //! once. Most of these are entirely data — a manifest's own
 //! `[[extension.dashboard]]` widgets (see `declarative` and
 //! `manifest::DashboardWidget`), interpreted the same way its `view`
-//! templates are, so `knav ext add` reaches them too. The couple that
-//! genuinely need a join across kinds (`karpenter`, `gitops`) are hand-written
-//! Rust instead, bundled and reviewed rather than user-authored, but reached
-//! through the exact same [`Dashboard`] trait — `Catalog`/`derive`/`ui` never
-//! know which kind of dashboard they're holding.
+//! templates are, so `knav ext add` reaches them too. A manifest that needs
+//! real logic instead of a fixed widget shape can ship `wasm_dashboard` —
+//! real Rust, compiled to a WASM component with zero imports (see `wasm` and
+//! `wit/dashboard.wit`), sandboxed so it can only turn the objects it's
+//! handed into lines, nothing else. The couple that need a join across
+//! *multiple extensions'* kinds (`karpenter`, `gitops`) still stay
+//! hand-written and bundled rather than user-authored. All three are reached
+//! through the exact same [`Dashboard`] trait or [`Found`] — `Catalog`/
+//! `derive`/`ui` never know which kind of dashboard they're holding.
 
 mod context;
 mod declarative;
 mod gitops;
 mod karpenter;
+/// `pub(super)`, not private: `extensions::Registry` (this module's parent)
+/// compiles and stores `wasm::WasmDashboardModule`s itself, so it needs to
+/// name the type and call `wasm::engine`/`wasm::WasmDashboardModule::compile`
+/// directly — the narrowest visibility that allows that one caller without
+/// opening `wasm`'s internals to the rest of the crate.
+pub(super) mod wasm;
 
 use ratatui::text::Line;
 
@@ -40,11 +50,18 @@ pub trait Dashboard {
 const NATIVE: &[&dyn Dashboard] = &[&karpenter::Karpenter, &gitops::GitOps];
 
 /// What `find` returns: one of `NATIVE` (a `'static` reference, nothing to
-/// own) or a dashboard built fresh from a manifest's widgets (owns its own
-/// data, since it's assembled on the spot from `Registry`, not part of it).
+/// own), a dashboard built fresh from a manifest's widgets, or a compiled
+/// WASM module. All three own what they need rather than borrowing
+/// `Registry`: `derive.rs` needs `&mut Catalog` (inside `catalog.extensions`
+/// itself) to build the `DashboardContext` a call to `lines` takes, so a
+/// `Found` borrowed from `&catalog.extensions` would conflict with that —
+/// `Engine`/`Component` clone cheaply (both `Arc`-backed under the hood),
+/// so `Wasm` just takes its own handle instead of fighting the borrow
+/// checker over it.
 pub enum Found {
     Native(&'static dyn Dashboard),
     Declarative(declarative::DeclarativeDashboard),
+    Wasm { title: String, engine: wasmtime::Engine, module: wasm::WasmDashboardModule, kinds: Vec<(String, String)> },
 }
 
 impl Found {
@@ -52,6 +69,7 @@ impl Found {
         match self {
             Found::Native(d) => d.title(),
             Found::Declarative(d) => d.title(),
+            Found::Wasm { title, .. } => title.clone(),
         }
     }
 
@@ -59,25 +77,36 @@ impl Found {
         match self {
             Found::Native(d) => d.lines(ctx),
             Found::Declarative(d) => d.lines(ctx),
+            Found::Wasm { engine, module, kinds, .. } => wasm::call(engine, module, kinds, ctx),
         }
     }
 }
 
-/// The dashboard for `category`, if any: one of `NATIVE`, else built fresh
-/// from whatever loaded (bundled or `knav ext add`-installed) manifest
-/// declares `[[extension.dashboard]]` widgets for it — regardless of
-/// whether that extension is currently enabled, the same "reachable
-/// directly, toggle or not" precedent `HelmReleases` already set.
+/// The dashboard for `category`, if any: one of `NATIVE`, else whichever
+/// loaded (bundled or `knav ext add`-installed) manifest declares a kind
+/// under this category first — regardless of whether that extension is
+/// currently enabled, the same "reachable directly, toggle or not"
+/// precedent `HelmReleases` already set. That manifest is the single source
+/// for both the title and which of `wasm_dashboard`/`dashboard` runs
+/// (`Manifest::parse` already guarantees a manifest never sets both), so two
+/// manifests sharing a category can't race on which mechanism wins — the
+/// first-loaded one's choice always does.
 pub fn find(category: &str, registry: &Registry) -> Option<Found> {
     if let Some(d) = NATIVE.iter().find(|d| d.category() == category) {
         return Some(Found::Native(*d));
+    }
+    let owner = registry.loaded.iter().find(|l| l.error.is_none() && l.kinds.iter().any(|k| k.category == category))?;
+    if owner.wasm_dashboard.is_some() {
+        let module = registry.wasm.get(&owner.id)?.clone();
+        let engine = registry.wasm_engine.as_ref()?.clone();
+        let kinds = owner.kinds.iter().filter(|k| k.category == category).map(|k| (k.group.clone(), k.kind.clone())).collect();
+        return Some(Found::Wasm { title: owner.name.clone(), engine, module, kinds });
     }
     let widgets: Vec<_> = registry.dashboard_widgets(category).into_iter().map(|(w, sources)| (w.clone(), sources.into_iter().map(|(g, k)| (g.to_string(), k.to_string())).collect())).collect();
     if widgets.is_empty() {
         return None;
     }
-    let title = registry.loaded.iter().find(|l| l.kinds.iter().any(|k| k.category == category)).map(|l| l.name.clone()).unwrap_or_else(|| category.to_string());
-    Some(Found::Declarative(declarative::DeclarativeDashboard { title, category: category.to_string(), widgets }))
+    Some(Found::Declarative(declarative::DeclarativeDashboard { title: owner.name.clone(), category: category.to_string(), widgets }))
 }
 
 /// Every category with a dashboard right now: `NATIVE`'s, plus every
@@ -153,6 +182,43 @@ mod tests {
         let found = find("WidgetDash", &registry).expect("a manifest's own dashboard widgets should be discoverable without enabling it first");
         assert_eq!(found.title(), "Widget Co");
         assert!(matches!(found, Found::Declarative(_)));
+    }
+
+    /// The same real compiled component `wasm`'s own tests exercise, reused
+    /// here to prove `find()` resolves a dropped-in-by-hand `wasm_dashboard`
+    /// manifest the same way it already does a declarative one — a category
+    /// with a `[[extension.dashboard]]` (fully declarative), and one with
+    /// `wasm_dashboard` set, look identical from `derive.rs`'s point of view.
+    const DEMO_WASM: &[u8] = include_bytes!("testdata/demo.wasm");
+
+    #[test]
+    fn a_wasm_backed_dashboard_dropped_in_by_hand_is_found_by_its_category() {
+        let dir = tempdir();
+        let ext_dir = dir.path().join("extensions").join("widgetco");
+        std::fs::create_dir_all(&ext_dir).unwrap();
+        std::fs::write(ext_dir.join("dashboard.wasm"), DEMO_WASM).unwrap();
+        std::fs::write(
+            ext_dir.join("manifest.toml"),
+            r#"
+            [extension]
+            id = "widgetco"
+            name = "Widget Co"
+            wasm_dashboard = "dashboard.wasm"
+
+            [[extension.kind]]
+            group = "widgets.example.com"
+            kind = "Widget"
+            category = "WidgetDash"
+            "#,
+        )
+        .unwrap();
+        let registry = Registry::load(dir.path());
+        let loaded = registry.loaded.iter().find(|l| l.id == "widgetco").expect("still listed");
+        assert!(loaded.error.is_none(), "{:?}", loaded.error);
+
+        let found = find("WidgetDash", &registry).expect("a manifest's own wasm_dashboard should be discoverable without enabling it first");
+        assert_eq!(found.title(), "Widget Co");
+        assert!(matches!(found, Found::Wasm { .. }));
     }
 
     #[test]

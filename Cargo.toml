@@ -34,3 +34,4 @@ toml = "1.1.6"
 toml_edit = "0.25.15"
 tui-tree-widget = "0.24.1"
 vt100 = "0.16.2"
+wasmtime = { version = "=49.0.0", default-features = false, features = ["component-model", "runtime", "cranelift"] }

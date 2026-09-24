@@ -14,7 +14,14 @@
 //! picks from and points at fields, never code of its own (see
 //! `extensions::dashboards::declarative`). It caps out short of anything
 //! that needs a join across kinds (Karpenter's Node↔NodePool, say); those
-//! stay hand-written Rust, bundled with knav rather than user-authored.
+//! stay hand-written Rust, bundled with knav rather than user-authored —
+//! unless the join is worth writing as `wasm_dashboard` instead: a compiled
+//! WASM component, sandboxed by the same "no code of its own" philosophy
+//! taken to its limit — real Rust, but with zero imports (see
+//! `wit/dashboard.wit`), so it can only transform the objects it's handed
+//! into lines, never reach a client, a file, or the network. Mutually
+//! exclusive with `dashboard` (one mechanism per extension) and, for now,
+//! external manifests only — see `extensions::dashboards::wasm`.
 
 use serde::Deserialize;
 
@@ -37,6 +44,14 @@ pub struct ExtensionMeta {
     /// gives every kind for free.
     #[serde(rename = "dashboard", default)]
     pub dashboard: Vec<DashboardWidget>,
+    /// A WASM component's filename, resolved against this manifest's own
+    /// directory (see `Manifest::parse`'s validation and
+    /// `extensions::Registry::load`'s path resolution) — the code-carrying
+    /// alternative to `dashboard`'s declarative widgets, for a category-wide
+    /// dashboard that needs real logic (a join across kinds, say) rather
+    /// than one of the four fixed widget shapes.
+    #[serde(default)]
+    pub wasm_dashboard: Option<String>,
 }
 
 /// One CRD kind an extension attaches metadata to, matched by `group`+`kind`
@@ -173,6 +188,21 @@ impl Manifest {
                 return Err(ParseError::Invalid(format!("{}: dashboard tally `by` must be \"ready\", \"condition:<Type>\" or \"field:<.path>\", got \"{by}\"", manifest.extension.id)));
             }
         }
+        if let Some(wasm) = &manifest.extension.wasm_dashboard {
+            if wasm.trim().is_empty() {
+                return Err(ParseError::Invalid(format!("{}: wasm_dashboard can't be empty", manifest.extension.id)));
+            }
+            if std::path::Path::new(wasm).components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir)) {
+                return Err(ParseError::Invalid(format!("{}: wasm_dashboard must be a plain filename, not a path (\"{wasm}\")", manifest.extension.id)));
+            }
+            if !manifest.extension.dashboard.is_empty() {
+                return Err(ParseError::Invalid(format!("{}: wasm_dashboard and dashboard are mutually exclusive — pick one", manifest.extension.id)));
+            }
+            let categories: std::collections::BTreeSet<&str> = manifest.extension.kinds.iter().map(|k| k.category.as_str()).collect();
+            if categories.len() != 1 {
+                return Err(ParseError::Invalid(format!("{}: wasm_dashboard needs every kind under one category, found {}", manifest.extension.id, categories.len())));
+            }
+        }
         Ok(manifest)
     }
 }
@@ -301,6 +331,78 @@ mod tests {
     #[test]
     fn a_blank_id_is_rejected() {
         assert!(Manifest::parse("[extension]\nid = \"\"\nname = \"x\"\n").is_err());
+    }
+
+    #[test]
+    fn a_wasm_dashboard_field_parses() {
+        let m = Manifest::parse(
+            r#"
+            [extension]
+            id = "widgetco"
+            name = "Widget Co"
+            wasm_dashboard = "dashboard.wasm"
+
+            [[extension.kind]]
+            group = "widgets.example.com"
+            kind = "Widget"
+            category = "WidgetDash"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(m.extension.wasm_dashboard.as_deref(), Some("dashboard.wasm"));
+    }
+
+    #[test]
+    fn wasm_dashboard_and_declarative_dashboard_together_is_rejected() {
+        let err = Manifest::parse(
+            r#"
+            [extension]
+            id = "x"
+            name = "x"
+            wasm_dashboard = "dashboard.wasm"
+
+            [[extension.kind]]
+            group = "g"
+            kind = "K"
+            category = "C"
+
+            [[extension.dashboard]]
+            kind = "K"
+            widget = "count"
+            "#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ParseError::Invalid(_)));
+    }
+
+    #[test]
+    fn wasm_dashboard_with_a_path_escaping_upward_is_rejected() {
+        let err = Manifest::parse("[extension]\nid = \"x\"\nname = \"x\"\nwasm_dashboard = \"../dashboard.wasm\"\n").unwrap_err();
+        assert!(matches!(err, ParseError::Invalid(_)));
+    }
+
+    #[test]
+    fn wasm_dashboard_kinds_must_share_one_category() {
+        let err = Manifest::parse(
+            r#"
+            [extension]
+            id = "x"
+            name = "x"
+            wasm_dashboard = "dashboard.wasm"
+
+            [[extension.kind]]
+            group = "g"
+            kind = "A"
+            category = "One"
+
+            [[extension.kind]]
+            group = "g"
+            kind = "B"
+            category = "Two"
+            "#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ParseError::Invalid(_)));
     }
 
     #[test]
