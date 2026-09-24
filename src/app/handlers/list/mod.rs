@@ -109,7 +109,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // `q` and Esc undo one step: back out of a drill-down, or return to whatever
             // mode a jump into this list (Relations' `o`, Details' Enter) left behind,
             // in the order these actually happened. Once there is nothing left: to the
-            // Overview, or to the CRD group a custom resource came from. `:q` quits.
+            // Overview, always — browsing into a CRD kind's instances (from CustomResources)
+            // or one discovered type's Table view (from API Resources) both push a step
+            // (see the `Enter` arms below), so an empty stack here only ever means this
+            // kind was jumped to directly (an Overview tile, `:kind`), never that its
+            // picker is where "back" belongs. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.back_stack.is_empty() => match st.back_stack.pop() {
                 Some(Step::List(kind, previous_scope, selected)) => {
@@ -127,15 +131,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 None => unreachable!("just checked back_stack is not empty"),
             },
             KeyCode::Char('q') | KeyCode::Esc => {
-                st.current_kind = match st.current_kind {
-                    ResourceKind::CustomResource(index, _) => catalog
-                        .crds
-                        .get(index)
-                        .map(|c| ResourceKind::CustomResourceGroup(c.group))
-                        .unwrap_or(ResourceKind::CustomResourceList),
-                    ResourceKind::Api(..) => ResourceKind::ApiResources,
-                    _ => ResourceKind::Overview,
-                };
+                st.current_kind = ResourceKind::Overview;
                 st.table_state.select(Some(0));
                 st.search.clear();
             }
