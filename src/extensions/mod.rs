@@ -1,5 +1,5 @@
 //! Third-party integrations (Flux, Argo CD, Helm, Karpenter, cert-manager, KEDA,
-//! Prometheus Operator, Crossplane, Istio, Kyverno, OPA Gatekeeper) as data, not code: an
+//! Prometheus, Crossplane, Istio, Kyverno, OPA Gatekeeper) as data, not code: an
 //! extension is a TOML manifest (see `manifest`) that attaches a category,
 //! and eventually a view, to CRD kinds the cluster already has. Extensions
 //! are read-only: knav is a viewer, not a controller, so a manifest has no

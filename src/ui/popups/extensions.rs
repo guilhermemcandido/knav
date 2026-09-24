@@ -9,6 +9,12 @@ fn extensions_area(frame: Rect) -> Rect {
     centered_rect(94, 88, frame)
 }
 
+/// EXTENSION column width bounds: never narrower than the "EXTENSION" header
+/// itself, never so wide (a long external name, `knav ext add`) that it
+/// crowds the description out of a normal terminal.
+const EXTENSION_NAME_MIN: usize = 10;
+const EXTENSION_NAME_MAX: usize = 28;
+
 /// One extension's row: status, name, whether it's present (separate from
 /// on/off), and its static description — an error takes over the description
 /// spot instead.
@@ -138,7 +144,11 @@ fn draw_extension_rows(frame: &mut Frame, area: Rect, extensions: &[ExtensionRow
         Cell::from(Span::styled("PRESENT", Style::default().fg(theme().muted))),
         Cell::from(""),
     ]);
-    let table = Table::new(rows, [Constraint::Length(6), Constraint::Length(16), Constraint::Length(7), Constraint::Min(10)])
+    // Wide enough for every bundled name today ("OPA Gatekeeper", 14 chars)
+    // with headroom, and grows with whatever an external manifest names
+    // itself rather than silently cutting it off (see `EXTENSION_NAME_MIN`).
+    let name_width = extensions.iter().map(|e| e.name.chars().count()).max().unwrap_or(0).clamp(EXTENSION_NAME_MIN, EXTENSION_NAME_MAX) as u16;
+    let table = Table::new(rows, [Constraint::Length(6), Constraint::Length(name_width), Constraint::Length(7), Constraint::Min(10)])
         .column_spacing(2)
         .style(theme_row(false))
         .header(header)

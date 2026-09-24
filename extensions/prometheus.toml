@@ -1,13 +1,15 @@
-# Prometheus Operator — the operator's own instances (Prometheus,
-# Alertmanager), from their Available/Reconciled conditions. ServiceMonitor,
-# PodMonitor and PrometheusRule aren't included: they're scrape/rule config,
-# not something with a status to show.
+# Prometheus — the instances the Prometheus Operator CRDs describe
+# (Prometheus, Alertmanager), from their Available/Reconciled conditions.
+# ServiceMonitor, PodMonitor and PrometheusRule aren't included: they're
+# scrape/rule config, not something with a status to show.
+# "Operator" left out of the display name on purpose: knav only reads these
+# CRDs, same as every other extension, never installs or drives the operator.
 # Bundled with knav, off by default; enable in the Extensions screen (E).
 # Schema: see src/extensions/manifest.rs.
 
 [extension]
 id = "prometheus"
-name = "Prometheus Operator"
+name = "Prometheus"
 description = "Prometheus and Alertmanager instances, with their condition status"
 
 [[extension.kind]]
