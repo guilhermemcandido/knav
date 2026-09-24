@@ -184,6 +184,17 @@ impl Catalog {
         }
     }
 
+    /// Resolves one CRD kind's watch directly by group+kind, starting it if
+    /// needed — what a dashboard uses to pull several CRD kinds' data at
+    /// once, since it isn't itself one list a user opens through `resolve`.
+    /// Goes through the same `CustomResource(index, _)` path `resolve` does,
+    /// so a watch this starts is the one a normal list of the same kind reuses.
+    pub(crate) fn resolve_crd(&mut self, group: &str, kind: &str, client: &Client) -> Option<&dyn k8s::CatalogKind> {
+        let index = self.crds.iter().position(|c| c.group == group && c.kind == kind)?;
+        let label = self.crds[index].kind;
+        self.resolve(ResourceKind::CustomResource(index, label), client)
+    }
+
     /// Like `get`, but also covers CRD kinds, starting their watch on first use.
     pub(crate) fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn k8s::CatalogKind> {
         match kind {
@@ -318,6 +329,15 @@ impl Catalog {
                 }
             }
         }
+        // A dashboard tile, first in its category, but only once the category
+        // is real (at least one of its CRD kinds is actually installed) — an
+        // enabled extension whose CRDs aren't present still contributes
+        // nothing, same as any other extension kind.
+        for category in self.dashboard_categories() {
+            if let Some((_, items)) = extension_sections.iter_mut().find(|(name, _)| *name == category) {
+                items.insert(0, (category, 0));
+            }
+        }
         sections.extend(extension_sections);
         sections
     }
@@ -349,6 +369,13 @@ impl Catalog {
             .collect()
     }
 
+    /// Every category with a dashboard right now (native or a loaded
+    /// manifest's `[[extension.dashboard]]`), for the `:` command menu and
+    /// the Overview tile lookup (see `extensions::dashboards::categories`).
+    pub(crate) fn dashboard_categories(&self) -> Vec<&'static str> {
+        crate::extensions::dashboards::categories(&self.extensions)
+    }
+
     /// Every distinct API group among the CRDs, in the order `discover_crds` sorted
     /// them (adjacent dedup keeps that order).
     pub(crate) fn crd_groups(&self) -> Vec<&'static str> {
@@ -369,5 +396,6 @@ impl Catalog {
         ResourceKind::from_label(label)
             .or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))
             .or_else(|| self.crds.iter().position(|c| c.kind == label).map(|i| ResourceKind::CustomResource(i, self.crds[i].kind)))
+            .or_else(|| self.dashboard_categories().into_iter().find(|c| *c == label).map(ResourceKind::ExtensionDashboard))
     }
 }

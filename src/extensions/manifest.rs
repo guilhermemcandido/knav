@@ -8,6 +8,13 @@
 //! up (see `Catalog::extension_sections`); `view` renders in the object's
 //! detail view (see `extensions::view_for` and `k8s::details::details`).
 //! `icon` is still reserved, unused.
+//!
+//! `dashboard` is the same philosophy applied across several kinds at once —
+//! a fixed, closed set of widgets (`count`/`tally`/`sum`/`list`) a manifest
+//! picks from and points at fields, never code of its own (see
+//! `extensions::dashboards::declarative`). It caps out short of anything
+//! that needs a join across kinds (Karpenter's Node↔NodePool, say); those
+//! stay hand-written Rust, bundled with knav rather than user-authored.
 
 use serde::Deserialize;
 
@@ -24,6 +31,12 @@ pub struct ExtensionMeta {
     pub description: String,
     #[serde(rename = "kind", default)]
     pub kinds: Vec<ExtKind>,
+    /// An aggregate dashboard, one category's worth of widgets across
+    /// several of `kinds` at once — see `DashboardWidget`. Optional: most
+    /// extensions are fine with just the category tile Overview already
+    /// gives every kind for free.
+    #[serde(rename = "dashboard", default)]
+    pub dashboard: Vec<DashboardWidget>,
 }
 
 /// One CRD kind an extension attaches metadata to, matched by `group`+`kind`
@@ -66,6 +79,59 @@ pub enum ViewTemplate {
     KeyValues { fields: Vec<[String; 2]> },
 }
 
+/// One block of an extension's dashboard (see `extensions::dashboards`):
+/// what it covers (`kind`, plus `extra_kinds` to fold more than one kind's
+/// objects into the same widget — Issuer and ClusterIssuer read as one
+/// "Issuers" tally, say) and how (`spec`). Declaration order is render order.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DashboardWidget {
+    pub kind: String,
+    #[serde(default)]
+    pub extra_kinds: Vec<String>,
+    /// Overrides the heading this widget renders under; defaults to `kind`
+    /// (`extra_kinds` joined in with " / ").
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(flatten)]
+    pub spec: WidgetSpec,
+}
+
+/// A widget is one fixed shape, not a rendering instruction, the same
+/// philosophy as `ViewTemplate`: the manifest supplies field paths, this
+/// crate supplies the math and the drawing.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "widget", rename_all = "snake_case")]
+pub enum WidgetSpec {
+    /// Just "N Kind(s)" — for a kind with nothing else worth showing.
+    Count,
+    /// Buckets every object into True/False/Unknown by:
+    /// - `"ready"`, shorthand for `condition:Ready`
+    /// - `"condition:<Type>"` — `.status.conditions[type=Type].status`
+    /// - `"field:<.dotted.path>"` — a plain boolean/string field read directly
+    Tally { by: String },
+    /// Sums one or more numeric fields across every object, `[label, path]`
+    /// pairs like `KeyValues` — e.g. a PolicyReport's `.summary.pass`.
+    Sum { fields: Vec<[String; 2]> },
+    /// One row per object: `columns` are `[label, path]` pairs like
+    /// `KeyValues`. `sort_by`, if given, orders ascending (numeric, an
+    /// RFC3339 timestamp, or lexical — whichever the values actually are).
+    /// A column whose path is also in `date_columns` renders as "in Nd" (or
+    /// "Nd ago"), colour-coded by how soon, instead of the raw timestamp.
+    List {
+        #[serde(default)]
+        sort_by: Option<String>,
+        #[serde(default)]
+        date_columns: Vec<String>,
+        columns: Vec<[String; 2]>,
+        #[serde(default = "default_list_limit")]
+        limit: usize,
+    },
+}
+
+fn default_list_limit() -> usize {
+    20
+}
+
 #[derive(Debug)]
 pub enum ParseError {
     Toml(toml::de::Error),
@@ -91,6 +157,20 @@ impl Manifest {
         for kind in &manifest.extension.kinds {
             if kind.kind.trim().is_empty() {
                 return Err(ParseError::Invalid(format!("{}: a kind entry is missing its `kind`", manifest.extension.id)));
+            }
+        }
+        for widget in &manifest.extension.dashboard {
+            for kind in std::iter::once(&widget.kind).chain(&widget.extra_kinds) {
+                if !manifest.extension.kinds.iter().any(|k| &k.kind == kind) {
+                    return Err(ParseError::Invalid(format!("{}: dashboard widget references kind `{kind}`, which isn't in `extension.kind`", manifest.extension.id)));
+                }
+            }
+            if let WidgetSpec::Tally { by } = &widget.spec
+                && by != "ready"
+                && !by.starts_with("condition:")
+                && !by.starts_with("field:.")
+            {
+                return Err(ParseError::Invalid(format!("{}: dashboard tally `by` must be \"ready\", \"condition:<Type>\" or \"field:<.path>\", got \"{by}\"", manifest.extension.id)));
             }
         }
         Ok(manifest)
@@ -142,6 +222,80 @@ mod tests {
         .unwrap();
         let kind = &m.extension.kinds[0];
         assert!(matches!(&kind.view, Some(ViewTemplate::Timeline { from }) if from == ".status.conditions"));
+    }
+
+    #[test]
+    fn a_dashboard_widget_parses_and_defaults_its_limit() {
+        let m = Manifest::parse(
+            r#"
+            [extension]
+            id = "cert-manager"
+            name = "cert-manager"
+
+            [[extension.kind]]
+            group = "cert-manager.io"
+            kind = "Certificate"
+            category = "cert-manager"
+
+            [[extension.dashboard]]
+            kind = "Certificate"
+            widget = "list"
+            sort_by = ".status.notAfter"
+            date_columns = [".status.notAfter"]
+            columns = [["Name", ".metadata.name"], ["Expires", ".status.notAfter"]]
+            "#,
+        )
+        .unwrap();
+        let widget = &m.extension.dashboard[0];
+        assert_eq!(widget.kind, "Certificate");
+        match &widget.spec {
+            WidgetSpec::List { sort_by, columns, limit, .. } => {
+                assert_eq!(sort_by.as_deref(), Some(".status.notAfter"));
+                assert_eq!(columns.len(), 2);
+                assert_eq!(*limit, 20);
+            }
+            other => panic!("expected a list widget, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_dashboard_widget_referencing_an_undeclared_kind_is_rejected() {
+        let err = Manifest::parse(
+            r#"
+            [extension]
+            id = "x"
+            name = "x"
+
+            [[extension.dashboard]]
+            kind = "Certificate"
+            widget = "count"
+            "#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ParseError::Invalid(_)));
+    }
+
+    #[test]
+    fn a_tally_with_a_malformed_by_is_rejected() {
+        let err = Manifest::parse(
+            r#"
+            [extension]
+            id = "x"
+            name = "x"
+
+            [[extension.kind]]
+            group = "g"
+            kind = "K"
+            category = "C"
+
+            [[extension.dashboard]]
+            kind = "K"
+            widget = "tally"
+            by = "nonsense"
+            "#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ParseError::Invalid(_)));
     }
 
     #[test]

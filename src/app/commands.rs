@@ -3,7 +3,10 @@
 use crate::*;
 
 /// The categories and kinds the sidebar lists, the same as the Home catalog.
-pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'static>> {
+/// `dashboard_categories` is whatever's currently reachable (see
+/// `Catalog::dashboard_categories`) — resolved by the caller, since building
+/// it needs the loaded extension registry this function doesn't otherwise touch.
+pub(crate) fn menu_sections(crds: &[k8s::CrdInfo], dashboard_categories: &[&'static str]) -> Vec<ui::MenuSection<'static>> {
     // The whole unfiltered CRD picker, then one tile per discovered API
     // group (`crds` is already sorted by group, so adjacent-dedup keeps
     // order), same shape as the Overview's Custom Resources column.
@@ -13,7 +16,9 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
             custom.push(ResourceKind::CustomResourceGroup(crd.group));
         }
     }
-    vec![
+    // One section per extension dashboard (see `extensions::dashboards`).
+    let dashboards = dashboard_categories.iter().copied().map(|category| ui::MenuSection { title: category, tiles: vec![ResourceKind::ExtensionDashboard(category)] });
+    let mut sections = vec![
         ui::MenuSection { title: "Cluster", tiles: vec![ResourceKind::Overview, ResourceKind::Nodes, ResourceKind::Namespaces, ResourceKind::ApiResources] },
         ui::MenuSection {
             title: "Workloads",
@@ -44,14 +49,16 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
             ],
         },
         ui::MenuSection { title: "Helm", tiles: vec![ResourceKind::HelmReleases] },
-        ui::MenuSection { title: "CustomResources", tiles: custom },
-    ]
+    ];
+    sections.extend(dashboards);
+    sections.push(ui::MenuSection { title: "CustomResources", tiles: custom });
+    sections
 }
 
 /// Autocomplete for the `:` command line: every switchable kind plus `context`,
 /// `events` and `quit`, matched against all their names and sorted best-first.
 /// An exact alias ranks first; empty input suggests nothing.
-pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo]) -> Vec<Suggestion> {
+pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str]) -> Vec<Suggestion> {
     let input = input.trim().to_lowercase();
     if input.is_empty() {
         return Vec::new();
@@ -61,7 +68,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         .chain(std::iter::once(Cmd::Theme))
         .chain(std::iter::once(Cmd::Settings))
         .chain(std::iter::once(Cmd::Quit))
-        .chain(menu_sections(crds).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
+        .chain(menu_sections(crds, dashboard_categories).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
         // Every other resource the server lists, by plural or kind (`:flowschemas`),
         // unless a built-in kind already answers to that name.
         .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none()).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
@@ -216,7 +223,7 @@ mod tests {
     use crate::app::Step;
 
     fn top(input: &str) -> Suggestion {
-        command_suggestions(input, &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
+        command_suggestions(input, &[], &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
     }
 
     #[test]
@@ -256,7 +263,7 @@ mod tests {
 
     #[test]
     fn empty_input_suggests_nothing() {
-        assert!(command_suggestions("  ", &[], &[]).is_empty());
+        assert!(command_suggestions("  ", &[], &[], &[]).is_empty());
     }
 
     #[test]
@@ -296,7 +303,7 @@ mod tests {
 
     #[test]
     pub(crate) fn menu_sections_cover_every_resource_kind_exactly_once() {
-        let expected = [
+        let mut expected = vec![
             ResourceKind::Overview,
             ResourceKind::Nodes,
             ResourceKind::Namespaces,
@@ -327,7 +334,10 @@ mod tests {
             ResourceKind::ApiResources,
             ResourceKind::CustomResourceList,
         ];
-        let sections = menu_sections(&[]);
+        let registry = extensions::Registry::load(std::path::Path::new("/nonexistent-knav-test-dir"));
+        let dashboard_categories = extensions::dashboards::categories(&registry);
+        expected.extend(dashboard_categories.iter().copied().map(ResourceKind::ExtensionDashboard));
+        let sections = menu_sections(&[], &dashboard_categories);
         let total: usize = sections.iter().map(|s| s.tiles.len()).sum();
         assert_eq!(total, expected.len(), "a kind is missing from (or duplicated in) the menu");
         for kind in expected {
@@ -345,7 +355,7 @@ mod tests {
             namespaced: true,
         };
         let crds = [crd("a.io", "One"), crd("a.io", "Two"), crd("b.io", "Three")];
-        let sections = menu_sections(&crds);
+        let sections = menu_sections(&crds, &[]);
         let custom = &sections.last().unwrap().tiles;
         assert_eq!(
             custom,

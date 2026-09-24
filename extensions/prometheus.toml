@@ -27,3 +27,25 @@ category = "Monitoring"
   [extension.kind.view]
   template = "timeline"
   from = ".status.conditions"
+
+[[extension.dashboard]]
+kind = "Prometheus"
+widget = "list"
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Version", ".spec.version"],
+  ["Available", ".status.availableReplicas"],
+  ["Replicas", ".status.replicas"],
+]
+
+[[extension.dashboard]]
+kind = "Alertmanager"
+widget = "list"
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Version", ".spec.version"],
+  ["Available", ".status.availableReplicas"],
+  ["Replicas", ".status.replicas"],
+]

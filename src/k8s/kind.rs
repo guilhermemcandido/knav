@@ -30,6 +30,12 @@ pub enum ResourceKind {
     /// Helm releases, decoded from the Secrets Helm itself writes — not tied
     /// to any particular distribution.
     HelmReleases,
+    /// An extension category's native dashboard (Karpenter, GitOps,
+    /// cert-manager, ...), not a list of objects of its own — see
+    /// `EXTENSION_DASHBOARDS` for the full set and `k8s::Dashboard` for what
+    /// each one builds. The `&'static str` is the category name, the same
+    /// one `ExtKind.category` and the Overview tile it's reached from carry.
+    ExtensionDashboard(&'static str),
     /// The running port-forwards, knav's own, not a cluster resource.
     PortForwards,
     /// The Custom Resources picker, every discovered CRD kind
@@ -77,6 +83,7 @@ impl ResourceKind {
             ResourceKind::ClusterRoles => "ClusterRoles",
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
             ResourceKind::HelmReleases => "HelmReleases",
+            ResourceKind::ExtensionDashboard(category) => category,
             ResourceKind::CustomResourceList => "CustomResources",
             ResourceKind::CustomResourceGroup(group) => group,
             ResourceKind::CustomResource(_, label) | ResourceKind::Api(_, label) => label,
@@ -112,6 +119,7 @@ impl ResourceKind {
                     | ResourceKind::CustomResourceList
                     | ResourceKind::CustomResourceGroup(_)
                     | ResourceKind::ApiResources
+                    | ResourceKind::ExtensionDashboard(_)
             )
     }
 
@@ -147,6 +155,9 @@ impl ResourceKind {
             "Port-forwards" => Some(ResourceKind::PortForwards),
             "API Resources" => Some(ResourceKind::ApiResources),
             "CustomResources" => Some(ResourceKind::CustomResourceList),
+            // Extension dashboards aren't resolved here: which categories
+            // currently have one depends on loaded manifests, which this
+            // function has no access to (see `Catalog::kind_for_tile_label`).
             _ => None,
         }
     }

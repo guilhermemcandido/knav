@@ -64,7 +64,7 @@ pub(crate) fn run(
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();
-        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, .. } = derived;
+        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, dashboard, .. } = derived;
 
         let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
@@ -72,6 +72,7 @@ pub(crate) fn run(
             ResourceKind::Deployments => dep_rows.len(),
             ResourceKind::Nodes => node_rows.len(),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => crd_rows.len(),
+            ResourceKind::ExtensionDashboard(_) => 0,
             _ => generic_rows.len(),
         };
         // Only the object counts of the types on screen (and one screen further) are fetched,
@@ -114,6 +115,10 @@ pub(crate) fn run(
             ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, crd_counts, st.current_kind.label()),
+            ResourceKind::ExtensionDashboard(_) => match dashboard {
+                Some((title, content)) => ui::Rows::Dashboard(title, content, st.dashboard_scroll),
+                None => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
+            },
             _ => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
         };
 
@@ -185,6 +190,7 @@ pub(crate) fn run(
             extensions: &catalog.extensions.loaded,
             helm_present: catalog.count(ResourceKind::HelmReleases) > 0,
             layout_names: &catalog.layout_names(&st.config.extensions.enabled),
+            dashboard_categories: &catalog.dashboard_categories(),
             apis: &catalog.apis,
             favorites: &st.favorites,
             hints: &hints,

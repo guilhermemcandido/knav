@@ -13,7 +13,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // Tab completes the highlighted suggestion; on one already typed
             // out in full it moves on to the next.
             KeyCode::Tab => {
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
                     let name = chosen.primary_name();
                     if *input == name {
@@ -26,14 +26,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
-                let len = command_suggestions(input, &catalog.crds, &catalog.apis).len();
+                let len = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories()).len();
                 *selected = (*selected + 1).min(len.saturating_sub(1));
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
                 // The highlighted suggestion wins; what was typed is only the fallback for
                 // an exact alias that did not make the visible list.
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis);
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
                 let typed = || match cmd.as_str() {
                     "q" | "quit" | "exit" => Some(Cmd::Quit),
                     "config" | "settings" | "preferences" | "prefs" | "options" => Some(Cmd::Settings),

@@ -27,6 +27,10 @@ pub(super) struct Derived {
     pub crd_rows: Vec<(usize, k8s::CrdInfo)>,
     /// How many objects each CRD kind in `crd_rows` has.
     pub crd_counts: Vec<k8s::Count>,
+    /// Only built while the matching extension dashboard is on screen (see
+    /// `ResourceKind::ExtensionDashboard`/`extensions::dashboards`): its box
+    /// title and its already-rendered content.
+    pub dashboard: Option<(String, Vec<ratatui::text::Line<'static>>)>,
 }
 
 /// The filters/ordering applied to every list.
@@ -215,8 +219,21 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let mut with_counts: Vec<((usize, k8s::CrdInfo), k8s::Count)> = crd_rows.into_iter().map(|row| { let count = catalog.counts.get(row.1.group, &row.1.plural); (row, count) }).collect();
         apply(&mut with_counts, sort, |((_, crd), count), column| crd_key(crd, *count, column));
         let (crd_rows, crd_counts): (Vec<(usize, k8s::CrdInfo)>, Vec<k8s::Count>) = with_counts.into_iter().unzip();
+        // Only built while its dashboard is actually open: fetching a
+        // handful of CRD kinds' full manifests isn't worth doing every frame
+        // regardless of what's on screen. Each dashboard is self-contained
+        // (see `extensions::dashboards`) — this only looks one up by
+        // category and hands it a context to read from.
+        let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
+            extensions::dashboards::find(category, &catalog.extensions).map(|found| {
+                let mut ctx = extensions::dashboards::DashboardContext { catalog, client, nodes: &sorted_nodes, node_rows: &node_rows, events: &overview.events };
+                (found.title(), found.lines(&mut ctx))
+            })
+        } else {
+            None
+        };
 
-    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts }
+    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts, dashboard }
 }
 
 /// How many pods each node runs, counted on several threads for big clusters.

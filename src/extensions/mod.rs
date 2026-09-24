@@ -12,10 +12,22 @@
 //! (what `knav ext add <repo>` will populate later). Disabled by default;
 //! Settings' Extensions tab turns them on, which just adds their id to
 //! `config.toml`'s `extensions.enabled`.
+//!
+//! `dashboards` is the other half: a category-wide aggregate screen across
+//! several of an extension's kinds at once (a tally, a sorted list, a sum —
+//! see `manifest::DashboardWidget`), which the per-kind `view` templates
+//! can't express. Most of these ARE just data: `[[extension.dashboard]]`
+//! blocks in the same manifest, so `knav ext add` reaches them too, same as
+//! `view`. The couple that genuinely need a join across kinds (Karpenter's
+//! Node↔NodePool, GitOps's Flux+Argo CD combination) stay native Rust,
+//! bundled and reviewed rather than user-authored — but even those are
+//! reached through the same small trait as the declarative ones, so the
+//! core app never has to know a dashboard's name to show it.
 
+pub mod dashboards;
 pub mod manifest;
 
-use manifest::{ExtKind, Manifest};
+use manifest::{DashboardWidget, ExtKind, Manifest};
 
 /// One loaded manifest, bundled or from disk, for the Extensions settings
 /// tab: whether it parsed, and what it'd add if enabled.
@@ -29,6 +41,7 @@ pub struct Loaded {
     /// from the filename so it still has something to show.
     pub error: Option<String>,
     pub kinds: Vec<ExtKind>,
+    pub dashboard: Vec<DashboardWidget>,
 }
 
 /// Every loaded extension, and a lookup from an installed CRD's `(group,
@@ -91,6 +104,41 @@ impl Registry {
     pub fn view_for<'a>(&'a self, enabled: &[String], group: &str, kind: &str) -> Option<&'a manifest::ViewTemplate> {
         self.enabled_kinds(enabled).find(|k| k.group == group && k.kind == kind).and_then(|k| k.view.as_ref())
     }
+
+    /// Every dashboard widget any loaded (not necessarily enabled — see
+    /// `dashboards::find`) manifest declares for `category`, with the
+    /// `(group, kind)` each widget's own `kind`/`extra_kinds` resolve to,
+    /// looked up against that same manifest's `kinds`. A widget whose kind
+    /// isn't declared can't happen (`Manifest::parse` rejects it), so this
+    /// silently skips nothing real.
+    pub fn dashboard_widgets(&self, category: &str) -> Vec<(&DashboardWidget, Vec<(&str, &str)>)> {
+        self.loaded
+            .iter()
+            .filter(|l| l.error.is_none())
+            .flat_map(|l| l.dashboard.iter().map(move |w| (l, w)))
+            .filter(|(l, w)| l.kinds.iter().any(|k| k.kind == w.kind && k.category == category))
+            .map(|(l, w)| {
+                let resolve = |kind: &str| l.kinds.iter().find(|k| k.kind == kind).map(|k| (k.group.as_str(), k.kind.as_str()));
+                let sources = std::iter::once(w.kind.as_str()).chain(w.extra_kinds.iter().map(String::as_str)).filter_map(resolve).collect();
+                (w, sources)
+            })
+            .collect()
+    }
+
+    /// Every category with at least one dashboard widget among the loaded
+    /// manifests, regardless of enabled — same "reachable by `:category`
+    /// regardless of the toggle" precedent `HelmReleases` already set.
+    pub fn dashboard_categories(&self) -> Vec<&str> {
+        let mut categories: Vec<&str> = self
+            .loaded
+            .iter()
+            .filter(|l| l.error.is_none())
+            .flat_map(|l| l.dashboard.iter().filter_map(move |w| l.kinds.iter().find(|k| k.kind == w.kind).map(|k| k.category.as_str())))
+            .collect();
+        categories.sort_unstable();
+        categories.dedup();
+        categories
+    }
 }
 
 /// The Extensions tab's display order: `loaded` narrowed to whatever
@@ -106,8 +154,8 @@ pub fn visible_order(loaded: &[Loaded], filter: &str) -> Vec<usize> {
 
 fn from_text(fallback_id: &str, text: &str, bundled: bool) -> Loaded {
     match Manifest::parse(text) {
-        Ok(m) => Loaded { id: m.extension.id, name: m.extension.name, description: m.extension.description, bundled, error: None, kinds: m.extension.kinds },
-        Err(e) => Loaded { id: fallback_id.to_string(), name: fallback_id.to_string(), description: String::new(), bundled, error: Some(e.to_string()), kinds: Vec::new() },
+        Ok(m) => Loaded { id: m.extension.id, name: m.extension.name, description: m.extension.description, bundled, error: None, kinds: m.extension.kinds, dashboard: m.extension.dashboard },
+        Err(e) => Loaded { id: fallback_id.to_string(), name: fallback_id.to_string(), description: String::new(), bundled, error: Some(e.to_string()), kinds: Vec::new(), dashboard: Vec::new() },
     }
 }
 
@@ -127,7 +175,7 @@ mod tests {
     }
 
     fn stub(id: &str, name: &str, bundled: bool) -> Loaded {
-        Loaded { id: id.into(), name: name.into(), description: String::new(), bundled, error: None, kinds: Vec::new() }
+        Loaded { id: id.into(), name: name.into(), description: String::new(), bundled, error: None, kinds: Vec::new(), dashboard: Vec::new() }
     }
 
     #[test]

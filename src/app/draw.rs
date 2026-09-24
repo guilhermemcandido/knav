@@ -24,6 +24,9 @@ pub(super) struct View<'a> {
     /// Layout tab (see `k8s::layout::resolve`) — includes whatever's enabled
     /// (Helm, Flux, ...), not just the built-in set.
     pub layout_names: &'a [(&'static str, Vec<&'static str>)],
+    /// Every category with a dashboard right now (native or a loaded
+    /// manifest's), for the `:` command menu's suggestions.
+    pub dashboard_categories: &'a [&'static str],
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
@@ -48,7 +51,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -66,7 +69,7 @@ pub(super) fn draw_mode(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
+                    let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis, dashboard_categories).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     paint(frame, hovered, None, Some(overlay), false);

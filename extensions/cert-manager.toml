@@ -52,3 +52,34 @@ category = "cert-manager"
   [extension.kind.view]
   template = "timeline"
   from = ".status.conditions"
+
+# The dashboard: what's ready, what's about to expire, and a full expiry-sorted
+# list (each row's Expires column is colour-coded by how soon, see manifest.rs).
+[[extension.dashboard]]
+kind = "Certificate"
+widget = "tally"
+by = "ready"
+
+[[extension.dashboard]]
+kind = "Certificate"
+widget = "list"
+sort_by = ".status.notAfter"
+date_columns = [".status.notAfter"]
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Issuer", ".spec.issuerRef.name"],
+  ["Expires", ".status.notAfter"],
+]
+
+[[extension.dashboard]]
+kind = "Issuer"
+extra_kinds = ["ClusterIssuer"]
+label = "Issuers"
+widget = "tally"
+by = "ready"
+
+[[extension.dashboard]]
+kind = "CertificateRequest"
+widget = "tally"
+by = "ready"

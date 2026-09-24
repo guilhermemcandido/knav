@@ -42,9 +42,13 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         ResourceKind::RoleBindings => ("rb", include_bytes!("svg/rb.svg")),
         ResourceKind::ClusterRoles => ("c-role", include_bytes!("svg/c-role.svg")),
         ResourceKind::ClusterRoleBindings => ("crb", include_bytes!("svg/crb.svg")),
-        ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::CustomResource(_, _) | ResourceKind::ApiResources | ResourceKind::Api(_, _) | ResourceKind::HelmReleases => {
-            ("crd", include_bytes!("svg/crd.svg"))
-        }
+        ResourceKind::CustomResourceList
+        | ResourceKind::CustomResourceGroup(_)
+        | ResourceKind::CustomResource(_, _)
+        | ResourceKind::ApiResources
+        | ResourceKind::Api(_, _)
+        | ResourceKind::HelmReleases
+        | ResourceKind::ExtensionDashboard(_) => ("crd", include_bytes!("svg/crd.svg")),
         // The Overview tile has no icon, so this arm is never reached, but `icon_asset`
         // must be total over `ResourceKind`.
         // The command line shows Overview as a house.

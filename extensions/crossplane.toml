@@ -34,3 +34,24 @@ category = "Crossplane"
 group = "apiextensions.crossplane.io"
 kind = "Composition"
 category = "Crossplane"
+
+[[extension.dashboard]]
+kind = "Provider"
+label = "Providers: installed"
+widget = "tally"
+by = "condition:Installed"
+
+[[extension.dashboard]]
+kind = "Provider"
+label = "Providers: healthy"
+widget = "tally"
+by = "condition:Healthy"
+
+[[extension.dashboard]]
+kind = "CompositeResourceDefinition"
+widget = "tally"
+by = "condition:Established"
+
+[[extension.dashboard]]
+kind = "Composition"
+widget = "count"

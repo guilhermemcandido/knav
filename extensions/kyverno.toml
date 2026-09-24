@@ -29,3 +29,26 @@ category = "Kyverno"
 group = "wgpolicyk8s.io"
 kind = "ClusterPolicyReport"
 category = "Kyverno"
+
+[[extension.dashboard]]
+kind = "ClusterPolicy"
+widget = "count"
+
+[[extension.dashboard]]
+kind = "Policy"
+widget = "count"
+
+# `summary` sits at the top level of a PolicyReport, not under `.status` —
+# reports aren't a status subresource, they're their own object.
+[[extension.dashboard]]
+kind = "PolicyReport"
+extra_kinds = ["ClusterPolicyReport"]
+label = "PolicyReports"
+widget = "sum"
+fields = [
+  ["pass", ".summary.pass"],
+  ["fail", ".summary.fail"],
+  ["warn", ".summary.warn"],
+  ["error", ".summary.error"],
+  ["skip", ".summary.skip"],
+]

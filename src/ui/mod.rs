@@ -23,6 +23,7 @@ use crate::k8s::{
 mod path_bar;
 pub mod icons;
 mod columns;
+mod dashboard;
 mod details;
 mod graph;
 mod header;
@@ -40,6 +41,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
+use self::dashboard::draw_dashboard;
 pub use self::nav::*;
 pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, set_sidebar, sidebar_area, sidebar_row_at};
 
@@ -60,6 +62,7 @@ pub use self::path_bar::SelectedItem;
 use self::path_bar::*;
 pub use self::logs::*;
 use self::overview::*;
+pub use self::overview::{format_bytes, truncate};
 pub use self::popups::*;
 pub use self::spec::*;
 pub use self::tables::*;
@@ -85,6 +88,9 @@ pub enum Rows<'a> {
     /// entry keeps its real index into `Catalog`'s list, next to a heading.
     /// Custom resource kinds, how many objects each has, and the list's heading.
     CrdList(&'a [(usize, CrdInfo)], &'a [crate::k8s::Count], &'a str),
+    /// An extension dashboard (see `extensions::dashboards`): its box title,
+    /// its already-rendered content, and how far it's scrolled.
+    Dashboard(&'a str, &'a [Line<'static>], usize),
 }
 
 pub struct MenuSection<'a> {
@@ -332,8 +338,10 @@ fn draw_sidebar_if_any(frame: &mut Frame, area: Rect, dimmed: bool) {
     sidebar::draw_sidebar(frame, area, dimmed);
 }
 
+/// Whether `rows` is a resource list: not the Overview, and not a bespoke
+/// dashboard — neither has selectable rows or a side panel.
 fn is_list_kind(rows: &Rows) -> bool {
-    !matches!(rows, Rows::Overview(..))
+    !matches!(rows, Rows::Overview(..) | Rows::Dashboard(..))
 }
 
 pub fn draw(
@@ -401,10 +409,10 @@ pub fn draw(
     let full = frame.area();
     // The search on a list's top border keeps clear of the badges in its corner.
     // Room for all three, so the search stays put as they come and go.
-    set_title_reserve(if matches!(rows, Rows::Overview(..)) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 });
+    set_title_reserve(if !is_list_kind(&rows) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 });
     // The namespace-shortcut line is for the resource lists; the main
-    // Overview keeps just the info line.
-    let shortcuts_line = !matches!(rows, Rows::Overview(..));
+    // Overview and the dashboards keep just the info line.
+    let shortcuts_line = is_list_kind(&rows);
     let side = sidebar_area(full, shortcuts_line);
     draw_sidebar_if_any(frame, side, dimmed);
     let body = beside_sidebar(full, shortcuts_line);
@@ -447,7 +455,7 @@ pub fn draw(
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
             Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(|r| SelectedItem::from_generic(r)),
             Rows::CrdList(crds, _, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
-            Rows::Overview(..) => None,
+            Rows::Overview(..) | Rows::Dashboard(..) => None,
         },
     };
     let is_overview = matches!(rows, Rows::Overview(..));
@@ -494,6 +502,9 @@ pub fn draw(
         }
         Rows::CrdList(crds, counts, heading) => {
             draw_crd_list_table(frame, body, crds, counts, heading, table_state, search, sort, hscroll, dimmed);
+        }
+        Rows::Dashboard(title, content, scroll) => {
+            draw_dashboard(frame, body, title, content, scroll, dimmed);
         }
     }
 

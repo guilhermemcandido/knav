@@ -4,6 +4,7 @@ use super::super::*;
 use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
 
+mod dashboard;
 mod mouse;
 mod overview;
 mod selection;
@@ -94,6 +95,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
         }
         (Event::Key(key), Mode::List) if st.current_kind == ResourceKind::Overview => overview::keys(key, st, cx),
+        (Event::Key(key), Mode::List)
+            if matches!(st.current_kind, ResourceKind::ExtensionDashboard(_))
+                && matches!(key.code, KeyCode::Char('j' | 'k' | 'g' | 'G') | KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown) =>
+        {
+            dashboard::keys(key, st);
+        }
         (Event::Key(key), Mode::List) => match if key.code == KeyCode::Enter && st.current_kind.opens_spec_on_enter() {
             KeyCode::Char('d')
         } else {

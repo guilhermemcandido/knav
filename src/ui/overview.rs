@@ -185,7 +185,7 @@ pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, 
     frame.render_widget(Paragraph::new(line), area);
 }
 
-pub(super) fn format_bytes(bytes: f64) -> String {
+pub fn format_bytes(bytes: f64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = bytes;
     let mut unit = 0;
@@ -229,7 +229,7 @@ pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry,
     frame.render_widget(Paragraph::new(Line::styled(line, Style::default().fg(color))), area);
 }
 
-pub(super) fn truncate(s: &str, max: usize) -> String {
+pub fn truncate(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
     }

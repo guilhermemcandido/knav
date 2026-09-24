@@ -30,3 +30,24 @@ category = "KEDA"
   [extension.kind.view]
   template = "timeline"
   from = ".status.conditions"
+
+[[extension.dashboard]]
+kind = "ScaledObject"
+widget = "tally"
+by = "condition:Active"
+
+[[extension.dashboard]]
+kind = "ScaledObject"
+widget = "list"
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Target", ".spec.scaleTargetRef.name"],
+  ["Min", ".spec.minReplicaCount"],
+  ["Max", ".spec.maxReplicaCount"],
+]
+
+[[extension.dashboard]]
+kind = "ScaledJob"
+widget = "tally"
+by = "condition:Active"

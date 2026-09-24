@@ -35,6 +35,9 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::List if current_kind == ResourceKind::PortForwards => {
             vec![("↑↓/jk", "move"), ("enter/o", "open in browser"), ("D", "stop"), ("s", "sort"), ("/", "search"), ("q/esc", "back")]
         }
+        Mode::List if matches!(current_kind, ResourceKind::ExtensionDashboard(_)) => {
+            vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("q/esc", "back")]
+        }
         Mode::List => {
             let mut hints = match current_kind {
                 ResourceKind::Pods => vec![("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec")],

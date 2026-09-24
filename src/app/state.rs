@@ -131,6 +131,10 @@ pub(super) struct State {
     pub overview_col_scroll: usize,
     /// Vertical scroll into the column holding the selection.
     pub overview_item_scroll: usize,
+    /// How far the current extension dashboard is scrolled (see
+    /// `ResourceKind::ExtensionDashboard`); one field since only one is ever
+    /// shown at a time.
+    pub dashboard_scroll: usize,
 }
 
 /// Whether a click on `id` follows another click on it soon enough to count as a double click,
@@ -192,6 +196,7 @@ impl State {
             overview_selection: ui::OverviewSelection::Resources,
             overview_col_scroll: 0,
             overview_item_scroll: 0,
+            dashboard_scroll: 0,
         }
     }
 
