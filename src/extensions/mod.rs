@@ -84,6 +84,13 @@ impl Registry {
         let enabled = enabled.to_vec();
         self.loaded.iter().filter(move |l| l.error.is_none() && enabled.iter().any(|e| e == &l.id)).flat_map(|l| l.kinds.iter())
     }
+
+    /// The view template an enabled extension declares for `group`/`kind`,
+    /// if any — what `k8s::details::details` renders for an object of that
+    /// kind instead of the generic field dump.
+    pub fn view_for<'a>(&'a self, enabled: &[String], group: &str, kind: &str) -> Option<&'a manifest::ViewTemplate> {
+        self.enabled_kinds(enabled).find(|k| k.group == group && k.kind == kind).and_then(|k| k.view.as_ref())
+    }
 }
 
 /// The Extensions tab's display order: `loaded` narrowed to whatever

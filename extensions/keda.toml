@@ -15,8 +15,12 @@ kind = "ScaledObject"
 category = "KEDA"
 
   [extension.kind.view]
-  template = "timeline"
-  from = ".status.conditions"
+  template = "key_values"
+  fields = [
+    ["Target", ".spec.scaleTargetRef.name"],
+    ["Min Replicas", ".spec.minReplicaCount"],
+    ["Max Replicas", ".spec.maxReplicaCount"],
+  ]
 
 [[extension.kind]]
 group = "keda.sh"

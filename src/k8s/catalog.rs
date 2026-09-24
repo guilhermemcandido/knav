@@ -225,6 +225,16 @@ impl Catalog {
         self.sections(0, 0, extensions_enabled).into_iter().map(|(category, items)| (category, items.into_iter().map(|(name, _)| name).collect())).collect()
     }
 
+    /// The view template an enabled extension declares for `manifest`'s kind,
+    /// if any (group from its `apiVersion`, up to the `/`) — what
+    /// `k8s::details::details` renders for it instead of the generic dump.
+    pub(crate) fn view_for<'a>(&'a self, extensions_enabled: &[String], manifest: &serde_yaml::Value) -> Option<&'a crate::extensions::manifest::ViewTemplate> {
+        let api_version = manifest.get("apiVersion")?.as_str()?;
+        let kind = manifest.get("kind")?.as_str()?;
+        let group = api_version.rsplit_once('/').map(|(g, _)| g).unwrap_or("");
+        self.extensions.view_for(extensions_enabled, group, kind)
+    }
+
     /// Merges in the live-reflector counts for Pods/Deployments so
     /// callers get one complete catalog instead of two partial ones, plus
     /// one section per category an enabled extension asked for (see

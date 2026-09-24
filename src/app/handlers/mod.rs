@@ -160,7 +160,8 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
                 // Enter opens the same summary full screen, where it was.
                 KeyCode::Enter => {
                     if let Some(manifest) = selected_manifest(st, cx.d, &mut *cx.catalog, cx.client) {
-                        let sections = k8s::details::details(&manifest, &cx.d.overview.events, st.reveal);
+                        let view = cx.catalog.view_for(&cx.config.extensions.enabled, &manifest);
+                        let sections = k8s::details::details(&manifest, &cx.d.overview.events, st.reveal, view);
                         st.mode = Mode::Details { manifest, sections, scroll: st.info_scroll, hscroll: st.info_hscroll, back: Box::new(Mode::List) };
                     }
                     true

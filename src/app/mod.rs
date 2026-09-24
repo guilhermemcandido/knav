@@ -150,7 +150,8 @@ pub(crate) fn run(
                         st.info_scroll = 0;
                         st.info_hscroll = 0;
                     }
-                    let sections = k8s::details::details(&manifest, &overview.events, st.reveal);
+                    let view = catalog.view_for(&st.config.extensions.enabled, &manifest);
+                    let sections = k8s::details::details(&manifest, &overview.events, st.reveal, view);
                     if let Ok(size) = terminal.size() {
                         let (down, right) = ui::side_panel_max_scroll(&sections, size);
                         st.info_scroll = st.info_scroll.min(down);

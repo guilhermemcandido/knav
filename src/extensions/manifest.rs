@@ -4,11 +4,10 @@
 //!
 //! Extensions are read-only by design: a manifest can attach a category, icon
 //! and detail view to CRD kinds the cluster already has, but has no mechanism
-//! to patch, annotate, create or delete anything. `category`/`icon`/`kinds` are
-//! wired up (see `Catalog::extension_sections`); `view` is parsed and validated
-//! here, and covered by the tests below, but not yet reachable from a keypress
-//! — the next round wires the detail-view templates.
-#![allow(dead_code)]
+//! to patch, annotate, create or delete anything. `category`/`kinds` are wired
+//! up (see `Catalog::extension_sections`); `view` renders in the object's
+//! detail view (see `extensions::view_for` and `k8s::details::details`).
+//! `icon` is still reserved, unused.
 
 use serde::Deserialize;
 
@@ -38,21 +37,32 @@ pub struct ExtKind {
     /// Reserved for a future icon override; unused today (falls back to the
     /// generic custom-resource icon).
     #[serde(default)]
+    #[allow(dead_code)]
     pub icon: Option<String>,
-    /// Reserved for the detail-view content template; parsed and validated,
-    /// not yet rendered.
+    /// The detail-view content template shown for an object of this kind
+    /// instead of the generic field dump (see `k8s::details::details`).
     #[serde(default)]
     pub view: Option<ViewTemplate>,
 }
 
 /// A view template is a fixed choice, not a rendering instruction: the
-/// manifest supplies a field path, this crate supplies how it's drawn.
+/// manifest supplies a field path (and, for `KeyValues`, a label per field),
+/// this crate supplies how it's drawn.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "template", rename_all = "snake_case")]
 pub enum ViewTemplate {
-    /// Reuses the same conditions renderer built-in kinds already have.
-    Timeline { from: String },
+    /// Reuses the same conditions renderer built-in kinds already have,
+    /// which only ever reads `.status.conditions` — `from` isn't read, it's
+    /// kept so a manifest still states its assumption in writing.
+    Timeline {
+        #[allow(dead_code)]
+        from: String,
+    },
+    /// A single field compared against the value that means "healthy".
     Health { from: String, ok: String },
+    /// Curated `[label, path]` pairs, in order, shown instead of the generic
+    /// spec/status dump — e.g. `["Not After", ".status.notAfter"]`. A path
+    /// that resolves to nothing is left out, not shown blank.
     KeyValues { fields: Vec<[String; 2]> },
 }
 

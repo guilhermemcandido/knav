@@ -53,7 +53,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     if toggle {
         st.reveal = !st.reveal;
         if let Mode::Details { manifest, sections, .. } = &mut st.mode {
-            *sections = k8s::details::details(manifest, &cx.d.overview.events, st.reveal);
+            let view = cx.catalog.view_for(&cx.config.extensions.enabled, manifest);
+            *sections = k8s::details::details(manifest, &cx.d.overview.events, st.reveal, view);
         }
     }
     if let Some((kind, namespace, name)) = open {

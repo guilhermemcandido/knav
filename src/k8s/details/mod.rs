@@ -13,6 +13,7 @@ use serde_yaml::Value;
 
 use self::{cluster::*, network::*, pod::*, rbac::*, storage::*};
 
+use crate::extensions::manifest::ViewTemplate;
 use crate::k8s::EventEntry;
 use crate::k8s::describe::Tone;
 
@@ -96,6 +97,26 @@ fn text<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
 
 fn at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
     path.iter().try_fold(value, |v, key| v.get(*key))
+}
+
+/// As `at`, but for an extension manifest's dotted path (`.status.notAfter`)
+/// instead of a `&[&str]` — the shape `ExtKind.view`'s fields carry.
+fn at_dotted<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    path.trim_start_matches('.').split('.').try_fold(value, |v, key| v.get(key))
+}
+
+/// A field's value as one line of text: a scalar as itself, a sequence of
+/// scalars comma-joined, anything else left out (an extension's curated
+/// fields are meant to be short; a nested object isn't a "field" to show
+/// this way).
+fn scalar_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Sequence(items) => {
+            let parts: Vec<String> = items.iter().filter_map(scalar).collect();
+            (!parts.is_empty()).then(|| parts.join(", "))
+        }
+        other => scalar(other),
+    }
 }
 
 fn items<'a>(value: &'a Value, path: &[&str]) -> &'a [Value] {
@@ -258,6 +279,24 @@ fn namespace_sections(manifest: &Value) -> Vec<Section> {
     vec![Section { title: "Status".into(), lines: vec![field_styled("Phase", phase, crate::k8s::describe::phase_tone(phase).into())] }]
 }
 
+/// An extension's `KeyValues` view: curated `[label, path]` pairs instead of
+/// every field `spec_summary` would otherwise dump. A path that resolves to
+/// nothing (or to something that isn't a scalar or a list of them) is left
+/// out rather than shown blank; an extension with every field missing falls
+/// through to `spec_summary` instead of showing an empty section.
+fn key_values_section(manifest: &Value, fields: &[[String; 2]]) -> Option<Section> {
+    let lines: Vec<Line> = fields.iter().filter_map(|[label, path]| Some(field(label, scalar_text(at_dotted(manifest, path)?)?))).collect();
+    (!lines.is_empty()).then_some(Section { title: "Summary".into(), lines })
+}
+
+/// An extension's `Health` view: one field, and whether it matches the value
+/// that means "healthy".
+fn health_section(manifest: &Value, from: &str, ok: &str) -> Option<Section> {
+    let value = scalar_text(at_dotted(manifest, from)?)?;
+    let style = if value == ok { Style::Good } else { Style::Bad };
+    Some(Section { title: "Health".into(), lines: vec![field_styled("Status", value, style)] })
+}
+
 /// Objects with no dedicated view: the plain fields of `spec` and `status`.
 fn spec_summary(manifest: &Value) -> Vec<Section> {
     let mut sections = Vec::new();
@@ -285,7 +324,12 @@ fn spec_summary(manifest: &Value) -> Vec<Section> {
 }
 
 /// The sections that describe `manifest`, with the events that mention it.
-pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool) -> Vec<Section> {
+/// `custom` is an enabled extension's view for this object's kind, if any
+/// (see `extensions::Registry::view_for`) — read only for kinds that fall
+/// through to the generic summary; a built-in kind's own dedicated sections
+/// below always win, an extension can't be declared for one anyway (its
+/// group+kind matches a CRD, never a built-in kind's).
+pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool, custom: Option<&ViewTemplate>) -> Vec<Section> {
     let kind = text(manifest, &["kind"]).unwrap_or("");
     if kind == "APIResource" {
         return api_resource_sections(manifest);
@@ -315,7 +359,14 @@ pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool) -> Vec<Sec
         "Lease" => lease_sections(manifest),
         "IngressClass" => ingress_class_sections(manifest),
         "CustomResourceDefinition" => crd_sections(manifest),
-        _ => spec_summary(manifest),
+        _ => match custom {
+            Some(ViewTemplate::KeyValues { fields }) => key_values_section(manifest, fields).map(|s| vec![s]).unwrap_or_else(|| spec_summary(manifest)),
+            Some(ViewTemplate::Health { from, ok }) => health_section(manifest, from, ok).map(|s| vec![s]).unwrap_or_else(|| spec_summary(manifest)),
+            // Timeline just means "this kind's .status.conditions matters", and
+            // `conditions()` below already renders that for any kind that has
+            // one — nothing extra to add here.
+            Some(ViewTemplate::Timeline { .. }) | None => spec_summary(manifest),
+        },
     };
     sections.extend(specific);
     sections.extend(conditions(manifest));

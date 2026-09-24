@@ -1,5 +1,7 @@
 # cert-manager — TLS certificate status (Certificates, CertificateRequests,
-# Issuers, ClusterIssuers), from their Ready condition.
+# Issuers, ClusterIssuers). A Certificate gets a curated summary (expiry,
+# names, secret) instead of the generic field dump; the rest just get their
+# Ready condition, which is really the only thing worth knowing about them.
 # Bundled with knav, off by default; enable in the Extensions screen (E).
 # Schema: see src/extensions/manifest.rs.
 
@@ -14,8 +16,15 @@ kind = "Certificate"
 category = "cert-manager"
 
   [extension.kind.view]
-  template = "timeline"
-  from = ".status.conditions"
+  template = "key_values"
+  fields = [
+    ["Not After", ".status.notAfter"],
+    ["Renewal Time", ".status.renewalTime"],
+    ["Common Name", ".spec.commonName"],
+    ["DNS Names", ".spec.dnsNames"],
+    ["Secret Name", ".spec.secretName"],
+    ["Issuer", ".spec.issuerRef.name"],
+  ]
 
 [[extension.kind]]
 group = "cert-manager.io"
