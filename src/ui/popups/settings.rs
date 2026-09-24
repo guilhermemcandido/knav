@@ -122,7 +122,7 @@ pub fn settings_tab_at(frame_area: Rect, column: u16, row: u16) -> Option<Settin
 /// The Overview layout editor: each category with its place from the left,
 /// and a line showing the result.
 fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: &mut TableState) {
-    let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(area);
+    let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(4)]).split(area);
     let rows: Vec<Row> = layout
         .iter()
         .map(|row| {
@@ -140,8 +140,37 @@ fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: 
     }
     frame.render_stateful_widget(table, parts[0], state);
     let shown: Vec<&str> = layout.iter().filter(|r| !r.hidden).map(|r| r.name.as_str()).collect();
-    let preview = Paragraph::new(vec![Line::raw(""), Line::from(vec![Span::styled("Left to right:  ", Style::default().fg(theme().muted)), Span::styled(shown.join("  ›  "), Style::default().fg(theme().accent))])]).wrap(Wrap { trim: true });
-    frame.render_widget(preview, parts[1]);
+    let label_area = Rect { height: 1, ..parts[1] };
+    frame.render_widget(Paragraph::new(Span::styled("Left to right:", Style::default().fg(theme().muted))), label_area);
+    let boxes_area = Rect { y: parts[1].y + 1, height: parts[1].height.saturating_sub(1), ..parts[1] };
+    draw_category_boxes(frame, boxes_area, &shown);
+}
+
+/// The layout preview as actual boxes, one per visible category, left to
+/// right in the order they'll show on the Overview — closer to what you're
+/// really changing than a plain `A › B › C` line of text.
+fn draw_category_boxes(frame: &mut Frame, area: Rect, names: &[&str]) {
+    if area.height < 3 {
+        return;
+    }
+    let mut x = area.x;
+    for (i, name) in names.iter().enumerate() {
+        let width = name.chars().count() as u16 + 4; // borders + a space of padding either side
+        if x + width > area.x + area.width {
+            break; // no room for another box; the rest just don't show
+        }
+        let box_area = Rect { x, y: area.y, width, height: 3 };
+        let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(theme().accent));
+        let inner = block.inner(box_area);
+        frame.render_widget(block, box_area);
+        frame.render_widget(Paragraph::new(Span::styled(*name, Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD))).alignment(Alignment::Center), inner);
+        x += width;
+        if i + 1 < names.len() && x + 1 < area.x + area.width {
+            let arrow_area = Rect { x, y: area.y + 1, width: 1, height: 1 };
+            frame.render_widget(Paragraph::new(Span::styled("›", Style::default().fg(theme().muted))), arrow_area);
+        }
+        x += 1;
+    }
 }
 
 /// The popup for changing an action's keys: what to do with them, then the

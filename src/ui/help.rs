@@ -10,7 +10,7 @@ pub(super) struct Section {
 }
 
 const NAVIGATION_KEYS: [&str; 5] = ["↑↓", "g/G", "hjkl", "←↑↓→", "jk"];
-const GENERAL_KEYS: [&str; 12] = ["?", "n", "0-9", "s", "A", "/", "m", "b/m", "C", "q/esc", "esc", "space"];
+const GENERAL_KEYS: [&str; 15] = ["?", "n", "0-9", "s", "A", "/", "m", "b/m", "C", "E", "T", ",", "q/esc", "esc", "space"];
 
 /// Splits the screen's own `hints` (see `mode::hints_for`) into the help
 /// columns and adds the keys that work everywhere.
@@ -115,10 +115,17 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
 }
 
 
-/// Draws the help over the whole body of the screen.
+/// Draws the help centred over the screen, sized to what it actually holds
+/// rather than stretched to the full body — with four short columns, a
+/// full-height box left most of it empty.
 pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>], shortcuts_line: bool) {
     // The same body the page itself uses (the Overview has one header line, lists two).
-    let area = body_area(frame.area(), shortcuts_line);
+    let bounds = body_area(frame.area(), shortcuts_line);
+    let sections = help_sections(hints, slots);
+    let content_height = sections.iter().map(|s| s.entries.len()).max().unwrap_or(0) as u16;
+    let height = (content_height + 3 /* title line + top/bottom border */).min(bounds.height);
+    let width = (bounds.width * 9 / 10).max(60).min(bounds.width);
+    let area = Rect { x: bounds.x + bounds.width.saturating_sub(width) / 2, y: bounds.y + bounds.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -128,7 +135,6 @@ pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Opti
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let sections = help_sections(hints, slots);
     let columns = Layout::horizontal(vec![Constraint::Ratio(1, sections.len() as u32); sections.len()]).split(inner);
     for (section, column) in sections.iter().zip(columns.iter()) {
         let key_width = section.entries.iter().map(|(k, _)| k.chars().count() + 2).max().unwrap_or(0) + 2;
@@ -153,7 +159,7 @@ mod tests {
 
     #[test]
     fn screen_specific_keys_go_under_resource_and_common_ones_do_not_repeat() {
-        let hints = [("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec"), ("D", "delete"), ("n", "namespaces"), ("q/esc", "back")];
+        let hints = [("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec"), ("D", "delete"), ("n", "namespaces"), ("C", "contexts"), ("E", "extensions"), ("T", "themes"), (",", "settings"), ("q/esc", "back")];
         let sections = help_sections(&hints, &[]);
         let resource: Vec<&str> = sections[0].entries.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(resource, ["enter", "d", "D"]);
