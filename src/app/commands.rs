@@ -44,7 +44,7 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo]) -> Vec<ui::MenuSection<'stati
             ],
         },
         ui::MenuSection { title: "Helm", tiles: vec![ResourceKind::HelmReleases] },
-        ui::MenuSection { title: "Custom Resources", tiles: custom },
+        ui::MenuSection { title: "CustomResources", tiles: custom },
     ]
 }
 

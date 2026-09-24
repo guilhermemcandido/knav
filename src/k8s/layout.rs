@@ -3,7 +3,7 @@
 
 use crate::config::OverviewConfig;
 
-/// Every category and its kinds, in the default order. "Custom Resources"
+/// Every category and its kinds, in the default order. "CustomResources"
 /// lists API groups found at run time, so it has no fixed kinds.
 pub const DEFAULT_LAYOUT: &[(&str, &[&str])] = &[
     ("Cluster", &["Nodes", "Namespaces", "API Resources"]),
@@ -12,7 +12,7 @@ pub const DEFAULT_LAYOUT: &[(&str, &[&str])] = &[
     ("Network", &["Services", "Endpoints", "Ingresses", "NetworkPolicies"]),
     ("Storage", &["PVCs", "PVs", "StorageClasses"]),
     ("Access Control", &["ServiceAccounts", "Roles", "RoleBindings", "ClusterRoles", "ClusterRoleBindings"]),
-    ("Custom Resources", &[]),
+    ("CustomResources", &[]),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,11 +168,11 @@ mod tests {
     fn a_category_that_only_exists_once_enabled_is_still_editable() {
         // Helm, Flux, ... aren't in DEFAULT_LAYOUT: they only exist in what the
         // catalog currently has, so the editor has to read that, not the fixed set.
-        let live: Vec<(&str, Vec<&str>)> = vec![("Cluster", vec!["Nodes"]), ("Helm", vec!["Helm Releases"])];
+        let live: Vec<(&str, Vec<&str>)> = vec![("Cluster", vec!["Nodes"]), ("Helm", vec!["HelmReleases"])];
         let layout = resolve(&OverviewConfig::default(), &live);
         assert_eq!(names(&layout), ["Cluster", "Helm"]);
         let helm = layout.iter().find(|s| s.name == "Helm").unwrap();
-        assert_eq!(helm.items[0].name, "Helm Releases");
+        assert_eq!(helm.items[0].name, "HelmReleases");
     }
 
     #[test]

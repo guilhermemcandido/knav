@@ -349,9 +349,9 @@ pub(super) fn draw_column(
 }
 
 /// Labels here are fixed kind names except discovered CRD groups (raw API groups),
-/// which only appear under "Custom Resources" and get the generic CRD icon.
+/// which only appear under "CustomResources" and get the generic CRD icon.
 pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<ResourceKind> {
-    ResourceKind::from_label(label).or_else(|| (column_title == "Custom Resources").then_some(ResourceKind::CustomResourceList))
+    ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
 /// One item card: the kind's icon, its name and live count, e.g. `<image> Pods  17`.
@@ -445,7 +445,7 @@ pub(super) fn icon_for(label: &str) -> &'static str {
         "ServiceAccounts" => "🪪",
         "Roles" | "ClusterRoles" => "📜",
         "RoleBindings" | "ClusterRoleBindings" => "🔗",
-        "Custom Resources" => "🧩",
+        "CustomResources" => "🧩",
         // Any other label reaching here is a dynamically discovered CRD
         // group name, same reasoning as `resolve_icon_kind`'s fallback.
         _ => "🧩",

@@ -283,15 +283,15 @@ impl Catalog {
                 ],
             ),
             (
-                "Custom Resources",
-                // "Custom Resources" is the whole picker; one more tile per API group. Counts
+                "CustomResources",
+                // "CustomResources" is the whole picker; one more tile per API group. Counts
                 // are CRD kinds known from discovery, not live objects.
-                std::iter::once(("Custom Resources", self.crds.len()))
+                std::iter::once(("CustomResources", self.crds.len()))
                     .chain(self.crd_groups().into_iter().map(|group| (group, self.crds.iter().filter(|c| c.group == group).count())))
                     .collect(),
             ),
         ];
-        // After "Custom Resources": these are optional, opt-in categories, not
+        // After "CustomResources": these are optional, opt-in categories, not
         // built-ins, so they read as an addition past the fixed set rather than
         // interrupting it.
         let mut extension_sections = self.extension_sections(extensions_enabled);
@@ -299,9 +299,9 @@ impl Catalog {
             // Native (releases aren't a CRD, so `extension_sections` never
             // produces this tile on its own) alongside whatever `helm.cattle.io`
             // CRD kinds the manifest matched — one "Helm" box either way, not two.
-            let releases = ("Helm Releases", self.count(ResourceKind::HelmReleases));
+            let releases = ("HelmReleases", self.count(ResourceKind::HelmReleases));
             match extension_sections.iter_mut().find(|(name, _)| *name == "Helm") {
-                Some((_, items)) => items.insert(0, releases),
+                Some((_, items)) => items.push(releases),
                 None => {
                     extension_sections.push(("Helm", vec![releases]));
                     extension_sections.sort_by_key(|(name, _)| *name);

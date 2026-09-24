@@ -13,7 +13,7 @@ pub(crate) struct Entry {
 
 /// Categories start folded when they are long and rarely needed.
 pub(crate) fn folded_by_default() -> HashSet<&'static str> {
-    HashSet::from(["Custom Resources"])
+    HashSet::from(["CustomResources"])
 }
 
 /// Every visible row, in the order and with the entries of the Home catalog (so the Layout

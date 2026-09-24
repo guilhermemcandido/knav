@@ -76,8 +76,8 @@ impl ResourceKind {
             ResourceKind::RoleBindings => "RoleBindings",
             ResourceKind::ClusterRoles => "ClusterRoles",
             ResourceKind::ClusterRoleBindings => "ClusterRoleBindings",
-            ResourceKind::HelmReleases => "Helm Releases",
-            ResourceKind::CustomResourceList => "Custom Resources",
+            ResourceKind::HelmReleases => "HelmReleases",
+            ResourceKind::CustomResourceList => "CustomResources",
             ResourceKind::CustomResourceGroup(group) => group,
             ResourceKind::CustomResource(_, label) | ResourceKind::Api(_, label) => label,
             ResourceKind::ApiResources => "API Resources",
@@ -143,10 +143,10 @@ impl ResourceKind {
             "RoleBindings" => Some(ResourceKind::RoleBindings),
             "ClusterRoles" => Some(ResourceKind::ClusterRoles),
             "ClusterRoleBindings" => Some(ResourceKind::ClusterRoleBindings),
-            "Helm Releases" => Some(ResourceKind::HelmReleases),
+            "HelmReleases" => Some(ResourceKind::HelmReleases),
             "Port-forwards" => Some(ResourceKind::PortForwards),
             "API Resources" => Some(ResourceKind::ApiResources),
-            "Custom Resources" => Some(ResourceKind::CustomResourceList),
+            "CustomResources" => Some(ResourceKind::CustomResourceList),
             _ => None,
         }
     }
