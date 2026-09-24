@@ -1,0 +1,36 @@
+# Crossplane — installed providers (with real Installed/Healthy status),
+# composite resource definitions (with Established/Offered status), and
+# compositions. Composition itself has no status — it's a pure template, not
+# something with a runtime state — so it has no view, just a category and an
+# icon; the composite resources Crossplane generates per-XRD aren't included
+# at all, since they're dynamically named and can't be listed in a manifest.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "crossplane"
+name = "Crossplane"
+description = "Providers, CompositeResourceDefinitions and Compositions"
+
+[[extension.kind]]
+group = "pkg.crossplane.io"
+kind = "Provider"
+category = "Crossplane"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "apiextensions.crossplane.io"
+kind = "CompositeResourceDefinition"
+category = "Crossplane"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "apiextensions.crossplane.io"
+kind = "Composition"
+category = "Crossplane"

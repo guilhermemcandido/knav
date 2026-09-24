@@ -1,0 +1,17 @@
+# OPA Gatekeeper — constraint templates, a category and an icon to browse
+# them by, not a status view (`.status.created` is a bool, not a conditions
+# array). The Constraint kinds Gatekeeper generates per-template aren't
+# included: they're dynamically named, same reason Crossplane's composite
+# resources aren't either.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "gatekeeper"
+name = "OPA Gatekeeper"
+description = "ConstraintTemplates"
+
+[[extension.kind]]
+group = "templates.gatekeeper.sh"
+kind = "ConstraintTemplate"
+category = "Gatekeeper"

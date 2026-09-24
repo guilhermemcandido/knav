@@ -1,4 +1,5 @@
-//! Third-party integrations (Flux, Argo CD, Helm, Karpenter, ...) as data, not code: an
+//! Third-party integrations (Flux, Argo CD, Helm, Karpenter, cert-manager, KEDA,
+//! Prometheus Operator, Crossplane, Istio, Kyverno, OPA Gatekeeper) as data, not code: an
 //! extension is a TOML manifest (see `manifest`) that attaches a category,
 //! and eventually a view, to CRD kinds the cluster already has. Extensions
 //! are read-only: knav is a viewer, not a controller, so a manifest has no
@@ -47,6 +48,13 @@ const BUNDLED: &[(&str, &str)] = &[
     ("argocd", include_str!("../../extensions/argocd.toml")),
     ("helm", include_str!("../../extensions/helm.toml")),
     ("karpenter", include_str!("../../extensions/karpenter.toml")),
+    ("cert-manager", include_str!("../../extensions/cert-manager.toml")),
+    ("keda", include_str!("../../extensions/keda.toml")),
+    ("prometheus", include_str!("../../extensions/prometheus.toml")),
+    ("crossplane", include_str!("../../extensions/crossplane.toml")),
+    ("istio", include_str!("../../extensions/istio.toml")),
+    ("kyverno", include_str!("../../extensions/kyverno.toml")),
+    ("gatekeeper", include_str!("../../extensions/gatekeeper.toml")),
 ];
 
 impl Registry {

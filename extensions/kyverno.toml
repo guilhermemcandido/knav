@@ -1,0 +1,31 @@
+# Kyverno — policies (cluster-wide and namespaced) and the reports they
+# generate, a category and an icon to browse them by, not a status view:
+# policy status and report content don't fit the conditions-array shape the
+# timeline template reads.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "kyverno"
+name = "Kyverno"
+description = "ClusterPolicies, Policies and their PolicyReports"
+
+[[extension.kind]]
+group = "kyverno.io"
+kind = "ClusterPolicy"
+category = "Kyverno"
+
+[[extension.kind]]
+group = "kyverno.io"
+kind = "Policy"
+category = "Kyverno"
+
+[[extension.kind]]
+group = "wgpolicyk8s.io"
+kind = "PolicyReport"
+category = "Kyverno"
+
+[[extension.kind]]
+group = "wgpolicyk8s.io"
+kind = "ClusterPolicyReport"
+category = "Kyverno"

@@ -1,0 +1,29 @@
+# Prometheus Operator — the operator's own instances (Prometheus,
+# Alertmanager), from their Available/Reconciled conditions. ServiceMonitor,
+# PodMonitor and PrometheusRule aren't included: they're scrape/rule config,
+# not something with a status to show.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "prometheus"
+name = "Prometheus Operator"
+description = "Prometheus and Alertmanager instances, with their condition status"
+
+[[extension.kind]]
+group = "monitoring.coreos.com"
+kind = "Prometheus"
+category = "Monitoring"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "monitoring.coreos.com"
+kind = "Alertmanager"
+category = "Monitoring"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"

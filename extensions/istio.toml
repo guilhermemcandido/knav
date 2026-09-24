@@ -1,0 +1,37 @@
+# Istio — the mesh's config objects (VirtualServices, Gateways,
+# DestinationRules, PeerAuthentications, AuthorizationPolicies), a category
+# and an icon to browse them by, not a status view: none of these carry a
+# `.status.conditions` — they're routing/policy config, not things with a
+# runtime health signal.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "istio"
+name = "Istio"
+description = "VirtualServices, Gateways, DestinationRules and auth policies"
+
+[[extension.kind]]
+group = "networking.istio.io"
+kind = "VirtualService"
+category = "Istio"
+
+[[extension.kind]]
+group = "networking.istio.io"
+kind = "Gateway"
+category = "Istio"
+
+[[extension.kind]]
+group = "networking.istio.io"
+kind = "DestinationRule"
+category = "Istio"
+
+[[extension.kind]]
+group = "security.istio.io"
+kind = "PeerAuthentication"
+category = "Istio"
+
+[[extension.kind]]
+group = "security.istio.io"
+kind = "AuthorizationPolicy"
+category = "Istio"

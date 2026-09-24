@@ -1,0 +1,45 @@
+# cert-manager — TLS certificate status (Certificates, CertificateRequests,
+# Issuers, ClusterIssuers), from their Ready condition.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
+# Schema: see src/extensions/manifest.rs.
+
+[extension]
+id = "cert-manager"
+name = "cert-manager"
+description = "Certificates, CertificateRequests, Issuers and ClusterIssuers, with their Ready status"
+
+[[extension.kind]]
+group = "cert-manager.io"
+kind = "Certificate"
+category = "cert-manager"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "cert-manager.io"
+kind = "CertificateRequest"
+category = "cert-manager"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "cert-manager.io"
+kind = "Issuer"
+category = "cert-manager"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "cert-manager.io"
+kind = "ClusterIssuer"
+category = "cert-manager"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
