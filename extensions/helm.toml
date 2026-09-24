@@ -1,7 +1,7 @@
 # Helm — real releases (chart, revision, status), decoded from the Secrets
-# Helm itself writes. Native code, not a CRD (Helm releases aren't a
-# Kubernetes API type), so it has no [[extension.kind]] entries; enabling it
-# turns on knav's own Helm Releases view instead of matching CRD kinds.
+# Helm itself writes, native code (see src/k8s/helm.rs) since Secrets aren't
+# a CRD. Plus, where present, Rancher/k3s's own declarative-install CRDs
+# (helm.cattle.io) — a different mechanism, but the same "Helm" category.
 # Bundled with knav, off by default; enable in the Extensions screen (E).
 # Schema: see src/extensions/manifest.rs.
 
@@ -9,3 +9,17 @@
 id = "helm"
 name = "Helm"
 description = "Real Helm releases: chart, revision, status"
+
+[[extension.kind]]
+group = "helm.cattle.io"
+kind = "HelmChart"
+category = "Helm"
+
+  [extension.kind.view]
+  template = "timeline"
+  from = ".status.conditions"
+
+[[extension.kind]]
+group = "helm.cattle.io"
+kind = "HelmChartConfig"
+category = "Helm"

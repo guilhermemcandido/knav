@@ -169,9 +169,8 @@ pub(super) fn draw_mode(
                         .map(|i| {
                             let l = &extensions[i];
                             let enabled = config.extensions.enabled.iter().any(|e| e == &l.id);
-                            let present = (enabled && l.error.is_none()).then(|| {
-                                if l.id == "helm" { *helm_present } else { l.kinds.iter().any(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind)) }
-                            });
+                            let crd_present = l.kinds.iter().any(|k| crds.iter().any(|c| c.group == k.group && c.kind == k.kind));
+                            let present = (enabled && l.error.is_none()).then(|| crd_present || (l.id == "helm" && *helm_present));
                             ui::ExtensionRow { name: l.name.clone(), description: l.description.clone(), enabled, bundled: l.bundled, present, error: l.error.clone() }
                         })
                         .collect();

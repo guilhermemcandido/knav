@@ -293,13 +293,22 @@ impl Catalog {
         ];
         // After "Custom Resources": these are optional, opt-in categories, not
         // built-ins, so they read as an addition past the fixed set rather than
-        // interrupting it. Helm is native code (Secrets aren't a CRD, so the
-        // extension system's group+kind matching can't describe it), but it's
-        // toggled the same way and sits in the same place.
+        // interrupting it.
+        let mut extension_sections = self.extension_sections(extensions_enabled);
         if extensions_enabled.iter().any(|e| e == "helm") {
-            sections.push(("Helm", vec![("Helm Releases", self.count(ResourceKind::HelmReleases))]));
+            // Native (releases aren't a CRD, so `extension_sections` never
+            // produces this tile on its own) alongside whatever `helm.cattle.io`
+            // CRD kinds the manifest matched — one "Helm" box either way, not two.
+            let releases = ("Helm Releases", self.count(ResourceKind::HelmReleases));
+            match extension_sections.iter_mut().find(|(name, _)| *name == "Helm") {
+                Some((_, items)) => items.insert(0, releases),
+                None => {
+                    extension_sections.push(("Helm", vec![releases]));
+                    extension_sections.sort_by_key(|(name, _)| *name);
+                }
+            }
         }
-        sections.extend(self.extension_sections(extensions_enabled));
+        sections.extend(extension_sections);
         sections
     }
 

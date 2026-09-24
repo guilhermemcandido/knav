@@ -37,11 +37,11 @@ pub struct Registry {
     pub loaded: Vec<Loaded>,
 }
 
-/// `(id, manifest text)` for every extension shipped with knav. Helm's
-/// manifest declares no `[[extension.kind]]` at all — real Helm releases
-/// aren't a CRD (they're Secrets), so knav reads them natively (see
-/// `k8s::helm`) instead of matching a group+kind; the toggle still lives
-/// here so it shows and behaves like any other extension.
+/// `(id, manifest text)` for every extension shipped with knav. Helm is
+/// two things under one toggle: real releases, which aren't a CRD (they're
+/// Secrets) so knav reads them natively (see `k8s::helm`), plus Rancher/k3s's
+/// own declarative-install CRDs (`helm.cattle.io`) where a cluster has them —
+/// an ordinary `[[extension.kind]]` match like any other extension.
 const BUNDLED: &[(&str, &str)] = &[
     ("flux", include_str!("../../extensions/flux.toml")),
     ("argocd", include_str!("../../extensions/argocd.toml")),
@@ -107,11 +107,7 @@ mod tests {
         assert_eq!(registry.loaded.len(), BUNDLED.len());
         for loaded in &registry.loaded {
             assert!(loaded.error.is_none(), "{}: {:?}", loaded.id, loaded.error);
-            // Helm is native code (see `k8s::helm`), not CRD-kind-matched, so its
-            // manifest declares none on purpose.
-            if loaded.id != "helm" {
-                assert!(!loaded.kinds.is_empty(), "{} declares no kinds", loaded.id);
-            }
+            assert!(!loaded.kinds.is_empty(), "{} declares no kinds", loaded.id);
         }
     }
 
