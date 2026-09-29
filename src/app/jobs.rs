@@ -23,6 +23,9 @@ pub(crate) struct Job {
     pub progress: Arc<actions::Progress>,
     /// What Esc says, when there is something worth saying.
     pub cancel_note: Option<&'static str>,
+    /// A popup was up when it started, so the screen stays dimmed until the popup
+    /// shows. Otherwise the dimming blinks off and on between a question and its answer.
+    pub backdrop: bool,
     rx: tokio::sync::oneshot::Receiver<Done>,
     _task: AbortOnDrop,
 }
@@ -36,7 +39,7 @@ impl Job {
         let task = tokio::spawn(async move {
             let _ = tx.send(work.await);
         });
-        Job { title: title.into(), started: Instant::now(), progress, cancel_note, rx, _task: AbortOnDrop(task) }
+        Job { title: title.into(), started: Instant::now(), progress, cancel_note, backdrop: false, rx, _task: AbortOnDrop(task) }
     }
 
     pub(crate) fn poll(&mut self) -> Option<Done> {
@@ -56,6 +59,14 @@ impl Job {
 use super::{mode::Mode, state::State};
 use crate::ops::actions::{Action, Target};
 
+/// Starts `job` over `back`, or over the screen up now when `None`, noting whether a
+/// popup is up.
+fn start(st: &mut State, mut job: Job, back: Option<Box<Mode>>) {
+    job.backdrop = !matches!(st.mode, Mode::List);
+    let back = back.unwrap_or_else(|| Box::new(std::mem::replace(&mut st.mode, Mode::List)));
+    st.mode = Mode::Working { job, back };
+}
+
 /// Runs `action` on `targets` in the background, over `back`.
 pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Target>, action: Action, back: Box<Mode>) {
     let progress = Arc::new(actions::Progress::default());
@@ -65,7 +76,7 @@ pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Tar
         let (client, progress) = (client.clone(), Arc::clone(&progress));
         async move { Done::Action(actions::run_many(client, targets, action, progress).await) }
     };
-    st.mode = Mode::Working { job: Job::spawn(title, progress, note, work), back };
+    start(st, Job::spawn(title, progress, note, work), Some(back));
 }
 
 /// Checks in the background that `name` can be reached before the session moves to it.
@@ -81,8 +92,7 @@ pub(super) fn check_context(st: &mut State, name: String) {
             Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
         })
     };
-    let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
-    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
+    start(st, Job::spawn(title, Arc::default(), None, work), None);
 }
 
 /// Starts a port-forward in the background.
@@ -90,7 +100,7 @@ pub(super) fn start_forward(st: &mut State, request: portforward::ForwardRequest
     let title = format!("Starting a forward to {}", request.resource);
     let work = portforward::start_in_background(request);
     let work = async move { Done::Forward(work.await.map_err(|e| format!("{e:#}"))) };
-    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
+    start(st, Job::spawn(title, Arc::default(), None, work), Some(back));
 }
 
 /// Moves a finished job's result onto the screen. `Some` when the session should
@@ -143,6 +153,5 @@ pub(super) fn wait_then_replay(st: &mut State, title: &str, waits: Vec<futures::
         let _ = tokio::time::timeout(Duration::from_secs(20), futures::future::join_all(waits)).await;
         Done::Ready(key)
     };
-    let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
-    st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
+    start(st, Job::spawn(title, Arc::default(), None, work), None);
 }

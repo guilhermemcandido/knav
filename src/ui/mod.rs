@@ -89,6 +89,14 @@ pub struct MenuSection<'a> {
     pub tiles: Vec<ResourceKind>,
 }
 
+/// What the scale dialog shows: each object with its ready count, the number typed,
+/// and the current count when all objects share one.
+pub struct ScaleView<'a> {
+    pub subjects: Vec<(String, String, String)>,
+    pub value: &'a str,
+    pub current: Option<i64>,
+}
+
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
@@ -108,6 +116,8 @@ pub enum Overlay<'a> {
     Notice { text: &'a str, tone: crate::ops::NoticeTone },
     /// A yes/no question about a destructive action.
     Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
+    /// Only dims the screen, for the moment between a question and its answer.
+    Backdrop,
     /// A background job: what, for how long, and progress (`total` 0 when unknown).
     Working { title: &'a str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool },
     Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
@@ -118,8 +128,7 @@ pub enum Overlay<'a> {
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
     Yaml { title: &'a str, text: &'a str, scroll: usize },
     PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
-    /// A number being typed.
-    Prompt { title: &'a str, value: &'a str, hint: &'a str },
+    Scale(ScaleView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -380,7 +389,8 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Confirm { .. })
                 | Some(Overlay::Working { .. })
-                | Some(Overlay::Prompt { .. })
+                | Some(Overlay::Backdrop)
+                | Some(Overlay::Scale(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -590,8 +600,9 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
         Overlay::Confirm { spec } => draw_confirm_popup(frame, spec),
+        Overlay::Backdrop => {}
+        Overlay::Scale(view) => draw_scale_popup(frame, &view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
-        Overlay::Prompt { title, value, hint } => draw_prompt_popup(frame, title, value, hint),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
         Overlay::ValueDetail { label, value } => draw_value_detail_popup(frame, label, value),

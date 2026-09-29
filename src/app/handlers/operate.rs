@@ -4,6 +4,14 @@ use crate::ops::NoticeTone;
 use super::super::*;
 use super::Cx;
 
+const MAX_DIGITS: usize = 5;
+
+/// One up or down from `input`, never below 0 or past `MAX_DIGITS` digits.
+fn step(input: &str, up: bool) -> i64 {
+    let now = input.parse::<i64>().unwrap_or(0);
+    if up { (now + 1).min(99_999) } else { (now - 1).max(0) }
+}
+
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
@@ -39,17 +47,38 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             _ => {}
         },
-        Mode::Scale { targets, input, back } => match key.code {
-            KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
+        Mode::Scale { targets, input, fresh, back } => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Up | KeyCode::Right | KeyCode::Down | KeyCode::Left | KeyCode::Char('+' | '-' | 'k' | 'j' | 'l' | 'h') => {
+                let up = matches!(key.code, KeyCode::Up | KeyCode::Right | KeyCode::Char('+' | 'k' | 'l'));
+                *input = step(input, up).to_string();
+                *fresh = false;
+            }
             KeyCode::Backspace => {
                 input.pop();
+                *fresh = false;
             }
-            KeyCode::Char(c) if c.is_ascii_digit() && input.len() < 5 => input.push(c),
+            KeyCode::Char(c) if c.is_ascii_digit() => {
+                if std::mem::take(fresh) {
+                    input.clear();
+                }
+                if input.len() < MAX_DIGITS {
+                    input.push(c);
+                }
+                // No leading zeros: `05` is 5.
+                *input = input.parse::<i64>().map(|n| n.to_string()).unwrap_or_default();
+            }
             KeyCode::Enter => {
-                if let Ok(replicas) = input.parse::<i32>() {
-                    let targets = std::mem::take(targets);
-                    let back = std::mem::replace(back, Box::new(Mode::List));
-                    crate::app::jobs::run_action(st, cx.client, targets, Action::Scale(replicas), back);
+                let current = targets.first().map(|t| t.replicas()).filter(|now| targets.iter().all(|t| t.replicas() == *now));
+                match input.parse::<i32>() {
+                    // Nothing to change: just close.
+                    Ok(replicas) if current == Some(i64::from(replicas)) => st.mode = std::mem::replace(&mut **back, Mode::List),
+                    Ok(replicas) => {
+                        let targets = std::mem::take(targets);
+                        let back = std::mem::replace(back, Box::new(Mode::List));
+                        crate::app::jobs::run_action(st, cx.client, targets, Action::Scale(replicas), back);
+                    }
+                    Err(_) => {}
                 }
             }
             _ => {}
@@ -92,4 +121,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         _ => {}
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::step;
+
+    #[test]
+    fn steps_stay_between_zero_and_the_digit_limit() {
+        assert_eq!(step("2", true), 3);
+        assert_eq!(step("0", false), 0);
+        assert_eq!(step("", true), 1);
+        assert_eq!(step("99999", true), 99_999);
+    }
 }

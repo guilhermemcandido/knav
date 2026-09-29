@@ -60,8 +60,9 @@ pub(crate) enum Mode {
     OpenUrl { text: String, url: String, back: Box<Mode> },
     /// The port-forward dialog.
     Ports { target: Target, form: crate::ops::portforward::PortForm, back: Box<Mode> },
-    /// Asks for a replica count (digits only) to scale to.
-    Scale { targets: Vec<Target>, input: String, back: Box<Mode> },
+    /// Asks for a replica count, stepped with the arrows or typed. `fresh` means the
+    /// number is still the current count, so the first digit typed replaces it.
+    Scale { targets: Vec<Target>, input: String, fresh: bool, back: Box<Mode> },
     Spec {
         title: String,
         items: Vec<TreeItem<'static, String>>,

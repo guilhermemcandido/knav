@@ -95,6 +95,12 @@ impl Target {
         self.manifest.get("spec").and_then(|s| s.get("replicas")).and_then(|r| r.as_i64()).unwrap_or(1)
     }
 
+    /// `2/3 ready` for what scales, from its status.
+    pub fn ready_text(&self) -> String {
+        let ready = self.manifest.get("status").and_then(|s| s.get("readyReplicas")).and_then(|r| r.as_i64()).unwrap_or(0);
+        format!("{ready}/{} ready", self.replicas())
+    }
+
     fn flag(&self, key: &str) -> bool {
         self.manifest.get("spec").and_then(|s| s.get(key)).and_then(|v| v.as_bool()).unwrap_or(false)
     }

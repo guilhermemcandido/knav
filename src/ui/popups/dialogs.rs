@@ -1,4 +1,4 @@
-//! Notices, confirmation, prompts and the port-forward form.
+//! Notices, confirmation, scaling and the port-forward form.
 
 use super::*;
 
@@ -147,12 +147,53 @@ pub(in crate::ui) fn draw_port_forward_popup(frame: &mut Frame, title: &str, for
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-pub(in crate::ui) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &str, hint: &str) {
-    let mut body = vec![Line::from(vec![Span::raw("> "), Span::styled(format!("{value}▏"), Style::default().fg(theme().highlight))])];
-    if !hint.is_empty() {
-        body.push(Line::styled(hint.to_string(), Style::default().fg(theme().muted)));
+/// Scaling: the objects, a number stepped with the arrows or typed, what changes, and
+/// the buttons. Zero is a warning, since it stops every pod.
+pub(in crate::ui) fn draw_scale_popup(frame: &mut Frame, view: &ScaleView) {
+    let full = frame.area();
+    let color = theme().accent;
+    let width = narrow_dialog_width(full.width).min(full.width);
+    let muted = Style::default().fg(theme().muted);
+    let strong = Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD);
+    let mut lines: Vec<Line> = vec![Line::raw("")];
+    const SHOWN: usize = 4;
+    let kind_w = view.subjects.iter().map(|(k, _, _)| cell_width(k)).max().unwrap_or(0);
+    for (kind, place, ready) in view.subjects.iter().take(SHOWN) {
+        lines.push(Line::from(vec![Span::styled(format!("{kind:<kind_w$}  "), muted), Span::styled(place.clone(), strong), Span::styled(format!("   {ready}"), muted)]));
     }
-    small_popup(frame, title, theme().namespace, body);
+    if view.subjects.len() > SHOWN {
+        lines.push(Line::styled(format!("and {} more", view.subjects.len() - SHOWN), muted));
+    }
+    lines.push(Line::raw(""));
+
+    let target = view.value.parse::<i64>().ok();
+    let number = if view.value.is_empty() { " ".to_string() } else { view.value.to_string() };
+    lines.push(Line::from(vec![Span::styled("◀   ", muted), Span::styled(format!(" {number} "), Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD)), Span::styled("   ▶", muted)]).centered());
+    let (change, style) = match (view.current, target) {
+        (_, None) => ("Type a number".to_string(), muted),
+        (_, Some(0)) => ("0 stops every pod".to_string(), Style::default().fg(theme().warn)),
+        (Some(now), Some(to)) if now == to => (format!("{now} now, no change"), muted),
+        (Some(now), Some(to)) => (format!("{now} → {to} replicas ({:+})", to - now), Style::default().fg(if to > now { theme().ok } else { theme().warn })),
+        (None, Some(to)) => (format!("Each one to {to} replicas"), muted),
+    };
+    lines.push(Line::styled(change, style).centered());
+    lines.push(Line::raw(""));
+
+    let ok = Span::styled("  enter  Scale  ", Style::default().bg(color).fg(crate::theme::on(color)).add_modifier(Modifier::BOLD));
+    let cancel = Span::styled("  esc  Cancel  ", Style::default().bg(theme().pill_bg).fg(theme().text_strong));
+    lines.push(Line::from(vec![ok, Span::raw("   "), cancel]).centered());
+    lines.push(Line::raw(""));
+    let key = |k: &str| Span::styled(k.to_string(), Style::default().add_modifier(Modifier::BOLD));
+    lines.push(Line::from(vec![key("↑↓ ←→"), Span::styled(" change   ", muted), key("0-9"), Span::styled(" type a number", muted)]).centered());
+
+    let height = (lines.len() as u16 + 2).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
+    frame.render_widget(Clear, area);
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(Style::default().fg(color)).title(pill_title("Scale", false, Style::default().fg(color)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let inner = Rect { x: inner.x + 2, width: inner.width.saturating_sub(4), ..inner };
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// A background job's box: a spinner, what it is doing, progress when the total is

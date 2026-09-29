@@ -106,7 +106,11 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let (done, total) = job.progress.get();
-                    let overlay = job.visible().then_some(ui::Overlay::Working { title: &job.title, elapsed: job.started.elapsed(), done, total, cancellable: true });
+                    let overlay = if job.visible() {
+                        Some(ui::Overlay::Working { title: &job.title, elapsed: job.started.elapsed(), done, total, cancellable: true })
+                    } else {
+                        job.backdrop.then_some(ui::Overlay::Backdrop)
+                    };
                     paint(frame, None, None, overlay, false);
                 })?;
             }
@@ -231,11 +235,9 @@ pub(super) fn draw_mode(
             Mode::Scale { targets, input, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let title = match targets.as_slice() {
-                        [one] => format!("Scale {} to", one.label()),
-                        many => format!("Scale {} objects to", many.len()),
-                    };
-                    let overlay = ui::Overlay::Prompt { title: &title, value: input, hint: "" };
+                    let subjects = targets.iter().map(|t| (t.kind.clone(), t.namespace.as_ref().map_or(t.name.clone(), |ns| format!("{ns}/{}", t.name)), t.ready_text())).collect();
+                    let current = targets.first().map(|t| t.replicas()).filter(|now| targets.iter().all(|t| t.replicas() == *now));
+                    let overlay = ui::Overlay::Scale(ui::ScaleView { subjects, value: input, current });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
