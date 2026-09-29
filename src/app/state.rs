@@ -141,7 +141,8 @@ pub(super) fn double_click(last_click: &mut Option<(std::time::Instant, usize)>,
 impl State {
     /// `icons` must be detected after raw mode is on, since it queries the terminal,
     /// and before the loop starts reading stdin.
-    pub fn new(icons: icons::IconCache, favorites: Favorites, config: Config) -> Self {
+    pub fn new(mut icons: icons::IconCache, favorites: Favorites, config: Config) -> Self {
+        icons.set_enabled(config.ui.icons);
         let keymap = crate::input::keymap::Keymap::from_app_config(&config).0;
         crate::input::keymap::set_current(&keymap);
         State {
@@ -194,6 +195,7 @@ impl State {
     pub fn reload(&mut self, config: Config) {
         self.config = config;
         crate::app::settings::apply(&self.config);
+        self.icons.set_enabled(self.config.ui.icons);
         self.keymap = crate::input::keymap::Keymap::from_app_config(&self.config).0;
         crate::input::keymap::set_current(&self.keymap);
     }

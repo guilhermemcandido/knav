@@ -40,6 +40,7 @@ pub fn registry() -> Vec<Setting> {
     };
     add("theme.preset", "Theme", "Theme", Kind::Choice(theme::all_names()), false);
     add("ui.border", "Appearance", "Box lines", choice(&["rounded", "thick", "double"]), false);
+    add("ui.icons", "Appearance", "Show icons", Kind::Bool, false);
     add("ui.suggestion_icon_percent", "Appearance", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
     add("ui.idle_redraw_ms", "Appearance", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);
     add("ui.shell_redraw_ms", "Appearance", "Shell redraw (ms)", Kind::Number { min: 10, max: 200 }, false);
@@ -96,6 +97,7 @@ pub fn describe(setting: &Setting) -> &'static str {
     match setting.path.as_str() {
         "theme.preset" => "The colour theme. T opens the picker, which previews each theme as you move.",
         "ui.border" => "The lines around every box: rounded corners, thick lines or double lines.",
+        "ui.icons" => "Kind icons on the Overview cards and in the command line. Turn off for terminals that show them badly.",
         "ui.suggestion_icon_percent" => "How large the icons in the command line suggestions are, as a percent of their row.",
         "ui.idle_redraw_ms" => "How often the screen refreshes while nothing is happening. Lower is smoother, higher uses less CPU.",
         "ui.shell_redraw_ms" => "How often the screen refreshes while a shell is open. Lower feels snappier.",

@@ -343,16 +343,23 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
     }
 
     // Roomy cards (the opened-up view) get a bigger icon and some padding; every card
-    // keeps a cell between the icon and the name.
+    // keeps a cell between the icon and the name. Without icons, one cell of margin.
     let roomy = inner.height >= 4;
-    let icon_w = if roomy { 7 } else { 3 }.min(inner.width);
-    let icon_gap = 1u16.min(inner.width.saturating_sub(icon_w));
+    let show_icon = icons.enabled();
+    let icon_w = match (show_icon, roomy) {
+        (false, _) => 1,
+        (true, true) => 7,
+        (true, false) => 3,
+    }
+    .min(inner.width);
+    let icon_gap = u16::from(show_icon).min(inner.width.saturating_sub(icon_w));
     let parts = Layout::horizontal([Constraint::Length(icon_w), Constraint::Length(icon_gap), Constraint::Min(0), Constraint::Length(u16::from(roomy))]).split(inner);
-    let split = [Rect { width: icon_w.saturating_sub(u16::from(roomy) * 2), x: parts[0].x + u16::from(roomy), ..parts[0] }, parts[2]];
+    let pad = u16::from(roomy && show_icon);
+    let split = [Rect { width: icon_w.saturating_sub(pad * 2), x: parts[0].x + pad, ..parts[0] }, parts[2]];
 
     // An image where the terminal can show one, else an emoji. Skipped while dimmed,
     // since neither can be muted.
-    if !dimmed {
+    if show_icon && !dimmed {
         match resolve_icon_kind(label, column_title) {
             Some(kind) => icons.draw(frame, icons.centered_square(split[0]), kind),
             None => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), split[0]),
@@ -554,5 +561,37 @@ mod centring_tests {
     fn a_full_row_of_columns_has_no_slack_to_split() {
         let area = Rect { x: 0, y: 0, width: 3 * (COLUMN_WIDTH + 1) - 1, height: 10 };
         assert_eq!(column_layout(area, 3)[0].x, 0);
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+
+    fn card_row(show_icons: bool, height: u16) -> String {
+        let mut icons = IconCache::halfblocks();
+        icons.set_enabled(show_icons);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false };
+                draw_column_item(frame, frame.area(), card, false, &mut icons);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..30).map(|x| buffer[(x, 1)].symbol().to_string()).collect()
+    }
+
+    #[test]
+    fn without_icons_the_name_sits_one_cell_from_the_border() {
+        assert!(card_row(false, ITEM_HEIGHT).starts_with("│ Pods"), "{:?}", card_row(false, ITEM_HEIGHT));
+        assert!(card_row(false, 6).starts_with("│ Pods"), "roomy cards too: {:?}", card_row(false, 6));
+    }
+
+    #[test]
+    fn with_icons_the_name_leaves_room_for_the_icon() {
+        // The border, a 3-cell icon and a gap come before the name.
+        let row = card_row(true, ITEM_HEIGHT);
+        assert!(row.chars().skip(5).collect::<String>().starts_with("Pods"), "{row:?}");
     }
 }

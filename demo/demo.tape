@@ -11,11 +11,11 @@ Set Padding 12
 Set Theme "Dracula"
 Set TypingSpeed 90ms
 
-# An empty config, so the demo shows the defaults.
+# A fresh config with icons off: VHS can't capture the images terminals draw them with.
 Env XDG_CONFIG_HOME "/tmp/knav-demo"
 
 Hide
-Type "rm -rf /tmp/knav-demo && clear && ./target/release/knav"
+Type "rm -rf /tmp/knav-demo && mkdir -p /tmp/knav-demo/knav && printf '[ui]\nicons = false\n' > /tmp/knav-demo/knav/config.toml && clear && ./target/release/knav"
 Enter
 Show
 

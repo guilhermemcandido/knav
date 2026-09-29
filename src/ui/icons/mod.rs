@@ -96,6 +96,8 @@ pub struct IconCache {
     picker: Picker,
     /// Keyed by asset and fill percent, so a smaller icon is its own image.
     protocols: HashMap<(&'static str, u8), StatefulProtocol>,
+    /// Off by `ui.icons = false`: nothing is drawn and layouts drop the room kept for icons.
+    enabled: bool,
 }
 
 impl IconCache {
@@ -103,13 +105,21 @@ impl IconCache {
     /// in raw mode. Falls back to half blocks without a TTY.
     pub fn detect() -> Self {
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
-        IconCache { picker, protocols: HashMap::new() }
+        IconCache { picker, protocols: HashMap::new(), enabled: true }
     }
 
     /// A cache that never queries the terminal, for tests.
     #[cfg(test)]
     pub fn halfblocks() -> Self {
-        IconCache { picker: Picker::halfblocks(), protocols: HashMap::new() }
+        IconCache { picker: Picker::halfblocks(), protocols: HashMap::new(), enabled: true }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
     }
 
     /// A roughly square part of `area` given the font's aspect ratio, so icons don't

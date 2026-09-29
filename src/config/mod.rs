@@ -211,13 +211,15 @@ pub struct UiConfig {
     pub border: String,
     /// How much of its square a command suggestion's icon fills, in percent.
     pub suggestion_icon_percent: u8,
+    /// Kind icons on the Overview cards and in the command line.
+    pub icons: bool,
     pub idle_redraw_ms: u64,
     pub shell_redraw_ms: u64,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
-        UiConfig { border: "rounded".into(), suggestion_icon_percent: 78, idle_redraw_ms: 200, shell_redraw_ms: 25 }
+        UiConfig { border: "rounded".into(), suggestion_icon_percent: 78, icons: true, idle_redraw_ms: 200, shell_redraw_ms: 25 }
     }
 }
 
