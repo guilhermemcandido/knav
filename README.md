@@ -3,7 +3,7 @@
 A fast, mouse-friendly Kubernetes TUI for big clusters. Think k9s with an IDE's
 explorer, built in Rust.
 
-![knav in use](docs/demo.gif)
+![knav in use](demo/demo.gif)
 
 - **Sidebar** of every kind, custom resources included, with live counts.
 - **Info panel** (`i`) explains the selected object: status, containers, events.

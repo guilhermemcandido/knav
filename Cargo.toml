@@ -8,7 +8,7 @@ repository = "https://github.com/guilhermemcandido/knav"
 readme = "README.md"
 keywords = ["kubernetes", "tui", "kubectl", "terminal", "devops"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["docs/demo.cast", "TODO.md"]
+exclude = ["demo/"]
 
 [workspace]
 members = ["crates/knav-common", "crates/knav-k8s", "crates/knav-extensions"]

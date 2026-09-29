@@ -1,5 +1,4 @@
 /target
-docs/demo.cast
 
 # The WASM guest examples build on their own; the test fixtures are the checked-in
 # crates/knav-extensions/src/dashboards/testdata/*.wasm.
