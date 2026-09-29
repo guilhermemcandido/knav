@@ -48,16 +48,16 @@ Press `?` anywhere for the keys on that screen. The essentials:
 
 ## Config
 
-Optional, in `~/.config/knav/config.toml`. Themes, keys and layout can all be changed
-from the Settings screen (`,`).
+Everything is set from the Settings screen (`,`) and saved to
+`~/.config/knav/config.toml`, which you can also edit by hand:
 
-Icons use your terminal's image support (Kitty, Sixel or iTerm2). If they look wrong,
-turn them off:
+- **Look**: theme, box lines, icons (turn them off if your terminal can't draw images)
+- **Keys**: rebind any key
+- **Layout**: which sections and tiles Home shows, and in what order
+- **Lists and logs**: wide or faults-only on start, log order and timestamps
+- **Behaviour**: start in the current context or a picker, mouse speed, port-forwards
 
-```toml
-[ui]
-icons = false
-```
+Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
 
 ## License
 
