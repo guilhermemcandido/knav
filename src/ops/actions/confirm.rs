@@ -8,12 +8,18 @@ pub struct ConfirmSpec {
     pub title: String,
     /// The word on the yes button.
     pub verb: String,
-    /// Destructive: drawn in red, and Enter alone doesn't confirm.
+    /// Destructive: drawn in red, with Cancel focused at first.
     pub danger: bool,
     /// Kind and `namespace/name` of what it applies to, at most a handful.
     pub subjects: Vec<(String, String)>,
     /// What to know first, and whether it is a warning.
     pub notes: Vec<(String, bool)>,
+}
+
+/// The question after a port-forward starts. `text` says what happened, then asks.
+pub fn open_url_spec(text: &str, url: &str) -> ConfirmSpec {
+    let notes = text.lines().filter(|l| !l.starts_with("Open ")).map(|l| (l.to_string(), false)).collect();
+    ConfirmSpec { title: "Open it in the browser?".into(), verb: "Open".into(), danger: false, subjects: vec![("URL".into(), url.to_string())], notes }
 }
 
 fn plural(kind: &str) -> String {

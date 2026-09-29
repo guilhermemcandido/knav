@@ -27,7 +27,34 @@ fn step(input: &str, up: bool) -> i64 {
     if up { (now + 1).min(99_999) } else { (now - 1).max(0) }
 }
 
+/// A click on a dialog button, as the key that presses it.
+fn clicked_button(st: &mut State, area: Rect, column: u16, row: u16) -> Option<KeyCode> {
+    let at = |b: ui::DialogButtons| {
+        let pos = ratatui::layout::Position { x: column, y: row };
+        if b.yes.contains(pos) { Some(true) } else if b.no.contains(pos) { Some(false) } else { None }
+    };
+    let as_key = |yes: bool| if yes { KeyCode::Char('y') } else { KeyCode::Esc };
+    match &mut st.mode {
+        Mode::Confirm { spec, .. } => at(ui::confirm_buttons(area, spec)).map(as_key),
+        Mode::OpenUrl { text, url, .. } => at(ui::confirm_buttons(area, &actions::open_url_spec(text, url))).map(as_key),
+        Mode::Scale { targets, input, yes, .. } => {
+            let hit = at(ui::scale_buttons(area, &crate::app::draw::scale_view(targets, input, *yes)))?;
+            *yes = hit;
+            Some(KeyCode::Enter)
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
+    if let Event::Mouse(mouse) = event {
+        if matches!(mouse.kind, MouseEventKind::Down(crossterm::event::MouseButton::Left))
+            && let Some(code) = clicked_button(st, cx.frame_area, mouse.column, mouse.row)
+        {
+            return handle(Event::Key(code.into()), st, cx);
+        }
+        return Ok(None);
+    }
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
         Mode::Confirm { targets, action, yes, back, .. } => match answer(key.code, yes) {

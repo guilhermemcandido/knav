@@ -121,7 +121,7 @@ mod confirm;
 mod run;
 mod secret;
 
-pub use confirm::{ConfirmSpec, confirm_spec};
+pub use confirm::{ConfirmSpec, confirm_spec, open_url_spec};
 pub use run::{Progress, run_many, working_title};
 pub use secret::decode_secret;
 

@@ -13,7 +13,7 @@ mod settings;
 mod shell;
 
 pub(in crate::ui) use self::command::*;
-pub(in crate::ui) use self::dialogs::*;
+pub use self::dialogs::*;
 pub use self::events::*;
 pub use self::extensions::*;
 pub(in crate::ui) use self::nodes::*;
