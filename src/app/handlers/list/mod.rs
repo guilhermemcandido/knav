@@ -142,7 +142,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     ResourceKind::Services => {
                         let manifest = generic_visible
                             .get(selected)
-                            .and_then(|&real| catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real)));
+                            .and_then(|&real| catalog.resolve(st.current_kind, client).and_then(|k| k.spec_at(real)));
                         generic_rows.get(selected).zip(manifest).map(|(row, manifest)| Scope::Selector {
                             labels: service_selector(&manifest),
                             namespace: (!row.namespace.is_empty()).then(|| row.namespace.clone()),
@@ -190,7 +190,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 } else {
                     let names: Vec<String> =
-                        catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();
+                        catalog.resolve(ResourceKind::Namespaces, client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();
                     open_namespace_picker(&mut st.mode, names);
                 }
             }
@@ -220,7 +220,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     if let Some(display_index) = st.table_state.selected()
                         && let Some(&real_index) = generic_visible.get(display_index)
                         && let Some(row) = generic_rows_full.get(real_index)
-                        && let Some(value) = catalog.resolve(st.current_kind, &client).and_then(|k| k.spec_at(real_index))
+                        && let Some(value) = catalog.resolve(st.current_kind, client).and_then(|k| k.spec_at(real_index))
                     {
                         let title = format!("{}/{}", row.namespace, row.name);
                         open_spec_value(&mut st.mode, title, value);
@@ -230,7 +230,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // Edit the selected object in `$EDITOR`, the same manifest `d` shows.
             KeyCode::Char('e') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
+                    let outcome = edit::edit_resource(cx.terminal, client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };
                 }
             }

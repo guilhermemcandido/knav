@@ -209,8 +209,8 @@ pub fn column_hit(
 }
 
 /// Draws the columns, with ◀ and ▶ in the gutters when there are more that way.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, col_scroll: usize, item_scroll: usize, dimmed: bool, icons: &mut IconCache) {
+pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, view: OverviewView, icons: &mut IconCache) {
+    let OverviewView { selection, col_scroll, item_scroll, dimmed } = view;
     let total = overview.catalog.len();
     if total == 0 {
         return;
@@ -227,7 +227,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, col_idx, title, items, selection, scroll, dimmed, icons);
+        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll }, selection, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -241,20 +241,27 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
     }
 }
 
+/// One Overview column's contents, and how far its cards are scrolled.
+pub(super) struct Column<'a> {
+    pub index: usize,
+    pub title: &'a str,
+    pub items: &'a [(&'a str, usize)],
+    pub item_scroll: usize,
+}
+
+/// What one card shows.
+pub(super) struct Card<'a> {
+    pub label: &'a str,
+    pub count: usize,
+    pub health: Option<Health>,
+    pub column_title: &'a str,
+    pub selected: bool,
+}
+
 /// One column: a box titled with the category, listing its kinds as cards.
 /// `item_scroll` applies only to the selected column.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_column(
-    frame: &mut Frame,
-    area: Rect,
-    col_idx: usize,
-    title: &str,
-    items: &[(&str, usize)],
-    selection: OverviewSelection,
-    item_scroll: usize,
-    dimmed: bool,
-    icons: &mut IconCache,
-) {
+pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selection: OverviewSelection, dimmed: bool, icons: &mut IconCache) {
+    let Column { index: col_idx, title, items, item_scroll } = column;
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
@@ -294,7 +301,7 @@ pub(super) fn draw_column(
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], label, *count, None, title, selected, dimmed, icons);
+        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected }, dimmed, icons);
     }
     // Cards hidden above or below get a ▲ or ▼.
     if more_above {
@@ -315,8 +322,8 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 }
 
 /// One card: the kind's icon, name and live count. Selected, its border is highlighted.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, health: Option<Health>, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
+pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
+    let Card { label, count, health, column_title, selected } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
@@ -446,7 +453,8 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         let col_areas = Layout::horizontal(col_constraints).spacing(1).split(*row_area);
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
-            draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label) && *count > 0), title, idx == selected, false, icons);
+            let health = (shows_health(label) && *count > 0).then(|| health.get(label).copied().unwrap_or_default());
+            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected }, false, icons);
         }
     }
     // Rows hidden above or below get a ▲ or ▼.

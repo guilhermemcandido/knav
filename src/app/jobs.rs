@@ -86,9 +86,9 @@ pub(super) fn check_context(st: &mut State, name: String) {
 }
 
 /// Starts a port-forward in the background.
-pub(super) fn start_forward(st: &mut State, context: &str, namespace: &str, resource: &str, address: &str, local: u16, remote: u16, back: Box<Mode>) {
-    let title = format!("Starting a forward to {resource}");
-    let work = portforward::start_in_background(context.into(), namespace.into(), resource.into(), address.into(), local, remote);
+pub(super) fn start_forward(st: &mut State, request: portforward::ForwardRequest, back: Box<Mode>) {
+    let title = format!("Starting a forward to {}", request.resource);
+    let work = portforward::start_in_background(request);
     let work = async move { Done::Forward(work.await.map_err(|e| format!("{e:#}"))) };
     st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
 }

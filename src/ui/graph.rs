@@ -269,11 +269,10 @@ pub(super) fn draw_graph(frame: &mut Frame, area: Rect, graph: &Graph, selected:
     for y in 0..view_h.saturating_sub(pad_y) {
         for x in 0..view_w.saturating_sub(pad_x) {
             let (gx, gy) = (usize::from(x + ox), usize::from(y + oy));
-            if let Some((ch, style)) = grid.get(gy).and_then(|row| row.get(gx)) {
-                if *ch != ' ' {
+            if let Some((ch, style)) = grid.get(gy).and_then(|row| row.get(gx))
+                && *ch != ' ' {
                     buffer.set_string(area.x + pad_x + x, area.y + pad_y + y, ch.to_string(), *style);
                 }
-            }
         }
     }
 }

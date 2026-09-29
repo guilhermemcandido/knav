@@ -67,6 +67,17 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
+/// The main list's view state: selection, search, sort, sideways scroll, marks and look.
+pub(super) struct ListView<'a> {
+    pub state: &'a mut TableState,
+    pub search: Search<'a>,
+    pub sort: SortState,
+    pub hscroll: &'a mut usize,
+    pub marked: &'a HashSet<String>,
+    pub wide: bool,
+    pub look: ListLook,
+}
+
 /// The table every list shares: columns, header, titled border with the search, and
 /// the selection coloured by the selected row's state.
 fn list_table<'a>(rows: Vec<Row<'a>>, window: &Window, header: Row<'a>, title: Line<'static>, search: Search, selected_tone: crate::k8s::describe::Tone, look: ListLook) -> Table<'a> {
@@ -115,7 +126,8 @@ fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut Tabl
     frame.render_stateful_widget(table, area, &mut local);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], view: ListView) {
+    let ListView { state: table_state, search, sort, hscroll, marked, wide, look } = view;
     let dimmed = look.dimmed;
 
     let window = pod_window(pods, area.width, hscroll, wide, sort.cursor);
@@ -217,7 +229,8 @@ pub fn controller_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bo
 
 /// The pod row under a terminal position, only over the CONTAINERS column, so the
 /// popup fires on the dots.
-pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
+pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, at: Position) -> Option<usize> {
+    let Position { x: column, y: row } = at;
     let table_area = frame_area;
 
     let inner = Rect {
@@ -271,7 +284,8 @@ pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
     }
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[std::sync::Arc<DeploymentRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[std::sync::Arc<DeploymentRow>], view: ListView) {
+    let ListView { state: table_state, search, sort, hscroll, marked, wide, look } = view;
     let dimmed = look.dimmed;
 
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
@@ -383,7 +397,8 @@ fn generic_row_tone(r: &GenericRow) -> crate::k8s::describe::Tone {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], view: ListView) {
+    let ListView { state: table_state, search, sort, hscroll, marked, wide, look } = view;
     let dimmed = look.dimmed;
 
     let mut headers = vec!["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
@@ -458,7 +473,8 @@ pub(super) fn any_row_has_namespace(rows: &[std::sync::Arc<GenericRow>]) -> bool
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::sync::Arc<GenericRow>], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::sync::Arc<GenericRow>], label: &str, kind_headers: &[&'static str], view: ListView) {
+    let ListView { state: table_state, search, sort, hscroll, marked, wide, look } = view;
     let dimmed = look.dimmed;
 
     let show_namespace = any_row_has_namespace(rows);
@@ -527,7 +543,8 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::syn
 
 /// The Custom Resources picker: every discovered CRD kind, grouped by API group.
 /// Nothing is watched until a kind is opened.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, look: ListLook) {
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, view: ListView) {
+    let ListView { state: table_state, search, sort, hscroll, look, .. } = view;
     let dimmed = look.dimmed;
     let cell_style = theme_row(dimmed);
 

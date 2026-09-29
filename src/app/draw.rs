@@ -51,7 +51,8 @@ pub(super) fn draw_mode(
     let mut frame_area = Rect::default();
     // Every mode draws the same base screen, with its own overlay on top.
     let mut paint = |frame: &mut ratatui::Frame, hover: Option<ui::Hover>, background: Option<ui::Overlay>, overlay: Option<ui::Overlay>, editing: bool| {
-        ui::draw(frame, rows_view(), table_state, hover, background, overlay, hints, show_hints_panel, Some(path), icons, header_now, ui::Search { text: search, editing }, sort_view, hscroll, marked, chrome)
+        let screen = ui::Screen { rows: rows_view(), table_state: &mut *table_state, hints, show_hints_panel, path: Some(path), header: header_now, search: ui::Search { text: search, editing }, sort: sort_view, hscroll: &mut *hscroll, marked, chrome };
+        ui::draw(frame, screen, ui::Layers { hover, background, overlay }, icons)
     };
         match mode {
             Mode::List => {
@@ -74,7 +75,7 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let items: Vec<(String, String, bool)> =
                         filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
-                    let overlay = ui::Overlay::Context { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() };
+                    let overlay = ui::Overlay::Context(ui::ContextView { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -82,7 +83,7 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let items: Vec<(String, Option<usize>)> =
-                        filtered_names(names, filter, *popup_sort, &favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
+                        filtered_names(names, filter, *popup_sort, favorites).into_iter().map(|n| (n.clone(), favorites.key_of(n))).collect();
                     let overlay = ui::Overlay::NamespacePicker { items: &items, total: names.len(), filter, editing: *editing, state, sort: popup_sort.view() };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
@@ -178,7 +179,7 @@ pub(super) fn draw_mode(
             Mode::ThemePicker { entries, state, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::ThemePicker { entries, state, saved: &config_preset };
+                    let overlay = ui::Overlay::ThemePicker { entries, state, saved: config_preset };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -265,7 +266,7 @@ pub(super) fn draw_mode(
                     let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
                     let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
                     let node_background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
-                        Some(ui::Overlay::NodeDetail {
+                        Some(ui::Overlay::NodeDetail(ui::NodeDetailView {
                             name: back_node_name.as_deref().unwrap_or(""),
                             cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
                             cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
@@ -273,11 +274,11 @@ pub(super) fn draw_mode(
                             memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
                             pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                             info: back_detail_info.as_ref(),
-                            pods: &node_detail_rows,
+                            pods: node_detail_rows,
                             state: nd_state,
                             sort: ui::SortState::default(),
                             search: ui::Search::default(),
-                        })
+                        }))
                     } else {
                         None
                     };
@@ -303,7 +304,7 @@ pub(super) fn draw_mode(
                     let back_detail_info = back_found_node.map(|n| k8s::node_detail_info(n));
                     let back_node_usage = back_node_name.as_deref().and_then(|n| usage.as_ref().and_then(|u| u.for_node(n)));
                     let background = if let Mode::NodeDetail { state: nd_state, .. } = &mut **back {
-                        Some(ui::Overlay::NodeDetail {
+                        Some(ui::Overlay::NodeDetail(ui::NodeDetailView {
                             name: back_node_name.as_deref().unwrap_or(""),
                             cpu_usage: back_node_usage.map(|u| u.cpu_millicores),
                             cpu_capacity: back_capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
@@ -311,11 +312,11 @@ pub(super) fn draw_mode(
                             memory_capacity: back_capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
                             pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                             info: back_detail_info.as_ref(),
-                            pods: &node_detail_rows,
+                            pods: node_detail_rows,
                             state: nd_state,
                             sort: ui::SortState::default(),
                             search: ui::Search::default(),
-                        })
+                        }))
                     } else {
                         None
                     };
@@ -331,7 +332,7 @@ pub(super) fn draw_mode(
                     let capacity = found_node.map(|n| k8s::node_capacity(n));
                     let detail_info = found_node.map(|n| k8s::node_detail_info(n));
                     let node_usage = usage.as_ref().and_then(|u| u.for_node(name));
-                    let overlay = ui::Overlay::NodeDetail {
+                    let overlay = ui::Overlay::NodeDetail(ui::NodeDetailView {
                         name: name.as_str(),
                         cpu_usage: node_usage.map(|u| u.cpu_millicores),
                         cpu_capacity: capacity.as_ref().map(|c| c.cpu_millicores).unwrap_or(0),
@@ -339,18 +340,18 @@ pub(super) fn draw_mode(
                         memory_capacity: capacity.as_ref().map(|c| c.memory_bytes).unwrap_or(0),
                         pod_capacity: capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                         info: detail_info.as_ref(),
-                        pods: &node_detail_rows,
+                        pods: node_detail_rows,
                         state,
                         sort: popup_sort.view(),
                         search: ui::Search { text: nd_search, editing: *nd_editing },
-                    };
+                    });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
             Mode::Events { filter, search: event_search, editing, state, sort: popup_sort } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Events { events: &overview.events, filter: *filter, search: event_search, editing: *editing, state, sort: popup_sort.view() };
+                    let overlay = ui::Overlay::Events(ui::EventsView { events: &overview.events, filter: *filter, search: event_search, editing: *editing, state, sort: popup_sort.view() });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -359,7 +360,7 @@ pub(super) fn draw_mode(
                     frame_area = frame.area();
                     let background = match &mut **back {
                         Mode::Events { filter, search, editing, state, sort: popup_sort } => {
-                            Some(ui::Overlay::Events { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() })
+                            Some(ui::Overlay::Events(ui::EventsView { events: &overview.events, filter: *filter, search, editing: *editing, state, sort: popup_sort.view() }))
                         }
                         _ => None,
                     };
@@ -370,7 +371,7 @@ pub(super) fn draw_mode(
             Mode::ResourcesDetail => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::ResourcesDetail { overview: &overview, nodes: node_rows };
+                    let overlay = ui::Overlay::ResourcesDetail { overview, nodes: node_rows };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -396,7 +397,7 @@ pub(super) fn draw_mode(
                         }
                         _ => None,
                     };
-                    let overlay = ui::Overlay::Logs {
+                    let overlay = ui::Overlay::Logs(ui::LogsView {
                         title,
                         lines,
                         scroll: *scroll,
@@ -405,7 +406,7 @@ pub(super) fn draw_mode(
                         order: *order,
                         filter,
                         filter_editing: *filter_editing,
-                    };
+                    });
                     paint(frame, None, background, Some(overlay), false);
                 })?;
             }

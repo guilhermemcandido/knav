@@ -3,16 +3,8 @@
 use super::*;
 
 /// The Events browser: every event, filterable by severity.
-pub(in crate::ui) fn draw_events_popup(
-    frame: &mut Frame,
-    events: &[EventEntry],
-    filter: EventFilter,
-    search: &str,
-    editing: bool,
-    state: &mut TableState,
-    sort: SortState,
-    dimmed: bool,
-) {
+pub(in crate::ui) fn draw_events_popup(frame: &mut Frame, view: EventsView, dimmed: bool) {
+    let EventsView { events, filter, search, editing, state, sort } = view;
     let area = centered_rect(94, 88, frame.area());
     frame.render_widget(Clear, area);
 

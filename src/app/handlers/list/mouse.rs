@@ -58,12 +58,12 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             }
             match mouse.kind {
                 MouseEventKind::Moved => {
-                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
                         .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                 }
                 // A click selects the row; a second click on it soon after opens it.
                 MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, mouse.column, mouse.row)
+                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
                         .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                     if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                         st.table_state.select(Some(index));

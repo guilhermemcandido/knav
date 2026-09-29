@@ -76,18 +76,8 @@ fn lines_fitting_at_end(ordered: &[&str], format: TimestampFormat, filter: &str,
     count
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_logs_popup(
-    frame: &mut Frame,
-    title: &str,
-    lines: &[String],
-    scroll: usize,
-    follow: bool,
-    timestamp_format: TimestampFormat,
-    order: LogOrder,
-    filter: &str,
-    filter_editing: bool,
-) {
+pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
+    let LogsView { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing } = view;
     // The whole body width, so selecting text with the mouse never takes in what is behind.
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);

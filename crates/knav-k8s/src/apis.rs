@@ -173,12 +173,12 @@ impl CatalogKind for ApiList {
 
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
         let api = self.apis.get(index)?;
-        Some(serde_yaml::to_value(serde_json::json!({
+        serde_yaml::to_value(serde_json::json!({
             "apiVersion": "meta.k8s.io/v1",
             "kind": "APIResource",
             "metadata": {"name": api.plural},
             "spec": {"group": api.group, "version": api.version, "kind": api.kind, "plural": api.plural, "namespaced": api.namespaced, "verbs": api.verbs},
-        })).ok()?)
+        })).ok()
     }
 
     fn headers(&self) -> Vec<&'static str> {

@@ -184,11 +184,23 @@ pub fn suggested_local(remote: u16) -> u16 {
 }
 
 /// `start` off the UI thread, since it waits to see whether kubectl fails.
-pub async fn start_in_background(context: String, namespace: String, resource: String, address: String, local: u16, remote: u16) -> Result<Forward> {
-    tokio::task::spawn_blocking(move || start(&context, &namespace, &resource, &address, local, remote)).await?
+pub async fn start_in_background(request: ForwardRequest) -> Result<Forward> {
+    tokio::task::spawn_blocking(move || start(&request)).await?
 }
 
-pub fn start(context: &str, namespace: &str, resource: &str, address: &str, local: u16, remote: u16) -> Result<Forward> {
+/// What to forward: `resource` in `namespace` of `context`, `local` to `remote`, listening on `address`.
+pub struct ForwardRequest {
+    pub context: String,
+    pub namespace: String,
+    pub resource: String,
+    pub address: String,
+    pub local: u16,
+    pub remote: u16,
+}
+
+pub fn start(request: &ForwardRequest) -> Result<Forward> {
+    let ForwardRequest { context, namespace, resource, address, local, remote } = request;
+    let (context, namespace, resource, address, local, remote) = (context.as_str(), namespace.as_str(), resource.as_str(), address.as_str(), *local, *remote);
     let mut child = Command::new("kubectl")
         .args(["--context", context, "-n", namespace, "port-forward", "--address", address, resource, &format!("{local}:{remote}")])
         .stdin(Stdio::null())

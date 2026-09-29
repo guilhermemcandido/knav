@@ -9,16 +9,8 @@ fn picker_area(frame: Rect) -> Rect {
 
 /// The context browser (`C`), with the Events browser's geometry so `event_row_at`
 /// hit-tests it too. Typing filters at once.
-pub(in crate::ui) fn draw_context_popup(
-    frame: &mut Frame,
-    items: &[(String, String, bool)],
-    total: usize,
-    filter: &str,
-    editing: bool,
-    state: &mut TableState,
-    error: Option<&str>,
-    sort: SortState,
-) {
+pub(in crate::ui) fn draw_context_popup(frame: &mut Frame, view: ContextView) {
+    let ContextView { items, total, filter, editing, state, error, sort } = view;
     let area = picker_area(frame.area());
     frame.render_widget(Clear, area);
 

@@ -71,7 +71,7 @@ mod tests {
     fn a_parallel_sort_gives_the_same_order_as_a_plain_one() {
         let mut items: Vec<u64> = (0..60_000u64).map(|i| (i * 2_654_435_761) % 1_000_003).collect();
         let mut expected = items.clone();
-        expected.sort_by(|a, b| a.cmp(b));
+        expected.sort();
         par_sort_by(&mut items, |a, b| a.cmp(b));
         assert_eq!(items, expected);
     }

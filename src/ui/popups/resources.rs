@@ -29,8 +29,17 @@ fn fill_bar(ratio: f64, width: usize, color: Color, dimmed: bool) -> Line<'stati
     Line::from(vec![Span::styled("█".repeat(filled), on), Span::styled("░".repeat(width - filled), off)])
 }
 
+/// One resource's numbers: what is used (`None` without metrics-server), what the pods
+/// ask for, and the capacity.
+struct Usage {
+    used: Option<f64>,
+    asked: Option<f64>,
+    capacity: f64,
+}
+
 /// One card of the Resources view: what is used, and what the pods ask for.
-fn resource_card(frame: &mut Frame, area: Rect, title: &str, used: Option<f64>, asked: Option<f64>, capacity: f64, show: &dyn Fn(f64) -> String, dimmed: bool) {
+fn resource_card(frame: &mut Frame, area: Rect, title: &str, usage: Usage, show: &dyn Fn(f64) -> String, dimmed: bool) {
+    let Usage { used, asked, capacity } = usage;
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(if dimmed { dim_style() } else { theme_border(false) }).title(pill_title(title, dimmed, if dimmed { dim_style() } else { theme_border(false) }));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -68,9 +77,12 @@ pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &O
     let cards = Layout::horizontal([Constraint::Ratio(1, 3); 3]).spacing(1).split(rows[0]);
     let cores = |v: f64| format!("{:.2} cores", v / 1000.0);
     let usage = overview.metrics_available;
-    resource_card(frame, cards[0], "CPU", usage.then_some(overview.cpu_usage_millicores as f64), report.map(|r| r.cpu_requests_millicores as f64), overview.cpu_capacity_millicores as f64, &cores, dimmed);
-    resource_card(frame, cards[1], "Memory", usage.then_some(overview.memory_usage_bytes as f64), report.map(|r| r.memory_requests_bytes as f64), overview.memory_capacity_bytes as f64, &format_bytes, dimmed);
-    resource_card(frame, cards[2], "Pods", Some(workloads_pod_count(overview) as f64), None, overview.pod_capacity as f64, &|v| format!("{v:.0}"), dimmed);
+    let cpu = Usage { used: usage.then_some(overview.cpu_usage_millicores as f64), asked: report.map(|r| r.cpu_requests_millicores as f64), capacity: overview.cpu_capacity_millicores as f64 };
+    let memory = Usage { used: usage.then_some(overview.memory_usage_bytes as f64), asked: report.map(|r| r.memory_requests_bytes as f64), capacity: overview.memory_capacity_bytes as f64 };
+    let pods = Usage { used: Some(workloads_pod_count(overview) as f64), asked: None, capacity: overview.pod_capacity as f64 };
+    resource_card(frame, cards[0], "CPU", cpu, &cores, dimmed);
+    resource_card(frame, cards[1], "Memory", memory, &format_bytes, dimmed);
+    resource_card(frame, cards[2], "Pods", pods, &|v| format!("{v:.0}"), dimmed);
 
     let halves = Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)]).spacing(1).split(rows[1]);
 

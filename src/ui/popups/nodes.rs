@@ -3,22 +3,8 @@
 use super::*;
 
 /// A node's gauges above its pods, in the same table as the Pods list.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::ui) fn draw_node_detail_popup(
-    frame: &mut Frame,
-    name: &str,
-    cpu_usage: Option<i64>,
-    cpu_capacity: i64,
-    memory_usage: Option<i64>,
-    memory_capacity: i64,
-    pod_capacity: i64,
-    info: Option<&crate::k8s::NodeDetailInfo>,
-    pods: &[std::sync::Arc<PodRow>],
-    state: &mut TableState,
-    sort: SortState,
-    search: Search,
-    dimmed: bool,
-) {
+pub(in crate::ui) fn draw_node_detail_popup(frame: &mut Frame, view: NodeDetailView, dimmed: bool) {
+    let NodeDetailView { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search } = view;
     let area = centered_rect(94, 92, frame.area());
     frame.render_widget(Clear, area);
 
@@ -52,7 +38,9 @@ pub(in crate::ui) fn draw_node_detail_popup(
         draw_node_info_panel(frame, chunks[1], info, dimmed);
     }
 
-    draw_table(frame, chunks[2], pods, state, if dimmed { Search::default() } else { search }, if dimmed { SortState::default() } else { sort }, &mut 0, &HashSet::new(), false, ListLook::dimmed(dimmed));
+    let marked = HashSet::new();
+    let view = ListView { state, search: if dimmed { Search::default() } else { search }, sort: if dimmed { SortState::default() } else { sort }, hscroll: &mut 0, marked: &marked, wide: false, look: ListLook::dimmed(dimmed) };
+    draw_table(frame, chunks[2], pods, view);
 }
 
 /// The node info panel's height, shared by sizing and drawing.

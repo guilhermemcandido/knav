@@ -111,21 +111,9 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         return Ok(SessionEnd::Quit);
     }
 
-    let result = app::run(
-        &mut terminal,
-        &pod_store,
-        &dep_store,
-        &node_store,
-        &event_store,
-        &node_metrics_rx,
-        &mut catalog,
-        &registry,
-        client,
-        config,
-        &active_context,
-        &header,
-        notes,
-    );
+    let stores = app::Stores { pods: &pod_store, deployments: &dep_store, nodes: &node_store, events: &event_store, node_metrics: &node_metrics_rx };
+    let session = app::Session { client, config, active_context: &active_context, header: &header };
+    let result = app::run(&mut terminal, stores, &mut catalog, &registry, session, notes);
 
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();

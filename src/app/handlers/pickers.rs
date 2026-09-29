@@ -43,7 +43,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let back = std::mem::replace(&mut **back, Mode::List);
                 let mut next = key_picker(name, &st.favorites);
                 if let Mode::Slots { back: slot_back, .. } = &mut next {
-                    *slot_back = Box::new(back);
+                    **slot_back = back;
                 }
                 st.mode = next;
             } else if close {

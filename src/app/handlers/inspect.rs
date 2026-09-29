@@ -167,7 +167,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         editing: false,
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     });
-                    let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
+                    let outcome = edit::edit_resource(cx.terminal, client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back };
                 }
             }

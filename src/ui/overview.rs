@@ -4,23 +4,24 @@ use super::*;
 
 /// The Events box shows this many entries and a "+N more" line; Enter opens them all.
 pub(super) const MAX_VISIBLE_EVENTS: usize = 5;
+/// Where the Overview's selection and scroll are, and whether it is dimmed.
+#[derive(Clone, Copy)]
+pub(super) struct OverviewView {
+    pub selection: OverviewSelection,
+    /// The column scroll, and the item scroll within the selected column.
+    pub col_scroll: usize,
+    pub item_scroll: usize,
+    pub dimmed: bool,
+}
+
 /// The home screen: Resources and Events on top, then scrollable category columns.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_overview(
-    frame: &mut Frame,
-    area: Rect,
-    overview: &Overview,
-    selection: OverviewSelection,
-    col_scroll: usize,
-    item_scroll: usize,
-    dimmed: bool,
-    icons: &mut IconCache,
-) {
+pub(super) fn draw_overview(frame: &mut Frame, area: Rect, overview: &Overview, view: OverviewView, icons: &mut IconCache) {
+    let OverviewView { selection, dimmed, .. } = view;
     let top_h = top_area_height(overview);
     let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
     let span = Rect { y: chunks[0].y, height: chunks[0].height, ..columns_span(area, overview.catalog.len()) };
     draw_top_panel(frame, span, overview, selection, dimmed);
-    draw_columns(frame, chunks[2], overview, selection, col_scroll, item_scroll, dimmed, icons);
+    draw_columns(frame, chunks[2], overview, view, icons);
 }
 
 /// The Resources box height: borders plus three meters, or the two-line unavailable message.

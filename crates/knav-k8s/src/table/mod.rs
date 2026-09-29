@@ -62,6 +62,9 @@ impl TableData {
     }
 }
 
+/// A fetched object and when it was fetched.
+type Fetched = (std::time::Instant, serde_yaml::Value);
+
 /// One resource type shown through the server's Table view, kept current by a watch
 /// while it is open. With a namespace selected, only that namespace is fetched.
 pub struct TableKind {
@@ -72,7 +75,7 @@ pub struct TableKind {
     resource: ApiResource,
     namespaced: bool,
     /// Full objects fetched for the info view and actions, cached.
-    objects: Arc<Mutex<HashMap<(String, String), (std::time::Instant, serde_yaml::Value)>>>,
+    objects: Arc<Mutex<HashMap<(String, String), Fetched>>>,
     /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
     scope: Arc<Mutex<Option<String>>>,
     changed: Arc<tokio::sync::Notify>,

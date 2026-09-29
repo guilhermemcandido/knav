@@ -82,8 +82,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     Ok((local, remote, address)) => {
                         let resource = target.forward_resource().expect("only forwardable kinds open this dialog");
                         let namespace = target.namespace.as_deref().unwrap_or("default");
-                        let (context, namespace, resource, back) = (cx.active_context.to_string(), namespace.to_string(), resource, std::mem::replace(back, Box::new(Mode::List)));
-                        crate::app::jobs::start_forward(st, &context, &namespace, &resource, &address, local, remote, back);
+                        let request = portforward::ForwardRequest { context: cx.active_context.to_string(), namespace: namespace.to_string(), resource, address, local, remote };
+                        let back = std::mem::replace(back, Box::new(Mode::List));
+                        crate::app::jobs::start_forward(st, request, back);
                     }
                 }
             }

@@ -19,13 +19,16 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 
+/// Starts a kind's full watch.
+type StartWatch = Box<dyn Fn(&Client) -> Box<dyn crate::CatalogKind> + Send + Sync>;
+
 /// One built-in kind: a cheap count from the start, the full live watch only once needed.
 struct Entry {
     kind: ResourceKind,
     label: &'static str,
     /// From a metadata-only watch, keeping just the number.
     count: Arc<AtomicUsize>,
-    start: Box<dyn Fn(&Client) -> Box<dyn crate::CatalogKind> + Send + Sync>,
+    start: StartWatch,
     full: Option<Box<dyn crate::CatalogKind>>,
 }
 

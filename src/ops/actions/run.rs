@@ -43,9 +43,9 @@ pub async fn run_many(client: Client, targets: Vec<Target>, action: Action, prog
     let mut resolved: Resolved = HashMap::new();
     for target in &targets {
         let key = (target.api_version.clone(), target.kind.clone());
-        if !resolved.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = resolved.entry(key) {
             let found = resolve(&client, target).await.map_err(|e| format!("{e:#}"));
-            resolved.insert(key, found);
+            e.insert(found);
         }
     }
     let resolved = Arc::new(resolved);

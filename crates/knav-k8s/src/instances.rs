@@ -47,11 +47,14 @@ impl Count {
     }
 }
 
+/// A type's count key within a namespace (`None`: all).
+type CountKey = (Option<String>, String);
+
 /// The counts found so far, shared with the lists. Kept per namespace, so going
 /// back to one shows its numbers at once.
 #[derive(Clone, Default)]
 pub struct InstanceCounts {
-    map: Arc<Mutex<HashMap<(Option<String>, String), (Count, Instant)>>>,
+    map: Arc<Mutex<HashMap<CountKey, (Count, Instant)>>>,
     /// The namespace the lists show (`None`: all).
     scope: Arc<Mutex<Option<String>>>,
 }

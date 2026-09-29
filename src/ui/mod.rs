@@ -92,29 +92,12 @@ pub struct MenuSection<'a> {
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
-    Logs { title: &'a str, lines: &'a [String], scroll: usize, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
-    /// A node's gauges and the pods on it. Usage is `None` without metrics-server.
-    NodeDetail {
-        name: &'a str,
-        cpu_usage: Option<i64>,
-        cpu_capacity: i64,
-        memory_usage: Option<i64>,
-        memory_capacity: i64,
-        pod_capacity: i64,
-        /// `None` briefly when the node vanished between frames.
-        info: Option<&'a crate::k8s::NodeDetailInfo>,
-        pods: &'a [std::sync::Arc<PodRow>],
-        state: &'a mut TableState,
-        sort: SortState,
-        search: Search<'a>,
-    },
+    Logs(LogsView<'a>),
+    NodeDetail(NodeDetailView<'a>),
     /// The `:` command line with its sorted suggestions. Unlike `Search` it dims the page.
     Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
-    /// The context browser: `(name, cluster, is_current)` rows, already filtered, and why
-    /// the last connect failed.
-    Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str>, sort: SortState },
-    /// The Events browser: every event, filterable by severity with a/w/n.
-    Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
+    Context(ContextView<'a>),
+    Events(EventsView<'a>),
     /// One event in full, since the browser clips long messages.
     EventDetail { entry: &'a EventEntry },
     /// The Resources panel opened up: cluster gauges plus per-node usage.
@@ -142,6 +125,56 @@ pub enum Overlay<'a> {
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
     Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
     ValueDetail { label: &'a str, value: &'a str },
+}
+
+/// One or more containers' logs, filtered and scrolled.
+pub struct LogsView<'a> {
+    pub title: &'a str,
+    pub lines: &'a [String],
+    pub scroll: usize,
+    pub follow: bool,
+    pub timestamp_format: TimestampFormat,
+    pub order: LogOrder,
+    pub filter: &'a str,
+    pub filter_editing: bool,
+}
+
+/// A node's gauges and the pods on it. Usage is `None` without metrics-server.
+pub struct NodeDetailView<'a> {
+    pub name: &'a str,
+    pub cpu_usage: Option<i64>,
+    pub cpu_capacity: i64,
+    pub memory_usage: Option<i64>,
+    pub memory_capacity: i64,
+    pub pod_capacity: i64,
+    /// `None` briefly when the node vanished between frames.
+    pub info: Option<&'a crate::k8s::NodeDetailInfo>,
+    pub pods: &'a [std::sync::Arc<PodRow>],
+    pub state: &'a mut TableState,
+    pub sort: SortState,
+    pub search: Search<'a>,
+}
+
+/// The context browser: `(name, cluster, is_current)` rows, already filtered, and why
+/// the last connect failed.
+pub struct ContextView<'a> {
+    pub items: &'a [(String, String, bool)],
+    pub total: usize,
+    pub filter: &'a str,
+    pub editing: bool,
+    pub state: &'a mut TableState,
+    pub error: Option<&'a str>,
+    pub sort: SortState,
+}
+
+/// The Events browser: every event, filterable by severity with a/w/n.
+pub struct EventsView<'a> {
+    pub events: &'a [EventEntry],
+    pub filter: EventFilter,
+    pub search: &'a str,
+    pub editing: bool,
+    pub state: &'a mut TableState,
+    pub sort: SortState,
 }
 
 /// The `/` search on the main list, and whether it is still being typed.
@@ -286,7 +319,6 @@ pub struct PathSegment {
     pub value: Option<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 /// What sits around the main content this frame. The app builds it before
 /// drawing and hit-tests the mouse against the same one.
 #[derive(Default)]
@@ -304,28 +336,36 @@ fn is_list_kind(rows: &Rows) -> bool {
     !matches!(rows, Rows::Overview(..) | Rows::Dashboard(..))
 }
 
-pub fn draw(
-    frame: &mut Frame,
-    rows: Rows,
-    table_state: &mut TableState,
-    hover: Option<Hover>,
-    // The parent screen, drawn dimmed under `overlay`; `None` for the base list.
-    background: Option<Overlay>,
-    overlay: Option<Overlay>,
-    // The screen's key hints, and whether the help is open.
-    hints: &[(&str, &str)],
-    show_hints_panel: bool,
-    // The breadcrumb path in the bottom bar, like "Nodes › worker-1 › Logs".
-    path: Option<&[PathSegment]>,
-    icons: &mut IconCache,
-    header: &HeaderInfo,
-    search: Search,
-    sort: SortState,
-    // How far the main list is scrolled right, clamped here to what its columns allow.
-    hscroll: &mut usize,
-    marked: &HashSet<String>,
-    chrome: &Chrome,
-) {
+/// The base screen a frame draws: the list or Overview, with its header, hints and path.
+pub struct Screen<'a> {
+    pub rows: Rows<'a>,
+    pub table_state: &'a mut TableState,
+    /// The screen's key hints, and whether the help is open.
+    pub hints: &'a [(&'a str, &'a str)],
+    pub show_hints_panel: bool,
+    /// The breadcrumb path in the bottom bar, like "Nodes › worker-1 › Logs".
+    pub path: Option<&'a [PathSegment]>,
+    pub header: &'a HeaderInfo,
+    pub search: Search<'a>,
+    pub sort: SortState,
+    /// How far the main list is scrolled right, clamped here to what its columns allow.
+    pub hscroll: &'a mut usize,
+    pub marked: &'a HashSet<String>,
+    pub chrome: &'a Chrome,
+}
+
+/// What sits over the base screen: the pod hover popup, and the overlay with the
+/// parent screen dimmed under it (`None` for the base list).
+#[derive(Default)]
+pub struct Layers<'a> {
+    pub hover: Option<Hover>,
+    pub background: Option<Overlay<'a>>,
+    pub overlay: Option<Overlay<'a>>,
+}
+
+pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconCache) {
+    let Screen { rows, table_state, hints, show_hints_panel, path, header, search, sort, hscroll, marked, chrome } = screen;
+    let Layers { hover, background, overlay } = layers;
     // Popups dim what's behind them. The `:` line only softens it (below), and `/`
     // search leaves the list in full colour.
     let dimmed = background.is_some()
@@ -334,9 +374,9 @@ pub fn draw(
             overlay,
             Some(Overlay::Spec { .. })
                 | Some(Overlay::Containers { .. })
-                | Some(Overlay::Logs { .. })
-                | Some(Overlay::NodeDetail { .. })
-                | Some(Overlay::Context { .. })
+                | Some(Overlay::Logs(..))
+                | Some(Overlay::NodeDetail(..))
+                | Some(Overlay::Context(..))
                 | Some(Overlay::Notice { .. })
                 | Some(Overlay::Confirm { .. })
                 | Some(Overlay::Working { .. })
@@ -349,13 +389,13 @@ pub fn draw(
                 | Some(Overlay::PortForward { .. })
                 | Some(Overlay::Slots { .. })
                 | Some(Overlay::NamespacePicker { .. })
-                | Some(Overlay::Events { .. })
+                | Some(Overlay::Events(..))
                 | Some(Overlay::EventDetail { .. })
                 | Some(Overlay::ResourcesDetail { .. })
                 | Some(Overlay::ColumnDetail { .. })
                 | Some(Overlay::ValueDetail { .. })
         );
-    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }));
+    let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context(..)));
 
     let full = frame.area();
     // Room for the three badges at the right of the list's top border, so the
@@ -391,7 +431,7 @@ pub fn draw(
     // The selected row, named at the end of the path bar while nothing is on top.
     let selected_row = table_state.selected();
     let selected_pod: Option<SelectedItem> = match &overlay {
-        Some(Overlay::NodeDetail { pods, state, .. }) if background.is_none() => {
+        Some(Overlay::NodeDetail(NodeDetailView { pods, state, .. })) if background.is_none() => {
             state.selected().and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r))
         }
         _ if dimmed => None,
@@ -409,17 +449,17 @@ pub fn draw(
         details::draw_side_panel(frame, full_body, chrome);
     }
     let empty_message = match &rows {
-        Rows::Pods(r) if r.is_empty() => Some("pods"),
-        Rows::Deployments(r) if r.is_empty() => Some("deployments"),
-        Rows::Nodes(r) if r.is_empty() => Some("nodes"),
-        Rows::Generic(r, label, _) if r.is_empty() => Some(*label),
-        Rows::CrdList(r, _, heading) if r.is_empty() => Some(*heading),
+        Rows::Pods([]) => Some("pods"),
+        Rows::Deployments([]) => Some("deployments"),
+        Rows::Nodes([]) => Some("nodes"),
+        Rows::Generic([], label, _) => Some(*label),
+        Rows::CrdList([], _, heading) => Some(*heading),
         _ => None,
     }
     .map(|label| empty_list_message(label, search.text, header.faults_only));
     match rows {
         Rows::Pods(pods) => {
-            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, look);
+            draw_table(frame, body, pods, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
 
             // Floats near the cursor while it is over a container dot.
             if !dimmed
@@ -430,21 +470,21 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, header.wide, look);
+            draw_deployment_table(frame, body, deployments, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, look);
+            draw_nodes_table(frame, body, nodes, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             // With the keys in the sidebar nothing on Home is selected.
             let selection = if chrome.content_unfocused { OverviewSelection::Header(usize::MAX) } else { selection };
-            draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
+            draw_overview(frame, body, overview, OverviewView { selection, col_scroll, item_scroll, dimmed }, icons);
         }
         Rows::Generic(rows, label, kind_headers) => {
-            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, header.wide, look);
+            draw_generic_table(frame, body, rows, label, kind_headers, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
         }
         Rows::CrdList(crds, counts, heading) => {
-            draw_crd_list_table(frame, body, crds, counts, heading, table_state, search, sort, hscroll, look);
+            draw_crd_list_table(frame, body, crds, counts, heading, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
         }
         Rows::Dashboard(title, content, scroll) => {
             draw_dashboard(frame, body, title, content, scroll, dimmed);
@@ -529,16 +569,12 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
         Overlay::Containers { title, containers, state, sort } => draw_containers_popup(frame, title, containers, state, sort, dimmed),
-        Overlay::Logs { title, lines, scroll, follow, timestamp_format, order, filter, filter_editing } => {
-            draw_logs_popup(frame, title, lines, scroll, follow, timestamp_format, order, filter, filter_editing)
-        }
-        Overlay::NodeDetail { name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search } => {
-            draw_node_detail_popup(frame, name, cpu_usage, cpu_capacity, memory_usage, memory_capacity, pod_capacity, info, pods, state, sort, search, dimmed)
-        }
+        Overlay::Logs(view) => draw_logs_popup(frame, view),
+        Overlay::NodeDetail(view) => draw_node_detail_popup(frame, view, dimmed),
         // Drawn by `draw` itself, in its own bar.
         Overlay::Command { .. } => {}
-        Overlay::Context { items, total, filter, editing, state, error, sort } => draw_context_popup(frame, items, total, filter, editing, state, error, sort),
-        Overlay::Events { events, filter, search, editing, state, sort } => draw_events_popup(frame, events, filter, search, editing, state, sort, dimmed),
+        Overlay::Context(view) => draw_context_popup(frame, view),
+        Overlay::Events(view) => draw_events_popup(frame, view, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview, nodes } => draw_resources_detail_popup(frame, overview, nodes, dimmed),
         Overlay::ColumnDetail { title, items, health, selected, row_scroll } => {

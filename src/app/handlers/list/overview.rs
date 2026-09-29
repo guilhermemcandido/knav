@@ -8,21 +8,21 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
         match key.code {
             KeyCode::Char('n') => {
                 let names: Vec<String> =
-                    catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();
+                    catalog.resolve(ResourceKind::Namespaces, client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();
                 open_namespace_picker(&mut st.mode, names);
             }
             // Esc and `q` do nothing here: nothing is further back, and quitting takes `:q`.
             KeyCode::Char('j') | KeyCode::Down => {
-                st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Down);
+                st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Down);
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Up);
+                st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Up);
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Left);
+                st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Left);
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Right);
+                st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Right);
             }
             KeyCode::Char('T') => crate::app::handlers::themes::open(st, cx.config),
             KeyCode::Char(',') => crate::app::handlers::settings::open(st),

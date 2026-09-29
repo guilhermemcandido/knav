@@ -51,22 +51,26 @@ use state::{State, Step};
 /// The most log lines held for one stream.
 const MAX_LOG_LINES: usize = 100_000;
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
-    terminal: &mut ratatui::DefaultTerminal,
-    pod_store: &k8s::PodKept,
-    dep_store: &k8s::DeploymentKept,
-    node_store: &Store<Node>,
-    event_store: &Store<k8s_openapi::api::core::v1::Event>,
-    node_metrics_rx: &watch::Receiver<Option<metrics::ClusterUsage>>,
-    catalog: &mut Catalog,
-    registry: &extensions::Registry,
-    client: Client,
-    config: &Config,
-    active_context: &str,
-    header: &ui::HeaderInfo,
-    notes: Vec<String>,
-) -> Result<SessionEnd> {
+/// The live stores a session reads from.
+pub(crate) struct Stores<'a> {
+    pub pods: &'a k8s::PodKept,
+    pub deployments: &'a k8s::DeploymentKept,
+    pub nodes: &'a Store<Node>,
+    pub events: &'a Store<k8s_openapi::api::core::v1::Event>,
+    pub node_metrics: &'a watch::Receiver<Option<metrics::ClusterUsage>>,
+}
+
+/// Which cluster the session is on, and the config it started with.
+pub(crate) struct Session<'a> {
+    pub client: Client,
+    pub config: &'a Config,
+    pub active_context: &'a str,
+    pub header: &'a ui::HeaderInfo,
+}
+
+pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catalog: &mut Catalog, registry: &extensions::Registry, session: Session, notes: Vec<String>) -> Result<SessionEnd> {
+    let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx } = stores;
+    let Session { client, config, active_context, header } = session;
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
     if !notes.is_empty() {
         st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), tone: NoticeTone::Failed, back: Box::new(Mode::List) };
@@ -138,16 +142,16 @@ pub(crate) fn run(
         }
 
         let rows_view = || match st.current_kind {
-            ResourceKind::Overview => ui::Rows::Overview(&overview, st.overview_selection, st.overview_col_scroll, st.overview_item_scroll),
-            ResourceKind::Pods => ui::Rows::Pods(&pod_rows),
-            ResourceKind::Deployments => ui::Rows::Deployments(&dep_rows),
-            ResourceKind::Nodes => ui::Rows::Nodes(&node_rows),
-            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(&crd_rows, crd_counts, st.current_kind.label()),
+            ResourceKind::Overview => ui::Rows::Overview(overview, st.overview_selection, st.overview_col_scroll, st.overview_item_scroll),
+            ResourceKind::Pods => ui::Rows::Pods(pod_rows),
+            ResourceKind::Deployments => ui::Rows::Deployments(dep_rows),
+            ResourceKind::Nodes => ui::Rows::Nodes(node_rows),
+            ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(crd_rows, crd_counts, st.current_kind.label()),
             ResourceKind::ExtensionDashboard(_) => match dashboard {
                 Some((title, content)) => ui::Rows::Dashboard(title, content, st.dashboard_scroll),
-                None => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
+                None => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers),
             },
-            _ => ui::Rows::Generic(&generic_rows, st.current_kind.label(), &generic_headers),
+            _ => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers),
         };
 
         let header_now = ui::HeaderInfo {
@@ -209,11 +213,11 @@ pub(crate) fn run(
         }
         let view = draw::View {
             rows: &rows_view,
-            overview: &overview,
-            nodes: &nodes,
-            node_rows: &node_rows,
+            overview,
+            nodes,
+            node_rows,
             usage: usage.as_ref(),
-            node_detail_rows: &node_detail_rows,
+            node_detail_rows,
             crds: &catalog.crds,
             extensions: &registry.loaded,
             helm_present: catalog.count(ResourceKind::HelmReleases) > 0,

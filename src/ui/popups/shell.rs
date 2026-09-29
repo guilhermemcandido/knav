@@ -42,7 +42,7 @@ pub(in crate::ui) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &v
                 }
             }
             let contents = cell.contents();
-            buffer[(inner.x + column, inner.y + row)].set_symbol(if contents.is_empty() { " " } else { &contents }).set_style(style);
+            buffer[(inner.x + column, inner.y + row)].set_symbol(if contents.is_empty() { " " } else { contents }).set_style(style);
         }
     }
     if !exited && !screen.hide_cursor() {
