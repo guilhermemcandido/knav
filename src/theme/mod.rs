@@ -285,7 +285,7 @@ pub fn builtin(name: &str) -> Option<Theme> {
 
 /// The folder for the user's own themes (`<name>.toml`).
 pub fn themes_dir() -> std::path::PathBuf {
-    crate::config::Config::dir().join("themes")
+    crate::util::config_dir().join("themes")
 }
 
 /// A theme file: an optional `base` (a built-in or user theme to start
@@ -404,6 +404,25 @@ pub fn build(preset_name: &str, overrides: &BTreeMap<String, String>) -> (Theme,
         }
     }
     (theme, ignored)
+}
+
+/// One theme in the picker, with the colours to show as its swatch.
+pub struct ThemeEntry {
+    pub name: String,
+    pub swatch: Vec<ratatui::style::Color>,
+}
+
+/// The picker's rows, and where the current theme is among them.
+pub fn theme_entries(current: &str) -> (Vec<ThemeEntry>, usize) {
+    let entries: Vec<ThemeEntry> = all_names()
+        .into_iter()
+        .map(|name| {
+            let t = crate::theme::lookup_theme(&name).unwrap_or_default();
+            ThemeEntry { swatch: vec![t.background, t.foreground, t.header, t.ok, t.warn, t.bad, t.accent, t.container, t.select_bg], name }
+        })
+        .collect();
+    let at = entries.iter().position(|e| e.name == current).unwrap_or(0);
+    (entries, at)
 }
 
 #[cfg(test)]

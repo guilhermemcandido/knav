@@ -1,9 +1,23 @@
 //! The resource catalog: one live watch per built-in kind, plus lazily-watched CRDs.
 
+use std::collections::HashMap;
+
+use k8s_openapi::api::{
+    apps::v1::{DaemonSet, ReplicaSet, StatefulSet},
+    autoscaling::v2::HorizontalPodAutoscaler,
+    batch::v1::{CronJob, Job},
+    core::v1::{ConfigMap, Endpoints, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Secret, Service, ServiceAccount},
+    networking::v1::{Ingress, NetworkPolicy},
+    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
+    storage::v1::StorageClass,
+};
+use kube::{Client, runtime::reflector::Store};
+
+use crate::k8s::{self, ResourceKind};
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
-use crate::*;
 
 /// One built-in kind: a cheap count from the start, the full live watch only once needed.
 struct Entry {
@@ -13,6 +27,31 @@ struct Entry {
     count: Arc<AtomicUsize>,
     start: Box<dyn Fn(&Client) -> Box<dyn k8s::CatalogKind> + Send + Sync>,
     full: Option<Box<dyn k8s::CatalogKind>>,
+}
+
+/// What the loaded extensions add to the catalog, as plain data built by
+/// `extensions::Registry::index`, so this module never depends on extensions.
+#[derive(Default)]
+pub struct ExtensionIndex {
+    pub kinds: Vec<IndexedKind>,
+    /// Categories with a dashboard, whether or not their extension is enabled.
+    pub dashboards: Vec<&'static str>,
+}
+
+/// One kind an extension adds.
+pub struct IndexedKind {
+    pub extension: String,
+    pub group: String,
+    pub kind: String,
+    pub category: String,
+    pub view: Option<k8s::details::ViewTemplate>,
+}
+
+impl ExtensionIndex {
+    /// The kinds of the extensions turned on in `enabled`.
+    pub fn enabled<'a, 'b>(&'a self, enabled: &'b [String]) -> impl Iterator<Item = &'a IndexedKind> + use<'a, 'b> {
+        self.kinds.iter().filter(move |k| enabled.contains(&k.extension))
+    }
 }
 
 /// Every built-in kind besides Pods and Deployments. Counts are always live; a kind's full
@@ -35,7 +74,7 @@ pub(crate) struct Catalog {
     api_tables: HashMap<usize, k8s::TableKind>,
     /// Every loaded extension (bundled and from `~/.config/knav/extensions/`),
     /// enabled or not; `sections` only uses the enabled ones.
-    pub(crate) extensions: crate::extensions::Registry,
+    pub(crate) extensions: ExtensionIndex,
     /// Helm releases: a field-selected watch of Secrets (see `k8s::HelmStore`),
     /// started once "helm" is enabled (see `ensure_helm`) — not one of the
     /// fixed `entries` above, since whether it runs at all is a toggle, not
@@ -44,7 +83,7 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, node_feed: Arc<k8s::Feed>) -> Self {
+    pub(crate) fn spawn(client: &Client, node_store: Store<Node>, node_feed: Arc<k8s::Feed>, extensions: ExtensionIndex) -> Self {
         macro_rules! kind {
             ($variant:ident, $label:literal, $ty:ty) => {
                 Entry {
@@ -94,7 +133,7 @@ impl Catalog {
             counter: None,
             apis: Vec::new(),
             api_tables: HashMap::new(),
-            extensions: crate::extensions::Registry::load(&crate::config::Config::dir()),
+            extensions,
             helm: None,
         }
     }
@@ -239,11 +278,11 @@ impl Catalog {
     /// The view template an enabled extension declares for `manifest`'s kind,
     /// if any (group from its `apiVersion`, up to the `/`) — what
     /// `k8s::details::details` renders for it instead of the generic dump.
-    pub(crate) fn view_for<'a>(&'a self, extensions_enabled: &[String], manifest: &serde_yaml::Value) -> Option<&'a crate::extensions::manifest::ViewTemplate> {
+    pub(crate) fn view_for<'a>(&'a self, extensions_enabled: &[String], manifest: &serde_yaml::Value) -> Option<&'a k8s::details::ViewTemplate> {
         let api_version = manifest.get("apiVersion")?.as_str()?;
         let kind = manifest.get("kind")?.as_str()?;
         let group = api_version.rsplit_once('/').map(|(g, _)| g).unwrap_or("");
-        self.extensions.view_for(extensions_enabled, group, kind)
+        self.extensions.enabled(extensions_enabled).find(|k| k.group == group && k.kind == kind).and_then(|k| k.view.as_ref())
     }
 
     /// Merges in the live-reflector counts for Pods/Deployments so
@@ -349,7 +388,7 @@ impl Catalog {
     /// Resources/API pickers use, so opening one doesn't start a new watch.
     fn extension_sections(&self, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
         let mut by_category: BTreeMap<&'static str, Vec<(&'static str, usize)>> = BTreeMap::new();
-        for ext_kind in self.extensions.enabled_kinds(extensions_enabled) {
+        for ext_kind in self.extensions.enabled(extensions_enabled) {
             let Some(crd) = self.crds.iter().find(|c| c.group == ext_kind.group && c.kind == ext_kind.kind) else { continue };
             let category = k8s::leak(&ext_kind.category);
             let count = self.counts.get(crd.group, &crd.plural).known_or(0);
@@ -363,7 +402,7 @@ impl Catalog {
     /// them, so they don't sit at "…" on the one screen most people leave open.
     pub(crate) fn want_extension_counts(&self, extensions_enabled: &[String]) -> Vec<String> {
         self.extensions
-            .enabled_kinds(extensions_enabled)
+            .enabled(extensions_enabled)
             .filter_map(|ext_kind| self.crds.iter().find(|c| c.group == ext_kind.group && c.kind == ext_kind.kind))
             .map(|crd| k8s::count_key(crd.group, &crd.plural))
             .collect()
@@ -373,7 +412,7 @@ impl Catalog {
     /// manifest's `[[extension.dashboard]]`), for the `:` command menu and
     /// the Overview tile lookup (see `extensions::dashboards::categories`).
     pub(crate) fn dashboard_categories(&self) -> Vec<&'static str> {
-        crate::extensions::dashboards::categories(&self.extensions)
+        self.extensions.dashboards.clone()
     }
 
     /// Every distinct API group among the CRDs, in the order `discover_crds` sorted

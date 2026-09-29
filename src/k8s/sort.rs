@@ -1,8 +1,8 @@
 //! Sorting the resource lists by column: which key each column sorts on,
-//! and applying it. Column numbers here (0-based) match the order of the
-//! table headers in `ui::tables`, which shows them as `(1)NAME`, ...
+//! and applying it. Column numbers are 0-based, in table header order.
 
-use crate::*;
+use crate::k8s::{self, ResourceKind};
+
 
 /// The column a list is sorted by and which way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,52 +19,6 @@ impl SortSpec {
         match current {
             Some(s) if s.column == column => SortSpec { column, descending: !s.descending },
             _ => SortSpec { column, descending: false },
-        }
-    }
-}
-
-/// Sort state for a popup table (Events, Containers, the pickers, ...):
-/// the column/direction and whether sort mode (`s`) is on. The main lists
-/// keep theirs in `run` directly.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ListSort {
-    pub(crate) spec: Option<SortSpec>,
-    pub(crate) choosing: bool,
-}
-
-impl ListSort {
-    pub(crate) fn view(self) -> ui::SortState {
-        ui::SortState { column: self.spec.map(|s| s.column), descending: self.spec.is_some_and(|s| s.descending), choosing: self.choosing, cursor: None }
-    }
-
-    /// Feeds it a key; `true` if it was a sort key (`s` to enter sort
-    /// mode; then digits, and `s`/Esc/`q` to leave). `typing` means a text
-    /// field has focus, so every key is text.
-    pub(crate) fn handle(&mut self, code: KeyCode, columns: usize, typing: bool) -> bool {
-        if typing || columns == 0 {
-            return false;
-        }
-        if !self.choosing {
-            if code == KeyCode::Char('s') {
-                self.choosing = true;
-                return true;
-            }
-            return false;
-        }
-        match code {
-            KeyCode::Char(c @ '0'..='9') => {
-                // The digits are columns 0-9.
-                let column = c as usize - '0' as usize;
-                if column < columns {
-                    self.spec = Some(SortSpec::pressed(self.spec, column));
-                }
-                true
-            }
-            KeyCode::Char('s' | 'q') | KeyCode::Esc => {
-                self.choosing = false;
-                true
-            }
-            _ => false,
         }
     }
 }
@@ -259,41 +213,15 @@ pub(crate) fn namespace_key(name: &str, key: Option<usize>, column: usize) -> Ke
 }
 
 /// `containers` in display order for `sort`.
-pub(crate) fn sorted_containers(containers: &[k8s::ContainerInfo], sort: ListSort) -> Vec<k8s::ContainerInfo> {
+pub(crate) fn sorted_containers(containers: &[k8s::ContainerInfo], spec: Option<SortSpec>) -> Vec<k8s::ContainerInfo> {
     let mut sorted = containers.to_vec();
-    apply(&mut sorted, sort.spec, container_key);
+    apply(&mut sorted, spec, container_key);
     sorted
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn popup_sort_mode_enters_with_s_cycles_digits_and_leaves() {
-        let mut sort = ListSort::default();
-        assert!(!sort.handle(KeyCode::Char('j'), 4, false), "other keys are not ours outside the mode");
-        assert!(sort.handle(KeyCode::Char('s'), 4, false));
-        assert!(sort.choosing);
-        assert!(sort.handle(KeyCode::Char('2'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: false }));
-        assert!(sort.handle(KeyCode::Char('2'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }));
-        // Past the last column: consumed, but nothing changes.
-        assert!(sort.handle(KeyCode::Char('9'), 4, false));
-        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }));
-        assert!(sort.choosing);
-        assert!(sort.handle(KeyCode::Esc, 4, false));
-        assert!(!sort.choosing);
-        assert_eq!(sort.spec, Some(SortSpec { column: 2, descending: true }), "leaving keeps the sort");
-    }
-
-    #[test]
-    fn popup_sort_ignores_keys_while_typing() {
-        let mut sort = ListSort::default();
-        assert!(!sort.handle(KeyCode::Char('s'), 4, true));
-        assert!(!sort.choosing);
-    }
 
     fn sorted(spec: Option<SortSpec>) -> Vec<i64> {
         let mut v = vec![3, 1, 2];

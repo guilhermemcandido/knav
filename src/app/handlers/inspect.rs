@@ -115,14 +115,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('k') | KeyCode::Up => select_prev(state, containers.len()),
             // A shell in the selected container.
             KeyCode::Char('S') => {
-                let shown = sorted_containers(containers, *sort);
+                let shown = sorted_containers(containers, sort.spec);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
                     shell_request = Some((namespace.clone(), pod.clone(), container.name.clone()));
                 }
             }
             // Logs of the selected container; `p` reads the previous run's.
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Char('p') => {
-                let shown = sorted_containers(containers, *sort);
+                let shown = sorted_containers(containers, sort.spec);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
                     let previous = key.code == KeyCode::Char('p');
                     let no_previous = previous && container.restarts == 0;

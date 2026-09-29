@@ -1,8 +1,7 @@
 //! What the app is currently showing (`Mode`) and the small helpers that describe it: paths, hints, filtering.
 
-use crate::*;
+use super::*;
 
-pub(crate) use super::{hints::*, nav::*, path::*};
 
 /// Where the key popup on the settings screen is.
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -44,14 +43,14 @@ pub(crate) enum Mode {
     /// returning to `back`.
     Notice { text: String, tone: crate::ops::NoticeTone, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
-    Settings { tab: ui::SettingsTab, settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, capture: Option<KeyCapture>, error: Option<String>, back: Box<Mode> },
+    Settings { tab: ui::SettingsTab, settings: Vec<crate::app::settings::Setting>, state: TableState, editing: Option<String>, capture: Option<KeyCapture>, error: Option<String>, back: Box<Mode> },
     /// The extensions browser (`E`), reachable from anywhere the same way
     /// `C` reaches the context switcher — not a Settings tab, its own
     /// screen. `filter`/`filter_editing` are `/` to type, Enter keeps it,
     /// Esc clears it, same shape as `Logs`'s.
     Extensions { filter: String, filter_editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     /// The theme list, previewing each theme live as you move through it.
-    ThemePicker { entries: Vec<ThemeEntry>, state: TableState, back: Box<Mode> },
+    ThemePicker { entries: Vec<crate::theme::ThemeEntry>, state: TableState, back: Box<Mode> },
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
     Shell { title: String, session: Box<crate::ops::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
@@ -242,25 +241,6 @@ pub(crate) fn node_detail_name(mode: &Mode) -> Option<&str> {
     }
 }
 
-/// Each segment is `Kind[identifier]`, so the path reads as an address in the cluster.
-/// One theme in the picker, with the colours to show as its swatch.
-pub(crate) struct ThemeEntry {
-    pub name: String,
-    pub swatch: Vec<ratatui::style::Color>,
-}
-
-/// The picker's rows, and where the current theme is among them.
-pub(crate) fn theme_entries(current: &str) -> (Vec<ThemeEntry>, usize) {
-    let entries: Vec<ThemeEntry> = crate::theme::all_names()
-        .into_iter()
-        .map(|name| {
-            let t = crate::theme::lookup_theme(&name).unwrap_or_default();
-            ThemeEntry { swatch: vec![t.background, t.foreground, t.header, t.ok, t.warn, t.bad, t.accent, t.container, t.select_bg], name }
-        })
-        .collect();
-    let at = entries.iter().position(|e| e.name == current).unwrap_or(0);
-    (entries, at)
-}
 
 pub(crate) fn open_spec<T: serde::Serialize>(mode: &mut Mode, title: String, item: &T) {
     open_spec_value(mode, title, k8s::manifest_value(item));
@@ -286,5 +266,42 @@ pub(crate) fn all_tree_identifiers(items: &[TreeItem<'static, String>], prefix: 
         out.push(prefix.clone());
         all_tree_identifiers(item.children(), prefix, out);
         prefix.pop();
+    }
+}
+
+/// The screen a mode's keys belong to, or `None` where keys are text being
+/// typed (or fixed prompts), which are never remapped.
+pub(crate) fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<crate::input::keymap::Screen> {
+    use crate::input::keymap::Screen::*;
+    Some(match mode {
+        Mode::List if kind == ResourceKind::Overview => Overview,
+        Mode::List => List,
+        Mode::ColumnDetail { .. } => Column,
+        Mode::Events { editing: false, .. } => Events,
+        Mode::NamespacePick { editing: false, .. } => Namespaces,
+        Mode::Context { editing: false, .. } => Contexts,
+        Mode::Containers { .. } => Containers,
+        Mode::NodeDetail { editing: false, .. } => NodeDetail,
+        Mode::Logs { filter_editing: false, .. } => Logs,
+        Mode::Spec { viewing: None, .. } => Spec,
+        Mode::Yaml { .. } => Yaml,
+        Mode::Settings { editing: None, capture: None, .. } => Settings,
+        Mode::Extensions { filter_editing: false, .. } => Extensions,
+        Mode::ThemePicker { .. } => Themes,
+        Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::Relations { .. } | Mode::Details { .. } => Other,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod screen_tests {
+    use super::*;
+    use crate::input::keymap::Screen::{List, Overview};
+
+    #[test]
+    fn screens_that_take_text_are_not_remapped() {
+        assert_eq!(screen_of(&Mode::Search, ResourceKind::Pods), None);
+        assert_eq!(screen_of(&Mode::List, ResourceKind::Overview), Some(Overview));
+        assert_eq!(screen_of(&Mode::List, ResourceKind::Pods), Some(List));
     }
 }

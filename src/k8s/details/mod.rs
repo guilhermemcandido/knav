@@ -9,11 +9,11 @@ mod pod;
 mod rbac;
 mod storage;
 
+use serde::Deserialize;
 use serde_yaml::Value;
 
 use self::{cluster::*, network::*, pod::*, rbac::*, storage::*};
 
-use crate::extensions::manifest::ViewTemplate;
 use crate::k8s::EventEntry;
 use crate::k8s::describe::Tone;
 
@@ -321,6 +321,27 @@ fn spec_summary(manifest: &Value) -> Vec<Section> {
         }
     }
     sections
+}
+
+/// A view template is a fixed choice, not a rendering instruction: the
+/// manifest supplies a field path (and, for `KeyValues`, a label per field),
+/// this crate supplies how it's drawn.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "template", rename_all = "snake_case")]
+pub enum ViewTemplate {
+    /// Reuses the same conditions renderer built-in kinds already have,
+    /// which only ever reads `.status.conditions` — `from` isn't read, it's
+    /// kept so a manifest still states its assumption in writing.
+    Timeline {
+        #[allow(dead_code)]
+        from: String,
+    },
+    /// A single field compared against the value that means "healthy".
+    Health { from: String, ok: String },
+    /// Curated `[label, path]` pairs, in order, shown instead of the generic
+    /// spec/status dump — e.g. `["Not After", ".status.notAfter"]`. A path
+    /// that resolves to nothing is left out, not shown blank.
+    KeyValues { fields: Vec<[String; 2]> },
 }
 
 /// The sections that describe `manifest`, with the events that mention it.

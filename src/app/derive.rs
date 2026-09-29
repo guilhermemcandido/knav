@@ -57,12 +57,13 @@ pub(super) struct Sources<'a> {
     pub event_store: &'a Store<k8s_openapi::api::core::v1::Event>,
     pub node_metrics_rx: &'a watch::Receiver<Option<metrics::ClusterUsage>>,
     pub client: &'a Client,
+    pub registry: &'a crate::extensions::Registry,
     /// Rows for the Port-forwards list (knav's own, not from the cluster).
     pub forwards: &'a [k8s::GenericRow],
 }
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
-    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards } = *src;
+    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards, registry } = *src;
     let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
@@ -225,7 +226,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // (see `extensions::dashboards`) — this only looks one up by
         // category and hands it a context to read from.
         let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
-            extensions::dashboards::find(category, &catalog.extensions).map(|found| {
+            extensions::dashboards::find(category, registry).map(|found| {
                 let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events);
                 (found.title(), found.lines(&mut ctx))
             })

@@ -155,7 +155,7 @@ pub enum Overlay<'a> {
     /// The extensions browser (`E`): on/off, presence on this cluster, search.
     Extensions { rows: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, filter: &'a str, filter_editing: bool },
     /// The theme list: name, colour swatch, and a mark on the one in use.
-    ThemePicker { entries: &'a [crate::app::mode::ThemeEntry], state: &'a mut TableState, saved: &'a str },
+    ThemePicker { entries: &'a [crate::theme::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     /// An embedded shell's screen.
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
     /// A manifest as text, from line `scroll`.

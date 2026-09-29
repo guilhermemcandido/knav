@@ -1,7 +1,13 @@
 //! Command-line arguments: `knav [-c <name>]` launches the TUI; `version`, `update` and `help`
 //! are the other things there is to do without a cluster.
 
-use crate::*;
+use anyhow::{Context as _, Result};
+
+use crate::config::{Config, StartupMode};
+use crate::k8s;
+use crate::startup::picker;
+use crate::util::fuzzy;
+
 
 pub(crate) const USAGE: &str = "knav [-c|--context [name]]\n\nLaunches the TUI against your current kubeconfig context.\n\nCommands:\n  version               show the version (also -v, --version)\n  update [-y|--yes]     update to the latest release (also self-update)\n  help                  show this help (also -h, --help)\n\nOptions:\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -c, --context         (no name) pick a context from a list\n";
 

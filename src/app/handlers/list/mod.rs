@@ -399,7 +399,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             timestamp_format: cx.config.logs.timestamp_format,
                             order: cx.config.logs.order,
                             rx,
-                            handles: handles.into_iter().map(crate::mode::AbortOnDrop).collect(),
+                            handles: handles.into_iter().map(crate::app::mode::AbortOnDrop).collect(),
                             filter: String::new(),
                             filter_editing: false,
                             back: Box::new(back),

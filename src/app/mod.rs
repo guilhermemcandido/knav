@@ -6,19 +6,47 @@ pub mod commands;
 mod draw;
 mod handlers;
 pub(crate) mod jobs;
+mod list_sort;
 mod hints;
 pub mod mode;
 mod nav;
 pub(crate) mod overview_layout;
 mod path;
+pub(crate) mod settings;
 mod sidebar;
 mod state;
 
-use crate::ops::NoticeTone;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
+
+use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::{Node, Pod};
+use kube::{Client, runtime::reflector::Store};
+use ratatui::{layout::Rect, widgets::TableState};
+use tokio::sync::{mpsc, watch};
+use tui_tree_widget::{TreeItem, TreeState};
+
+use crate::SessionEnd;
+use crate::config::{Config, LogOrder, TimestampFormat, favorites::{self, Favorites}};
+use crate::extensions;
+use crate::input::keys;
+use crate::k8s::{self, ResourceKind, catalog::Catalog, metrics, scope::*, sort::*};
+use crate::ops::actions::{self, Action, Target};
+use crate::ops::{NoticeTone, clipboard, edit, portforward, shell};
+use crate::ui::{self, icons};
+use crate::util::fuzzy;
+
+use commands::*;
 use handlers::Cx;
+use hints::*;
+use list_sort::ListSort;
+use mode::*;
+use nav::*;
+use path::*;
 use state::{State, Step};
 
-use super::*;
 
 /// The most log lines held for one stream.
 const MAX_LOG_LINES: usize = 100_000;
@@ -32,6 +60,7 @@ pub(crate) fn run(
     event_store: &Store<k8s_openapi::api::core::v1::Event>,
     node_metrics_rx: &watch::Receiver<Option<metrics::ClusterUsage>>,
     catalog: &mut Catalog,
+    registry: &extensions::Registry,
     client: Client,
     config: &Config,
     active_context: &str,
@@ -52,7 +81,7 @@ pub(crate) fn run(
         // A forward that kubectl dropped (the pod went away) leaves the list.
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
-        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows };
+        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows, registry };
         let query = derive::Query {
             current_kind: st.current_kind,
             namespace: st.namespace.as_deref(),
@@ -134,7 +163,7 @@ pub(crate) fn run(
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };
         let path_segments = full_path(&st.mode, location(st.current_kind, &st.back_stack, st.scope.as_ref()));
-        let screen = crate::input::keymap::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
+        let screen = mode::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
         let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
@@ -189,7 +218,7 @@ pub(crate) fn run(
             usage: usage.as_ref(),
             node_detail_rows: &node_detail_rows,
             crds: &catalog.crds,
-            extensions: &catalog.extensions.loaded,
+            extensions: &registry.loaded,
             helm_present: catalog.count(ResourceKind::HelmReleases) > 0,
             layout_names: &catalog.layout_names(&st.config.extensions.enabled),
             dashboard_categories: &catalog.dashboard_categories(),
@@ -222,7 +251,7 @@ pub(crate) fn run(
                 None => event::read()?,
             };
             let config_now = st.config.clone();
-            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: derived })? {
+            if let Some(outcome) = handlers::dispatch(event, &mut st, &mut Cx { terminal, catalog, registry, pod_store, dep_store, client: &client, config: &config_now, active_context, frame_area, row_count, d: derived })? {
                 return Ok(outcome);
             }
             if !event::poll(Duration::from_millis(0))? {

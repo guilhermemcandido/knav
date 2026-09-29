@@ -121,19 +121,15 @@ impl Registry {
         Registry { loaded, wasm, wasm_engine }
     }
 
-    /// The `ExtKind`s an enabled extension wants added to the Overview/sidebar,
-    /// for kinds the cluster actually has (matched by the caller against its
-    /// discovered CRDs).
-    pub fn enabled_kinds<'a>(&'a self, enabled: &[String]) -> impl Iterator<Item = &'a ExtKind> + 'a {
-        let enabled = enabled.to_vec();
-        self.loaded.iter().filter(move |l| l.error.is_none() && enabled.iter().any(|e| e == &l.id)).flat_map(|l| l.kinds.iter())
-    }
-
-    /// The view template an enabled extension declares for `group`/`kind`,
-    /// if any — what `k8s::details::details` renders for an object of that
-    /// kind instead of the generic field dump.
-    pub fn view_for<'a>(&'a self, enabled: &[String], group: &str, kind: &str) -> Option<&'a manifest::ViewTemplate> {
-        self.enabled_kinds(enabled).find(|k| k.group == group && k.kind == kind).and_then(|k| k.view.as_ref())
+    /// The plain-data view of every working extension that `Catalog` keeps.
+    pub fn index(&self) -> crate::k8s::catalog::ExtensionIndex {
+        let kinds = self
+            .loaded
+            .iter()
+            .filter(|l| l.error.is_none())
+            .flat_map(|l| l.kinds.iter().map(move |k| crate::k8s::catalog::IndexedKind { extension: l.id.clone(), group: k.group.clone(), kind: k.kind.clone(), category: k.category.clone(), view: k.view.clone() }))
+            .collect();
+        crate::k8s::catalog::ExtensionIndex { kinds, dashboards: dashboards::categories(self) }
     }
 
     /// Every dashboard widget any loaded (not necessarily enabled — see
@@ -270,9 +266,10 @@ mod tests {
     fn only_enabled_extensions_contribute_kinds() {
         let dir = tempdir();
         let registry = Registry::load(dir.path());
-        assert_eq!(registry.enabled_kinds(&[]).count(), 0);
+        let index = registry.index();
+        assert_eq!(index.enabled(&[]).count(), 0);
         let flux_only: Vec<String> = vec!["flux".into()];
-        let kinds: Vec<&ExtKind> = registry.enabled_kinds(&flux_only).collect();
+        let kinds: Vec<_> = index.enabled(&flux_only).collect();
         assert!(kinds.iter().any(|k| k.group == "kustomize.toolkit.fluxcd.io" && k.kind == "Kustomization" && k.category == "GitOps"));
         assert!(!kinds.iter().any(|k| k.group == "argoproj.io"), "argocd isn't enabled");
     }

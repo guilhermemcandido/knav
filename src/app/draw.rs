@@ -131,23 +131,23 @@ pub(super) fn draw_mode(
                         .enumerate()
                         .map(|(i, setting)| {
                             let is_editing = editing.is_some() && state.selected() == Some(i);
-                            let shown = if is_editing { editing.clone().unwrap_or_default() } else { crate::config::settings::current(config, &current_theme, setting) };
-                            let swatch = matches!(setting.kind, crate::config::settings::Kind::Color).then(|| crate::theme::parse_color(&shown).or_else(|| current_theme.get(setting.path.trim_start_matches("theme.colors."))).unwrap_or_default());
+                            let shown = if is_editing { editing.clone().unwrap_or_default() } else { crate::app::settings::current(config, &current_theme, setting) };
+                            let swatch = matches!(setting.kind, crate::app::settings::Kind::Color).then(|| crate::theme::parse_color(&shown).or_else(|| current_theme.get(setting.path.trim_start_matches("theme.colors."))).unwrap_or_default());
                             ui::SettingView {
                                 section: setting.section,
                                 label: setting.label.clone(),
                                 value: shown,
                                 swatch,
-                                customised: crate::config::settings::is_customised(config, setting),
+                                customised: crate::app::settings::is_customised(config, setting),
                                 restart: setting.restart,
                                 editing: is_editing,
-                                help: crate::config::settings::describe(setting),
+                                help: crate::app::settings::describe(setting),
                             }
                         })
                         .collect();
                     let capture_view = capture.as_ref().and_then(|c| {
                         let setting = state.selected().and_then(|i| settings.get(i))?;
-                        let keys = crate::config::settings::current(config, &current_theme, setting).split(", ").map(String::from).collect();
+                        let keys = crate::app::settings::current(config, &current_theme, setting).split(", ").map(String::from).collect();
                         let stage = match (c.step, &c.pressed) {
                             (crate::app::mode::CaptureStep::Menu, _) => ui::CaptureStage::Menu,
                             (crate::app::mode::CaptureStep::Pick { .. }, None) => ui::CaptureStage::Waiting,
@@ -328,7 +328,7 @@ pub(super) fn draw_mode(
                     } else {
                         None
                     };
-                    let shown = sorted_containers(containers, *popup_sort);
+                    let shown = sorted_containers(containers, popup_sort.spec);
                     let overlay = ui::Overlay::Containers { title, containers: &shown, state, sort: popup_sort.view() };
                     paint(frame, None, background, Some(overlay), false);
                 })?;
@@ -400,7 +400,7 @@ pub(super) fn draw_mode(
                     let shown_containers;
                     let background = match &mut **back {
                         Mode::Containers { title, containers, state, sort: popup_sort, .. } => {
-                            shown_containers = sorted_containers(containers, *popup_sort);
+                            shown_containers = sorted_containers(containers, popup_sort.spec);
                             Some(ui::Overlay::Containers { title, containers: &shown_containers, state, sort: popup_sort.view() })
                         }
                         _ => None,

@@ -1,6 +1,6 @@
 //! Selection movement shared by the list and the popups.
 
-use crate::*;
+use super::*;
 
 pub(crate) fn select_next(state: &mut TableState, len: usize) {
     if len == 0 {

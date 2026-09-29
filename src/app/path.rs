@@ -1,6 +1,6 @@
 //! The breadcrumb path shown above the list.
 
-use crate::*;
+use super::*;
 use crate::app::Step;
 
 /// The path for the path bar, oldest first, e.g. `Node[worker-1]`, `Pod[default/web-1]`,
@@ -24,7 +24,7 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             let mut path = mode_path(back);
             path.push(segment("Pod", title.clone()));
             // The container the cursor is on, like the selected row of a list.
-            if let Some(container) = state.selected().and_then(|i| sorted_containers(containers, *sort).get(i).map(|c| c.name.clone())) {
+            if let Some(container) = state.selected().and_then(|i| sorted_containers(containers, sort.spec).get(i).map(|c| c.name.clone())) {
                 path.push(segment("Container", container));
             }
             path

@@ -73,26 +73,7 @@ pub struct ExtKind {
     pub view: Option<ViewTemplate>,
 }
 
-/// A view template is a fixed choice, not a rendering instruction: the
-/// manifest supplies a field path (and, for `KeyValues`, a label per field),
-/// this crate supplies how it's drawn.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "template", rename_all = "snake_case")]
-pub enum ViewTemplate {
-    /// Reuses the same conditions renderer built-in kinds already have,
-    /// which only ever reads `.status.conditions` — `from` isn't read, it's
-    /// kept so a manifest still states its assumption in writing.
-    Timeline {
-        #[allow(dead_code)]
-        from: String,
-    },
-    /// A single field compared against the value that means "healthy".
-    Health { from: String, ok: String },
-    /// Curated `[label, path]` pairs, in order, shown instead of the generic
-    /// spec/status dump — e.g. `["Not After", ".status.notAfter"]`. A path
-    /// that resolves to nothing is left out, not shown blank.
-    KeyValues { fields: Vec<[String; 2]> },
-}
+pub use crate::k8s::details::ViewTemplate;
 
 /// One block of an extension's dashboard (see `extensions::dashboards`):
 /// what it covers (`kind`, plus `extra_kinds` to fold more than one kind's

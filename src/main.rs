@@ -9,48 +9,18 @@ mod theme;
 mod ui;
 mod util;
 
-// Short names for the leaf modules, so siblings can say `keys::encode`.
-use app::{commands, mode};
-use config::{favorites, settings};
-use input::{keymap, keys};
-use k8s::{catalog, metrics, scope, sort};
-use ops::{actions, clipboard, edit, portforward, shell};
-use startup::{cli, picker, update};
-use util::fuzzy;
-use ui::icons;
-
-use std::collections::{HashMap, HashSet};
 use std::io::stdout;
-use std::time::Duration;
 
-use anyhow::{Context as _, Result};
-use config::{Config, LogOrder, StartupMode, TimestampFormat};
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
+use anyhow::Result;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
-use k8s::ResourceKind;
-use k8s_openapi::api::{
-    apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
-    autoscaling::v2::HorizontalPodAutoscaler,
-    batch::v1::{CronJob, Job},
-    core::v1::{ConfigMap, Endpoints, Namespace, Node, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service, ServiceAccount},
-    networking::v1::{Ingress, NetworkPolicy},
-    rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding},
-    storage::v1::StorageClass,
-};
-use kube::{Client, runtime::reflector::Store};
-use ratatui::{layout::Rect, widgets::TableState};
-use tokio::sync::{mpsc, watch};
-use tui_tree_widget::{TreeItem, TreeState};
+use k8s_openapi::api::{apps::v1::Deployment, core::v1::{Node, Pod}};
 
-use actions::{Action, Target};
-use app::*;
-use catalog::*;
-use cli::*;
-use commands::*;
-use favorites::*;
-use mode::*;
-use scope::*;
-use sort::*;
+use app::settings;
+use config::Config;
+use input::keymap;
+use k8s::{catalog::Catalog, metrics};
+use startup::{cli::{self, Cli, resolve_context}, update};
 
 /// How one connected session ended: quit for good, or reconnect to a
 /// different kubeconfig context.
@@ -112,7 +82,8 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         let client = client.clone();
         async move { k8s::discover(&client).await }
     });
-    let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed);
+    let registry = extensions::Registry::load(&Config::dir());
+    let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed, registry.index());
 
     let k8s_version = k8s::ensure_reachable(&client, context).await?;
     let active_context = match context {
@@ -142,7 +113,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         return Ok(SessionEnd::Quit);
     }
 
-    let result = run(
+    let result = app::run(
         &mut terminal,
         &pod_store,
         &dep_store,
@@ -150,6 +121,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         &event_store,
         &node_metrics_rx,
         &mut catalog,
+        &registry,
         client,
         config,
         &active_context,

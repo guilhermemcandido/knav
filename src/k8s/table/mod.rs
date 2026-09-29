@@ -18,6 +18,13 @@ use crate::k8s::describe::{Col, Tone};
 
 mod watch;
 
+/// Seconds between refreshes of listed API types, set from the config.
+static REFRESH_SECONDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(2);
+
+pub fn set_refresh_seconds(seconds: u64) {
+    REFRESH_SECONDS.store(seconds.max(1), Ordering::Relaxed);
+}
+
 #[derive(Clone)]
 pub(super) struct TableColumn {
     pub(super) name: &'static str,
@@ -108,7 +115,7 @@ impl TableKind {
                     }
                     if ended {
                         // Failing over and over must not hammer the server with whole lists.
-                        let pause = Duration::from_secs(crate::config::tunables::tunables().api_refresh_seconds.max(1)).max(started.elapsed() * 3);
+                        let pause = Duration::from_secs(REFRESH_SECONDS.load(Ordering::Relaxed)).max(started.elapsed() * 3);
                         tokio::select! {
                             _ = tokio::time::sleep(pause) => {}
                             _ = changed.notified() => {}

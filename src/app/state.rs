@@ -203,7 +203,7 @@ impl State {
     /// Takes a changed config into use: colours, box lines, numbers and keys.
     pub fn reload(&mut self, config: Config) {
         self.config = config;
-        crate::config::settings::apply(&self.config);
+        crate::app::settings::apply(&self.config);
         self.keymap = crate::input::keymap::Keymap::from_app_config(&self.config).0;
         crate::input::keymap::set_current(&self.keymap);
     }

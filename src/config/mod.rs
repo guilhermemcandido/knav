@@ -1,7 +1,7 @@
 //! The `config.toml` file, its defaults, and the settings built on it.
 
 pub mod favorites;
-pub mod settings;
+pub mod edit;
 pub mod tunables;
 
 use std::path::PathBuf;
@@ -290,9 +290,7 @@ impl Config {
     /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`), the config file
     /// and knav's small saved state live here.
     pub fn dir() -> PathBuf {
-        let set = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty()).map(PathBuf::from);
-        let base = set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config"))).unwrap_or_else(std::env::temp_dir);
-        base.join("knav")
+        crate::util::config_dir()
     }
 }
 

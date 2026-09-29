@@ -183,7 +183,7 @@ pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots:
 
 /// The theme list: each theme with a strip of its colours. The screen behind
 /// is drawn in the theme being previewed, so the whole interface is the sample.
-pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::app::mode::ThemeEntry], state: &mut TableState, saved: &str) {
+pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::theme::ThemeEntry], state: &mut TableState, saved: &str) {
     let area = centered_rect(64, 86, frame.area());
     frame.render_widget(Clear, area);
     let block = Block::default()

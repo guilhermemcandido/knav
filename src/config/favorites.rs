@@ -1,9 +1,10 @@
 //! Namespaces reserved to the number keys 1-9 (0 is always all), saved per
 //! kubeconfig context in `<config dir>/namespaces` as `context<TAB>slot<TAB>namespace` lines.
 
+use crate::config::Config;
+
 use std::path::PathBuf;
 
-use crate::*;
 
 pub(crate) const SLOTS: usize = 9;
 

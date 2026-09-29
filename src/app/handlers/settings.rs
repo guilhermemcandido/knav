@@ -4,7 +4,7 @@
 
 use super::super::*;
 use super::Cx;
-use crate::config::settings::{self, Kind, Setting};
+use crate::app::settings::{self, Kind, Setting};
 
 /// What to do to the config file once the screen's own state is released.
 enum Change {
@@ -271,13 +271,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             Change::Set(path, text) => {
                 let setting = settings::registry().into_iter().find(|s| &s.path == path);
                 match setting.map(|s| settings::typed_value(&config_before, &s, text)) {
-                    Some(Ok(value)) => settings::save(&Config::path(), path, Some(value)),
+                    Some(Ok(value)) => crate::config::edit::save(&Config::path(), path, Some(value)),
                     Some(Err(e)) => Err(e),
                     None => Err(anyhow::anyhow!("unknown setting {path}")),
                 }
             }
-            Change::Reset(path) => settings::save(&Config::path(), path, None),
-            Change::Save(values) => values.iter().try_fold(None, |_, (path, value)| settings::save(&Config::path(), path, value.clone()).map(Some)).and_then(|c| c.ok_or_else(|| anyhow::anyhow!("nothing to save"))),
+            Change::Reset(path) => crate::config::edit::save(&Config::path(), path, None),
+            Change::Save(values) => values.iter().try_fold(None, |_, (path, value)| crate::config::edit::save(&Config::path(), path, value.clone()).map(Some)).and_then(|c| c.ok_or_else(|| anyhow::anyhow!("nothing to save"))),
         };
         // A new order makes the old selection and scroll meaningless.
         let layout_change = matches!(change, Change::Save(_));

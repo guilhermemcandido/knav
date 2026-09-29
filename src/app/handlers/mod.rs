@@ -45,6 +45,7 @@ pub(super) fn edit_line(code: KeyCode, text: &mut String, editing: &mut bool) ->
 pub(super) struct Cx<'a> {
     pub terminal: &'a mut ratatui::DefaultTerminal,
     pub catalog: &'a mut Catalog,
+    pub registry: &'a crate::extensions::Registry,
     pub pod_store: &'a k8s::PodKept,
     pub dep_store: &'a k8s::DeploymentKept,
     pub client: &'a Client,
@@ -68,7 +69,7 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
         timestamp_format: cx.config.logs.timestamp_format,
         order: cx.config.logs.order,
         rx,
-        handles: vec![crate::mode::AbortOnDrop(handle)],
+        handles: vec![crate::app::mode::AbortOnDrop(handle)],
         filter: String::new(),
         filter_editing: false,
         back: Box::new(back),
@@ -93,7 +94,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     // Your key bindings: the key pressed becomes the built-in key of the
     // action it is bound to (or is dropped if that action moved elsewhere).
     let event = match event {
-        Event::Key(key) => match crate::input::keymap::screen_of(&st.mode, st.current_kind) {
+        Event::Key(key) => match crate::app::mode::screen_of(&st.mode, st.current_kind) {
             Some(screen) => match st.keymap.translate(screen, &key) {
                 Some(translated) => Event::Key(translated),
                 None => return Ok(None),

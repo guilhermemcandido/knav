@@ -1,6 +1,6 @@
 //! The key hints shown for each mode.
 
-use crate::*;
+use super::*;
 
 /// The keys available on the focused screen as (key, description) pairs, shown
 /// in their own bar. `Command` and `Search` return nothing: they use that bar.

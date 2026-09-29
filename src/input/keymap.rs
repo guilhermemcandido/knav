@@ -6,8 +6,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::k8s::ResourceKind;
-use crate::app::mode::Mode;
 
 /// A screen that has its own keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -223,29 +221,6 @@ pub fn format_key(key: KeySpec) -> String {
 
 fn defaults_of(binding: &Binding) -> Vec<KeySpec> {
     binding.defaults.iter().map(|k| parse_key(k).expect("built-in keys are valid")).collect()
-}
-
-/// The screen a mode's keys belong to, or `None` where keys are text being
-/// typed (or fixed prompts), which are never remapped.
-pub fn screen_of(mode: &Mode, kind: ResourceKind) -> Option<Screen> {
-    Some(match mode {
-        Mode::List if kind == ResourceKind::Overview => Overview,
-        Mode::List => List,
-        Mode::ColumnDetail { .. } => Column,
-        Mode::Events { editing: false, .. } => Events,
-        Mode::NamespacePick { editing: false, .. } => Namespaces,
-        Mode::Context { editing: false, .. } => Contexts,
-        Mode::Containers { .. } => Containers,
-        Mode::NodeDetail { editing: false, .. } => NodeDetail,
-        Mode::Logs { filter_editing: false, .. } => Logs,
-        Mode::Spec { viewing: None, .. } => Spec,
-        Mode::Yaml { .. } => Yaml,
-        Mode::Settings { editing: None, capture: None, .. } => Settings,
-        Mode::Extensions { filter_editing: false, .. } => Extensions,
-        Mode::ThemePicker { .. } => Themes,
-        Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::Relations { .. } | Mode::Details { .. } => Other,
-        _ => return None,
-    })
 }
 
 fn overlaps(a: &Binding, b: &Binding) -> bool {
@@ -551,12 +526,5 @@ mod tests {
         assert_eq!(map.display(List, "s"), "s", "untouched");
         assert_eq!(map.display_hint(List, "j/down"), "z/down");
         assert_eq!(map.display(List, "zzz"), "zzz");
-    }
-
-    #[test]
-    fn screens_that_take_text_are_not_remapped() {
-        assert_eq!(screen_of(&Mode::Search, ResourceKind::Pods), None);
-        assert_eq!(screen_of(&Mode::List, ResourceKind::Overview), Some(Overview));
-        assert_eq!(screen_of(&Mode::List, ResourceKind::Pods), Some(List));
     }
 }

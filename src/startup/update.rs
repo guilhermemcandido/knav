@@ -2,11 +2,12 @@
 //! Talks to the network through `curl` (already needed to install knav in the first place)
 //! rather than pulling in an HTTP client crate for the one command that needs one.
 
+use anyhow::{Context as _, Result};
+
 use std::io::Write;
 
 use sha2::{Digest, Sha256};
 
-use crate::*;
 
 const REPO: &str = "guilhermemcandido/knav";
 

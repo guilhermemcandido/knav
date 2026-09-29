@@ -1,11 +1,12 @@
 //! What a drilled-into list is narrowed to: "the ReplicaSets owned by this
 //! Deployment", "the Pods a Service selects".
 
+use crate::k8s::{self, ResourceKind};
+
 use std::collections::BTreeMap;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
-use crate::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Scope {

@@ -13,7 +13,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         // `state.selected()` indexes into, and the same list the draw side
         // builds its rows from, so a toggle always lands on the extension
         // actually on screen.
-        let order = crate::extensions::visible_order(&cx.catalog.extensions.loaded, filter);
+        let order = crate::extensions::visible_order(&cx.registry.loaded, filter);
         let len = order.len().max(1);
         match event {
             // While typing a filter: every key is text, `/` included, same as Logs.
@@ -25,7 +25,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             Event::Key(key) => {
                 *error = None;
                 let at = state.selected().unwrap_or(0).min(order.len().saturating_sub(1));
-                let loaded = order.get(at).and_then(|&i| cx.catalog.extensions.loaded.get(i));
+                let loaded = order.get(at).and_then(|&i| cx.registry.loaded.get(i));
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => close = true,
                     KeyCode::Char('/') => *filter_editing = true,
@@ -53,7 +53,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             Event::Mouse(mouse) if !wheel_select(mouse.kind, state, len) && matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                let bundled_count = order.iter().take_while(|&&i| cx.catalog.extensions.loaded[i].bundled).count();
+                let bundled_count = order.iter().take_while(|&&i| cx.registry.loaded[i].bundled).count();
                 if let Some(index) = ui::extension_row_at(cx.frame_area, bundled_count, order.len(), state.offset(), mouse.row) {
                     state.select(Some(index));
                 }
@@ -71,7 +71,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             array.push(name.clone());
         }
         let value = (!enabled.is_empty()).then(|| toml_edit::Value::Array(array));
-        match crate::config::settings::save(&Config::path(), "extensions.enabled", value) {
+        match crate::config::edit::save(&Config::path(), "extensions.enabled", value) {
             Ok(config) => st.reload(config),
             Err(e) => {
                 if let Mode::Extensions { error, .. } = &mut st.mode {

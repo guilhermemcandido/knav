@@ -1,6 +1,6 @@
 //! The `:` command line, the sidebar's category layout, and the context-switcher helpers.
 
-use crate::*;
+use super::*;
 
 /// The categories and kinds the sidebar lists, the same as the Home catalog.
 /// `dashboard_categories` is whatever's currently reachable (see

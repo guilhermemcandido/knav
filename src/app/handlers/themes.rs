@@ -7,7 +7,7 @@ use super::super::*;
 use super::Cx;
 
 /// Shows the theme at the cursor, with the config's own colour overrides on top.
-fn preview(entries: &[ThemeEntry], state: &TableState, config: &Config) {
+fn preview(entries: &[crate::theme::ThemeEntry], state: &TableState, config: &Config) {
     if let Some(entry) = state.selected().and_then(|i| entries.get(i)) {
         let (theme, _) = crate::theme::build(&entry.name, &config.theme.colors);
         crate::theme::set_theme(theme);
@@ -30,7 +30,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::PageUp => (0..10).for_each(|_| select_prev(state, len)),
                 KeyCode::Enter => {
                     if let Some(entry) = state.selected().and_then(|i| entries.get(i)) {
-                        match crate::config::settings::save(&Config::path(), "theme.preset", Some(toml_edit::Value::from(entry.name.as_str()))) {
+                        match crate::config::edit::save(&Config::path(), "theme.preset", Some(toml_edit::Value::from(entry.name.as_str()))) {
                             Ok(config) => saved = Some(config),
                             Err(e) => notice = Some(format!("{e:#}")),
                         }
@@ -65,7 +65,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         match saved {
             Some(config) => st.reload(config),
             None => {
-                crate::config::settings::apply(&st.config);
+                crate::app::settings::apply(&st.config);
             }
         }
     }
@@ -74,7 +74,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
 
 /// Opens the picker on the theme in use.
 pub(super) fn open(st: &mut State, config: &Config) {
-    let (entries, at) = theme_entries(&config.theme.preset);
+    let (entries, at) = crate::theme::theme_entries(&config.theme.preset);
     let back = std::mem::replace(&mut st.mode, Mode::List);
     st.mode = Mode::ThemePicker { entries, state: TableState::default().with_selected(at), back: Box::new(back) };
 }
