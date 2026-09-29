@@ -53,11 +53,11 @@ Press `?` anywhere for the keys on that screen. The essentials:
 Everything is set from the Settings screen (`,`) and saved to
 `~/.config/knav/config.toml`, which you can also edit by hand:
 
-- **Look**: theme, box lines, icons (turn them off if your terminal can't draw images)
+- **General**: wide or faults-only lists on start, log order and timestamps, mouse, refresh rates
+- **Appearance**: theme, box lines, icons (turn them off if your terminal can't draw images)
+- **Behaviour**: start in the current context or a picker, read-only mode, port-forwards
 - **Keys**: rebind any key
 - **Layout**: which sections and tiles Home shows, and in what order
-- **Lists and logs**: wide or faults-only on start, log order and timestamps
-- **Behaviour**: start in the current context or a picker, mouse speed, port-forwards
 - **Read-only**: always, or only for contexts that match a pattern:
 
 ```toml

@@ -251,16 +251,20 @@ pub struct SettingView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettingsTab {
     General,
+    Appearance,
+    Behaviour,
     Keys,
     Overview,
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 3] = [SettingsTab::General, SettingsTab::Keys, SettingsTab::Overview];
+    pub const ALL: [SettingsTab; 5] = [SettingsTab::General, SettingsTab::Appearance, SettingsTab::Behaviour, SettingsTab::Keys, SettingsTab::Overview];
 
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::General => "General",
+            SettingsTab::Appearance => "Appearance",
+            SettingsTab::Behaviour => "Behaviour",
             SettingsTab::Keys => "Keys",
             SettingsTab::Overview => "Layout",
         }

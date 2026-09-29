@@ -21,6 +21,8 @@ pub enum Kind {
 pub struct Setting {
     /// Dotted path in `config.toml`, e.g. `ui.border`.
     pub path: String,
+    pub tab: crate::ui::SettingsTab,
+    /// The heading it sits under within its tab.
     pub section: &'static str,
     pub label: String,
     pub kind: Kind,
@@ -35,28 +37,29 @@ fn choice(options: &[&str]) -> Kind {
 /// Every setting, grouped by section in the order the screen shows them.
 pub fn registry() -> Vec<Setting> {
     let mut settings = Vec::new();
-    let mut add = |path: &str, section: &'static str, label: &str, kind: Kind, restart: bool| {
-        settings.push(Setting { path: path.to_string(), section, label: label.to_string(), kind, restart });
+    let mut add = |path: &str, tab: crate::ui::SettingsTab, section: &'static str, label: &str, kind: Kind, restart: bool| {
+        settings.push(Setting { path: path.to_string(), tab, section, label: label.to_string(), kind, restart });
     };
-    add("theme.preset", "Theme", "Theme", Kind::Choice(theme::all_names()), false);
-    add("ui.border", "Appearance", "Box lines", choice(&["rounded", "thick", "double"]), false);
-    add("ui.icons", "Appearance", "Show icons", Kind::Bool, false);
-    add("ui.suggestion_icon_percent", "Appearance", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
-    add("ui.idle_redraw_ms", "Appearance", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);
-    add("ui.shell_redraw_ms", "Appearance", "Shell redraw (ms)", Kind::Number { min: 10, max: 200 }, false);
-    add("tables.min_column_width", "Tables", "Minimum column width", Kind::Number { min: 4, max: 60 }, false);
-    add("tables.wide_by_default", "Tables", "Wide columns on start", Kind::Bool, true);
-    add("tables.faults_by_default", "Tables", "Faults only on start", Kind::Bool, true);
-    add("logs.order", "Logs", "Log order", choice(&["oldest_first", "newest_first"]), false);
-    add("logs.timestamp_format", "Logs", "Log timestamps", choice(&["short", "full"]), false);
-    add("mouse.wheel_rows", "Mouse", "Wheel rows per notch", Kind::Number { min: 1, max: 20 }, false);
-    add("mouse.double_click_ms", "Mouse", "Double-click time (ms)", Kind::Number { min: 100, max: 1000 }, false);
-    add("startup.mode", "Behaviour", "Start with", choice(&["direct", "menu"]), true);
-    add("read_only.enabled", "Behaviour", "Read-only mode", Kind::Bool, false);
-    add("portforward.open_browser", "Behaviour", "Open browser on port-forward", Kind::Bool, false);
-    add("api.refresh_seconds", "Behaviour", "API list refresh (s)", Kind::Number { min: 1, max: 60 }, false);
+    use crate::ui::SettingsTab::{Appearance, Behaviour, General, Keys};
+    add("tables.min_column_width", General, "Tables", "Minimum column width", Kind::Number { min: 4, max: 60 }, false);
+    add("tables.wide_by_default", General, "Tables", "Wide columns on start", Kind::Bool, true);
+    add("tables.faults_by_default", General, "Tables", "Faults only on start", Kind::Bool, true);
+    add("logs.order", General, "Logs", "Log order", choice(&["oldest_first", "newest_first"]), false);
+    add("logs.timestamp_format", General, "Logs", "Log timestamps", choice(&["short", "full"]), false);
+    add("mouse.wheel_rows", General, "Mouse", "Wheel rows per notch", Kind::Number { min: 1, max: 20 }, false);
+    add("mouse.double_click_ms", General, "Mouse", "Double-click time (ms)", Kind::Number { min: 100, max: 1000 }, false);
+    add("ui.idle_redraw_ms", General, "Refresh", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);
+    add("ui.shell_redraw_ms", General, "Refresh", "Shell redraw (ms)", Kind::Number { min: 10, max: 200 }, false);
+    add("api.refresh_seconds", General, "Refresh", "API list refresh (s)", Kind::Number { min: 1, max: 60 }, false);
+    add("theme.preset", Appearance, "Colours", "Theme", Kind::Choice(theme::all_names()), false);
+    add("ui.border", Appearance, "Boxes", "Box lines", choice(&["rounded", "thick", "double"]), false);
+    add("ui.icons", Appearance, "Icons", "Show icons", Kind::Bool, false);
+    add("ui.suggestion_icon_percent", Appearance, "Icons", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
+    add("startup.mode", Behaviour, "Startup", "Start with", choice(&["direct", "menu"]), true);
+    add("read_only.enabled", Behaviour, "Safety", "Read-only mode", Kind::Bool, false);
+    add("portforward.open_browser", Behaviour, "Port-forwards", "Open browser on port-forward", Kind::Bool, false);
     for binding in crate::input::keymap::BINDINGS {
-        add(&format!("keys.{}", binding.id), "Keys", binding.label, Kind::Keys, false);
+        add(&format!("keys.{}", binding.id), Keys, "Keys", binding.label, Kind::Keys, false);
     }
     settings
 }
@@ -202,7 +205,7 @@ mod tests {
     /// Colours are edited in theme files, not on the screen, but `[theme.colors]` in the
     /// config still takes them.
     fn colour_setting(path: &str) -> Setting {
-        Setting { path: path.to_string(), section: "Colours", label: path.to_string(), kind: Kind::Color, restart: false }
+        Setting { path: path.to_string(), tab: crate::ui::SettingsTab::Appearance, section: "Colours", label: path.to_string(), kind: Kind::Color, restart: false }
     }
 
     fn find(path: &str) -> Setting {

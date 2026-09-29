@@ -15,14 +15,7 @@ enum Change {
 
 /// The settings each tab lists (the Overview tab has its own editor).
 fn tab_settings(tab: ui::SettingsTab) -> Vec<Setting> {
-    settings::registry()
-        .into_iter()
-        .filter(|s| match tab {
-            ui::SettingsTab::General => !s.path.starts_with("keys."),
-            ui::SettingsTab::Keys => s.path.starts_with("keys."),
-            ui::SettingsTab::Overview => false,
-        })
-        .collect()
+    settings::registry().into_iter().filter(|s| s.tab == tab).collect()
 }
 
 fn names_array(names: impl IntoIterator<Item = String>) -> toml_edit::Value {
@@ -310,7 +303,7 @@ mod tests {
     use super::*;
 
     fn find(path: &str) -> Setting {
-        settings::registry().into_iter().chain([Setting { path: "theme.colors.ok".into(), section: "Colours", label: "ok".into(), kind: Kind::Color, restart: false }]).find(|s| s.path == path).unwrap()
+        settings::registry().into_iter().chain([Setting { path: "theme.colors.ok".into(), tab: ui::SettingsTab::Appearance, section: "Colours", label: "ok".into(), kind: Kind::Color, restart: false }]).find(|s| s.path == path).unwrap()
     }
 
     #[test]
