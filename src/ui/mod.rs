@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Padding, Paragraph, Row, Table, TableState, Wrap},
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
@@ -377,6 +377,7 @@ pub fn draw(
     // little (below), and the `/` search is a bar in the page: the list stays
     // in full colour.
     let dimmed = background.is_some()
+        || show_hints_panel
         || matches!(
             overlay,
             Some(Overlay::Spec { .. })
@@ -644,6 +645,12 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
         return;
     }
 
+    // Some widgets keep their own colours even when dimmed (warning rows,
+    // selection bars), so mute every cell under the help as well.
+    for cell in &mut frame.buffer_mut().content {
+        cell.set_fg(theme().dim).set_bg(theme().background);
+        cell.modifier = Modifier::DIM;
+    }
     draw_help(frame, hints, slots, shortcuts_line);
 }
 
@@ -706,5 +713,26 @@ mod empty_message_tests {
         let line = empty_list_message("Pods", "", true);
         assert_eq!(text(&line), "✔ No pods need attention");
         assert_eq!(line.style.fg, Some(theme().ok));
+    }
+}
+
+#[cfg(test)]
+mod help_backdrop_tests {
+    use super::*;
+
+    #[test]
+    fn everything_behind_the_open_help_is_muted() {
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 40)).unwrap();
+        terminal
+            .draw(|frame| {
+                let bright = Style::default().fg(Color::Yellow).bg(Color::Blue).add_modifier(Modifier::BOLD);
+                frame.render_widget(Paragraph::new(vec![Line::styled("Warning x".repeat(20), bright); 40]), frame.area());
+                draw_hints(frame, &[], true, &[], false);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        // The top-left corner is never under the centred help box.
+        let corner = &buffer[(0, 0)];
+        assert_eq!((corner.fg, corner.bg, corner.modifier), (theme().dim, theme().background, Modifier::DIM));
     }
 }

@@ -1,6 +1,6 @@
-//! The `?` help screen, laid out like k9s's: four columns (what you can do
-//! to the selected thing, general keys, navigation, number hotkeys), keys
-//! in blue as `<key>` and what they do beside them.
+//! The `?` help screen: a few columns (what this screen's selection does,
+//! general keys, navigation, namespace hotkeys), each key in the key colour
+//! with what it does beside it, every column as wide as what it holds.
 
 use super::*;
 
@@ -12,8 +12,15 @@ pub(super) struct Section {
 const NAVIGATION_KEYS: [&str; 5] = ["↑↓", "g/G", "hjkl", "←↑↓→", "jk"];
 const GENERAL_KEYS: [&str; 15] = ["?", "n", "0-9", "s", "A", "/", "m", "b/m", "C", "E", "T", ",", "q/esc", "esc", "space"];
 
+/// Screen hints are lowercase ("containers"); help reads as a list of labels.
+fn capitalized(what: &str) -> String {
+    let mut chars = what.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
 /// Splits the screen's own `hints` (see `mode::hints_for`) into the help
-/// columns and adds the keys that work everywhere.
+/// columns and adds the keys that work everywhere. The Overview is the one
+/// screen with no hints at all.
 pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) -> Vec<Section> {
     let entry = |key: &str, what: &str| (key.to_string(), what.to_string());
     // An action's keys as they are now: `default` when untouched.
@@ -31,68 +38,60 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         let text = if both_default { default.to_string() } else { a.iter().chain(b.iter()).map(|k| crate::input::keymap::glyph(k)).collect::<Vec<_>>().join(" ") };
         (text, what.to_string())
     };
-    let resource: Vec<(String, String)> = hints
-        .iter()
-        .filter(|(key, _)| !GENERAL_KEYS.contains(key) && !NAVIGATION_KEYS.iter().any(|n| key.contains(n)))
-        .map(|(key, what)| entry(key, what))
-        .collect();
-    // The Overview has no list of its own, so say what its tiles do.
-    let on_overview = resource.is_empty();
-    let resource = if on_overview {
-        vec![entry("enter", "Open tile"), entry("hjkl", "Move tiles"), entry("click", "Select tile"), entry("dbl-click", "Open tile")]
-    } else {
-        resource
-    };
-    let mut hotkeys = vec![entry("0", "All namespaces")];
-    hotkeys.extend(slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (format!("{}", i + 1), ns.clone()))));
-    // The Overview has no rows to filter, sort, mark or scroll sideways.
-    if on_overview {
+    let mut namespaces = vec![entry("0", "All namespaces")];
+    namespaces.extend(slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (format!("{}", i + 1), ns.clone()))));
+    let namespaces = Section { title: "NAMESPACES", entries: namespaces };
+
+    // The Overview has no rows to filter, sort, mark or scroll sideways, so
+    // moving between tiles is its whole navigation: one column, said once.
+    if hints.is_empty() {
         return vec![
-            Section { title: "RESOURCE", entries: resource },
+            Section {
+                title: "OVERVIEW",
+                entries: vec![entry("hjkl / arrows", "Move between tiles"), entry("enter", "Open the selected tile"), entry("click", "Select a tile"), entry("double-click", "Open a tile"), entry("wheel", "Scroll")],
+            },
             Section {
                 title: "GENERAL",
                 entries: vec![
-                    shown(":cmd", "command", "Command mode"),
-                    shown("n", "namespaces", "Namespaces"),
-                    shown("b / m", "menu", "Show or hide the sidebar (Shift-← focuses it)"),
-                    shown("C", "contexts", "Contexts"),
+                    shown(":", "command", "Command mode"),
+                    shown("n", "namespaces", "Pick a namespace"),
+                    shown("C", "contexts", "Switch context"),
                     shown("E", "extensions", "Extensions"),
                     shown("T", "themes", "Themes"),
                     shown(",", "settings", "Settings"),
-                    shown("?", "help", "Help"),
-                    shown("Q", "quit", "Quit"),
+                    shown("b / m", "menu", "Toggle the sidebar"),
+                    shown("?", "help", "This help"),
+                    shown("Q", "quit", "Quit knav"),
                 ],
             },
-            Section {
-                title: "NAVIGATION",
-                entries: vec![pair("j / ↓", "move_down", "", "Down"), pair("k / ↑", "move_up", "", "Up"), entry("← →", "Previous / next column"), entry("wheel", "Scroll")],
-            },
-            Section { title: "HOTKEYS", entries: hotkeys },
+            namespaces,
         ];
     }
-    vec![
-        Section { title: "RESOURCE", entries: resource },
+    let resource: Vec<(String, String)> = hints
+        .iter()
+        .filter(|(key, _)| !GENERAL_KEYS.contains(key) && !NAVIGATION_KEYS.iter().any(|n| key.contains(n)))
+        .map(|(key, what)| entry(key, &capitalized(what)))
+        .collect();
+    let mut sections = vec![
+        Section { title: "THIS SCREEN", entries: resource },
         Section {
             title: "GENERAL",
             entries: vec![
-                shown(":cmd", "command", "Command mode"),
-                shown("/term", "search", "Filter mode"),
+                shown(":", "command", "Command mode"),
+                shown("/", "search", "Filter"),
                 shown("s", "sort", "Sort by column"),
-                shown("A", "age", "Sort by age"),
-                shown("n", "namespaces", "Namespaces"),
-                shown("b / m", "menu", "Show or hide the sidebar (Shift-← focuses it)"),
-                shown("C", "contexts", "Contexts"),
+                shown("A", "sort_age", "Sort by age"),
+                shown("space", "mark", "Mark a row"),
+                shown("ctrl-z", "faults", "Faults only"),
+                shown("ctrl-w", "wide", "Wide columns"),
+                shown("n", "namespaces", "Pick a namespace"),
+                shown("C", "contexts", "Switch context"),
                 shown("E", "extensions", "Extensions"),
                 shown("T", "themes", "Themes"),
                 shown(",", "settings", "Settings"),
-                shown("space", "mark", "Mark"),
-                shown("ctrl-z", "faults", "Faults only"),
-                shown("ctrl-w", "wide", "Wide columns"),
-                pair("[ ]", "history_back", "history_forward", "History back / forward"),
-                shown("minus", "last_view", "Last view"),
-                shown("esc", "cancel", "Back / clear marks"),
-                shown("?", "help", "Help"),
-                shown("Q", "quit", "Quit"),
+                shown("b / m", "menu", "Toggle the sidebar"),
+                shown("?", "help", "This help"),
+                shown("Q", "quit", "Quit knav"),
             ],
         },
         Section {
@@ -100,56 +99,82 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
             entries: vec![
                 pair("j / ↓", "move_down", "", "Down"),
                 pair("k / ↑", "move_up", "", "Up"),
-                shown("g", "top", "Go to top"),
-                shown("G", "bottom", "Go to bottom"),
+                shown("g", "top", "Top"),
+                shown("G", "bottom", "Bottom"),
                 shown("ctrl-f", "page_down", "Page down"),
                 shown("ctrl-b", "page_up", "Page up"),
                 entry("← →", "Scroll columns"),
-                entry("click", "Select row"),
-                entry("dbl-click", "Open row"),
+                entry("enter", "Open"),
+                shown("esc", "cancel", "Back / clear marks"),
+                pair("[ ]", "history_back", "history_forward", "History back / forward"),
+                shown("minus", "last_view", "Last view"),
+                shown("H", "home", "Home"),
+                entry("click", "Select a row"),
+                entry("double-click", "Open a row"),
                 entry("wheel", "Scroll"),
             ],
         },
-        Section { title: "HOTKEYS", entries: hotkeys },
-    ]
+        namespaces,
+    ];
+    // An extension dashboard has nothing of its own beyond scrolling.
+    sections.retain(|s| !s.entries.is_empty());
+    sections
 }
 
+/// Gap between a key and what it does, and between columns.
+const KEY_GAP: usize = 2;
+const COLUMN_GAP: u16 = 4;
 
-/// Draws the help centred over the screen, sized to what it actually holds
-/// rather than stretched to the full body — with four short columns, a
-/// full-height box left most of it empty.
+/// A column's natural width: its widest key, the gap, its widest description.
+fn key_width(section: &Section) -> usize {
+    section.entries.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0)
+}
+
+fn column_width(section: &Section) -> u16 {
+    let what = section.entries.iter().map(|(_, w)| w.chars().count()).max().unwrap_or(0);
+    (key_width(section) + KEY_GAP + what).max(section.title.chars().count()) as u16
+}
+
+/// Draws the help centred over the screen, sized to what it actually holds:
+/// every column as wide as its content, so nothing is cut off while another
+/// column sits half empty. On a terminal too narrow for that, the columns
+/// share what there is in proportion instead.
 pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>], shortcuts_line: bool) {
     // The same body the page itself uses (the Overview has one header line, lists two).
     let bounds = body_area(frame.area(), shortcuts_line);
     let sections = help_sections(hints, slots);
+    let widths: Vec<u16> = sections.iter().map(column_width).collect();
+    let content_width = widths.iter().sum::<u16>() + COLUMN_GAP * (sections.len() as u16).saturating_sub(1);
     let content_height = sections.iter().map(|s| s.entries.len()).max().unwrap_or(0) as u16;
-    let height = (content_height + 3 /* title line + top/bottom border */).min(bounds.height);
-    let width = (bounds.width * 9 / 10).max(60).min(bounds.width);
+    let height = (content_height + 5 /* heading, blank line, borders, bottom padding */).min(bounds.height);
+    let width = (content_width + 6 /* borders and two columns of padding a side */).min(bounds.width);
     let area = Rect { x: bounds.x + bounds.width.saturating_sub(width) / 2, y: bounds.y + bounds.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(theme_border(false))
-        .title(pill_title_centered("Help", false));
+        .title(pill_title_centered("Help", false))
+        .title_bottom(hint_strip(&[("esc", "close")]).right_aligned())
+        .padding(Padding::new(2, 2, 1, 0));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let columns = Layout::horizontal(vec![Constraint::Ratio(1, sections.len() as u32); sections.len()]).split(inner);
+    let fits = content_width <= inner.width;
+    let constraints: Vec<Constraint> = widths.iter().map(|w| if fits { Constraint::Length(*w) } else { Constraint::Fill(*w) }).collect();
+    let columns = Layout::horizontal(constraints).spacing(if fits { COLUMN_GAP } else { 2 }).split(inner);
     for (section, column) in sections.iter().zip(columns.iter()) {
-        let key_width = section.entries.iter().map(|(k, _)| k.chars().count() + 2).max().unwrap_or(0) + 2;
-        let mut lines = vec![Line::styled(section.title, Style::default().fg(theme().heading).add_modifier(Modifier::BOLD))];
+        let key_width = key_width(section) + KEY_GAP;
+        let mut lines = vec![Line::styled(section.title, Style::default().fg(theme().heading).add_modifier(Modifier::BOLD)), Line::default()];
         lines.extend(section.entries.iter().map(|(key, what)| {
-            let shown = format!("<{key}>");
-            let pad = " ".repeat(key_width.saturating_sub(shown.chars().count()));
+            let pad = " ".repeat(key_width.saturating_sub(key.chars().count()));
             Line::from(vec![
-                Span::styled(shown, Style::default().fg(theme().key).add_modifier(Modifier::BOLD)),
+                Span::styled(key.clone(), Style::default().fg(theme().key).add_modifier(Modifier::BOLD)),
                 Span::raw(pad),
                 Span::styled(what.clone(), Style::default().fg(theme().desc)),
             ])
         }));
-        let padded = Rect { x: column.x + 1, width: column.width.saturating_sub(1), ..*column };
-        frame.render_widget(Paragraph::new(lines), padded);
+        frame.render_widget(Paragraph::new(lines), *column);
     }
 }
 
@@ -166,9 +191,27 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_still_gets_a_resource_column() {
+    fn the_overview_says_how_to_move_between_tiles_once() {
         let sections = help_sections(&[], &[]);
+        assert_eq!(sections.iter().map(|s| s.title).collect::<Vec<_>>(), ["OVERVIEW", "GENERAL", "NAMESPACES"]);
         assert!(sections[0].entries.iter().any(|(k, _)| k == "enter"));
+    }
+
+    #[test]
+    fn a_screen_with_only_navigation_has_no_empty_column() {
+        let sections = help_sections(&[("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("q/esc", "back")], &[]);
+        assert!(sections.iter().all(|s| !s.entries.is_empty()));
+        assert!(sections.iter().all(|s| s.title != "OVERVIEW"));
+    }
+
+    #[test]
+    fn every_entry_names_a_key() {
+        // A wrong action id in `shown` gives no keys, so nothing but a label.
+        for hints in [&[][..], &[("enter", "open"), ("d", "spec")][..]] {
+            for (key, what) in help_sections(hints, &[]).iter().flat_map(|s| &s.entries) {
+                assert!(!key.trim().is_empty(), "\"{what}\" has no key");
+            }
+        }
     }
 
     #[test]
@@ -181,7 +224,8 @@ mod tests {
     #[test]
     fn hotkeys_list_all_and_the_reserved_namespaces() {
         let slots = [Some("kube-system".to_string()), None, Some("shop".to_string())];
-        let hotkeys = &help_sections(&[], &slots)[3];
+        let sections = help_sections(&[], &slots);
+        let hotkeys = sections.iter().find(|s| s.title == "NAMESPACES").unwrap();
         assert_eq!(hotkeys.entries, [("0".to_string(), "All namespaces".to_string()), ("1".to_string(), "kube-system".to_string()), ("3".to_string(), "shop".to_string())]);
     }
 
