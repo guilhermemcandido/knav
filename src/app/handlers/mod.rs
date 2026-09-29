@@ -282,8 +282,8 @@ fn focused_table<'a>(st: &'a mut State, cx: &Cx) -> Option<(&'a mut TableState, 
             let len = filtered_names(names, filter, *sort, &st.favorites).len();
             Some((state, len))
         }
-        Mode::Context { contexts, filter, state, sort, .. } => {
-            let len = filtered_contexts(contexts, filter, *sort).len();
+        Mode::Context { contexts, filter, state, .. } => {
+            let len = ui::context_matches(contexts, filter).len();
             Some((state, len))
         }
         Mode::Containers { containers, state, .. } => Some((state, containers.len())),

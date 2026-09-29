@@ -7,49 +7,112 @@ fn picker_area(frame: Rect) -> Rect {
     centered_rect(94, 88, frame)
 }
 
-/// The context browser (`C`), with the Events browser's geometry so `event_row_at`
-/// hit-tests it too. Typing filters at once.
-pub(in crate::ui) fn draw_context_popup(frame: &mut Frame, view: ContextView) {
-    let ContextView { items, total, filter, editing, state, error, sort } = view;
-    let area = picker_area(frame.area());
+/// Contexts matching `filter` on name or cluster, best first. With no filter, the
+/// current one comes first and the rest keep the kubeconfig's order.
+pub fn context_matches<'a>(contexts: &'a [crate::k8s::ContextInfo], filter: &str) -> Vec<&'a crate::k8s::ContextInfo> {
+    let mut scored: Vec<(i64, &crate::k8s::ContextInfo)> = contexts
+        .iter()
+        .filter_map(|c| {
+            let score = crate::util::fuzzy::score(filter, &c.name).max(crate::util::fuzzy::score(filter, &c.cluster).map(|s| s / 2));
+            score.map(|s| (if filter.is_empty() { i64::from(c.is_current) } else { s }, c))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, c)| c).collect()
+}
+
+/// The grey text beside a context: its cluster when named differently, and the
+/// namespace it defaults to.
+fn context_detail(c: &crate::k8s::ContextInfo) -> String {
+    let mut parts = Vec::new();
+    if c.cluster != c.name && !c.cluster.is_empty() {
+        parts.push(c.cluster.clone());
+    }
+    if let Some(ns) = &c.namespace {
+        parts.push(format!("ns {ns}"));
+    }
+    parts.join("   ")
+}
+
+/// Rows above the list: the filter line and a rule under it.
+const CONTEXT_TOP: u16 = 2;
+
+/// The picker's box and the rows its list takes, sized to the contexts and centred.
+fn context_layout(full: Rect, items: &[&crate::k8s::ContextInfo], has_error: bool) -> (Rect, Rect) {
+    // The dot, the longest name and the longest detail, as the table lays them out.
+    let name_w = items.iter().map(|c| cell_width(&c.name)).max().unwrap_or(0);
+    let detail_w = items.iter().map(|c| cell_width(&context_detail(c))).max().unwrap_or(0);
+    let widest = (1 + 2 + name_w + if detail_w > 0 { 2 + detail_w } else { 0 }) as u16;
+    let width = (widest + 4).clamp(60, 120).min(full.width.saturating_sub(4).max(20));
+    // Borders, the filter and rule, a blank row under the list, and the error.
+    let chrome = 3 + CONTEXT_TOP + 2 * u16::from(has_error);
+    let list_h = (items.len() as u16).clamp(1, (full.height * 2 / 3).saturating_sub(chrome).max(1));
+    let height = (list_h + chrome).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 3, width, height };
+    let list = Rect { x: area.x + 2, y: area.y + 1 + CONTEXT_TOP, width: width.saturating_sub(4), height: list_h };
+    (area, list)
+}
+
+/// The context picker, at startup and on `C`: a filter line, then each context with
+/// a green dot on the current one. `leave` is what Esc does (`back` or `quit`).
+pub fn draw_context_picker(frame: &mut Frame, view: ContextView) {
+    let ContextView { items, total, filter, state, error, leave } = view;
+    let full = frame.area();
+    let (area, list) = context_layout(full, items, error.is_some());
     frame.render_widget(Clear, area);
+    let title = if items.len() == total { format!("Contexts ({total})") } else { format!("Contexts ({}/{total})", items.len()) };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(pill_title(&title, false, theme_border(false)))
+        .title_bottom(hint_strip(&[("↑↓", "move"), ("enter", "connect"), ("esc", leave)]).right_aligned());
+    frame.render_widget(block, area);
 
-    const HEADERS: [&str; 3] = ["CONTEXT", "CLUSTER", "STATUS"];
-    let window = layout_table(
-        &HEADERS,
-        items.iter().map(|(name, cluster, _)| vec![cell_width(name), cell_width(cluster), cell_width("current")]),
-        area.width.saturating_sub(2),
-        None,
-        &mut 0,
-    );
-    let header = header_row(&HEADERS, sort, false, &window);
-    let rows = items.iter().map(|(name, cluster, current)| {
-        Row::new(window.slice(vec![
-            Cell::from(highlight_fuzzy(name, filter, Style::default().add_modifier(Modifier::BOLD))),
-            Cell::from(highlight_fuzzy(cluster, filter, Style::default())),
-            Cell::from(if *current { "current" } else { "" }).style(Style::default().fg(theme().ok)),
-        ]))
-    });
+    let muted = Style::default().fg(theme().muted);
+    let prompt = if filter.is_empty() {
+        Line::from(vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled("▏", Style::default().fg(theme().highlight)), Span::styled("type to filter", muted)])
+    } else {
+        Line::from(vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled(filter.to_string(), Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD)), Span::styled("▏", Style::default().fg(theme().highlight))])
+    };
+    frame.render_widget(Paragraph::new(prompt), Rect { y: area.y + 1, height: 1, ..list });
+    frame.render_widget(Paragraph::new(Line::styled("─".repeat(usize::from(list.width)), Style::default().fg(theme().panel_bg))), Rect { y: area.y + 2, height: 1, ..list });
 
-    let mut title = pill_title(&format!("Contexts ({}/{total})", items.len()), false, Style::default());
+    if items.is_empty() {
+        frame.render_widget(Paragraph::new(Line::styled("No context matches", muted)), list);
+    } else {
+        let detail_w = items.iter().map(|c| cell_width(&context_detail(c))).max().unwrap_or(0) as u16;
+        let name_room = usize::from(list.width.saturating_sub(3 + if detail_w > 0 { detail_w + 2 } else { 0 }));
+        let rows = items.iter().map(|c| {
+            let dot = if c.is_current { Span::styled("●", Style::default().fg(theme().ok)) } else { Span::raw(" ") };
+            Row::new(vec![
+                Cell::from(Line::from(dot)),
+                Cell::from(highlight_fuzzy(&truncate(&c.name, name_room), filter, Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD))),
+                Cell::from(Line::styled(context_detail(c), muted).right_aligned()),
+            ])
+        });
+        let table = Table::new(rows, [Constraint::Length(1), Constraint::Fill(1), Constraint::Length(detail_w)])
+            .column_spacing(2)
+            .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+        if let Some(selected) = state.selected() {
+            state.select(Some(selected.min(items.len() - 1)));
+        }
+        frame.render_stateful_widget(table, list, state);
+    }
     if let Some(err) = error {
-        title.push_span(Span::styled(format!("  -  {err}"), Style::default().fg(theme().bad)));
+        let line = Rect { y: list.y + list.height + 1, height: 1, ..list };
+        frame.render_widget(Paragraph::new(Line::styled(truncate(err, usize::from(line.width)), Style::default().fg(theme().bad))), line);
     }
+}
 
-    let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).title(title), filter, editing, false)
-        .title_bottom(hint_strip(&[("type", "filter"), ("↑↓", "move"), ("enter", "connect"), ("esc", "back")]).right_aligned());
-    let table = Table::new(mark_rows(rows, &[], false), window.constraints.clone())
-        .column_spacing(COLUMN_GAP)
-        .style(theme_row(false))
-        .header(header)
-        .block(block)
-        .highlight_symbol("")
-        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
-
-    if let Some(selected) = state.selected() {
-        state.select(Some(selected.min(items.len().saturating_sub(1))));
+/// The context under a click on row `row`, if any.
+pub fn context_row_at(frame_area: Rect, items: &[&crate::k8s::ContextInfo], has_error: bool, offset: usize, row: u16) -> Option<usize> {
+    let (_, list) = context_layout(frame_area, items, has_error);
+    if row < list.y || row >= list.y + list.height {
+        return None;
     }
-    frame.render_stateful_widget(table, area, state);
+    let index = offset + usize::from(row - list.y);
+    (index < items.len()).then_some(index)
 }
 
 /// The chip strip on the namespace picker's bottom border: a label, then keys 1 to 9,

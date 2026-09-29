@@ -166,16 +166,15 @@ pub struct NodeDetailView<'a> {
     pub search: Search<'a>,
 }
 
-/// The context browser: `(name, cluster, is_current)` rows, already filtered, and why
-/// the last connect failed.
+/// The context picker: the matching contexts, and why the last connect failed.
 pub struct ContextView<'a> {
-    pub items: &'a [(String, String, bool)],
+    pub items: &'a [&'a crate::k8s::ContextInfo],
     pub total: usize,
     pub filter: &'a str,
-    pub editing: bool,
     pub state: &'a mut TableState,
     pub error: Option<&'a str>,
-    pub sort: SortState,
+    /// What Esc does: `back`, or `quit` at startup.
+    pub leave: &'static str,
 }
 
 /// The Events browser: every event, filterable by severity with a/w/n.
@@ -585,7 +584,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::NodeDetail(view) => draw_node_detail_popup(frame, view, dimmed),
         // Drawn by `draw` itself, in its own bar.
         Overlay::Command { .. } => {}
-        Overlay::Context(view) => draw_context_popup(frame, view),
+        Overlay::Context(view) => draw_context_picker(frame, view),
         Overlay::Events(view) => draw_events_popup(frame, view, dimmed),
         Overlay::EventDetail { entry } => draw_event_detail_popup(frame, entry),
         Overlay::ResourcesDetail { overview, nodes } => draw_resources_detail_popup(frame, overview, nodes, dimmed),

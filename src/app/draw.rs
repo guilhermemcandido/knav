@@ -70,12 +70,11 @@ pub(super) fn draw_mode(
                     paint(frame, hovered, None, Some(overlay), false);
                 })?;
             }
-            Mode::Context { contexts, filter, editing, state, error, sort: popup_sort, .. } => {
+            Mode::Context { contexts, filter, state, error, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let items: Vec<(String, String, bool)> =
-                        filtered_contexts(contexts, filter, *popup_sort).into_iter().map(|c| (c.name.clone(), c.cluster.clone(), c.is_current)).collect();
-                    let overlay = ui::Overlay::Context(ui::ContextView { items: &items, total: contexts.len(), filter, editing: *editing, state, error: error.as_deref(), sort: popup_sort.view() });
+                    let items = ui::context_matches(contexts, filter);
+                    let overlay = ui::Overlay::Context(ui::ContextView { items: &items, total: contexts.len(), filter, state, error: error.as_deref(), leave: "back" });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

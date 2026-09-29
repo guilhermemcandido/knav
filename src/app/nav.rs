@@ -57,7 +57,6 @@ pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
     match mode {
         Mode::Events { sort, editing, .. } => sort.handle(code, EVENT_COLUMNS, *editing),
         Mode::Containers { sort, .. } => sort.handle(code, CONTAINER_COLUMNS, false),
-        Mode::Context { sort, editing, .. } => sort.handle(code, CONTEXT_COLUMNS, *editing),
         Mode::NamespacePick { sort, editing, .. } => sort.handle(code, NAMESPACE_PICKER_COLUMNS, *editing),
         Mode::NodeDetail { sort, editing, .. } => sort.handle(code, POD_COLUMNS, *editing),
         _ => false,

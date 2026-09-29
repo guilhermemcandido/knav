@@ -96,7 +96,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         }
         // No typing mode: letters filter at once. Esc clears the filter, then backs out;
         // `q` backs out only on an empty filter, since a context name can contain a q.
-        (Event::Key(key), Mode::Context { contexts, filter, editing: _, state, error, sort, back }) => match key.code {
+        (Event::Key(key), Mode::Context { contexts, filter, editing: _, state, error, back }) => match key.code {
             KeyCode::Esc => {
                 if filter.is_empty() {
                     st.mode = std::mem::replace(&mut **back, Mode::List);
@@ -106,8 +106,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             KeyCode::Char('q') if filter.is_empty() => st.mode = std::mem::replace(&mut **back, Mode::List),
-            KeyCode::Up => select_prev(state, filtered_contexts(contexts, filter, *sort).len()),
-            KeyCode::Down => select_next(state, filtered_contexts(contexts, filter, *sort).len()),
+            KeyCode::Up => select_prev(state, ui::context_matches(contexts, filter).len()),
+            KeyCode::Down => select_next(state, ui::context_matches(contexts, filter).len()),
             KeyCode::Backspace => {
                 filter.pop();
                 state.select(Some(0));
@@ -119,7 +119,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 *error = None;
             }
             KeyCode::Enter => {
-                let name = state.selected().and_then(|i| filtered_contexts(contexts, filter, *sort).get(i).map(|c| c.name.clone()));
+                let name = state.selected().and_then(|i| ui::context_matches(contexts, filter).get(i).map(|c| c.name.clone()));
                 if let Some(name) = name {
                     if name == active_context {
                         st.mode = std::mem::replace(&mut **back, Mode::List);
@@ -131,12 +131,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
-        (Event::Mouse(mouse), Mode::Context { contexts, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
-            wheel_select(mouse.kind, state, filtered_contexts(contexts, filter, *sort).len());
+        (Event::Mouse(mouse), Mode::Context { contexts, filter, state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
+            wheel_select(mouse.kind, state, ui::context_matches(contexts, filter).len());
         }
-        (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, sort, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-            let matches = filtered_contexts(contexts, filter, *sort);
-            if let Some(idx) = ui::event_row_at(frame_area, matches.len(), state.offset(), mouse.row) {
+        (Event::Mouse(mouse), Mode::Context { contexts, filter, state, error, back, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
+            let matches = ui::context_matches(contexts, filter);
+            if let Some(idx) = ui::context_row_at(frame_area, &matches, error.is_some(), state.offset(), mouse.row) {
                 state.select(Some(idx));
                 let name = matches[idx].name.clone();
                 if name == active_context {

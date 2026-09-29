@@ -31,7 +31,7 @@ pub(crate) enum Mode {
     Search,
     /// The context browser (`C`). Enter checks the context is reachable, then hands back
     /// to `main` to reconnect. `error` is why the last attempt failed.
-    Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, sort: ListSort, back: Box<Mode> },
+    Context { contexts: Vec<k8s::ContextInfo>, filter: String, editing: bool, state: TableState, error: Option<String>, back: Box<Mode> },
     /// The `n` namespace picker: choose a namespace, then which key it gets.
     NamespacePick { names: Vec<String>, filter: String, editing: bool, state: TableState, sort: ListSort, back: Box<Mode> },
     /// The key picker for a namespace. `selected` is the highlighted key minus one.

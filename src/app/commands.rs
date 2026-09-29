@@ -167,7 +167,7 @@ pub(crate) fn open_context_switcher(mode: &mut Mode, active_context: &str) {
     }
     let back = Box::new(std::mem::replace(mode, Mode::List));
     // Always editing: letters filter at once, with no separate typing mode.
-    *mode = Mode::Context { contexts, filter: String::new(), editing: true, state: TableState::default().with_selected(0), error: None, sort: ListSort::default(), back };
+    *mode = Mode::Context { contexts, filter: String::new(), editing: true, state: TableState::default().with_selected(0), error: None, back };
 }
 
 /// The key picker for `namespace`, on the key it has or the first free one. Its `back`
@@ -189,16 +189,6 @@ pub(crate) fn filtered_names<'a>(names: &'a [String], filter: &str, sort: ListSo
     scored.sort_by_key(|(score, name)| (std::cmp::Reverse(*score), (*name).clone()));
     let mut shown: Vec<&String> = scored.into_iter().map(|(_, n)| n).collect();
     apply(&mut shown, sort.spec, |name, column| namespace_key(name, favorites.key_of(name), column));
-    shown
-}
-
-/// Contexts matching the browser's filter, best match first.
-pub(crate) fn filtered_contexts<'a>(contexts: &'a [k8s::ContextInfo], filter: &str, sort: ListSort) -> Vec<&'a k8s::ContextInfo> {
-    let mut scored: Vec<(i64, &k8s::ContextInfo)> =
-        contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    let mut shown: Vec<&k8s::ContextInfo> = scored.into_iter().map(|(_, c)| c).collect();
-    apply(&mut shown, sort.spec, |c, column| context_key(c, column));
     shown
 }
 

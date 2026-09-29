@@ -1,20 +1,14 @@
-//! The cluster picker: a full-screen, fuzzy-filtered list of contexts, shown before
-//! connecting when asked for.
+//! The context picker shown before connecting when asked for. It draws the same
+//! dialog as `C` inside the app.
 
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use ratatui::{
-    layout::{Alignment, Constraint, Layout},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-};
+use ratatui::widgets::TableState;
 
-use crate::theme::theme;
-use crate::util::fuzzy;
 use crate::k8s::ContextInfo;
+use crate::ui;
 
 /// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled.
 pub fn run(contexts: &[ContextInfo]) -> Result<Option<String>> {
@@ -26,30 +20,32 @@ pub fn run(contexts: &[ContextInfo]) -> Result<Option<String>> {
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo]) -> Result<Option<String>> {
     let mut filter = String::new();
-    let mut state = ListState::default();
-    state.select(Some(0));
+    let mut state = TableState::default().with_selected(0);
 
     loop {
-        let matches = filtered(contexts, &filter);
-        let selected = state.selected().unwrap_or(0).min(matches.len().saturating_sub(1));
-        state.select((!matches.is_empty()).then_some(selected));
-
-        terminal.draw(|frame| draw(frame, &matches, &filter, &mut state))?;
+        let matches = ui::context_matches(contexts, &filter);
+        terminal.draw(|frame| {
+            let view = ui::ContextView { items: &matches, total: contexts.len(), filter: &filter, state: &mut state, error: None, leave: "quit" };
+            ui::draw_context_picker(frame, view);
+        })?;
 
         if !event::poll(Duration::from_millis(200))? {
             continue;
         }
         let Event::Key(key) = event::read()? else { continue };
+        let last = matches.len().saturating_sub(1);
+        let selected = state.selected().unwrap_or(0);
         match key.code {
+            KeyCode::Esc if !filter.is_empty() => filter.clear(),
             KeyCode::Esc => return Ok(None),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(None),
             KeyCode::Enter => {
-                if let Some(ctx) = state.selected().and_then(|i| matches.get(i)) {
+                if let Some(ctx) = matches.get(selected) {
                     return Ok(Some(ctx.name.clone()));
                 }
             }
-            KeyCode::Up => select_prev(&mut state, matches.len()),
-            KeyCode::Down => select_next(&mut state, matches.len()),
+            KeyCode::Up => state.select(Some(selected.saturating_sub(1))),
+            KeyCode::Down => state.select(Some((selected + 1).min(last))),
             KeyCode::Backspace => {
                 filter.pop();
                 state.select(Some(0));
@@ -61,71 +57,4 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo]) -
             _ => {}
         }
     }
-}
-
-/// Contexts whose name fuzzy-matches `filter`, best first, ranked like `--context`.
-fn filtered<'a>(contexts: &'a [ContextInfo], filter: &str) -> Vec<&'a ContextInfo> {
-    let mut scored: Vec<(i64, &ContextInfo)> =
-        contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, c)| c).collect()
-}
-
-fn select_next(state: &mut ListState, len: usize) {
-    if len == 0 {
-        return;
-    }
-    let next = state.selected().map(|i| (i + 1).min(len - 1)).unwrap_or(0);
-    state.select(Some(next));
-}
-
-fn select_prev(state: &mut ListState, len: usize) {
-    if len == 0 {
-        return;
-    }
-    let prev = state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
-    state.select(Some(prev));
-}
-
-fn draw(frame: &mut ratatui::Frame, matches: &[&ContextInfo], filter: &str, state: &mut ListState) {
-    let area = frame.area();
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
-
-    let filter_block = Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title("Select a cluster");
-    let filter_line = Line::from(vec![
-        Span::styled("🔍 ", Style::default()),
-        Span::styled(filter, Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD)),
-        Span::styled("▏", Style::default().add_modifier(Modifier::RAPID_BLINK)),
-    ]);
-    frame.render_widget(Paragraph::new(filter_line).block(filter_block), chunks[0]);
-
-    let items: Vec<ListItem> = matches
-        .iter()
-        .map(|c| {
-            let marker = if c.is_current { " (current)" } else { "" };
-            let line = Line::from(vec![
-                Span::styled(format!("{:<40}", c.name), Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled(c.cluster.clone(), Style::default().fg(theme().muted)),
-                Span::styled(marker, Style::default().fg(theme().namespace)),
-            ]);
-            ListItem::new(line)
-        })
-        .collect();
-
-    if matches.is_empty() {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_set(crate::ui::border_set())
-            .title("No matches");
-        let empty = Paragraph::new("No matching context").alignment(Alignment::Center).block(block);
-        frame.render_widget(empty, chunks[1]);
-        return;
-    }
-
-    let title = format!("Contexts ({})", matches.len());
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).border_set(crate::ui::border_set()).title(title))
-        .highlight_style(Style::default().bg(theme().namespace).fg(crate::theme::on(theme().namespace)).add_modifier(Modifier::BOLD))
-        .highlight_symbol("➤ ");
-    frame.render_stateful_widget(list, chunks[1], state);
 }

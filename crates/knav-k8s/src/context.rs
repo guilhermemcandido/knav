@@ -8,6 +8,8 @@ pub struct ContextInfo {
     pub name: String,
     pub cluster: String,
     pub user: String,
+    /// The namespace the context defaults to, when it sets one.
+    pub namespace: Option<String>,
     pub is_current: bool,
 }
 
@@ -21,8 +23,9 @@ pub fn list_contexts() -> Result<Vec<ContextInfo>> {
         .map(|c| {
             let cluster = c.context.as_ref().map(|ctx| ctx.cluster.clone()).unwrap_or_default();
             let user = c.context.as_ref().and_then(|ctx| ctx.user.clone()).unwrap_or_default();
+            let namespace = c.context.as_ref().and_then(|ctx| ctx.namespace.clone());
             let is_current = current.as_deref() == Some(c.name.as_str());
-            ContextInfo { name: c.name, cluster, user, is_current }
+            ContextInfo { name: c.name, cluster, user, namespace, is_current }
         })
         .collect())
 }

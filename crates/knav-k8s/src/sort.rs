@@ -159,7 +159,6 @@ pub fn crd_key(crd: &crate::CrdInfo, count: crate::Count, column: usize) -> Key 
 
 pub const EVENT_COLUMNS: usize = 6;
 pub const CONTAINER_COLUMNS: usize = 4;
-pub const CONTEXT_COLUMNS: usize = 3;
 pub const NAMESPACE_PICKER_COLUMNS: usize = 2;
 
 pub fn event_key(e: &crate::EventEntry, column: usize) -> Key {
@@ -188,14 +187,6 @@ pub fn container_key(c: &crate::ContainerInfo, column: usize) -> Key {
         1 => text(&c.name),
         2 => text(c.reason.as_deref().unwrap_or("")),
         _ => Key::Num(i64::from(c.restarts)),
-    }
-}
-
-pub fn context_key(c: &crate::ContextInfo, column: usize) -> Key {
-    match column {
-        0 => text(&c.name),
-        1 => text(&c.cluster),
-        _ => Key::Num(i64::from(!c.is_current)),
     }
 }
 
