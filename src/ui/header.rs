@@ -8,7 +8,8 @@ pub struct HeaderInfo {
     pub context: String,
     pub cluster: String,
     pub user: String,
-    /// What knav may do: `read-and-write` for now.
+    /// What the user may do (`admin`, `read-write`, ...), or `read-only` when knav
+    /// blocks changes. Empty until known.
     pub role: String,
     /// The namespace queries are narrowed to (`all` when none).
     pub namespace: String,

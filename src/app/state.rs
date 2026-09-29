@@ -125,6 +125,8 @@ pub(super) struct State {
     pub overview_item_scroll: usize,
     /// How far the open extension dashboard is scrolled.
     pub dashboard_scroll: usize,
+    /// Read-only for this whole session, whatever Settings says.
+    pub read_only_locked: bool,
 }
 
 /// Whether a click on `id` follows the last one closely enough to be a double click,
@@ -188,7 +190,23 @@ impl State {
             overview_col_scroll: 0,
             overview_item_scroll: 0,
             dashboard_scroll: 0,
+            read_only_locked: false,
         }
+    }
+
+    /// Whether changes to the cluster are blocked.
+    pub fn read_only(&self) -> bool {
+        self.read_only_locked || self.config.read_only.enabled
+    }
+
+    /// Shows why a change was refused, when read-only. Returns whether it was.
+    pub fn refuse_if_read_only(&mut self) -> bool {
+        if !self.read_only() {
+            return false;
+        }
+        let back = std::mem::replace(&mut self.mode, Mode::List);
+        self.mode = Mode::Notice { text: "Read-only mode is on".into(), tone: crate::ops::NoticeTone::Info, back: Box::new(back) };
+        true
     }
 
     /// Takes a changed config into use: colours, box lines, numbers and keys.
@@ -307,6 +325,19 @@ mod tests {
         assert!(!double_click(&mut last, 7), "the first click never is");
         assert!(double_click(&mut last, 7), "the second, on the same id, right after, is");
         assert!(last.is_none(), "used up, so a third click starts over");
+    }
+
+    #[test]
+    fn read_only_refuses_with_a_notice_that_goes_back() {
+        let mut st = state();
+        assert!(!st.refuse_if_read_only());
+        assert!(matches!(st.mode, Mode::List));
+        st.config.read_only.enabled = true;
+        assert!(st.refuse_if_read_only());
+        assert!(matches!(&st.mode, Mode::Notice { back, .. } if matches!(**back, Mode::List)));
+        let mut locked = state();
+        locked.read_only_locked = true;
+        assert!(locked.read_only(), "--read-only holds whatever Settings says");
     }
 
     #[test]

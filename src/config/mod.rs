@@ -223,6 +223,29 @@ impl Default for UiConfig {
     }
 }
 
+/// Blocks every change knav can make: delete, edit, scale, restart, cordon and shells.
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct ReadOnlyConfig {
+    /// On for every context.
+    pub enabled: bool,
+    /// On for contexts matching one of these, where `*` matches anything (`prod*`).
+    pub contexts: Vec<String>,
+}
+
+impl ReadOnlyConfig {
+    pub fn applies_to(&self, context: &str) -> bool {
+        self.enabled || self.contexts.iter().any(|pattern| wildcard_match(pattern, context))
+    }
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == text,
+        Some((head, rest)) => text.strip_prefix(head).is_some_and(|tail| (0..=tail.len()).filter(|&i| tail.is_char_boundary(i)).any(|i| wildcard_match(rest, &tail[i..]))),
+    }
+}
+
 /// The ids of the extensions turned on.
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
@@ -244,6 +267,7 @@ pub struct Config {
     pub api: ApiConfig,
     pub overview: OverviewConfig,
     pub extensions: ExtensionsConfig,
+    pub read_only: ReadOnlyConfig,
     /// Key bindings by action id, each one key or a list.
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,
@@ -300,5 +324,16 @@ mod tests {
         assert_eq!(overview.sections, ["Access Control", "CustomResources", "Helm"]);
         assert_eq!(overview.items["Helm"], ["HelmReleases", "HelmChart"]);
         assert_eq!(overview.hidden, ["CustomResources", "Helm/HelmReleases"]);
+    }
+
+    #[test]
+    fn read_only_contexts_match_with_wildcards() {
+        let config: ReadOnlyConfig = toml::from_str(r#"contexts = ["prod*", "*-live", "staging"]"#).unwrap();
+        assert!(config.applies_to("prod-eu"));
+        assert!(config.applies_to("shop-live"));
+        assert!(config.applies_to("staging"));
+        assert!(!config.applies_to("staging-2"));
+        assert!(!config.applies_to("dev"));
+        assert!(ReadOnlyConfig { enabled: true, contexts: vec![] }.applies_to("dev"));
     }
 }

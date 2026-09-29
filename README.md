@@ -9,6 +9,7 @@ explorer, built in Rust.
 - **Info panel** (`i`) explains the selected object: status, containers, events.
 - **Relations diagram** (`R`) shows what an object depends on and what depends on it.
 - **Extensions** (`E`) add views and dashboards for Flux, Argo CD, cert-manager and more. Read-only.
+- **Knows your access**: the header shows your role (admin, read-write, read-only), checked against RBAC.
 - **Built for scale**: stays fast with tens of thousands of objects.
 
 ## Install
@@ -28,9 +29,10 @@ Needs a kubeconfig. `kubectl` is only used for port-forwards and shells.
 ## Use
 
 ```
-knav            # current context
-knav -c prod    # pick a context by name
-knav update     # update to the latest release
+knav              # current context
+knav -c prod      # pick a context by name
+knav --read-only  # block every change: delete, edit, scale, shells
+knav update       # update to the latest release
 ```
 
 Press `?` anywhere for the keys on that screen. The essentials:
@@ -56,6 +58,12 @@ Everything is set from the Settings screen (`,`) and saved to
 - **Layout**: which sections and tiles Home shows, and in what order
 - **Lists and logs**: wide or faults-only on start, log order and timestamps
 - **Behaviour**: start in the current context or a picker, mouse speed, port-forwards
+- **Read-only**: always, or only for contexts that match a pattern:
+
+```toml
+[read_only]
+contexts = ["prod*"]
+```
 
 Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
 

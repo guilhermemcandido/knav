@@ -52,6 +52,7 @@ pub fn registry() -> Vec<Setting> {
     add("mouse.wheel_rows", "Mouse", "Wheel rows per notch", Kind::Number { min: 1, max: 20 }, false);
     add("mouse.double_click_ms", "Mouse", "Double-click time (ms)", Kind::Number { min: 100, max: 1000 }, false);
     add("startup.mode", "Behaviour", "Start with", choice(&["direct", "menu"]), true);
+    add("read_only.enabled", "Behaviour", "Read-only mode", Kind::Bool, false);
     add("portforward.open_browser", "Behaviour", "Open browser on port-forward", Kind::Bool, false);
     add("api.refresh_seconds", "Behaviour", "API list refresh (s)", Kind::Number { min: 1, max: 60 }, false);
     for binding in crate::input::keymap::BINDINGS {
@@ -109,6 +110,7 @@ pub fn describe(setting: &Setting) -> &'static str {
         "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
         "startup.mode" => "direct connects to your current kubeconfig context and opens Home. menu shows a cluster picker first, even with a single context. --context skips both.",
+        "read_only.enabled" => "Block every change to the cluster: delete, edit, scale, restart, cordon and shells. read_only.contexts in the config turns it on for matching contexts only.",
         "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
         "api.refresh_seconds" => "How often the API resources list refreshes in the background.",
         _ => "",

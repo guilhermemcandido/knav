@@ -9,12 +9,13 @@ use crate::startup::picker;
 use crate::util::fuzzy;
 
 
-pub(crate) const USAGE: &str = "knav [-c|--context [name]]\n\nLaunches the TUI against your current kubeconfig context.\n\nCommands:\n  version               show the version (also -v, --version)\n  update [-y|--yes]     update to the latest release (also self-update)\n  help                  show this help (also -h, --help)\n\nOptions:\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -c, --context         (no name) pick a context from a list\n";
+pub(crate) const USAGE: &str = "knav [-c|--context [name]] [--read-only]\n\nLaunches the TUI against your current kubeconfig context.\n\nCommands:\n  version               show the version (also -v, --version)\n  update [-y|--yes]     update to the latest release (also self-update)\n  help                  show this help (also -h, --help)\n\nOptions:\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -c, --context         (no name) pick a context from a list\n      --read-only       block every change: delete, edit, scale, shells\n";
 
 pub(crate) enum Cli {
     /// `--context <name>` (fuzzy-matched) skips the picker whatever `startup.mode` says;
     /// a bare `--context` always shows it.
-    Launch { context_query: Option<String>, pick: bool },
+    /// `--read-only` blocks changes for the whole run, whatever the config says.
+    Launch { context_query: Option<String>, pick: bool, read_only: bool },
     Version,
     /// `-y`/`--yes` skips the "update to vX.Y.Z?" confirmation.
     Update { yes: bool },
@@ -42,6 +43,7 @@ impl Cli {
         }
         let mut context_query = None;
         let mut pick = false;
+        let mut read_only = false;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 // No name after it: show the picker instead of erroring.
@@ -49,10 +51,11 @@ impl Cli {
                     Some(value) => context_query = Some(value),
                     None => pick = true,
                 },
+                "--read-only" | "--readonly" => read_only = true,
                 other => anyhow::bail!("unrecognized argument: {other} (try --help)"),
             }
         }
-        Ok(Cli::Launch { context_query, pick })
+        Ok(Cli::Launch { context_query, pick, read_only })
     }
 }
 
@@ -86,25 +89,32 @@ mod tests {
 
     #[test]
     fn no_arguments_launches_with_no_context() {
-        assert!(matches!(parse(&[]).unwrap(), Cli::Launch { context_query: None, pick: false }));
+        assert!(matches!(parse(&[]).unwrap(), Cli::Launch { context_query: None, pick: false, read_only: false }));
     }
 
     #[test]
     fn context_takes_the_next_argument() {
-        let Cli::Launch { context_query, pick } = parse(&["-c", "prod"]).unwrap() else { panic!() };
+        let Cli::Launch { context_query, pick, .. } = parse(&["-c", "prod"]).unwrap() else { panic!() };
         assert_eq!(context_query.as_deref(), Some("prod"));
         assert!(!pick);
-        let Cli::Launch { context_query, pick } = parse(&["--context", "prod"]).unwrap() else { panic!() };
+        let Cli::Launch { context_query, pick, .. } = parse(&["--context", "prod"]).unwrap() else { panic!() };
         assert_eq!(context_query.as_deref(), Some("prod"));
         assert!(!pick);
     }
 
     #[test]
     fn a_bare_context_flag_asks_to_pick_one_instead_of_erroring() {
-        let Cli::Launch { context_query, pick } = parse(&["-c"]).unwrap() else { panic!() };
+        let Cli::Launch { context_query, pick, .. } = parse(&["-c"]).unwrap() else { panic!() };
         assert!(context_query.is_none() && pick);
-        let Cli::Launch { context_query, pick } = parse(&["--context"]).unwrap() else { panic!() };
+        let Cli::Launch { context_query, pick, .. } = parse(&["--context"]).unwrap() else { panic!() };
         assert!(context_query.is_none() && pick);
+    }
+
+    #[test]
+    fn read_only_goes_with_a_context() {
+        let Cli::Launch { context_query, read_only, .. } = parse(&["-c", "prod", "--read-only"]).unwrap() else { panic!() };
+        assert_eq!(context_query.as_deref(), Some("prod"));
+        assert!(read_only);
     }
 
     #[test]

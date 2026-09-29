@@ -11,6 +11,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let client = cx.client;
     let frame_area = cx.frame_area;
     let mut shell_request: Option<(String, String, String)> = None;
+    let read_only = st.read_only();
     match (event, &mut st.mode) {
         // Every key goes to the shell; Ctrl-] (or any key once it has ended) leaves.
         (Event::Key(key), Mode::Shell { session, back, .. }) => {
@@ -155,6 +156,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let title = name.clone();
                     open_spec(&mut st.mode, title, node.as_ref());
                 }
+            }
+            KeyCode::Char('e') if read_only => {
+                st.refuse_if_read_only();
             }
             KeyCode::Char('e') => {
                 if let Some(node) = nodes.iter().find(|n| n.metadata.name.as_deref() == Some(name.as_str())) {

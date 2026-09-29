@@ -229,7 +229,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             },
             // Edit the selected object in `$EDITOR`, the same manifest `d` shows.
             KeyCode::Char('e') => {
-                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
+                if st.refuse_if_read_only() {
+                } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     let outcome = edit::edit_resource(cx.terminal, client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };
                 }
@@ -402,9 +403,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         _ => None,
                     };
                     // `S` scales what scales and opens a shell in a pod.
-                    if c == 'S' && target.scalable() {
+                    let shell = c == 'S' && target.kind == "Pod" && !bulk;
+                    let acts = action.is_some() || shell || (c == 'S' && target.scalable());
+                    if acts && st.refuse_if_read_only() {
+                    } else if c == 'S' && target.scalable() {
                         st.mode = Mode::Scale { input: target.replicas().to_string(), targets, back: Box::new(Mode::List) };
-                    } else if c == 'S' && target.kind == "Pod" && !bulk {
+                    } else if shell {
                         open_pod(st, cx, &target, PodView::Shell);
                     } else if let Some(action) = action {
                         if let Some(spec) = actions::confirm_spec(action, &targets) {

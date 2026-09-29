@@ -77,6 +77,9 @@ pub(super) fn logs_mode(cx: &Cx, namespace: &str, pod: &str, container: &str, pr
 
 /// Opens a shell in a container inside knav, over whatever screen is up now.
 pub(super) fn open_shell(st: &mut State, cx: &Cx, namespace: &str, pod: &str, container: &str) {
+    if st.refuse_if_read_only() {
+        return;
+    }
     let inner = ui::shell_inner(cx.frame_area);
     let back = std::mem::replace(&mut st.mode, Mode::List);
     st.mode = match shell::ShellSession::exec(cx.active_context, namespace, pod, container, inner.height, inner.width) {

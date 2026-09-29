@@ -1,6 +1,7 @@
 //! Everything that talks to the Kubernetes API or turns what it returns into rows.
 //! Modules are re-exported flat, so callers write `k8s::Thing`.
 
+pub mod access;
 pub mod catalog;
 pub mod describe;
 pub mod details;

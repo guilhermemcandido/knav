@@ -66,12 +66,15 @@ pub(crate) struct Session<'a> {
     pub config: &'a Config,
     pub active_context: &'a str,
     pub header: &'a ui::HeaderInfo,
+    /// Set by `--read-only` or a matching `read_only.contexts` pattern.
+    pub read_only: bool,
 }
 
 pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catalog: &mut Catalog, registry: &extensions::Registry, session: Session, notes: Vec<String>) -> Result<SessionEnd> {
     let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx } = stores;
-    let Session { client, config, active_context, header } = session;
+    let Session { client, config, active_context, header, read_only } = session;
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
+    st.read_only_locked = read_only;
     if !notes.is_empty() {
         st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), tone: NoticeTone::Failed, back: Box::new(Mode::List) };
     }
@@ -160,6 +163,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             namespace_slots: st.favorites.slots.clone(),
             faults_only: st.faults_only,
             wide: st.wide,
+            role: if st.read_only() { "read-only".into() } else { header.role.clone() },
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };
