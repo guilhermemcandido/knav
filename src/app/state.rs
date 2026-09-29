@@ -73,6 +73,8 @@ pub(super) struct State {
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
     pub info_key: String,
+    /// The sidebar and panel as last drawn, which mouse hits are measured against.
+    pub chrome: ui::Chrome,
     /// The resource sidebar (`m`): shown, holding the keys, its cursor and the folded categories.
     pub sidebar: bool,
     pub sidebar_focus: bool,
@@ -168,6 +170,7 @@ impl State {
             info_scroll: 0,
             info_hscroll: 0,
             info_focus: false,
+            chrome: ui::Chrome::default(),
             info_key: String::new(),
             sidebar: false,
             sidebar_focus: false,

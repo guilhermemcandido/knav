@@ -123,7 +123,7 @@ fn mouse_event(mouse: &crossterm::event::MouseEvent, st: &mut State, cx: &mut Cx
     if !shown(st, cx) {
         return false;
     }
-    let area = ui::sidebar_area(cx.frame_area, st.current_kind != ResourceKind::Overview);
+    let area = ui::sidebar_area(cx.frame_area, st.current_kind != ResourceKind::Overview, &st.chrome);
     let inside = mouse.column >= area.x && mouse.column < area.x + area.width && mouse.row >= area.y && mouse.row < area.y + area.height;
     if !inside {
         if matches!(mouse.kind, MouseEventKind::Down(_)) {

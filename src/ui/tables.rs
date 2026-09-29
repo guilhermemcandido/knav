@@ -71,15 +71,16 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
 
 /// The table every list shares: its columns, header, bordered title with the search, and the
 /// selection coloured by the state of the selected row.
-fn list_table<'a>(rows: Vec<Row<'a>>, window: &Window, header: Row<'a>, title: Line<'static>, search: Search, selected_tone: crate::k8s::describe::Tone, dimmed: bool) -> Table<'a> {
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(list_border(dimmed)).title(title);
+fn list_table<'a>(rows: Vec<Row<'a>>, window: &Window, header: Row<'a>, title: Line<'static>, search: Search, selected_tone: crate::k8s::describe::Tone, look: ListLook) -> Table<'a> {
+    let dimmed = look.dimmed;
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(look.border()).title(title);
     Table::new(rows, window.constraints.clone())
         .column_spacing(COLUMN_GAP)
         .style(theme_row(dimmed))
         .header(header)
-        .block(with_search(block, search.text, search.editing, dimmed))
+        .block(with_search_beside(block, search.text, search.editing, dimmed, look.title_reserve))
         .highlight_symbol("")
-        .row_highlight_style(selection_style(selected_tone, dimmed))
+        .row_highlight_style(look.selection(selected_tone))
 }
 
 /// The rows on screen out of a table of many, so only those get built.
@@ -116,7 +117,8 @@ fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut Tabl
     frame.render_stateful_widget(table, area, &mut local);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+    let dimmed = look.dimmed;
 
     let window = pod_window(pods, area.width, hscroll, wide, sort.cursor);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
@@ -152,7 +154,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
     let selected_tone = table_state.selected().and_then(|i| pods.get(i)).map(|p| crate::k8s::status_tone(&p.phase)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Pods", pods.len(), &window, dimmed);
 
-    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, dimmed);
+    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, look);
 
     render_windowed(frame, area, table, table_state, &vis);
 }
@@ -274,7 +276,8 @@ pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
     }
 }
 
-pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[std::sync::Arc<DeploymentRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: &[std::sync::Arc<DeploymentRow>], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+    let dimmed = look.dimmed;
 
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "UP-TO-DATE", "AVAILABLE", "AGE"];
     if wide {
@@ -320,7 +323,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Deployments", deployments.len(), &window, dimmed);
 
-    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, dimmed);
+    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, look);
 
     render_windowed(frame, area, table, table_state, &vis);
 }
@@ -387,7 +390,8 @@ fn generic_row_tone(r: &GenericRow) -> crate::k8s::describe::Tone {
     }
 }
 
-pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+    let dimmed = look.dimmed;
 
     let mut headers = vec!["NAME", "STATUS", "ROLES", "TAINTS", "CPU", "MEMORY", "PODS", "AGE", "VERSION"];
     if wide {
@@ -451,7 +455,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     let selected_tone = table_state.selected().and_then(|i| nodes.get(i)).map(node_tone).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Nodes", nodes.len(), &window, dimmed);
 
-    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, dimmed);
+    let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, look);
 
     render_windowed(frame, area, table, table_state, &vis);
 }
@@ -462,7 +466,8 @@ pub(super) fn any_row_has_namespace(rows: &[std::sync::Arc<GenericRow>]) -> bool
     rows.iter().any(|r| r.namespace != "-")
 }
 
-pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::sync::Arc<GenericRow>], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, dimmed: bool) {
+pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::sync::Arc<GenericRow>], label: &str, kind_headers: &[&'static str], table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, marked: &HashSet<String>, wide: bool, look: ListLook) {
+    let dimmed = look.dimmed;
 
     let show_namespace = any_row_has_namespace(rows);
 
@@ -523,7 +528,7 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::syn
     let selected_tone = table_state.selected().and_then(|i| rows.get(i)).map(|r| generic_row_tone(r)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title(label, rows.len(), &window, dimmed);
 
-    let table = list_table(mark_rows(table_rows, &flags, dimmed), &window, header, title, search, selected_tone, dimmed);
+    let table = list_table(mark_rows(table_rows, &flags, dimmed), &window, header, title, search, selected_tone, look);
 
     render_windowed(frame, area, table, table_state, &vis);
 }
@@ -531,7 +536,8 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::syn
 /// The Custom Resources picker: every discovered CRD kind, sorted by GROUP so
 /// same-group kinds sit together. Enter starts watching the kind; nothing is
 /// live-watched until then.
-pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, dimmed: bool) {
+pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, look: ListLook) {
+    let dimmed = look.dimmed;
     let cell_style = theme_row(dimmed);
 
     const HEADERS: [&str; 4] = ["GROUP", "KIND", "COUNT", "SCOPE"];
@@ -560,7 +566,7 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
 
     let title = table_title(heading, crds.len(), &window, dimmed);
 
-    let table = list_table(mark_rows(rows, &[], dimmed), &window, header, title, search, crate::k8s::describe::Tone::Plain, dimmed);
+    let table = list_table(mark_rows(rows, &[], dimmed), &window, header, title, search, crate::k8s::describe::Tone::Plain, look);
 
     frame.render_stateful_widget(table, area, table_state);
 }

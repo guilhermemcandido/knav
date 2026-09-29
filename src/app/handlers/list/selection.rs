@@ -5,7 +5,7 @@ use super::*;
 
 /// Scrolls the overview's columns so the selected tile is on screen.
 pub(super) fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Overview, frame_area: Rect) {
-    let columns_area = ui::columns_area(ui::beside_sidebar(frame_area, false), overview);
+    let columns_area = ui::columns_area(ui::beside_sidebar(frame_area, false, &st.chrome), overview);
     if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = st.overview_selection {
         let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
         st.overview_col_scroll = ui::scroll_columns_to_show(st.overview_col_scroll, cols_visible, c);

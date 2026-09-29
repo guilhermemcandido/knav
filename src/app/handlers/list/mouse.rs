@@ -15,7 +15,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             };
             match mouse.kind {
                 MouseEventKind::Down(_) => {
-                    if let Some(hit) = ui::column_hit(ui::beside_sidebar(frame_area, false), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
+                    if let Some(hit) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                         st.overview_selection = hit;
                         // A second click on the same tile soon after opens it.
                         let id = match hit {
@@ -33,7 +33,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             }
             keep_overview_selection_visible(st, overview, frame_area);
         } else {
-            let table = ui::list_body(frame_area);
+            let table = ui::list_body(frame_area, &st.chrome);
             // Over the info panel: the wheel scrolls it, a click gives it the keys, and
             // nothing reaches the list underneath. A click on the list takes the keys back.
             if st.info_panel {

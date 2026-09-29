@@ -30,6 +30,7 @@ pub(super) struct View<'a> {
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
+    pub chrome: &'a ui::Chrome,
     pub path: &'a [ui::PathSegment],
     pub header_now: &'a ui::HeaderInfo,
     pub search: &'a str,
@@ -51,13 +52,13 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
     // Every mode draws the same base screen, with its own overlay on top.
     let mut paint = |frame: &mut ratatui::Frame, hover: Option<ui::Hover>, background: Option<ui::Overlay>, overlay: Option<ui::Overlay>, editing: bool| {
-        ui::draw(frame, rows_view(), table_state, hover, background, overlay, hints, show_hints_panel, Some(path), icons, header_now, ui::Search { text: search, editing }, sort_view, hscroll, marked)
+        ui::draw(frame, rows_view(), table_state, hover, background, overlay, hints, show_hints_panel, Some(path), icons, header_now, ui::Search { text: search, editing }, sort_view, hscroll, marked, chrome)
     };
         match mode {
             Mode::List => {

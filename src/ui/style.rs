@@ -26,10 +26,6 @@ pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) ->
     if dimmed {
         return dim_style();
     }
-    // While the keys are in the sidebar the list only marks its row, quietly.
-    if content_unfocused() {
-        return Style::default().bg(theme().pill_bg).fg(theme().text_strong);
-    }
     // The bar wears the state of the row it is on, like k9s: red on a broken
     // pod, orange on a pending one, grey on a finished one.
     let bg = match tone {
@@ -77,27 +73,30 @@ pub fn border_set() -> ratatui::symbols::border::Set<'static> {
     BORDER.read().ok().and_then(|b| *b).unwrap_or_else(|| border_set_named(""))
 }
 
-static LIST_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Whether the list has the keys while a panel is open beside it (its border lights up).
-pub fn set_list_focused(focused: bool) {
-    LIST_FOCUSED.store(focused, std::sync::atomic::Ordering::Relaxed);
+/// How the main list draws this frame.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ListLook {
+    pub dimmed: bool,
+    /// Has the keys while a panel is open beside it, so its border lights up.
+    pub focused: bool,
+    /// The sidebar has the keys, so the selection is marked quietly.
+    pub unfocused: bool,
+    /// Cells at the right of the top border kept for the sorting, faults and wide badges.
+    pub title_reserve: u16,
 }
 
-static CONTENT_UNFOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+impl ListLook {
+    pub fn dimmed(dimmed: bool) -> Self {
+        ListLook { dimmed, ..Default::default() }
+    }
 
-/// Set while the sidebar holds the keys, so what is beside it drops its selection colours.
-pub fn set_content_unfocused(unfocused: bool) {
-    CONTENT_UNFOCUSED.store(unfocused, std::sync::atomic::Ordering::Relaxed);
-}
+    pub(super) fn border(self) -> Style {
+        if !self.dimmed && self.focused { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(self.dimmed) }
+    }
 
-pub(super) fn content_unfocused() -> bool {
-    CONTENT_UNFOCUSED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// The border of a list: bright while it has the keys next to an open panel.
-pub(super) fn list_border(dimmed: bool) -> Style {
-    if !dimmed && LIST_FOCUSED.load(std::sync::atomic::Ordering::Relaxed) { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { theme_border(dimmed) }
+    pub(super) fn selection(self, tone: crate::k8s::describe::Tone) -> Style {
+        if self.unfocused && !self.dimmed { Style::default().bg(theme().pill_bg).fg(theme().text_strong) } else { selection_style(tone, self.dimmed) }
+    }
 }
 
 pub(super) fn theme_border(dimmed: bool) -> Style {
@@ -124,20 +123,12 @@ pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bo
 /// ` search: text▏ ` for the right end of a top border (`▏` is the cursor)
 /// while a search is being typed or applied; nothing when there isn't one.
 /// Every searchable screen shows it the same way.
-static TITLE_RESERVE: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-
-/// Cells at the right of a list's top border taken by the sorting, faults and wide
-/// badges, which the search text keeps clear of.
-pub fn set_title_reserve(cells: u16) {
-    TITLE_RESERVE.store(cells, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn search_title(text: &str, editing: bool, dimmed: bool) -> Option<Line<'static>> {
+fn search_title(text: &str, editing: bool, dimmed: bool, reserve: u16) -> Option<Line<'static>> {
     if text.is_empty() && !editing {
         return None;
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
-    let reserve = usize::from(TITLE_RESERVE.load(std::sync::atomic::Ordering::Relaxed));
+    let reserve = usize::from(reserve);
     // The room kept for the badges is filled with the border's own line, not blanks.
     let filler = border_set().horizontal_top.repeat(reserve);
     Some(Line::from(vec![Span::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style), Span::styled(filler, theme_border(dimmed))]).right_aligned())
@@ -145,7 +136,12 @@ fn search_title(text: &str, editing: bool, dimmed: bool) -> Option<Line<'static>
 
 /// `block` with the search, if any, on the right of its top border.
 pub(super) fn with_search<'a>(block: Block<'a>, text: &str, editing: bool, dimmed: bool) -> Block<'a> {
-    match search_title(text, editing, dimmed) {
+    with_search_beside(block, text, editing, dimmed, 0)
+}
+
+/// `with_search`, keeping `reserve` cells at the right free for badges.
+pub(super) fn with_search_beside<'a>(block: Block<'a>, text: &str, editing: bool, dimmed: bool, reserve: u16) -> Block<'a> {
+    match search_title(text, editing, dimmed, reserve) {
         Some(line) => block.title_top(line),
         None => block,
     }

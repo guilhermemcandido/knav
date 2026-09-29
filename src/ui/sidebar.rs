@@ -23,22 +23,14 @@ pub struct Sidebar {
     pub focused: bool,
 }
 
-static SIDEBAR: std::sync::RwLock<Option<Sidebar>> = std::sync::RwLock::new(None);
-
-/// Sets (or clears) the sidebar drawn at the left of the body.
-pub fn set_sidebar(sidebar: Option<Sidebar>) {
-    if let Ok(mut slot) = SIDEBAR.write() {
-        *slot = sidebar;
-    }
-}
 
 /// Narrower terminals have no room for it beside a list.
 pub const SIDEBAR_MIN_WIDTH: u16 = 90;
 const SIDEBAR_WIDTH: u16 = 28;
 
 /// How wide the sidebar is at `full_width` columns; 0 when it is off.
-pub fn sidebar_width(full_width: u16) -> u16 {
-    if full_width >= SIDEBAR_MIN_WIDTH && SIDEBAR.read().is_ok_and(|s| s.is_some()) { SIDEBAR_WIDTH } else { 0 }
+fn sidebar_width(full_width: u16, chrome: &Chrome) -> u16 {
+    if full_width >= SIDEBAR_MIN_WIDTH && chrome.sidebar.is_some() { SIDEBAR_WIDTH } else { 0 }
 }
 
 /// The first row shown, keeping the cursor in view.
@@ -57,24 +49,23 @@ pub fn sidebar_row_at(area: Rect, selected: usize, len: usize, column: u16, row:
 }
 
 /// The rectangle the sidebar takes out of the body.
-pub fn sidebar_area(frame_area: Rect, shortcuts_line: bool) -> Rect {
+pub fn sidebar_area(frame_area: Rect, shortcuts_line: bool, chrome: &Chrome) -> Rect {
     let body = body_area(frame_area, shortcuts_line);
-    Rect { width: sidebar_width(frame_area.width).min(body.width), ..body }
+    Rect { width: sidebar_width(frame_area.width, chrome).min(body.width), ..body }
 }
 
 /// What is left of the body once the sidebar has taken its share.
-pub fn beside_sidebar(frame_area: Rect, shortcuts_line: bool) -> Rect {
+pub fn beside_sidebar(frame_area: Rect, shortcuts_line: bool, chrome: &Chrome) -> Rect {
     let body = body_area(frame_area, shortcuts_line);
-    let taken = sidebar_width(frame_area.width).min(body.width);
+    let taken = sidebar_width(frame_area.width, chrome).min(body.width);
     Rect { x: body.x + taken, width: body.width - taken, ..body }
 }
 
-pub(super) fn draw_sidebar(frame: &mut Frame, area: Rect, dimmed: bool) {
+pub(super) fn draw_sidebar(frame: &mut Frame, area: Rect, dimmed: bool, chrome: &Chrome) {
     if area.width == 0 {
         return;
     }
-    let Ok(sidebar) = SIDEBAR.read() else { return };
-    let Some(sidebar) = sidebar.as_ref() else { return };
+    let Some(sidebar) = chrome.sidebar.as_ref() else { return };
     let border = if dimmed {
         dim_style()
     } else if sidebar.focused {
@@ -137,5 +128,16 @@ mod tests {
         let scroll = sidebar_scroll(30, 40, 10);
         assert_eq!(sidebar_row_at(area, 30, 40, 2, 4), Some(scroll));
         assert_eq!(sidebar_row_at(area, 30, 40, 0, 4), None, "the border");
+    }
+
+    #[test]
+    fn the_sidebar_takes_room_only_when_the_chrome_has_one() {
+        let full = Rect { x: 0, y: 0, width: 120, height: 40 };
+        let none = Chrome::default();
+        let with = Chrome { sidebar: Some(Sidebar { rows: Vec::new(), selected: 0, focused: false }), ..Chrome::default() };
+        assert_eq!(beside_sidebar(full, true, &none).x, 0);
+        assert_eq!(beside_sidebar(full, true, &with).x, SIDEBAR_WIDTH);
+        let narrow = Rect { width: SIDEBAR_MIN_WIDTH - 1, ..full };
+        assert_eq!(beside_sidebar(narrow, true, &with).x, 0, "too narrow for it");
     }
 }

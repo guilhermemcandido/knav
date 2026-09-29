@@ -43,15 +43,14 @@ mod style;
 pub use self::columns::*;
 use self::dashboard::draw_dashboard;
 pub use self::nav::*;
-pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, set_sidebar, sidebar_area, sidebar_row_at};
+pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, sidebar_area, sidebar_row_at};
 
 /// The area the relations diagram is drawn in.
 pub fn relations_inner(frame_area: Rect) -> Rect {
     Block::default().borders(Borders::ALL).inner(body_area(frame_area, true))
 }
 use self::health::*;
-pub use self::style::{set_content_unfocused, set_list_focused, set_title_reserve};
-pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, set_side_panel, side_panel_width, SIDE_PANEL_MIN_WIDTH};
+pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{DEFAULT_ZOOM, Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor, zoom_in, zoom_out};
 pub use self::header::*;
 pub use self::loading::{Loading, draw_loading};
@@ -334,8 +333,16 @@ pub struct PathSegment {
 
 #[allow(clippy::too_many_arguments)]
 /// Whether the rows are a resource list (not the Overview).
-fn draw_sidebar_if_any(frame: &mut Frame, area: Rect, dimmed: bool) {
-    sidebar::draw_sidebar(frame, area, dimmed);
+/// What sits around the main content this frame. The app builds it before
+/// drawing and hit-tests the mouse against the same one.
+#[derive(Default)]
+pub struct Chrome {
+    pub sidebar: Option<Sidebar>,
+    pub panel: Option<SidePanel>,
+    /// The list has the keys while a panel is open beside it.
+    pub list_focused: bool,
+    /// The sidebar has the keys, so what is beside it shows no selection.
+    pub content_unfocused: bool,
 }
 
 /// Whether `rows` is a resource list: not the Overview, and not a bespoke
@@ -372,6 +379,7 @@ pub fn draw(
     hscroll: &mut usize,
     // Rows marked with Space, by `mark_key`.
     marked: &HashSet<String>,
+    chrome: &Chrome,
 ) {
     // Popups dim what's behind them. The `:` command line only softens it a
     // little (below), and the `/` search is a bar in the page: the list stays
@@ -410,16 +418,17 @@ pub fn draw(
     let full = frame.area();
     // The search on a list's top border keeps clear of the badges in its corner.
     // Room for all three, so the search stays put as they come and go.
-    set_title_reserve(if !is_list_kind(&rows) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 });
+    let title_reserve = if !is_list_kind(&rows) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 };
+    let look = ListLook { dimmed, focused: chrome.list_focused, unfocused: chrome.content_unfocused, title_reserve };
     // The namespace-shortcut line is for the resource lists; the main
     // Overview and the dashboards keep just the info line.
     let shortcuts_line = is_list_kind(&rows);
-    let side = sidebar_area(full, shortcuts_line);
-    draw_sidebar_if_any(frame, side, dimmed);
-    let body = beside_sidebar(full, shortcuts_line);
+    let side = sidebar_area(full, shortcuts_line, chrome);
+    sidebar::draw_sidebar(frame, side, dimmed, chrome);
+    let body = beside_sidebar(full, shortcuts_line, chrome);
     // A panel beside the list (`i`) takes the right of the body.
     let full_body = body;
-    let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width).min(body.width), ..body } } else { body };
+    let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width, chrome).min(body.width), ..body } } else { body };
     // The `:` command line takes a bar under the header and pushes the
     // list down, k9s-style.
     let (command_bar, body) = match &overlay {
@@ -461,7 +470,7 @@ pub fn draw(
     };
     let is_overview = matches!(rows, Rows::Overview(..));
     if is_list_kind(&rows) && overlay.is_none() {
-        details::draw_side_panel(frame, full_body);
+        details::draw_side_panel(frame, full_body, chrome);
     }
     // What to say in the middle of a list with nothing in it.
     let empty_message = match &rows {
@@ -475,7 +484,7 @@ pub fn draw(
     .map(|label| empty_list_message(label, search.text, header.faults_only));
     match rows {
         Rows::Pods(pods) => {
-            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, dimmed);
+            draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, look);
 
             // The hover popup is separate from the status line and only shows while the
             // cursor is over a container dot, floating near the cursor.
@@ -487,22 +496,22 @@ pub fn draw(
             }
         }
         Rows::Deployments(deployments) => {
-            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, header.wide, dimmed);
+            draw_deployment_table(frame, body, deployments, table_state, search, sort, hscroll, marked, header.wide, look);
         }
         Rows::Nodes(nodes) => {
-            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, dimmed);
+            draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, look);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
             // With the keys in the sidebar nothing on Home is selected: a column that does not exist
             // matches no box.
-            let selection = if content_unfocused() { OverviewSelection::Header(usize::MAX) } else { selection };
+            let selection = if chrome.content_unfocused { OverviewSelection::Header(usize::MAX) } else { selection };
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
         Rows::Generic(rows, label, kind_headers) => {
-            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, header.wide, dimmed);
+            draw_generic_table(frame, body, rows, label, kind_headers, table_state, search, sort, hscroll, marked, header.wide, look);
         }
         Rows::CrdList(crds, counts, heading) => {
-            draw_crd_list_table(frame, body, crds, counts, heading, table_state, search, sort, hscroll, dimmed);
+            draw_crd_list_table(frame, body, crds, counts, heading, table_state, search, sort, hscroll, look);
         }
         Rows::Dashboard(title, content, scroll) => {
             draw_dashboard(frame, body, title, content, scroll, dimmed);

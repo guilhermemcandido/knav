@@ -170,9 +170,9 @@ pub(crate) fn run(
         if st.sidebar {
             let all = sidebar::entries(st.current_kind, &st.sidebar_folded, catalog, overview);
             let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
-            ui::set_sidebar(Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus }));
+            st.chrome.sidebar = Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus });
         } else {
-            ui::set_sidebar(None);
+            st.chrome.sidebar = None;
         }
         // The info panel beside the list follows the selected row.
         let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
@@ -193,18 +193,18 @@ pub(crate) fn run(
                         st.info_scroll = st.info_scroll.min(down);
                         st.info_hscroll = st.info_hscroll.min(right);
                     }
-                    ui::set_side_panel(Some(ui::SidePanel { title: mode::object_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus }));
+                    st.chrome.panel = Some(ui::SidePanel { title: mode::object_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus });
                 }
-                None => ui::set_side_panel(None),
+                None => st.chrome.panel = None,
             }
         } else {
-            ui::set_side_panel(None);
+            st.chrome.panel = None;
         }
         // With the sidebar or the info panel open, the border of whichever pane has the keys is lit.
         let sidebar_shown = st.sidebar && terminal.size().map(|s| s.width >= ui::SIDEBAR_MIN_WIDTH).unwrap_or(false);
         let beside_others = (st.info_panel && panel_wide) || sidebar_shown;
-        ui::set_content_unfocused(sidebar_shown && st.sidebar_focus && matches!(st.mode, Mode::List));
-        ui::set_list_focused(beside_others && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview && !st.info_focus && !st.sidebar_focus);
+        st.chrome.content_unfocused = sidebar_shown && st.sidebar_focus && matches!(st.mode, Mode::List);
+        st.chrome.list_focused = beside_others && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview && !st.info_focus && !st.sidebar_focus;
         // Marks belong to the list they were made in.
         if st.marked_kind != st.current_kind {
             st.marked.clear();
@@ -226,6 +226,7 @@ pub(crate) fn run(
             favorites: &st.favorites,
             hints: &hints,
             show_hints_panel: st.show_hints_panel,
+            chrome: &st.chrome,
             path: &path_segments,
             header_now: &header_now,
             search: &st.search,
