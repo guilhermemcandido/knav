@@ -1,13 +1,9 @@
 mod app;
 mod config;
-mod extensions;
 mod input;
-mod k8s;
 mod ops;
 mod startup;
-mod theme;
 mod ui;
-mod util;
 
 use std::io::stdout;
 
@@ -15,6 +11,10 @@ use anyhow::Result;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::{Node, Pod}};
+
+use knav_common::{theme, util};
+use knav_extensions as extensions;
+use knav_k8s as k8s;
 
 use app::settings;
 use config::Config;

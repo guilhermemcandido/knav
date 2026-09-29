@@ -3,7 +3,7 @@ docs/demo.cast
 
 # The worked-example WASM guest crates build outside the main Cargo graph
 # (see examples/*/src/lib.rs) — their own target dirs and built components
-# aren't checked in; src/extensions/dashboards/testdata/*.wasm are the
+# aren't checked in; crates/knav-extensions/src/dashboards/testdata/*.wasm are the
 # canonical copies the tests actually use.
 examples/*/target/
 examples/*/*.wasm

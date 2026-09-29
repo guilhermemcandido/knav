@@ -1,5 +1,5 @@
 // A worked example proving the WASM dashboard path end to end: real Rust,
-// compiled to a component, with zero imports (see ../../wit/dashboard.wit).
+// compiled to a component, with zero imports (see ../../crates/knav-extensions/wit/dashboard.wit).
 // It counts the objects it's handed and renders one line — enough to prove
 // the whole round trip (manifest -> compile -> instantiate -> fetch ->
 // call -> render) without needing real cluster data to be interesting.
@@ -12,7 +12,7 @@
 //     -o dashboard.wasm
 
 wit_bindgen::generate!({
-    path: "../../wit/dashboard.wit",
+    path: "../../crates/knav-extensions/wit/dashboard.wit",
     world: "dashboard",
 });
 

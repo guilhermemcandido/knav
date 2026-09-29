@@ -1,0 +1,19 @@
+[package]
+name = "knav-extensions"
+description = "knav's read-only extensions: manifests, dashboards and sandboxed WASM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+knav-common = { path = "../knav-common", version = "0.1.0" }
+knav-k8s = { path = "../knav-k8s", version = "0.1.0" }
+k8s-openapi.workspace = true
+kube.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+toml.workspace = true
+wasmtime.workspace = true

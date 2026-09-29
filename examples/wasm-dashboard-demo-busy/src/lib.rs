@@ -6,7 +6,7 @@
 // Build the same way as ../wasm-dashboard-demo, see its src/lib.rs.
 
 wit_bindgen::generate!({
-    path: "../../wit/dashboard.wit",
+    path: "../../crates/knav-extensions/wit/dashboard.wit",
     world: "dashboard",
 });
 

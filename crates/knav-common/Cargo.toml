@@ -1,0 +1,13 @@
+[package]
+name = "knav-common"
+description = "Text helpers and the colour theme shared by knav's crates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ratatui.workspace = true
+serde.workspace = true
+toml.workspace = true
+unicode-width.workspace = true

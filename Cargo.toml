@@ -10,7 +10,18 @@ keywords = ["kubernetes", "tui", "k9s", "kubectl", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["docs/demo.cast", "TODO.md"]
 
-[dependencies]
+[workspace]
+members = ["crates/knav-common", "crates/knav-k8s", "crates/knav-extensions"]
+# The WASM guest examples build on their own, for another target.
+exclude = ["examples"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/guilhermemcandido/knav"
+
+[workspace.dependencies]
 anyhow = "1.0.104"
 base64 = "0.22"
 crossterm = "0.29.0"
@@ -35,3 +46,29 @@ toml_edit = "0.25.15"
 tui-tree-widget = "0.24.1"
 vt100 = "0.16.2"
 wasmtime = { version = "=49.0.0", default-features = false, features = ["component-model", "runtime", "cranelift"] }
+
+[dependencies]
+knav-common = { path = "crates/knav-common", version = "0.1.0" }
+knav-k8s = { path = "crates/knav-k8s", version = "0.1.0" }
+knav-extensions = { path = "crates/knav-extensions", version = "0.1.0" }
+anyhow.workspace = true
+base64.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+image.workspace = true
+k8s-openapi.workspace = true
+kube.workspace = true
+portable-pty.workspace = true
+ratatui.workspace = true
+ratatui-image.workspace = true
+resvg.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tui-tree-widget.workspace = true
+unicode-width.workspace = true
+vt100.workspace = true
