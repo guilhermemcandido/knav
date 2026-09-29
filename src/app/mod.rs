@@ -70,6 +70,17 @@ pub(crate) struct Session<'a> {
     pub read_only: bool,
 }
 
+/// The header's role: what RBAC allows, and `read-only` beside it when knav blocks
+/// changes on top (`admin, read-only`).
+fn role_label(role: &str, read_only: bool) -> String {
+    match (role, read_only) {
+        (_, false) => role.to_string(),
+        ("", true) => "read-only".into(),
+        (r, true) if r.starts_with("read-only") || r == "limited" => r.to_string(),
+        (r, true) => format!("{r}, read-only"),
+    }
+}
+
 pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catalog: &mut Catalog, registry: &extensions::Registry, session: Session, notes: Vec<String>) -> Result<SessionEnd> {
     let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx } = stores;
     let Session { client, config, active_context, header, read_only } = session;
@@ -163,13 +174,13 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             namespace_slots: st.favorites.slots.clone(),
             faults_only: st.faults_only,
             wide: st.wide,
-            role: if st.read_only() { "read-only".into() } else { header.role.clone() },
+            role: role_label(&header.role, st.read_only()),
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };
         let path_segments = full_path(&st.mode, location(st.current_kind, &st.back_stack, st.scope.as_ref()));
         let screen = mode::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
-        let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
+        let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().filter(|h| !(st.read_only() && changes_cluster(h))).map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {
@@ -265,5 +276,19 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             }
         }
         cache = Some(fresh);
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::role_label;
+
+    #[test]
+    fn read_only_mode_keeps_the_real_role_beside_it() {
+        assert_eq!(role_label("admin", false), "admin");
+        assert_eq!(role_label("admin", true), "admin, read-only");
+        assert_eq!(role_label("read-write (team)", true), "read-write (team), read-only");
+        assert_eq!(role_label("read-only", true), "read-only", "no need to say it twice");
+        assert_eq!(role_label("", true), "read-only");
     }
 }

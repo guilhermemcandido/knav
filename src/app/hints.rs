@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// Whether a hint's key changes the cluster, so read-only mode leaves it out.
+pub(crate) fn changes_cluster(hint: &(&str, &str)) -> bool {
+    matches!(*hint, ("e", "edit") | ("D", "delete") | ("S", "shell" | "scale") | ("r", "restart") | ("c", "cordon") | ("t", "trigger") | ("u", "suspend"))
+}
+
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
