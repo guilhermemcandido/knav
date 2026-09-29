@@ -54,8 +54,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
         ("Cluster:", info.cluster.as_str()),
         ("User:", info.user.as_str()),
         ("Role:", info.role.as_str()),
-        ("K8s Version:", info.k8s_version.as_str()),
-        ("knav Version:", info.knav_version.as_str()),
+        ("K8s:", info.k8s_version.as_str()),
+        ("knav:", info.knav_version.as_str()),
     ];
     // The top-right corner is the help indicator's; trailing fields drop when narrow.
     let start_x = left.clamp(area.x, (area.x + area.width).saturating_sub(1));
