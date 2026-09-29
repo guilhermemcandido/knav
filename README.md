@@ -51,6 +51,14 @@ Press `?` anywhere for the keys on that screen. The essentials:
 Optional, in `~/.config/knav/config.toml`. Themes, keys and layout can all be changed
 from the Settings screen (`,`).
 
+Icons use your terminal's image support (Kitty, Sixel or iTerm2). If they look wrong,
+turn them off:
+
+```toml
+[ui]
+icons = false
+```
+
 ## License
 
 MIT or Apache-2.0.
