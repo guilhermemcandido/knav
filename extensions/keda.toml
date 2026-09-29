@@ -7,7 +7,7 @@
 [extension]
 id = "keda"
 name = "KEDA"
-description = "ScaledObjects and ScaledJobs, with their condition status"
+description = "Event-driven autoscaling: ScaledObjects and ScaledJobs"
 
 [[extension.kind]]
 group = "keda.sh"

@@ -10,7 +10,7 @@
 [extension]
 id = "crossplane"
 name = "Crossplane"
-description = "Providers, CompositeResourceDefinitions and Compositions"
+description = "Infrastructure as Kubernetes APIs: providers, XRDs and compositions"
 
 [[extension.kind]]
 group = "pkg.crossplane.io"

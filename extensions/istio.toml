@@ -9,7 +9,7 @@
 [extension]
 id = "istio"
 name = "Istio"
-description = "VirtualServices, Gateways, DestinationRules and auth policies"
+description = "Service mesh config: routing, gateways and security policies"
 
 [[extension.kind]]
 group = "networking.istio.io"

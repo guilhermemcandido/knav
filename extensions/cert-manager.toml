@@ -8,7 +8,7 @@
 [extension]
 id = "cert-manager"
 name = "cert-manager"
-description = "Certificates, CertificateRequests, Issuers and ClusterIssuers, with their Ready status"
+description = "TLS certificates: expiry dates, issuers and pending requests"
 
 [[extension.kind]]
 group = "cert-manager.io"

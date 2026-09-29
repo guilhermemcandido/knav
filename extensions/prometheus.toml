@@ -10,7 +10,7 @@
 [extension]
 id = "prometheus"
 name = "Prometheus"
-description = "Prometheus and Alertmanager instances, with their condition status"
+description = "Monitoring: Prometheus and Alertmanager instances and their health"
 
 [[extension.kind]]
 group = "monitoring.coreos.com"

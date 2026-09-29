@@ -9,7 +9,7 @@
 [extension]
 id = "gatekeeper"
 name = "OPA Gatekeeper"
-description = "ConstraintTemplates"
+description = "Admission policy: ConstraintTemplates and whether each one took effect"
 
 [[extension.kind]]
 group = "templates.gatekeeper.sh"

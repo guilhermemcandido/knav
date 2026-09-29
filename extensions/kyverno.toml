@@ -8,7 +8,7 @@
 [extension]
 id = "kyverno"
 name = "Kyverno"
-description = "ClusterPolicies, Policies and their PolicyReports"
+description = "Policy engine: policies and the pass/fail reports they produce"
 
 [[extension.kind]]
 group = "kyverno.io"

@@ -8,7 +8,7 @@
 [extension]
 id = "helm"
 name = "Helm"
-description = "Real Helm releases: chart, revision, status"
+description = "Installed releases with chart, revision and status, plus k3s HelmCharts"
 
 [[extension.kind]]
 group = "helm.cattle.io"

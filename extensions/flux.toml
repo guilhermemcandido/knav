@@ -1,11 +1,11 @@
 # Flux — GitOps reconciliation status, view-only.
-# Bundled with knav, off by default; enable in Settings > Extensions.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
 # Schema: see src/extensions/manifest.rs.
 
 [extension]
 id = "flux"
 name = "Flux"
-description = "Kustomizations, HelmReleases and sources, with reconciliation status"
+description = "GitOps delivery: Kustomizations, HelmReleases and their Git/OCI sources"
 
 [[extension.kind]]
 group = "kustomize.toolkit.fluxcd.io"

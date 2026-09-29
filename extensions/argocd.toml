@@ -1,11 +1,11 @@
 # Argo CD — Application sync status, view-only.
-# Bundled with knav, off by default; enable in Settings > Extensions.
+# Bundled with knav, off by default; enable in the Extensions screen (E).
 # Schema: see src/extensions/manifest.rs.
 
 [extension]
 id = "argocd"
 name = "Argo CD"
-description = "Applications, with sync status"
+description = "GitOps delivery: Applications and whether they're in sync"
 
 [[extension.kind]]
 group = "argoproj.io"
