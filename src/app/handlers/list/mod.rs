@@ -407,12 +407,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let acts = action.is_some() || shell || (c == 'S' && target.scalable());
                     if acts && st.refuse_if_read_only() {
                     } else if c == 'S' && target.scalable() {
-                        st.mode = Mode::Scale { input: target.replicas().to_string(), fresh: true, targets, back: Box::new(Mode::List) };
+                        st.mode = Mode::Scale { input: target.replicas().to_string(), fresh: true, yes: true, targets, back: Box::new(Mode::List) };
                     } else if shell {
                         open_pod(st, cx, &target, PodView::Shell);
                     } else if let Some(action) = action {
                         if let Some(spec) = actions::confirm_spec(action, &targets) {
-                            st.mode = Mode::Confirm { spec, targets, action, back: Box::new(Mode::List) };
+                            // Enter alone shouldn't do anything destructive, so those start on Cancel.
+                            let yes = !spec.danger;
+                            st.mode = Mode::Confirm { spec, targets, action, yes, back: Box::new(Mode::List) };
                         } else {
                             crate::app::jobs::run_action(st, client, targets, action, Box::new(Mode::List));
                         }

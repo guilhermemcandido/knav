@@ -114,10 +114,10 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, overlay, false);
                 })?;
             }
-            Mode::Confirm { spec, .. } => {
+            Mode::Confirm { spec, yes, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Confirm { spec };
+                    let overlay = ui::Overlay::Confirm { spec, yes: *yes };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -222,22 +222,22 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
-            Mode::OpenUrl { text, url, .. } => {
+            Mode::OpenUrl { text, url, yes, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     // The lines before the question say what just happened.
                     let notes = text.lines().filter(|l| !l.starts_with("Open ")).map(|l| (l.to_string(), false)).collect();
                     let spec = crate::ops::actions::ConfirmSpec { title: "Open it in the browser?".into(), verb: "Open".into(), danger: false, subjects: vec![("URL".into(), url.clone())], notes };
-                    let overlay = ui::Overlay::Confirm { spec: &spec };
+                    let overlay = ui::Overlay::Confirm { spec: &spec, yes: *yes };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
-            Mode::Scale { targets, input, .. } => {
+            Mode::Scale { targets, input, yes, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let subjects = targets.iter().map(|t| (t.kind.clone(), t.namespace.as_ref().map_or(t.name.clone(), |ns| format!("{ns}/{}", t.name)), t.ready_text())).collect();
                     let current = targets.first().map(|t| t.replicas()).filter(|now| targets.iter().all(|t| t.replicas() == *now));
-                    let overlay = ui::Overlay::Scale(ui::ScaleView { subjects, value: input, current });
+                    let overlay = ui::Overlay::Scale(ui::ScaleView { subjects, value: input, current, yes: *yes });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

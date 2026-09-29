@@ -4,6 +4,21 @@ use crate::ops::NoticeTone;
 use super::super::*;
 use super::Cx;
 
+/// A key on a yes/no dialog: `Some(true)` for yes, `Some(false)` for no, `None` when
+/// it only moved the focus between the buttons (or did nothing).
+fn answer(code: KeyCode, yes: &mut bool) -> Option<bool> {
+    match code {
+        KeyCode::Char('y') => Some(true),
+        KeyCode::Char('n' | 'q') | KeyCode::Esc => Some(false),
+        KeyCode::Enter => Some(*yes),
+        KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab | KeyCode::Char('h' | 'l') => {
+            *yes = !*yes;
+            None
+        }
+        _ => None,
+    }
+}
+
 const MAX_DIGITS: usize = 5;
 
 /// One up or down from `input`, never below 0 or past `MAX_DIGITS` digits.
@@ -15,15 +30,14 @@ fn step(input: &str, up: bool) -> i64 {
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
-        Mode::Confirm { spec, targets, action, back } => match key.code {
-            // A destructive action needs an explicit `y`; Enter only confirms the mild ones.
-            KeyCode::Char('y') | KeyCode::Enter if key.code == KeyCode::Char('y') || !spec.danger => {
+        Mode::Confirm { targets, action, yes, back, .. } => match answer(key.code, yes) {
+            Some(true) => {
                 let (targets, action) = (std::mem::take(targets), *action);
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 crate::app::jobs::run_action(st, cx.client, targets, action, back);
             }
-            KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
-            _ => {}
+            Some(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
+            None => {}
         },
         Mode::Working { job, back } => {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
@@ -35,8 +49,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 };
             }
         }
-        Mode::OpenUrl { url, back, .. } => match key.code {
-            KeyCode::Char('y') | KeyCode::Enter => {
+        Mode::OpenUrl { url, yes, back, .. } => match answer(key.code, yes) {
+            Some(true) => {
                 let result = portforward::open_in_browser(url);
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 st.mode = match result {
@@ -44,11 +58,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     Err(e) => Mode::Notice { text: format!("{e:#}"), tone: NoticeTone::Failed, back },
                 };
             }
-            KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
-            _ => {}
+            Some(false) => st.mode = std::mem::replace(&mut **back, Mode::List),
+            None => {}
         },
-        Mode::Scale { targets, input, fresh, back } => match key.code {
+        Mode::Scale { targets, input, fresh, yes, back } => match key.code {
             KeyCode::Esc | KeyCode::Char('q') => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Tab | KeyCode::BackTab => *yes = !*yes,
+            KeyCode::Enter if !*yes => st.mode = std::mem::replace(&mut **back, Mode::List),
             KeyCode::Up | KeyCode::Right | KeyCode::Down | KeyCode::Left | KeyCode::Char('+' | '-' | 'k' | 'j' | 'l' | 'h') => {
                 let up = matches!(key.code, KeyCode::Up | KeyCode::Right | KeyCode::Char('+' | 'k' | 'l'));
                 *input = step(input, up).to_string();
@@ -125,7 +141,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
 
 #[cfg(test)]
 mod tests {
-    use super::step;
+    use super::{answer, step};
+    use crossterm::event::KeyCode;
+
+    #[test]
+    fn arrows_move_the_focus_and_enter_presses_it() {
+        let mut yes = false;
+        assert_eq!(answer(KeyCode::Enter, &mut yes), Some(false), "starts on Cancel");
+        assert_eq!(answer(KeyCode::Left, &mut yes), None);
+        assert_eq!(answer(KeyCode::Enter, &mut yes), Some(true));
+        assert_eq!(answer(KeyCode::Char('n'), &mut yes), Some(false), "n cancels wherever the focus is");
+        assert_eq!(answer(KeyCode::Tab, &mut yes), None);
+        assert_eq!(answer(KeyCode::Char('y'), &mut yes), Some(true), "y confirms wherever the focus is");
+    }
 
     #[test]
     fn steps_stay_between_zero_and_the_digit_limit() {

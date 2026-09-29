@@ -95,6 +95,8 @@ pub struct ScaleView<'a> {
     pub subjects: Vec<(String, String, String)>,
     pub value: &'a str,
     pub current: Option<i64>,
+    /// Scale has focus, not Cancel.
+    pub yes: bool,
 }
 
 pub enum Overlay<'a> {
@@ -115,7 +117,7 @@ pub enum Overlay<'a> {
     /// A short result message; any key closes it.
     Notice { text: &'a str, tone: crate::ops::NoticeTone },
     /// A yes/no question about a destructive action.
-    Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
+    Confirm { spec: &'a crate::ops::actions::ConfirmSpec, yes: bool },
     /// Only dims the screen, for the moment between a question and its answer.
     Backdrop,
     /// A background job: what, for how long, and progress (`total` 0 when unknown).
@@ -599,7 +601,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
         Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
-        Overlay::Confirm { spec } => draw_confirm_popup(frame, spec),
+        Overlay::Confirm { spec, yes } => draw_confirm_popup(frame, spec, yes),
         Overlay::Backdrop => {}
         Overlay::Scale(view) => draw_scale_popup(frame, &view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),

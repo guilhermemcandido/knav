@@ -135,7 +135,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
                 Mode::Notice { text, tone: NoticeTone::Done, back }
             } else {
                 text.push_str(&format!("\nOpen {url} in the browser?"));
-                Mode::OpenUrl { text, url, back }
+                Mode::OpenUrl { text, url, yes: true, back }
             };
         }
         Done::Ready(key) => {

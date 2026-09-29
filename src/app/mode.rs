@@ -54,15 +54,17 @@ pub(crate) enum Mode {
     Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, zoom: usize, back: Box<Mode> },
     /// A background job (an action, a connection check, a port-forward) is running.
     Working { job: crate::app::jobs::Job, back: Box<Mode> },
-    /// Asks before an action (`y` or Enter does it, `n` or Esc cancels).
-    Confirm { spec: actions::ConfirmSpec, targets: Vec<Target>, action: Action, back: Box<Mode> },
-    /// Offers to open a URL in the browser (`y`/Enter does, `n`/Esc doesn't).
-    OpenUrl { text: String, url: String, back: Box<Mode> },
+    /// Asks before an action. `yes` is the focused button, which the arrows move and
+    /// Enter presses; `y` and `n` work anywhere.
+    Confirm { spec: actions::ConfirmSpec, targets: Vec<Target>, action: Action, yes: bool, back: Box<Mode> },
+    /// Offers to open a URL in the browser, with buttons like `Confirm`.
+    OpenUrl { text: String, url: String, yes: bool, back: Box<Mode> },
     /// The port-forward dialog.
     Ports { target: Target, form: crate::ops::portforward::PortForm, back: Box<Mode> },
     /// Asks for a replica count, stepped with the arrows or typed. `fresh` means the
-    /// number is still the current count, so the first digit typed replaces it.
-    Scale { targets: Vec<Target>, input: String, fresh: bool, back: Box<Mode> },
+    /// number is still the current count, so the first digit typed replaces it. The
+    /// arrows change the number, so Tab moves between the buttons (`yes` is Scale).
+    Scale { targets: Vec<Target>, input: String, fresh: bool, yes: bool, back: Box<Mode> },
     Spec {
         title: String,
         items: Vec<TreeItem<'static, String>>,

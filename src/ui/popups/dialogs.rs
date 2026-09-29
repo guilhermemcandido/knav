@@ -48,9 +48,15 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// The confirmation dialog: what is about to happen, to what, and two buttons.
-/// Destructive actions are red and need an explicit `y`.
-pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::actions::ConfirmSpec) {
+/// A dialog button: filled with `fill` when focused, quiet otherwise.
+fn dialog_button(text: &str, fill: Color, focused: bool) -> Span<'static> {
+    let style = if focused { Style::default().bg(fill).fg(crate::theme::on(fill)).add_modifier(Modifier::BOLD) } else { Style::default().bg(theme().pill_bg).fg(theme().muted) };
+    Span::styled(text.to_string(), style)
+}
+
+/// The confirmation dialog: what is about to happen, to what, and two buttons with
+/// `yes` telling which has focus. Destructive actions are red.
+pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::actions::ConfirmSpec, yes: bool) {
     let full = frame.area();
     let color = if spec.danger { theme().bad } else { theme().accent };
     let width = narrow_dialog_width(full.width).min(full.width);
@@ -76,11 +82,11 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
     }
     lines.push(Line::raw(""));
     let key = |k: &str| Span::styled(k.to_string(), Style::default().add_modifier(Modifier::BOLD));
-    let yes = Span::styled(format!("  y  {}  ", spec.verb), Style::default().bg(color).fg(crate::theme::on(color)).add_modifier(Modifier::BOLD));
-    let no = Span::styled("  n  Cancel  ", Style::default().bg(theme().pill_bg).fg(theme().text_strong));
-    lines.push(Line::from(vec![yes, Span::raw("   "), no]).centered());
+    let ok = dialog_button(&format!("  y  {}  ", spec.verb), color, yes);
+    let cancel = dialog_button("  n  Cancel  ", theme().select_bg, !yes);
+    lines.push(Line::from(vec![ok, Span::raw("   "), cancel]).centered());
     lines.push(Line::raw(""));
-    lines.push(Line::from(vec![if spec.danger { key("y") } else { key("y / enter") }, Span::styled(" confirms   ", muted), key("n / esc"), Span::styled(" cancels", muted)]).centered());
+    lines.push(Line::from(vec![key("←→"), Span::styled(" choose   ", muted), key("enter"), Span::styled(" press   ", muted), key("esc"), Span::styled(" cancel", muted)]).centered());
     // Wrapped notes can take more than one row each.
     let wrapped: usize = lines.iter().map(|l| (l.width() / inner_w.max(1)) + 1).sum();
     let height = (wrapped as u16 + 2).min(full.height);
@@ -179,12 +185,10 @@ pub(in crate::ui) fn draw_scale_popup(frame: &mut Frame, view: &ScaleView) {
     lines.push(Line::styled(change, style).centered());
     lines.push(Line::raw(""));
 
-    let ok = Span::styled("  enter  Scale  ", Style::default().bg(color).fg(crate::theme::on(color)).add_modifier(Modifier::BOLD));
-    let cancel = Span::styled("  esc  Cancel  ", Style::default().bg(theme().pill_bg).fg(theme().text_strong));
-    lines.push(Line::from(vec![ok, Span::raw("   "), cancel]).centered());
+    lines.push(Line::from(vec![dialog_button("  Scale  ", color, view.yes), Span::raw("   "), dialog_button("  esc  Cancel  ", theme().select_bg, !view.yes)]).centered());
     lines.push(Line::raw(""));
     let key = |k: &str| Span::styled(k.to_string(), Style::default().add_modifier(Modifier::BOLD));
-    lines.push(Line::from(vec![key("↑↓ ←→"), Span::styled(" change   ", muted), key("0-9"), Span::styled(" type a number", muted)]).centered());
+    lines.push(Line::from(vec![key("↑↓"), Span::styled(" or ", muted), key("0-9"), Span::styled(" change   ", muted), key("tab"), Span::styled(" choose   ", muted), key("enter"), Span::styled(" press", muted)]).centered());
 
     let height = (lines.len() as u16 + 2).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
