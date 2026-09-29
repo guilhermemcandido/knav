@@ -20,7 +20,8 @@ fn style_of(style: DStyle) -> Style {
     }
 }
 
-/// `text` cut into `width`-cell pieces on whole characters.
+/// `text` cut into pieces of at most `width` cells, breaking after a `/`, `.`, `:`,
+/// `,`, `=` or `-` when one is in reach, else on any character.
 fn wrap_at(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut pieces = Vec::new();
@@ -28,8 +29,11 @@ fn wrap_at(text: &str, width: usize) -> Vec<String> {
     for ch in text.chars() {
         let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
         if used + w > width && !piece.is_empty() {
-            pieces.push(std::mem::take(&mut piece));
-            used = 0;
+            // Carry the part after the last break over, unless that leaves nothing.
+            let cut = piece.char_indices().filter(|(_, c)| matches!(c, '/' | '.' | ':' | ',' | '=' | '-')).map(|(i, c)| i + c.len_utf8()).next_back().filter(|&i| i < piece.len());
+            let rest = cut.map(|i| piece.split_off(i)).unwrap_or_default();
+            pieces.push(std::mem::replace(&mut piece, rest));
+            used = cell_width(&piece);
         }
         piece.push(ch);
         used += w;
@@ -40,40 +44,43 @@ fn wrap_at(text: &str, width: usize) -> Vec<String> {
     pieces
 }
 
-/// A run of chunks starting after `indent` cells, wrapping under that indent.
+/// A run of chunks after `first_prefix`, wrapping under `indent` cells. A prefix wider
+/// than `indent` (a long label) pushes the first line's chunks right, not the rest.
 fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut used = first_prefix.iter().map(|s| cell_width(&s.content)).sum::<usize>().max(indent);
     let mut spans = first_prefix;
-    let mut used = indent;
+    // Nothing but the prefix or indent on the line yet.
+    let mut fresh = true;
     let mut previous_chip = false;
-    // A pill wider than a whole line (a long annotation value) wraps instead of
-    // running off the edge; its background still reads as one pill.
-    let usable = width.saturating_sub(indent).max(1);
     for chunk in chunks {
         let chip = chunk.style.is_chip();
         let text = if chip { format!(" {} ", chunk.text) } else { chunk.text.clone() };
         let gap = usize::from(chip && previous_chip);
         let w = cell_width(&text);
-        if chip && w > usable {
-            if used > indent {
-                lines.push(Line::from(std::mem::take(&mut spans)));
-            }
-            for piece in wrap_at(&text, usable) {
-                lines.push(Line::from(vec![Span::raw(" ".repeat(indent)), Span::styled(piece, style_of(chunk.style))]));
-            }
-            spans = vec![Span::raw(" ".repeat(indent))];
-            used = indent;
-            previous_chip = false;
-            continue;
-        }
         // Only pills wrap; text stays on its line and is reached by scrolling sideways.
-        if chip && used + gap + w > width && used > indent {
+        if chip && !fresh && used + gap + w > width {
             lines.push(Line::from(std::mem::take(&mut spans)));
             spans.push(Span::raw(" ".repeat(indent)));
             used = indent;
         } else if gap > 0 {
             spans.push(Span::raw(" "));
             used += 1;
+        }
+        // A pill wider than the room left is cut into padded pieces, one per line, so
+        // its background still reads as one pill.
+        if chip && used + w > width {
+            for (i, piece) in wrap_at(&chunk.text, width.saturating_sub(used + 2).max(1)).into_iter().enumerate() {
+                if i > 0 {
+                    lines.push(Line::from(std::mem::replace(&mut spans, vec![Span::raw(" ".repeat(indent))])));
+                    used = indent;
+                }
+                used += cell_width(&piece) + 2;
+                spans.push(Span::styled(format!(" {piece} "), style_of(chunk.style)));
+            }
+            fresh = false;
+            previous_chip = true;
+            continue;
         }
         if chunk.style == DStyle::PairChip
             && let Some((key, value)) = chunk.text.split_once('=')
@@ -87,12 +94,10 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
             spans.push(Span::styled(text, style_of(chunk.style)));
         }
         used += w;
+        fresh = false;
         previous_chip = chip;
     }
-    // Skip a last line that is only the indent, left behind by an oversized pill.
-    if used > indent || lines.is_empty() {
-        lines.push(Line::from(spans));
-    }
+    lines.push(Line::from(spans));
     lines
 }
 
@@ -107,13 +112,13 @@ pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'sta
             match line {
                 DLine::Blank => out.push(Line::raw("")),
                 DLine::Field(label, chunks) => {
-                    let prefix = vec![Span::styled(format!("  {label:<w$}", w = LABEL_W), Style::default().fg(theme().muted))];
+                    let prefix = vec![Span::styled(format!("  {label:<w$} ", w = LABEL_W - 1), Style::default().fg(theme().muted))];
                     out.extend(flow(prefix, LABEL_W + 2, chunks, width));
                 }
                 DLine::Item(chunks) => out.extend(flow(vec![Span::raw("  ")], 2, chunks, width)),
                 DLine::Pad(indent, chunks) => out.extend(flow(vec![Span::raw(" ".repeat(*indent))], *indent, chunks, width)),
                 DLine::Sub(label, chunks) => {
-                    let prefix = vec![Span::styled(format!("      {label:<10}"), Style::default().fg(theme().muted))];
+                    let prefix = vec![Span::styled(format!("      {label:<9} "), Style::default().fg(theme().muted))];
                     out.extend(flow(prefix, 16, chunks, width));
                 }
             }
@@ -239,7 +244,7 @@ mod flow_tests {
     fn a_pill_wider_than_the_line_wraps_instead_of_running_off_the_edge() {
         // 40 cells, more than this test's width of 20 can hold on one line.
         let long = "a".repeat(40);
-        let lines = flow(vec![Span::raw("Annotations ")], 12, &[pair("some.thing.io/key", &long)], 20);
+        let lines = flow(vec![Span::raw("Notes ")], 6, &[pair("some.thing.io/key", &long)], 20);
         assert!(lines.len() > 1, "expected the oversized pill to wrap across lines, got {}", lines.len());
         for line in &lines {
             assert!(line.width() <= 20, "line {line:?} is {} cells wide, wider than the 20-cell limit", line.width());
@@ -248,6 +253,37 @@ mod flow_tests {
         // so the run can't be searched for intact.
         let count = lines.iter().flat_map(|l| l.spans.iter()).flat_map(|s| s.content.chars()).filter(|&c| c == 'a').count();
         assert_eq!(count, 40);
+    }
+
+    fn text(lines: &[Line]) -> Vec<String> {
+        lines.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>()).collect()
+    }
+
+    #[test]
+    fn an_oversized_first_pill_keeps_the_label() {
+        let lines = flow(vec![Span::raw("  Tolerations ")], 14, &[chip("node.kubernetes.io/unreachable:NoExecute")], 40);
+        assert!(text(&lines)[0].starts_with("  Tolerations "), "{:?}", text(&lines));
+    }
+
+    #[test]
+    fn a_pill_a_cell_too_wide_does_not_leave_a_blank_pill_line() {
+        // 38 characters plus padding is 40, one more than the 39 cells there are.
+        let lines = flow(vec![Span::raw("  ")], 2, &[chip("node.kubernetes.io/not-ready:NoExecute")], 41);
+        assert!(text(&lines).iter().all(|l| !l.trim().is_empty()), "{:?}", text(&lines));
+    }
+
+    #[test]
+    fn long_pills_break_after_separators_not_inside_words() {
+        let lines = flow(vec![Span::raw("  ")], 2, &[chip("node.kubernetes.io/unreachable:NoExecute")], 30);
+        let shown = text(&lines);
+        assert_eq!(shown.iter().map(|l| l.trim()).collect::<Vec<_>>(), ["node.kubernetes.io/", "unreachable:NoExecute"]);
+        assert!(lines.iter().all(|l| l.width() <= 30), "{shown:?}");
+    }
+
+    #[test]
+    fn a_label_wider_than_its_column_still_fits_the_width() {
+        let lines = flow(vec![Span::raw("  A really long label here ")], 14, &[chip("one"), chip("two"), chip("three")], 34);
+        assert!(lines.iter().all(|l| l.width() <= 34), "{:?}", text(&lines));
     }
 
     #[test]
