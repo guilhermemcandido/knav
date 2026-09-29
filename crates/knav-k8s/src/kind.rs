@@ -186,7 +186,7 @@ impl ResourceKind {
 }
 
 /// The names `:` accepts per kind: the plural first (what autocomplete shows),
-/// then the singular and k9s's short aliases.
+/// then the singular and the usual short aliases.
 pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
     (ResourceKind::Overview, &["overview", "home"]),
     (ResourceKind::Pods, &["pods", "pod", "po"]),

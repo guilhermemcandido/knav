@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "A fast Kubernetes TUI for big clusters: browse sidebar, info panel, related-objects diagram"
 repository = "https://github.com/guilhermemcandido/knav"
 readme = "README.md"
-keywords = ["kubernetes", "tui", "k9s", "kubectl", "terminal"]
+keywords = ["kubernetes", "tui", "kubectl", "terminal", "devops"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["docs/demo.cast", "TODO.md"]
 

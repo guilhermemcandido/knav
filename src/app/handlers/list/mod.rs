@@ -174,7 +174,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.sort_choosing = true;
                 st.sort_cursor = st.sort.map_or(0, |s| s.column);
             }
-            // `A` sorts by age, like k9s; again flips the direction, then clears it.
+            // `A` sorts by age; again flips the direction, then clears it.
             KeyCode::Char('A') => {
                 if let Some(column) = age_column(st.current_kind, *generic_columns, st.wide) {
                     st.sort = Some(SortSpec::pressed(st.sort, column));

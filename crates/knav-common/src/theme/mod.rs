@@ -198,7 +198,7 @@ fn transparent(name: &str) -> Option<Theme> {
     let base = Theme::default();
     Some(match name {
         "knav" => base,
-        "k9s" => Theme {
+        "steel" => Theme {
             row: Color::Rgb(112, 184, 214),
             header: Color::Rgb(112, 200, 255),
             select_bg: Color::Rgb(122, 196, 214),
@@ -270,14 +270,18 @@ pub fn lookup_theme(name: &str) -> Option<Theme> {
 
 /// The built-in themes, in the order the picker lists them.
 pub fn builtin_names() -> Vec<&'static str> {
-    let mut names = vec!["knav", "k9s", "high-contrast", "mono"];
+    let mut names = vec!["knav", "steel", "high-contrast", "mono"];
     names.extend(PALETTES.iter().map(|(name, _)| *name));
     names
 }
 
 pub fn builtin(name: &str) -> Option<Theme> {
-    // The old name for the hand-made preset.
-    let name = if name == "solarized" { "solarized-dark" } else { name };
+    // Names presets had before they were renamed.
+    let name = match name {
+        "solarized" => "solarized-dark",
+        "k9s" => "steel",
+        other => other,
+    };
     transparent(name).or_else(|| PALETTES.iter().find(|(n, _)| *n == name).map(|(_, palette)| from_palette(palette)))
 }
 
@@ -514,12 +518,17 @@ mod tests {
     #[test]
     fn overrides_sit_on_top_of_the_preset_and_bad_ones_are_reported() {
         let overrides: BTreeMap<String, String> = [("ok", "#00ff00"), ("bad", "chartreuse"), ("wat", "red")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let (theme, ignored) = build("k9s", &overrides);
+        let (theme, ignored) = build("steel", &overrides);
         assert_eq!(theme.ok, Color::Rgb(0, 255, 0));
-        assert_eq!(theme.heading, builtin("k9s").unwrap().heading);
+        assert_eq!(theme.heading, builtin("steel").unwrap().heading);
         assert_eq!(ignored.len(), 2);
         let (fallback, ignored) = build("nope", &BTreeMap::new());
         assert_eq!(fallback, Theme::default());
         assert_eq!(ignored.len(), 1);
+    }
+
+    #[test]
+    fn the_steel_preset_still_loads_by_its_old_name() {
+        assert_eq!(builtin("k9s"), builtin("steel"));
     }
 }
