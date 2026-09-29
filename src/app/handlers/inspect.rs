@@ -1,5 +1,6 @@
 //! Looking inside one object: spec tree, containers, node detail, logs.
 
+use crate::ops::actions::Tone;
 use super::super::*;
 use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
@@ -38,11 +39,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
                 KeyCode::Char('c') => {
                     let outcome = match clipboard::copy(text) {
-                        Ok(how) => actions::Outcome { text: format!("Copied the YAML{}", clipboard::how_note(how)), error: false },
-                        Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                        Ok(how) => actions::Outcome { text: format!("Copied the YAML{}", clipboard::how_note(how)), tone: Tone::Done },
+                        Err(e) => actions::Outcome { text: format!("{e:#}"), tone: Tone::Failed },
                     };
                     let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+                    st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(back) };
                 }
                 _ => {}
             }
@@ -135,7 +136,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     };
                     st.mode = if no_previous {
-                        Mode::Notice { text: format!("{} has not restarted, so there is no previous run to show", container.name), error: false, back: Box::new(snapshot) }
+                        Mode::Notice { text: format!("{} has not restarted, so there is no previous run to show", container.name), tone: Tone::Info, back: Box::new(snapshot) }
                     } else {
                         logs_mode(cx, namespace, pod, &container.name, previous, snapshot)
                     };
@@ -169,7 +170,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     });
                     let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
-                    st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+                    st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back };
                 }
             }
             KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
@@ -224,11 +225,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let text = ui::logs_text(lines, filter, *order);
                 let count = text.lines().count();
                 let outcome = match clipboard::copy(&text) {
-                    Ok(how) => actions::Outcome { text: format!("Copied {count} log lines{}", clipboard::how_note(how)), error: false },
-                    Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                    Ok(how) => actions::Outcome { text: format!("Copied {count} log lines{}", clipboard::how_note(how)), tone: Tone::Done },
+                    Err(e) => actions::Outcome { text: format!("{e:#}"), tone: Tone::Failed },
                 };
                 let back = std::mem::replace(&mut st.mode, Mode::List);
-                st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+                st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(back) };
             }
             _ => {}
         },

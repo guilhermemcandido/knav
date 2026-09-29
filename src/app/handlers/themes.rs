@@ -2,6 +2,7 @@
 //! whole interface; Enter keeps it (saving it to the config), Esc restores
 //! what was there.
 
+use crate::ops::actions::Tone;
 use super::super::*;
 use super::Cx;
 
@@ -54,7 +55,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             let back = std::mem::replace(back, Box::new(Mode::List));
             st.mode = match notice.take() {
-                Some(text) => Mode::Notice { text, error: true, back },
+                Some(text) => Mode::Notice { text, tone: Tone::Failed, back },
                 None => *back,
             };
         }

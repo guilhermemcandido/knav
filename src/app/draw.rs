@@ -100,10 +100,10 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
-            Mode::Notice { text, error, .. } => {
+            Mode::Notice { text, tone, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Notice { text, error: *error };
+                    let overlay = ui::Overlay::Notice { text, tone: *tone };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

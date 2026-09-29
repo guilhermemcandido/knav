@@ -1,5 +1,6 @@
 //! The resource sidebar: `b` (or `m`) shows or hides it, Shift-Left gives it the keys, clicks open a kind.
 
+use crate::ops::actions::Tone;
 use super::super::sidebar::{self as rows, Entry};
 use super::super::*;
 use super::Cx;
@@ -97,7 +98,7 @@ fn toggle(st: &mut State, cx: &Cx) {
         st.sidebar_cursor = rows::current_index(&entries(st, cx));
         if cx.frame_area.width < ui::SIDEBAR_MIN_WIDTH {
             let back = std::mem::replace(&mut st.mode, Mode::List);
-            st.mode = Mode::Notice { text: format!("The sidebar needs a terminal at least {} columns wide.", ui::SIDEBAR_MIN_WIDTH), error: false, back: Box::new(back) };
+            st.mode = Mode::Notice { text: format!("The sidebar needs a terminal at least {} columns wide", ui::SIDEBAR_MIN_WIDTH), tone: Tone::Info, back: Box::new(back) };
         }
     }
 }

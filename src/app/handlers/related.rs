@@ -1,5 +1,6 @@
 //! The relations diagram: move between boxes, recentre on one, open one's list.
 
+use crate::ops::actions::Tone;
 use super::super::*;
 use super::Cx;
 
@@ -40,8 +41,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('+') | KeyCode::Char('=') => *zoom = ui::zoom_in(*zoom),
                 // `m` copies the diagram as Mermaid text.
                 KeyCode::Char('m') => copy_note = Some(match clipboard::copy(&k8s::relations::mermaid(graph)) {
-                    Ok(how) => actions::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), error: false },
-                    Err(e) => actions::Outcome { text: format!("{e:#}"), error: true },
+                    Ok(how) => actions::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), tone: Tone::Done },
+                    Err(e) => actions::Outcome { text: format!("{e:#}"), tone: Tone::Failed },
                 }),
                 // Enter shows the object's info over the diagram; Enter there goes to its list.
                 KeyCode::Enter => {
@@ -96,7 +97,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     }
     if let Some(outcome) = copy_note {
         let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back: Box::new(back) };
+        st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(back) };
     }
     if let Some(manifest) = info {
         st.reveal = true;

@@ -17,7 +17,16 @@ use kube::{
 /// What happened, for the notice shown once the terminal is back.
 pub struct Outcome {
     pub text: String,
-    pub error: bool,
+    pub tone: Tone,
+}
+
+/// How a notice reads: something finished, something worth knowing (nothing
+/// went wrong, but nothing happened either), or something failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Done,
+    Info,
+    Failed,
 }
 
 /// Runs the edit flow for one manifest. Failures become an `Outcome` for the UI,
@@ -25,13 +34,13 @@ pub struct Outcome {
 pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, manifest: &serde_yaml::Value) -> Outcome {
     let original = match serde_yaml::to_string(manifest) {
         Ok(y) => y,
-        Err(e) => return Outcome { text: format!("can't render the manifest: {e}"), error: true },
+        Err(e) => return Outcome { text: format!("Can't render the manifest: {e}"), tone: Tone::Failed },
     };
     let result = edit_loop(terminal, client, &original);
     match result {
-        Ok(Some(text)) => Outcome { text, error: false },
-        Ok(None) => Outcome { text: "No changes".into(), error: false },
-        Err(e) => Outcome { text: format!("{e:#}"), error: true },
+        Ok(Some(text)) => Outcome { text, tone: Tone::Done },
+        Ok(None) => Outcome { text: "No changes".into(), tone: Tone::Info },
+        Err(e) => Outcome { text: format!("{e:#}"), tone: Tone::Failed },
     }
 }
 

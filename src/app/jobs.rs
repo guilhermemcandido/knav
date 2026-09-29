@@ -1,6 +1,7 @@
 //! Work that talks to the cluster runs in the background, so the screen keeps
 //! redrawing and Esc can cancel it. The UI shows it as a small "working" popup.
 
+use crate::ops::actions::Tone;
 use std::{sync::Arc, time::{Duration, Instant}};
 
 use super::mode::AbortOnDrop;
@@ -43,7 +44,7 @@ impl Job {
         match self.rx.try_recv() {
             Ok(done) => Some(done),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
-            Err(_) => Some(Done::Action(actions::Outcome { text: "The task stopped unexpectedly".into(), error: true })),
+            Err(_) => Some(Done::Action(actions::Outcome { text: "The task stopped unexpectedly".into(), tone: Tone::Failed })),
         }
     }
 
@@ -101,10 +102,10 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
     let Mode::Working { back, .. } = std::mem::replace(&mut st.mode, Mode::List) else { return None };
     match done {
         Done::Action(outcome) => {
-            if !outcome.error {
+            if outcome.tone != Tone::Failed {
                 st.marked.clear();
             }
-            st.mode = Mode::Notice { text: outcome.text, error: outcome.error, back };
+            st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back };
         }
         Done::Connect(Ok(name)) => return Some(crate::Outcome::SwitchContext(name)),
         Done::Connect(Err(reason)) => {
@@ -122,7 +123,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
                 if let Err(e) = portforward::open_in_browser(&url) {
                     text.push_str(&format!("\n{e:#}"));
                 }
-                Mode::Notice { text, error: false, back }
+                Mode::Notice { text, tone: Tone::Done, back }
             } else {
                 text.push_str(&format!("\nOpen {url} in the browser?"));
                 Mode::OpenUrl { text, url, back }
@@ -132,7 +133,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
             st.mode = *back;
             st.replay = Some(key);
         }
-        Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, error: true, back },
+        Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, tone: Tone::Failed, back },
     }
     None
 }

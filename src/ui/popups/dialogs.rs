@@ -7,34 +7,41 @@ fn narrow_dialog_width(full_width: u16) -> u16 {
     (full_width * 3 / 5).clamp(44, 72)
 }
 
-/// A small centered message box, green-bordered for success, red for
-/// an error. Sized to the text so a one-liner doesn't get a huge box.
-pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, error: bool) {
+/// A small centred message box, as wide as its text needs up to the usual
+/// dialog width: green "Done", accent "Info", red "Failed". Any key closes it.
+pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crate::ops::actions::Tone) {
+    use crate::ops::actions::Tone;
     let full = frame.area();
-    let width = (full.width * 3 / 5).max(30).min(full.width);
-    let inner_w = width.saturating_sub(2).max(1) as usize;
-    let lines: usize = text.lines().map(|l| cell_width(l).div_ceil(inner_w).max(1)).sum::<usize>().max(1);
-    let height = (lines as u16 + 2).min(full.height);
-    let area = Rect {
-        x: full.x + full.width.saturating_sub(width) / 2,
-        y: full.y + full.height.saturating_sub(height) / 2,
-        width,
-        height,
+    let (title, color) = match tone {
+        Tone::Done => ("Done", theme().ok),
+        Tone::Info => ("Info", theme().accent),
+        Tone::Failed => ("Failed", theme().bad),
     };
+    const PAD: u16 = 2;
+    let hint = hint_strip(&[("any key", "close")]);
+    let text_w = text.lines().map(cell_width).max().unwrap_or(0) as u16;
+    let floor = (hint.width() as u16 + 4).max(30);
+    let width = (text_w + 2 * PAD + 2).clamp(floor, narrow_dialog_width(full.width)).min(full.width);
+    let inner_w = usize::from(width.saturating_sub(2 * PAD + 2)).max(1);
+    let lines: usize = text.lines().map(|l| cell_width(l).div_ceil(inner_w).max(1)).sum::<usize>().max(1);
+    let height = (lines as u16 + 4 /* borders, a blank line above and below */).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
-    let color = if error { theme().bad } else { theme().ok };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border_set())
         .border_style(Style::default().fg(color))
-        .title(pill_title(if error { "Failed" } else { "Done" }, false, Style::default().fg(color)));
+        .title(pill_title(title, false, Style::default().fg(color)))
+        .title_bottom(hint.right_aligned())
+        .padding(Padding::new(PAD, PAD, 1, 1));
     frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
 }
 
 /// A small centred box with a title and body lines, for the question popups.
+/// Same width as the confirmation dialog, so the dialogs read as one family.
 fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'static>>) {
     let full = frame.area();
-    let width = (full.width * 3 / 5).max(30).min(full.width);
+    let width = narrow_dialog_width(full.width).min(full.width);
     let height = (body.len() as u16 + 2).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
@@ -100,7 +107,7 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
 pub(in crate::ui) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &crate::ops::portforward::PortForm) {
     use crate::ops::portforward::Field;
     let full = frame.area();
-    let width = (full.width * 3 / 5).clamp(44, full.width.max(1)).min(full.width);
+    let width = narrow_dialog_width(full.width).min(full.width);
     let height = 11u16.min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 3, width, height };
     frame.render_widget(Clear, area);

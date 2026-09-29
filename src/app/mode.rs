@@ -42,7 +42,7 @@ pub(crate) enum Mode {
     Slots { namespace: String, selected: usize, back: Box<Mode> },
     /// A result message (see `edit`), any key or click dismisses it,
     /// returning to `back`.
-    Notice { text: String, error: bool, back: Box<Mode> },
+    Notice { text: String, tone: crate::ops::actions::Tone, back: Box<Mode> },
     /// The settings screen: every setting, edited in place and saved as it changes.
     Settings { tab: ui::SettingsTab, settings: Vec<crate::config::settings::Setting>, state: TableState, editing: Option<String>, capture: Option<KeyCapture>, error: Option<String>, back: Box<Mode> },
     /// The extensions browser (`E`), reachable from anywhere the same way

@@ -13,6 +13,7 @@ mod path;
 mod sidebar;
 mod state;
 
+use crate::ops::actions::Tone;
 use handlers::Cx;
 use state::{State, Step};
 
@@ -38,7 +39,7 @@ pub(crate) fn run(
 ) -> Result<Outcome> {
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
     if !notes.is_empty() {
-        st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), error: true, back: Box::new(Mode::List) };
+        st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), tone: Tone::Failed, back: Box::new(Mode::List) };
     }
 
     let mut cache: Option<derive::Cache> = None;

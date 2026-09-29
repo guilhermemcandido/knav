@@ -141,7 +141,7 @@ pub enum Overlay<'a> {
     /// with many kinds.
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], health: &'a std::collections::HashMap<&'static str, crate::k8s::Health>, selected: usize, row_scroll: usize },
     /// A short result message (e.g. after an edit), any key closes it.
-    Notice { text: &'a str, error: bool },
+    Notice { text: &'a str, tone: crate::ops::actions::Tone },
     /// A yes/no question about a destructive action.
     Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
     /// A background job: what it is doing, for how long, and how far it has got (`total` 0 when unknown).
@@ -605,7 +605,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::ColumnDetail { title, items, health, selected, row_scroll } => {
             draw_column_detail_popup(frame, title, items, health, selected, row_scroll, icons)
         }
-        Overlay::Notice { text, error } => draw_notice_popup(frame, text, error),
+        Overlay::Notice { text, tone } => draw_notice_popup(frame, text, tone),
         Overlay::Details { title, sections, scroll, hscroll } => details::draw_details(frame, title, sections, scroll, hscroll),
         Overlay::Relations { title, graph, selected, zoom } => draw_relations(frame, title, graph, selected, zoom),
         Overlay::Settings { tab, rows, layout, state, error, capture } => draw_settings(frame, popups::SettingsView { tab, rows, layout, error, capture: capture.as_ref() }, state),

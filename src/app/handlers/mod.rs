@@ -16,6 +16,7 @@ mod settings;
 mod sidebar;
 mod themes;
 
+use crate::ops::actions::Tone;
 use super::derive::Derived;
 use super::*;
 
@@ -80,7 +81,7 @@ pub(super) fn open_shell(st: &mut State, cx: &Cx, namespace: &str, pod: &str, co
     let back = std::mem::replace(&mut st.mode, Mode::List);
     st.mode = match shell::ShellSession::exec(cx.active_context, namespace, pod, container, inner.height, inner.width) {
         Ok(session) => Mode::Shell { title: format!("{namespace}/{pod}/{container}"), session: Box::new(session), back: Box::new(back) },
-        Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back: Box::new(back) },
+        Err(e) => Mode::Notice { text: format!("{e:#}"), tone: Tone::Failed, back: Box::new(back) },
     };
 }
 

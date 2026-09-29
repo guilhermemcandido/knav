@@ -1,6 +1,7 @@
 //! Answering the questions that come before an action: yes/no for the
 //! destructive ones, a number for scale.
 
+use crate::ops::actions::Tone;
 use super::super::*;
 use super::Cx;
 
@@ -22,7 +23,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let note = job.cancel_note;
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 st.mode = match note {
-                    Some(text) => Mode::Notice { text: text.into(), error: false, back },
+                    Some(text) => Mode::Notice { text: text.into(), tone: Tone::Info, back },
                     None => *back,
                 };
             }
@@ -33,7 +34,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 st.mode = match result {
                     Ok(()) => *back,
-                    Err(e) => Mode::Notice { text: format!("{e:#}"), error: true, back },
+                    Err(e) => Mode::Notice { text: format!("{e:#}"), tone: Tone::Failed, back },
                 };
             }
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
