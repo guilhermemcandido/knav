@@ -2,7 +2,7 @@
 //! whole interface; Enter keeps it (saving it to the config), Esc restores
 //! what was there.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use super::super::*;
 use super::Cx;
 
@@ -14,7 +14,7 @@ fn preview(entries: &[ThemeEntry], state: &TableState, config: &Config) {
     }
 }
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let mut saved: Option<Config> = None;
     let mut notice: Option<String> = None;
     let mut close = false;
@@ -55,7 +55,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             let back = std::mem::replace(back, Box::new(Mode::List));
             st.mode = match notice.take() {
-                Some(text) => Mode::Notice { text, tone: Tone::Failed, back },
+                Some(text) => Mode::Notice { text, tone: NoticeTone::Failed, back },
                 None => *back,
             };
         }

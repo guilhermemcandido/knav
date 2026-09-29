@@ -142,7 +142,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             apply(&mut node_pairs, sort, |(_, row), column| node_key(row, column, wide));
         }
         let (sorted_nodes, node_rows): (Vec<std::sync::Arc<Node>>, Vec<k8s::NodeRow>) = node_pairs.into_iter().unzip();
-        let catalog_sections = k8s::layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len(), extensions_enabled), layout);
+        let catalog_sections = crate::app::overview_layout::arrange(catalog.sections(pod_rows.len(), dep_rows.len(), extensions_enabled), layout);
         // Only the opened-up category view shows it, so only work it out then.
         let health = if let Mode::ColumnDetail { col, .. } = mode {
             // Health needs the objects themselves, so start watching this category's kinds.

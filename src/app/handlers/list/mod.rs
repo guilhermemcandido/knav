@@ -1,6 +1,6 @@
 //! Input on the main list (and the overview): sorting, namespaces, drill-down, opening details.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use super::super::*;
 use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
@@ -14,7 +14,7 @@ pub(crate) use selection::selected_manifest;
 use selection::{PodView, RELATED_KINDS, keep_overview_selection_visible, marked_targets, open_pod, surrounding_manifests};
 
 /// Handles one input event for these modes; `Some` ends the session.
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { pods, deployments, sorted_nodes, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, .. } = cx.d;
     let catalog = &mut *cx.catalog;
     let client = cx.client;
@@ -74,7 +74,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             if let Some(real) = real {
                 if matches!(key.code, KeyCode::Enter | KeyCode::Char('o')) {
                     if let Err(e) = portforward::open_in_browser(&st.forwards[real].url()) {
-                        st.mode = Mode::Notice { text: format!("{e:#}"), tone: Tone::Failed, back: Box::new(Mode::List) };
+                        st.mode = Mode::Notice { text: format!("{e:#}"), tone: NoticeTone::Failed, back: Box::new(Mode::List) };
                     }
                 } else {
                     st.forwards.remove(real);
@@ -280,12 +280,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             let namespace = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("namespace")?.as_str().map(String::from));
                             st.jump_to_object(target, namespace.as_deref(), &name);
                         }
-                        None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), tone: Tone::Info, back: Box::new(Mode::List) },
+                        None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), tone: NoticeTone::Info, back: Box::new(Mode::List) },
                     },
                     None => {
                         let name = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("name")?.as_str().map(String::from));
                         let text = name.map_or_else(|| "It has no owner".to_string(), |n| format!("{n} has no owner"));
-                        st.mode = Mode::Notice { text, tone: Tone::Info, back: Box::new(Mode::List) };
+                        st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(Mode::List) };
                     }
                 }
             }
@@ -336,8 +336,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let name = target.namespace.as_deref().map(|ns| format!("{ns}/{}", target.name)).unwrap_or_else(|| target.name.clone());
                     let outcome = match clipboard::copy(&name) {
-                        Ok(how) => actions::Outcome { text: format!("Copied {name}{}", clipboard::how_note(how)), tone: Tone::Done },
-                        Err(e) => actions::Outcome { text: format!("{e:#}"), tone: Tone::Failed },
+                        Ok(how) => crate::ops::Outcome { text: format!("Copied {name}{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                        Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                     };
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };
                 }
@@ -386,7 +386,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     if targets.is_empty() {
                         // A ReplicaSet scaled to 0, a completed Job, ... there's a manifest but
                         // no live pods behind it right now; say so instead of doing nothing silently.
-                        st.mode = Mode::Notice { text: format!("{namespace}/{owner_name} has no running pods right now"), tone: Tone::Info, back: Box::new(Mode::List) };
+                        st.mode = Mode::Notice { text: format!("{namespace}/{owner_name} has no running pods right now"), tone: NoticeTone::Info, back: Box::new(Mode::List) };
                     } else {
                         let title = format!("{namespace}/{owner_name} ({} pod{})", pods.len(), if pods.len() == 1 { "" } else { "s" });
                         let (rx, handles) = k8s::stream_logs_many(client.clone(), namespace, targets);

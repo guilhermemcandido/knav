@@ -21,7 +21,7 @@ pub(super) struct View<'a> {
     /// the same check every other extension's row uses.
     pub helm_present: bool,
     /// Every category/kind name the catalog currently has, for the Settings
-    /// Layout tab (see `k8s::layout::resolve`) — includes whatever's enabled
+    /// Layout tab (see `crate::app::overview_layout::resolve`) — includes whatever's enabled
     /// (Helm, Flux, ...), not just the built-in set.
     pub layout_names: &'a [(&'static str, Vec<&'static str>)],
     /// Every category with a dashboard right now (native or a loaded
@@ -156,7 +156,7 @@ pub(super) fn draw_mode(
                         Some(ui::CaptureView { label: setting.label.clone(), keys, stage, problem: c.problem.clone() })
                     });
                     let layout_rows: Vec<ui::LayoutRow> = if *tab == ui::SettingsTab::Overview {
-                        crate::k8s::layout::resolve(&config.overview, layout_names).into_iter().enumerate().map(|(i, s)| ui::LayoutRow { name: s.name, number: i + 1, hidden: s.hidden }).collect()
+                        crate::app::overview_layout::resolve(&config.overview, layout_names).into_iter().enumerate().map(|(i, s)| ui::LayoutRow { name: s.name, number: i + 1, hidden: s.hidden }).collect()
                     } else {
                         Vec::new()
                     };

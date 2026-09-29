@@ -4,7 +4,7 @@ use super::super::*;
 use super::Cx;
 
 /// Handles one input event for these modes; `Some` ends the session.
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let active_context = cx.active_context;
     let frame_area = cx.frame_area;
     match (event, &mut st.mode) {

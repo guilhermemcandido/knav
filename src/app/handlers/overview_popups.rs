@@ -5,7 +5,7 @@ use super::Cx;
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { overview, .. } = cx.d;
     let catalog = &mut *cx.catalog;
     let frame_area = cx.frame_area;

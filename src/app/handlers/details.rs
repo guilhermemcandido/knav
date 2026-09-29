@@ -3,7 +3,7 @@
 use super::super::*;
 use super::Cx;
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let mut to_yaml = false;
     let mut toggle = false;
     let mut open: Option<(ResourceKind, Option<String>, String)> = None;

@@ -191,7 +191,7 @@ pub(super) fn match_style() -> Style {
 /// highlighted; plain `base` when there's no pattern or it doesn't match
 /// this cell. Consecutive matched characters share one span.
 pub(super) fn highlight_fuzzy(text: &str, pattern: &str, base: Style) -> Line<'static> {
-    let Some(positions) = (!pattern.is_empty()).then(|| crate::startup::fuzzy::positions(pattern, text)).flatten() else {
+    let Some(positions) = (!pattern.is_empty()).then(|| crate::util::fuzzy::positions(pattern, text)).flatten() else {
         return Line::styled(text.to_string(), base);
     };
     let mut spans: Vec<Span<'static>> = Vec::new();

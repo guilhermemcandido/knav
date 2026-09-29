@@ -228,7 +228,7 @@ impl Catalog {
     }
 
     /// Every category and kind name `sections` would currently show, counts
-    /// dropped — what the Layout tab reorders/hides. `layout::resolve` uses
+    /// dropped — what the Layout tab reorders/hides. `overview_layout::resolve` uses
     /// this instead of its own fixed default so a category that only exists
     /// once an extension is enabled (Helm, Flux, ...) is still editable, not
     /// just the built-in set.

@@ -1,11 +1,11 @@
 //! Answering the questions that come before an action: yes/no for the
 //! destructive ones, a number for scale.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use super::super::*;
 use super::Cx;
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
         Mode::Confirm { spec, targets, action, back } => match key.code {
@@ -23,7 +23,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let note = job.cancel_note;
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 st.mode = match note {
-                    Some(text) => Mode::Notice { text: text.into(), tone: Tone::Info, back },
+                    Some(text) => Mode::Notice { text: text.into(), tone: NoticeTone::Info, back },
                     None => *back,
                 };
             }
@@ -34,7 +34,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let back = std::mem::replace(back, Box::new(Mode::List));
                 st.mode = match result {
                     Ok(()) => *back,
-                    Err(e) => Mode::Notice { text: format!("{e:#}"), tone: Tone::Failed, back },
+                    Err(e) => Mode::Notice { text: format!("{e:#}"), tone: NoticeTone::Failed, back },
                 };
             }
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),

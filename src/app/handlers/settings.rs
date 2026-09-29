@@ -52,12 +52,12 @@ fn stepped(setting: &Setting, current: &str, direction: i64, big: bool) -> Optio
     }
 }
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let mut change: Option<Change> = None;
     let mut close = false;
     let current_theme = crate::theme::theme();
     if let Mode::Settings { tab, settings, state, editing, capture, error, back } = &mut st.mode {
-        let mut layout = crate::k8s::layout::resolve(&cx.config.overview, &cx.catalog.layout_names(&cx.config.extensions.enabled));
+        let mut layout = crate::app::overview_layout::resolve(&cx.config.overview, &cx.catalog.layout_names(&cx.config.extensions.enabled));
         let len = match *tab {
             ui::SettingsTab::Overview => layout.len(),
             _ => settings.len(),
@@ -82,7 +82,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             // The Overview layout: give each category its place from the left.
             Event::Key(key) if *tab == ui::SettingsTab::Overview => {
-                use crate::k8s::layout;
+                use crate::app::overview_layout as layout;
                 let at = state.selected().unwrap_or(0).min(layout.len() - 1);
                 let shift = key.modifiers.contains(KeyModifiers::SHIFT);
                 *error = None;

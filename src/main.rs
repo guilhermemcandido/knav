@@ -7,6 +7,7 @@ mod ops;
 mod startup;
 mod theme;
 mod ui;
+mod util;
 
 // Short names for the leaf modules, so siblings can say `keys::encode`.
 use app::{commands, mode};
@@ -14,7 +15,8 @@ use config::{favorites, settings};
 use input::{keymap, keys};
 use k8s::{catalog, metrics, scope, sort};
 use ops::{actions, clipboard, edit, portforward, shell};
-use startup::{cli, fuzzy, picker, update};
+use startup::{cli, picker, update};
+use util::fuzzy;
 use ui::icons;
 
 use std::collections::{HashMap, HashSet};
@@ -52,7 +54,7 @@ use sort::*;
 
 /// How one connected session ended: quit for good, or reconnect to a
 /// different kubeconfig context.
-pub(crate) enum Outcome {
+pub(crate) enum SessionEnd {
     Quit,
     SwitchContext(String),
 }
@@ -86,8 +88,8 @@ fn main() -> Result<()> {
         let outcome = runtime.block_on(session(&config, context.as_deref(), std::mem::take(&mut notes)));
         runtime.shutdown_background();
         match outcome? {
-            Outcome::Quit => return Ok(()),
-            Outcome::SwitchContext(name) => {
+            SessionEnd::Quit => return Ok(()),
+            SessionEnd::SwitchContext(name) => {
                 eprintln!("Connecting to {name}…");
                 context = Some(name);
             }
@@ -95,7 +97,7 @@ fn main() -> Result<()> {
     }
 }
 
-pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>) -> Result<Outcome> {
+pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>) -> Result<SessionEnd> {
     let client = k8s::connect_to_context(context).await?;
     // Everything that loads starts now, beside the reachability check and the loading screen.
     let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
@@ -137,7 +139,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     if let app::boot::Boot::Quit = app::boot::wait(&mut terminal, &active_context, &header.k8s_version, stores, discovery, &mut catalog).await? {
         let _ = execute!(stdout(), DisableMouseCapture);
         ratatui::restore();
-        return Ok(Outcome::Quit);
+        return Ok(SessionEnd::Quit);
     }
 
     let result = run(

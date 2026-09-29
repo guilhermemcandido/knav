@@ -1,6 +1,6 @@
 //! Running an action on its targets in the background, and building what it creates.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result, bail};
@@ -12,7 +12,8 @@ use kube::{
 };
 use serde_json::json;
 
-use super::{Action, Outcome, Target};
+use super::{Action, Target};
+use crate::ops::Outcome;
 
 /// How far a batch has got, read by the UI while it runs in the background.
 #[derive(Default)]
@@ -67,16 +68,16 @@ pub async fn run_many(client: Client, targets: Vec<Target>, action: Action, prog
         .await;
     if let [(_, one)] = results.as_slice() {
         return match one {
-            Ok(text) => Outcome { text: text.clone(), tone: Tone::Done },
-            Err(e) => Outcome { text: format!("{e:#}"), tone: Tone::Failed },
+            Ok(text) => Outcome { text: text.clone(), tone: NoticeTone::Done },
+            Err(e) => Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
         };
     }
     let failures: Vec<String> = results.iter().filter_map(|(label, r)| r.as_ref().err().map(|e| format!("{label}: {e:#}"))).collect();
     let done = total - failures.len();
     if failures.is_empty() {
-        Outcome { text: format!("{}: {done} of {total}", action_name(action)), tone: Tone::Done }
+        Outcome { text: format!("{}: {done} of {total}", action_name(action)), tone: NoticeTone::Done }
     } else {
-        Outcome { text: format!("{}: {done} of {total}\n{}", action_name(action), failures.join("\n")), tone: Tone::Failed }
+        Outcome { text: format!("{}: {done} of {total}\n{}", action_name(action), failures.join("\n")), tone: NoticeTone::Failed }
     }
 }
 

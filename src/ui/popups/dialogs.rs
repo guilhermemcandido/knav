@@ -9,8 +9,8 @@ fn narrow_dialog_width(full_width: u16) -> u16 {
 
 /// A small centred message box, as wide as its text needs up to the usual
 /// dialog width: green "Done", accent "Info", red "Failed". Any key closes it.
-pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crate::ops::actions::Tone) {
-    use crate::ops::actions::Tone;
+pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crate::ops::NoticeTone) {
+    use crate::ops::NoticeTone as Tone;
     let full = frame.area();
     let (title, color) = match tone {
         Tone::Done => ("Done", theme().ok),

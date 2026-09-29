@@ -183,7 +183,7 @@ impl Registry {
 /// `loaded`, so both the tab's rows and a toggle's lookup of the actual
 /// `Loaded` it acted on come from the same list.
 pub fn visible_order(loaded: &[Loaded], filter: &str) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || crate::startup::fuzzy::positions(filter, &loaded[i].name).is_some()).collect();
+    let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || crate::util::fuzzy::positions(filter, &loaded[i].name).is_some()).collect();
     order.sort_by_key(|&i| (!loaded[i].bundled, loaded[i].name.to_lowercase()));
     order
 }

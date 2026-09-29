@@ -1,13 +1,13 @@
 //! The relations diagram: move between boxes, recentre on one, open one's list.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use super::super::*;
 use super::Cx;
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let mut open: Option<(ResourceKind, Option<String>, String)> = None;
     let mut info: Option<serde_yaml::Value> = None;
-    let mut copy_note: Option<actions::Outcome> = None;
+    let mut copy_note: Option<crate::ops::Outcome> = None;
     if let Mode::Relations { target, all, graph, selected, previous, zoom, back } = &mut st.mode {
         let layout = ui::graph_layout(graph, *zoom);
         let go = |direction: ui::Move, selected: &mut usize| {
@@ -41,8 +41,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('+') | KeyCode::Char('=') => *zoom = ui::zoom_in(*zoom),
                 // `m` copies the diagram as Mermaid text.
                 KeyCode::Char('m') => copy_note = Some(match clipboard::copy(&k8s::relations::mermaid(graph)) {
-                    Ok(how) => actions::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), tone: Tone::Done },
-                    Err(e) => actions::Outcome { text: format!("{e:#}"), tone: Tone::Failed },
+                    Ok(how) => crate::ops::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                    Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                 }),
                 // Enter shows the object's info over the diagram; Enter there goes to its list.
                 KeyCode::Enter => {

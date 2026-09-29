@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use serde_yaml::Value;
 
 use crate::theme::theme;
-use crate::ui::{format_bytes, truncate};
+use crate::util::text::{format_bytes, truncate};
 
 use super::{Dashboard, DashboardContext};
 

@@ -5,7 +5,6 @@
 pub mod catalog;
 pub mod describe;
 pub mod details;
-pub mod layout;
 pub mod relations;
 pub mod report;
 pub mod metrics;
@@ -26,7 +25,7 @@ mod instances;
 mod parallel;
 mod watch;
 mod watched;
-mod tablewatch;
+mod table;
 mod kept;
 
 pub use kind::*;
@@ -34,6 +33,7 @@ pub use pods::*;
 pub use context::*;
 pub use age::*;
 pub use apis::*;
+pub use table::*;
 pub use deployments::*;
 pub use events::*;
 pub use nodes::*;

@@ -62,7 +62,7 @@ pub use self::path_bar::SelectedItem;
 use self::path_bar::*;
 pub use self::logs::*;
 use self::overview::*;
-pub use self::overview::{format_bytes, truncate};
+use crate::util::text::{format_bytes, truncate};
 pub use self::popups::*;
 pub use self::spec::*;
 pub use self::tables::*;
@@ -141,7 +141,7 @@ pub enum Overlay<'a> {
     /// with many kinds.
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], health: &'a std::collections::HashMap<&'static str, crate::k8s::Health>, selected: usize, row_scroll: usize },
     /// A short result message (e.g. after an edit), any key closes it.
-    Notice { text: &'a str, tone: crate::ops::actions::Tone },
+    Notice { text: &'a str, tone: crate::ops::NoticeTone },
     /// A yes/no question about a destructive action.
     Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
     /// A background job: what it is doing, for how long, and how far it has got (`total` 0 when unknown).

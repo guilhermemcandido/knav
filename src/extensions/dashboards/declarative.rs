@@ -10,7 +10,7 @@ use serde_yaml::Value;
 
 use crate::extensions::manifest::{DashboardWidget, WidgetSpec};
 use crate::theme::theme;
-use crate::ui::truncate;
+use crate::util::text::truncate;
 
 use super::{Dashboard, DashboardContext};
 

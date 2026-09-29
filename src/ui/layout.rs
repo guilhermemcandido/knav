@@ -154,10 +154,7 @@ type WidthKey = (u64, usize, usize, String);
 
 static WIDTHS: std::sync::Mutex<Vec<(WidthKey, Vec<usize>)>> = std::sync::Mutex::new(Vec::new());
 
-/// Width of a cell's text, in terminal cells.
-pub(super) fn cell_width(text: &str) -> usize {
-    unicode_width::UnicodeWidthStr::width(text)
-}
+pub(super) use crate::util::text::cell_width;
 
 /// The one call every table makes: fit the columns to the content, then
 /// pick the visible window (updating `hscroll` to what's actually usable).

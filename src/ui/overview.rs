@@ -185,17 +185,6 @@ pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, 
     frame.render_widget(Paragraph::new(line), area);
 }
 
-pub fn format_bytes(bytes: f64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    format!("{value:.1}{}", UNITS[unit])
-}
-
 pub(super) fn draw_events_header(frame: &mut Frame, area: Rect, dimmed: bool) {
     let style = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };
     let line = format!("{:<8}{:<44} {:<18} {:<12} AGE", "TYPE", "MESSAGE", "OBJECT", "KIND");
@@ -227,27 +216,6 @@ pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry,
     let message = truncate(&entry.message, 42);
     let line = format!("{type_text:<8}{message:<44} {:<18} {:<12} {}", entry.object, entry.kind, entry.age);
     frame.render_widget(Paragraph::new(Line::styled(line, Style::default().fg(color))), area);
-}
-
-pub fn truncate(s: &str, max: usize) -> String {
-    if max == 0 {
-        return String::new();
-    }
-    if cell_width(s) <= max {
-        return s.to_string();
-    }
-    // Leave a cell for the ellipsis, cutting on whole characters.
-    let (mut out, mut used) = (String::new(), 0);
-    for ch in s.chars() {
-        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + w > max - 1 {
-            break;
-        }
-        out.push(ch);
-        used += w;
-    }
-    out.push('…');
-    out
 }
 
 #[cfg(test)]
@@ -415,20 +383,5 @@ mod overview_selection_tests {
         let two_cols_width = COLUMN_WIDTH * 2 + 1;
         assert_eq!(visible_columns(two_cols_width, 5), 2);
         assert_eq!(visible_columns(two_cols_width - 1, 5), 1);
-    }
-}
-
-#[cfg(test)]
-mod width_tests {
-    use super::*;
-
-    #[test]
-    fn truncate_counts_terminal_cells_not_characters() {
-        assert_eq!(cell_width("日本語"), 6);
-        let cut = truncate("日本語日本語", 7);
-        assert!(cell_width(&cut) <= 7 && cut.ends_with('…'), "{cut}");
-        assert_eq!(truncate("abc", 5), "abc");
-        assert_eq!(truncate("abcdef", 4), "abc…");
-        assert_eq!(truncate("abc", 0), "");
     }
 }

@@ -2,7 +2,6 @@
 //! suspend a CronJob, open a shell. Each works on a `Target` read from the manifest,
 //! so it applies to any kind.
 
-pub use crate::ops::edit::{Outcome, Tone};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {

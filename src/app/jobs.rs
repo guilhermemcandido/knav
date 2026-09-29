@@ -1,7 +1,7 @@
 //! Work that talks to the cluster runs in the background, so the screen keeps
 //! redrawing and Esc can cancel it. The UI shows it as a small "working" popup.
 
-use crate::ops::actions::Tone;
+use crate::ops::NoticeTone;
 use std::{sync::Arc, time::{Duration, Instant}};
 
 use super::mode::AbortOnDrop;
@@ -9,7 +9,7 @@ use crate::ops::{actions, portforward};
 
 /// What a finished job hands back.
 pub(crate) enum Done {
-    Action(actions::Outcome),
+    Action(crate::ops::Outcome),
     /// The context that was checked, or why it can't be reached.
     Connect(Result<String, String>),
     Forward(Result<portforward::Forward, String>),
@@ -44,7 +44,7 @@ impl Job {
         match self.rx.try_recv() {
             Ok(done) => Some(done),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => None,
-            Err(_) => Some(Done::Action(actions::Outcome { text: "The task stopped unexpectedly".into(), tone: Tone::Failed })),
+            Err(_) => Some(Done::Action(crate::ops::Outcome { text: "The task stopped unexpectedly".into(), tone: NoticeTone::Failed })),
         }
     }
 
@@ -96,18 +96,18 @@ pub(super) fn start_forward(st: &mut State, context: &str, namespace: &str, reso
 
 /// Moves a finished job's result into the screen. `Some` when the session should
 /// reconnect to another context.
-pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
+pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
     let Mode::Working { job, .. } = &mut st.mode else { return None };
     let done = job.poll()?;
     let Mode::Working { back, .. } = std::mem::replace(&mut st.mode, Mode::List) else { return None };
     match done {
         Done::Action(outcome) => {
-            if outcome.tone != Tone::Failed {
+            if outcome.tone != NoticeTone::Failed {
                 st.marked.clear();
             }
             st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back };
         }
-        Done::Connect(Ok(name)) => return Some(crate::Outcome::SwitchContext(name)),
+        Done::Connect(Ok(name)) => return Some(crate::SessionEnd::SwitchContext(name)),
         Done::Connect(Err(reason)) => {
             let mut back = *back;
             if let Mode::Context { error, .. } = &mut back {
@@ -123,7 +123,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
                 if let Err(e) = portforward::open_in_browser(&url) {
                     text.push_str(&format!("\n{e:#}"));
                 }
-                Mode::Notice { text, tone: Tone::Done, back }
+                Mode::Notice { text, tone: NoticeTone::Done, back }
             } else {
                 text.push_str(&format!("\nOpen {url} in the browser?"));
                 Mode::OpenUrl { text, url, back }
@@ -133,7 +133,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::Outcome> {
             st.mode = *back;
             st.replay = Some(key);
         }
-        Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, tone: Tone::Failed, back },
+        Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
     }
     None
 }

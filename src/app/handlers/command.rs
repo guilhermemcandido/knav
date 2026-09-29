@@ -4,7 +4,7 @@ use super::super::*;
 use super::Cx;
 
 /// Handles one input event for these modes; `Some` ends the session.
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let catalog = &mut *cx.catalog;
     let active_context = cx.active_context;
     match (event, &mut st.mode) {
@@ -42,7 +42,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
                 };
                 match suggestions.get(*selected).map(|s| s.cmd).or_else(typed) {
-                    Some(Cmd::Quit) => return Ok(Some(Outcome::Quit)),
+                    Some(Cmd::Quit) => return Ok(Some(SessionEnd::Quit)),
                     Some(Cmd::Settings) => {
                         let mut opened = std::mem::replace(&mut **back, Mode::List);
                         std::mem::swap(&mut st.mode, &mut opened);

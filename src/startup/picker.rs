@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 use crate::theme::theme;
-use crate::startup::fuzzy;
+use crate::util::fuzzy;
 use crate::k8s::ContextInfo;
 
 /// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled

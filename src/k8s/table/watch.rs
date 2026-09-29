@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::sync::Mutex;
 
-use super::apis::{TableData, TableRow, list_path, parse_table, percent_encode};
+use super::{TableData, TableRow, list_path, parse_table, percent_encode};
 
 /// The server closes a watch after about this long; it is simply opened again.
 const WATCH_SECONDS: u32 = 290;

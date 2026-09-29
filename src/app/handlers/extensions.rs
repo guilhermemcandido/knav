@@ -5,7 +5,7 @@
 use super::super::*;
 use super::Cx;
 
-pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<Outcome>> {
+pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let mut enable_change: Option<Vec<String>> = None;
     let mut close = false;
     if let Mode::Extensions { filter, filter_editing, state, error, back } = &mut st.mode {
