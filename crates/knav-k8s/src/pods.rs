@@ -15,14 +15,12 @@ pub struct PodRow {
     pub phase: String,
     pub restarts: i32,
     pub containers: Vec<ContainerInfo>,
-    /// "ready/total" containers, e.g. "2/3", standard in both k9s and
-    /// Freelens' pod lists.
+    /// Ready over total containers, like "2/3".
     pub ready: String,
     pub node: String,
-    /// What controls it, the kind of its owner (`ReplicaSet`, `Job`), or `-`.
+    /// The kind of its owner (`ReplicaSet`, `Job`), or `-`.
     pub controlled_by: String,
     pub qos: String,
-    /// Pod IP and the images it runs, for the wide view.
     pub ip: String,
     pub images: String,
     pub age: String,
@@ -72,7 +70,7 @@ pub fn containers_for(pod: &Pod) -> Vec<ContainerInfo> {
         .collect()
 }
 
-/// The STATUS kubectl and k9s show: the phase refined by container state
+/// The STATUS kubectl shows: the phase refined by container state
 /// (`CrashLoopBackOff`, `Init:0/1`, `Completed`, `Terminating`, ...).
 pub fn pod_status(pod: &Pod) -> String {
     let Some(status) = pod.status.as_ref() else { return "Unknown".into() };
@@ -136,8 +134,7 @@ pub fn pod_is_fault(pod: &Pod) -> bool {
     matches!(status_tone(&pod_status(pod)), Tone::Warn | Tone::Bad)
 }
 
-/// How a pod STATUS should be coloured: healthy plain, finished grey,
-/// in-progress orange, broken red.
+/// The tone of a pod STATUS: healthy plain, finished grey, in progress orange, broken red.
 pub fn status_tone(status: &str) -> crate::describe::Tone {
     use crate::describe::Tone;
     match status {
@@ -157,8 +154,7 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let container_statuses = status.container_statuses.unwrap_or_default();
     let restarts = container_statuses.iter().map(|c| c.restart_count).sum();
     let ready_count = container_statuses.iter().filter(|c| c.ready).count();
-    // Like kubectl: the total is the containers the spec asks for, so a
-    // pod that has not started yet reads 0/1, not 0/0.
+    // Like kubectl, the total is what the spec asks for, so an unstarted pod reads 0/1.
     let total = pod.spec.as_ref().map(|s| s.containers.len()).unwrap_or(container_statuses.len());
     let ready = format!("{ready_count}/{total}");
     let containers = containers_for(pod);
@@ -187,20 +183,17 @@ impl AgeRow for PodRow {
     }
 }
 
-/// Streams one container's log over an unbounded channel. The caller must abort
-/// the returned handle when done. `previous` reads the last terminated run.
+/// Streams one container's log. The caller aborts the handle when done;
+/// `previous` reads the last terminated run.
 pub fn stream_logs(client: Client, namespace: String, pod: String, container: String, previous: bool) -> (mpsc::UnboundedReceiver<String>, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_log_stream(client, namespace, pod, container, previous, None, tx);
     (rx, handle)
 }
 
-/// Streams every `(pod, container, tag)` in `targets` into one shared channel, live
-/// (aggregating "the previous run" of several pods at once isn't a meaningful thing to
-/// ask for). Each line is tagged `\u{200B}[tag]` right after its timestamp — the
-/// zero-width space can't appear in a real log line, so `ui::logs::colorize_log_line`
-/// can tell an aggregated line from a plain one unambiguously. One task per container;
-/// the caller must abort them all when the view closes.
+/// Streams several containers into one channel, each line tagged `\u{200B}[tag]` after
+/// its timestamp. A zero-width space never appears in a real log line, so tagged lines
+/// are unambiguous. The caller aborts every handle when the view closes.
 pub fn stream_logs_many(client: Client, namespace: String, targets: Vec<(String, String, String)>) -> (mpsc::UnboundedReceiver<String>, Vec<JoinHandle<()>>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let handles = targets.into_iter().map(|(pod, container, tag)| spawn_log_stream(client.clone(), namespace.clone(), pod, container, false, Some(tag), tx.clone())).collect();

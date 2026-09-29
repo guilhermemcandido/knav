@@ -1,10 +1,8 @@
-//! Drawing: one frame for whatever `Mode` is active, with the list (or the
-//! overview) behind it.
+//! Draws one frame for the active `Mode`, with the list or Overview behind it.
 
 use super::*;
 
-/// Everything a frame reads but never changes, gathered once per loop
-/// iteration so the drawing code takes one argument instead of twenty.
+/// Everything a frame reads but never changes, gathered once per loop iteration.
 pub(super) struct View<'a> {
     pub rows: &'a dyn Fn() -> ui::Rows<'a>,
     pub overview: &'a k8s::Overview,
@@ -15,17 +13,13 @@ pub(super) struct View<'a> {
     pub crds: &'a [k8s::CrdInfo],
     pub apis: &'a [k8s::ApiInfo],
     pub extensions: &'a [extensions::Loaded],
-    /// Whether Helm has found any releases, for the Extensions screen's
-    /// PRESENT column — "helm" declares no CRD kinds to match against
-    /// `crds` (see `extensions/helm.toml`), so its presence can't come from
-    /// the same check every other extension's row uses.
+    /// Whether Helm found any releases, for the Extensions screen's PRESENT column.
+    /// Helm declares no CRDs to check, unlike the other extensions.
     pub helm_present: bool,
-    /// Every category/kind name the catalog currently has, for the Settings
-    /// Layout tab (see `crate::app::overview_layout::resolve`) — includes whatever's enabled
-    /// (Helm, Flux, ...), not just the built-in set.
+    /// Every category and kind the catalog has now, enabled extensions included, for
+    /// the Layout tab.
     pub layout_names: &'a [(&'static str, Vec<&'static str>)],
-    /// Every category with a dashboard right now (native or a loaded
-    /// manifest's), for the `:` command menu's suggestions.
+    /// Every category with a dashboard, for the `:` suggestions.
     pub dashboard_categories: &'a [&'static str],
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
@@ -41,8 +35,7 @@ pub(super) struct View<'a> {
     pub config: &'a Config,
 }
 
-/// Draws one frame and returns the screen area it used (input handlers
-/// need it to map mouse positions onto rows).
+/// Draws one frame and returns the screen area it used, for mapping mouse positions.
 pub(super) fn draw_mode(
     terminal: &mut ratatui::DefaultTerminal,
     mode: &mut Mode,
@@ -262,9 +255,7 @@ pub(super) fn draw_mode(
             Mode::Spec { title, items, state, viewing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    // Hoisted out of the `if let` below so these live for
-                    // the rest of the closure, not just that block, the
-                    // background `Overlay` borrows from them.
+                    // Outside the `if let` below, since the background overlay borrows it.
                     let back_node_name: Option<String> = match &**back {
                         Mode::NodeDetail { name, .. } => Some(name.clone()),
                         _ => None,
@@ -290,8 +281,7 @@ pub(super) fn draw_mode(
                     } else {
                         None
                     };
-                    // While a leaf's full value is shown, the Spec tree becomes the dimmed
-                    // background instead of the overlay.
+                    // While a leaf's value is shown, the tree becomes the dimmed background.
                     let (background, overlay) = match viewing {
                         Some((label, value)) => {
                             (Some(ui::Overlay::Spec { title, items, state }), ui::Overlay::ValueDetail { label, value })

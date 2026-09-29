@@ -12,8 +12,8 @@ pub(super) fn size_text(bytes: usize) -> String {
     }
 }
 
-/// A ConfigMap's keys with their values, and a Secret's keys with their sizes;
-/// a Secret's text values appear only while `reveal` is on (`x` toggles it).
+/// A ConfigMap's keys and values, or a Secret's keys and sizes. A Secret's text
+/// shows only while `reveal` is on (`x`).
 pub(super) fn keys_section(manifest: &Value, kind: &str, reveal: bool) -> Vec<Section> {
     let mut lines = Vec::new();
     if kind == "Secret" {
@@ -25,9 +25,8 @@ pub(super) fn keys_section(manifest: &Value, kind: &str, reveal: bool) -> Vec<Se
         let Some(map) = at(manifest, &[field]).and_then(Value::as_mapping) else { continue };
         for (key, value) in map {
             let (Some(key), Some(value)) = (key.as_str(), value.as_str()) else { continue };
-            // Base64 in a Secret or in binaryData: about three bytes for every four characters.
+            // Base64: about three bytes for every four characters.
             let size = if binary { value.len() * 3 / 4 } else { value.len() };
-            // A Secret's text is decoded only when asked for; anything else stays a size.
             let shown = if kind == "ConfigMap" && !binary {
                 Some(value.to_string())
             } else if kind == "Secret" && reveal && field == "data" {

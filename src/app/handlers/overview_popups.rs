@@ -1,4 +1,4 @@
-//! Overview popups: the events list and its detail, resources, category columns.
+//! Overview popups: the events and one event, resources, and category columns.
 
 use super::super::*;
 use super::Cx;
@@ -55,8 +55,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
             let items_len = overview.catalog.get(*col).map(|(_, items)| items.len()).unwrap_or(0);
             let cols = ui::column_detail_cols(frame_area, overview.catalog.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]));
-            // The scroll recompute happens inside each navigation branch: the Enter/Esc
-            // branches reassign `mode`, which would leave `selected`/`row_scroll` dangling.
+            // Scroll is recomputed inside each branch, since Enter and Esc replace `mode`.
             macro_rules! move_and_rescroll {
                 ($dir:expr) => {{
                     *selected = ui::move_column_detail_selection(items_len, cols, *selected, $dir);

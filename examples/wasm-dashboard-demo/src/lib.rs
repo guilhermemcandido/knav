@@ -1,15 +1,6 @@
-// A worked example proving the WASM dashboard path end to end: real Rust,
-// compiled to a component, with zero imports (see ../../crates/knav-extensions/wit/dashboard.wit).
-// It counts the objects it's handed and renders one line — enough to prove
-// the whole round trip (manifest -> compile -> instantiate -> fetch ->
-// call -> render) without needing real cluster data to be interesting.
-//
-// Build (from this directory):
-//   rustup target add wasm32-unknown-unknown
-//   cargo build --release --target wasm32-unknown-unknown
-//   wasm-tools component new \
-//     target/wasm32-unknown-unknown/release/demo_dashboard.wasm \
-//     -o dashboard.wasm
+// The demo WASM dashboard: counts the objects it's handed and renders one line.
+// Build: `cargo build --release --target wasm32-unknown-unknown`, then
+// `wasm-tools component new target/wasm32-unknown-unknown/release/demo_dashboard.wasm -o dashboard.wasm`.
 
 wit_bindgen::generate!({
     path: "../../crates/knav-extensions/wit/dashboard.wit",

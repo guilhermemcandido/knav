@@ -1,5 +1,5 @@
-//! The cluster picker: a full-screen, fuzzy-filtered list of kubeconfig contexts
-//! shown before connecting. Only used with `startup.mode = "menu"`.
+//! The cluster picker: a full-screen, fuzzy-filtered list of contexts, shown before
+//! connecting when asked for.
 
 use std::time::Duration;
 
@@ -16,8 +16,7 @@ use crate::theme::theme;
 use crate::util::fuzzy;
 use crate::k8s::ContextInfo;
 
-/// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled
-/// (Esc, Ctrl-C, or `q` on an empty filter), so the caller exits.
+/// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled.
 pub fn run(contexts: &[ContextInfo]) -> Result<Option<String>> {
     let mut terminal = ratatui::init();
     let result = run_loop(&mut terminal, contexts);
@@ -64,8 +63,7 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo]) -
     }
 }
 
-/// Contexts whose name fuzzy-matches `filter`, best first. Same ranking as
-/// `--context`.
+/// Contexts whose name fuzzy-matches `filter`, best first, ranked like `--context`.
 fn filtered<'a>(contexts: &'a [ContextInfo], filter: &str) -> Vec<&'a ContextInfo> {
     let mut scored: Vec<(i64, &ContextInfo)> =
         contexts.iter().filter_map(|c| fuzzy::score(filter, &c.name).map(|s| (s, c))).collect();

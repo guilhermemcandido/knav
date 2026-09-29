@@ -1,8 +1,4 @@
-# Karpenter — node provisioning status (NodePools and the NodeClaims they've
-# provisioned). Core kinds only (karpenter.sh); the cloud-specific NodeClass
-# (e.g. EC2NodeClass on AWS) isn't included since it varies by provider.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
+# Core karpenter.sh kinds only: the NodeClass varies by cloud provider.
 
 [extension]
 id = "karpenter"

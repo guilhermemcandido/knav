@@ -1,9 +1,4 @@
-# Kyverno — policies (cluster-wide and namespaced) and the reports they
-# generate, a category and an icon to browse them by, not a status view:
-# policy status and report content don't fit the conditions-array shape the
-# timeline template reads.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
+# No status view: policy status and reports don't fit the conditions shape.
 
 [extension]
 id = "kyverno"
@@ -38,8 +33,7 @@ widget = "count"
 kind = "Policy"
 widget = "count"
 
-# `summary` sits at the top level of a PolicyReport, not under `.status` —
-# reports aren't a status subresource, they're their own object.
+# A PolicyReport's `summary` is top level, not under `.status`.
 [[extension.dashboard]]
 kind = "PolicyReport"
 extra_kinds = ["ClusterPolicyReport"]

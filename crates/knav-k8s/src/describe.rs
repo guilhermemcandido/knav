@@ -14,8 +14,7 @@ use k8s_openapi::api::{
 };
 use kube::api::DynamicObject;
 
-/// How a cell reads at a glance: healthy, needs attention, broken, or
-/// just background.
+/// How a cell reads at a glance: healthy, needs attention, broken or background.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Plain,
@@ -25,7 +24,6 @@ pub enum Tone {
     Muted,
 }
 
-/// One extra column of a row.
 #[derive(Clone, Debug)]
 pub struct Col {
     pub header: &'static str,
@@ -63,8 +61,7 @@ pub trait Extras {
         self.extras().1.map(|(tone, _)| tone)
     }
 
-    /// The kind's column headers, known even when its list is empty (so an
-    /// empty PVC list still shows STATUS, CAPACITY, ...).
+    /// The kind's column headers, known even when its list is empty.
     fn headers() -> Vec<&'static str>
     where
         Self: Default,
@@ -76,8 +73,8 @@ pub trait Extras {
 impl Extras for Node {}
 impl Extras for DynamicObject {}
 
-/// `ready/desired` with the usual tone: green when all are ready, yellow
-/// when some aren't, muted when nothing is wanted.
+/// The tone of `ready/desired`: green when all are ready, yellow when some
+/// aren't, muted when none are wanted.
 pub fn ready_tone(ready: i64, desired: i64) -> Tone {
     if desired == 0 {
         Tone::Muted

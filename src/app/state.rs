@@ -1,5 +1,5 @@
-//! The interactive session's own state: what is on screen and how it is
-//! narrowed, sorted and scrolled. Owned by the loop, changed by handlers.
+//! The session's own state: what is on screen and how it is narrowed, sorted and
+//! scrolled. Owned by the loop, changed by handlers.
 
 use super::*;
 
@@ -12,17 +12,15 @@ pub(super) struct View {
 
 const HISTORY_LIMIT: usize = 50;
 
-/// One step `q`/`Esc` undoes, in the order taken: a list drilled into (its kind, scope
-/// and selection to return to), or a whole other mode (Relations, Details, ...) left
-/// behind by a jump into a fresh list, with the list's own fields as they stood right
-/// before the jump so those come back too, not just the mode. One stack for both, so
-/// they unwind in the order they actually happened, however they interleave.
+/// One step `q` or Esc undoes: a list drilled into (kind, scope and selection), or
+/// another mode left behind by a jump, with the list as it stood. One stack for both,
+/// so they unwind in the order they happened.
 pub(crate) enum Step {
     List(ResourceKind, Option<Scope>, usize),
     Mode(Box<Mode>, ListSnapshot),
 }
 
-/// Enough of the list's state to put it back exactly as it was before a jump away from it.
+/// Enough of the list's state to put it back exactly as it was before a jump.
 pub(crate) struct ListSnapshot {
     pub kind: ResourceKind,
     pub scope: Option<Scope>,
@@ -44,7 +42,6 @@ impl State {
         }
     }
 
-    /// Restores what `list_snapshot` captured.
     pub(crate) fn restore_list(&mut self, snap: ListSnapshot) {
         self.current_kind = snap.kind;
         self.scope = snap.scope;
@@ -56,7 +53,7 @@ impl State {
 }
 
 pub(super) struct State {
-    /// The config as it stands now: the config screen edits it while knav runs.
+    /// The config as it stands now; the Settings screen edits it while knav runs.
     pub config: Config,
     /// Turns the keys you press into the built-in keys the handlers know.
     pub keymap: crate::input::keymap::Keymap,
@@ -85,45 +82,38 @@ pub(super) struct State {
     /// A key to handle again on the next turn, after a job it waited for.
     pub replay: Option<crossterm::event::KeyEvent>,
     pub current_kind: ResourceKind,
-    /// The namespace every namespaced list is narrowed to (`Enter` on a
-    /// namespace sets it, `0` clears it), sticks across kind switches.
+    /// The namespace every namespaced list is narrowed to. Enter on a namespace sets
+    /// it, `0` clears it, and it sticks across kinds.
     pub namespace: Option<String>,
-    /// What the current list is drilled into (a Deployment's ReplicaSets,
-    /// a Service's Pods, ...).
+    /// What the current list is drilled into, like a Service's Pods.
     pub scope: Option<Scope>,
-    /// How to get back out of a drill-down or a detour into another mode, `q`/`Esc`
-    /// undoing one entry at a time in the order they happened.
+    /// How to get back out of drill-downs and detours, one step per `q` or Esc.
     pub back_stack: Vec<Step>,
-    /// The list's sort column/direction (`s` then a column number).
+    /// The list's sort column and direction.
     pub sort: Option<SortSpec>,
     /// Whether the next digit is choosing a sort column.
     pub sort_choosing: bool,
     /// The column the sort cursor is on while choosing.
     pub sort_cursor: usize,
-    /// How many columns the list is scrolled to the right (←/→ or h/l)
-    /// when its columns don't all fit the screen.
+    /// How many columns the list is scrolled right when they don't all fit.
     pub hscroll: usize,
-    /// Namespaces reserved to number keys 1-9.
     pub favorites: Favorites,
-    /// The active `/` filter, empty means "show everything". Cleared
-    /// whenever the resource kind changes.
+    /// The active `/` filter, empty for everything. Cleared when the kind changes.
     pub search: String,
-    /// Whether the commands panel (`?`) is open.
+    /// Whether the help (`?`) is open.
     pub show_hints_panel: bool,
     pub icons: icons::IconCache,
     /// Running port-forwards; dropping one stops it.
     pub forwards: Vec<portforward::Forward>,
-    /// Rows marked with Space, by `ui::mark_key`; bulk actions apply to
-    /// them. They belong to `marked_kind`'s list and are dropped when the
-    /// list changes.
+    /// Rows marked with Space, by `ui::mark_key`, for bulk actions. They belong to
+    /// `marked_kind`'s list and are dropped when it changes.
     pub marked: std::collections::HashSet<String>,
     pub marked_kind: ResourceKind,
     /// `Ctrl-z`: list only the rows that need a look.
     pub faults_only: bool,
     /// `Ctrl-w`: show the extra columns.
     pub wide: bool,
-    /// The views visited, oldest first, and where in that trail we are
-    /// (`[` and `]` move along it).
+    /// The views visited, oldest first, and where in that trail we are (`[` and `]`).
     pub history: Vec<View>,
     pub history_pos: usize,
     /// The view before this one, for `-`.
@@ -133,16 +123,13 @@ pub(super) struct State {
     pub overview_col_scroll: usize,
     /// Vertical scroll into the column holding the selection.
     pub overview_item_scroll: usize,
-    /// How far the current extension dashboard is scrolled (see
-    /// `ResourceKind::ExtensionDashboard`); one field since only one is ever
-    /// shown at a time.
+    /// How far the open extension dashboard is scrolled.
     pub dashboard_scroll: usize,
 }
 
-/// Whether a click on `id` follows another click on it soon enough to count as a double click,
-/// updating `last_click` either way (armed for next time, or cleared once used). A free function
-/// on just the field, not a method on `State`, so a handler already holding `&mut st.mode` (a
-/// different field) can still call it.
+/// Whether a click on `id` follows the last one closely enough to be a double click,
+/// updating `last_click` either way. It takes the field alone, so a handler holding
+/// `&mut st.mode` can still call it.
 pub(super) fn double_click(last_click: &mut Option<(std::time::Instant, usize)>, id: usize) -> bool {
     let now = std::time::Instant::now();
     let ms = crate::config::tunables::tunables().double_click_ms;
@@ -152,8 +139,8 @@ pub(super) fn double_click(last_click: &mut Option<(std::time::Instant, usize)>,
 }
 
 impl State {
-    /// `icons` must be detected after raw mode is on (it queries the
-    /// terminal) and before the event loop starts reading stdin.
+    /// `icons` must be detected after raw mode is on, since it queries the terminal,
+    /// and before the loop starts reading stdin.
     pub fn new(icons: icons::IconCache, favorites: Favorites, config: Config) -> Self {
         let keymap = crate::input::keymap::Keymap::from_app_config(&config).0;
         crate::input::keymap::set_current(&keymap);
@@ -215,8 +202,8 @@ impl State {
         View { kind: self.current_kind, scope: self.scope.clone() }
     }
 
-    /// Notes the current view in the history when it changed since last
-    /// looked (a new view drops whatever was ahead of it).
+    /// Notes the current view in the history when it changed. A new view drops
+    /// whatever was ahead of it.
     pub fn record_view(&mut self) {
         let here = self.here();
         if self.history.get(self.history_pos) == Some(&here) {
@@ -267,13 +254,10 @@ impl State {
     }
 
     fn switch_to(&mut self, view: View) {
-        // `show` notes where we were, so `-` again comes back.
         self.show(view);
         self.record_view();
     }
 
-    /// Switches to another resource kind with a clean slate: no drill-down,
-    /// sort, scroll or search carried over.
     /// Goes to `kind` filtered to `search`, remembering where it came from so Esc returns.
     pub fn jump_to(&mut self, kind: ResourceKind, search: String) {
         let selected = self.table_state.selected().unwrap_or(0);
@@ -295,6 +279,7 @@ impl State {
         self.jump_to(kind, search);
     }
 
+    /// Switches to another kind with a clean slate: no drill-down, sort, scroll or search.
     pub fn switch_kind(&mut self, kind: ResourceKind) {
         self.current_kind = kind;
         self.scope = None;

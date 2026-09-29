@@ -1,7 +1,6 @@
-//! What a drilled-into list is narrowed to: "the ReplicaSets owned by this
-//! Deployment", "the Pods a Service selects".
+//! What a drilled-into list is narrowed to, like "the Pods a Service selects".
 
-use crate::{ResourceKind};
+use crate::ResourceKind;
 
 use std::collections::BTreeMap;
 
@@ -14,13 +13,12 @@ pub enum Scope {
     Owner { uid: String, kind: String, name: String },
     /// Pods whose labels contain every pair of a Service's selector.
     Selector { labels: BTreeMap<String, String>, namespace: Option<String>, kind: String, name: String },
-    /// Pods in this namespace, Enter on a Namespace, without making it
-    /// the active namespace.
+    /// Pods in this namespace, without making it the active namespace.
     Namespace { name: String },
 }
 
 impl Scope {
-    /// `("Deployment", "web")`, the kind and name this list is inside.
+    /// The kind and name this list is inside, like `("Deployment", "web")`.
     pub fn parts(&self) -> (&str, &str) {
         match self {
             Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => (kind, name),
@@ -28,7 +26,6 @@ impl Scope {
         }
     }
 
-    /// `Deployment/web`, shown in the header.
     pub fn label(&self) -> String {
         match self {
             Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => format!("{kind}/{name}"),
@@ -54,7 +51,6 @@ impl Scope {
     }
 }
 
-/// A Service's `spec.selector`, out of its manifest.
 pub fn service_selector(manifest: &serde_yaml::Value) -> BTreeMap<String, String> {
     manifest
         .get("spec")
@@ -64,7 +60,6 @@ pub fn service_selector(manifest: &serde_yaml::Value) -> BTreeMap<String, String
         .unwrap_or_default()
 }
 
-/// `ReplicaSets` -> `ReplicaSet`.
 pub fn singular(kind: ResourceKind) -> String {
     let label = kind.label();
     if let Some(stem) = label.strip_suffix("ies") {

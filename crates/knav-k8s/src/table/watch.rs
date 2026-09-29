@@ -1,5 +1,5 @@
-//! Keeps a type's Table rows current from a watch that asks for the Table format, so a big
-//! list is read once instead of again every few seconds.
+//! Keeps a type's Table rows current from a watch, so a big list is read once
+//! instead of every few seconds.
 
 use futures::AsyncBufReadExt;
 use futures::StreamExt;
@@ -22,7 +22,7 @@ pub(super) fn order(a: &TableRow, b: &TableRow) -> Ordering {
     key(a).cmp(key(b))
 }
 
-/// Puts rows in that order if they are not (the lookups below rely on it).
+/// Sorts rows into that order if needed; the lookups below rely on it.
 pub(super) fn ensure_ordered(rows: &mut [TableRow]) {
     if !rows.is_sorted_by(|a, b| order(a, b) != Ordering::Greater) {
         rows.sort_by(order);
@@ -43,9 +43,8 @@ fn apply(data: &mut TableData, event: &str, rows: Vec<TableRow>) {
     }
 }
 
-/// Follows changes from `version` on, reopening the watch when the server closes it. Returns
-/// once the rows can no longer be trusted (the version is too old, the connection fails), so
-/// the caller reads the list again.
+/// Follows changes from `version`, reopening the watch when the server closes it.
+/// Returns once the rows can't be trusted, so the caller reads the list again.
 pub(super) async fn watch_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>, version: &mut String) -> bool {
     let base = list_path(resource, namespace);
     loop {

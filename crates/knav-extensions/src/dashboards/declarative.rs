@@ -1,8 +1,5 @@
-//! Interprets a manifest's `[[extension.dashboard]]` widgets — the data-only
-//! counterpart to the hand-written dashboards in this directory. A manifest
-//! never supplies code, only field paths and a choice among four fixed
-//! widgets (`count`/`tally`/`sum`/`list`, see `manifest::WidgetSpec`); this
-//! file is the one place that knows how to fetch, compute and draw each one.
+//! Draws a manifest's `[[extension.dashboard]]` widgets: the one place that knows how
+//! to fetch, compute and draw each fixed widget shape.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -14,10 +11,7 @@ use knav_common::util::text::truncate;
 
 use super::{Dashboard, DashboardContext};
 
-/// One widget plus the `(group, kind)` pairs its `kind`/`extra_kinds`
-/// resolved to against the manifest that declared it (see
-/// `extensions::Registry::dashboard_widgets`) — already validated at parse
-/// time, so every source here is real.
+/// A manifest's widgets, each with the `(group, kind)` pairs it reads, checked at parse time.
 pub struct DeclarativeDashboard {
     pub title: String,
     pub category: String,
@@ -41,8 +35,7 @@ impl Dashboard for DeclarativeDashboard {
                 names.extend(widget.extra_kinds.clone());
                 names.join(" / ")
             });
-            // `count` only needs the cheap number; every other widget needs
-            // the full objects to compute conditions/fields/sorting from.
+            // `count` only needs the number; the other widgets need the objects.
             let line = if let WidgetSpec::Count = widget.spec {
                 let total: usize = sources.iter().map(|(group, kind)| ctx.count(group, kind)).sum();
                 vec![Line::from(vec![Span::styled(format!("{total} "), Style::default().add_modifier(Modifier::BOLD)), Span::raw(label)])]
@@ -123,10 +116,8 @@ fn bar_segment(count: i64, total: i64, color: Color, width: usize) -> Span<'stat
     Span::styled("▓".repeat(cells.min(width)), Style::default().fg(color))
 }
 
-/// A field's value ordered by what it actually is: an RFC3339 timestamp, a
-/// number, or text — whichever the column's values turn out to be. Missing
-/// sorts last regardless, so a `list` widget's absent fields don't scatter
-/// through the middle of an otherwise-ordered column.
+/// A field's value ordered by what it is: a timestamp, a number or text.
+/// Missing values sort last.
 #[derive(PartialEq, PartialOrd)]
 enum SortKey {
     Time(i64),
@@ -151,9 +142,7 @@ fn sort_key(object: &Value, path: &str) -> SortKey {
     }
 }
 
-/// `.status.notAfter`-style formatting: how many days until (or since) the
-/// timestamp a path points at, colour-coded the same way the expiry-aware
-/// `cert-manager` dashboard always has been.
+/// Days until (or since) the timestamp at `path`, coloured by how soon.
 fn days_span(object: &Value, path: &str) -> Span<'static> {
     let Some(days) = at_dotted(object, path).and_then(Value::as_str).and_then(|s| s.parse::<k8s_openapi::jiff::Timestamp>().ok()).map(|t| (t.as_second() - k8s_openapi::jiff::Timestamp::now().as_second()) / 86400) else {
         return Span::styled("-", Style::default().fg(theme().muted));
@@ -272,7 +261,6 @@ mod tests {
         let b: Value = serde_json::from_value(serde_json::json!({"summary": {"pass": 5}})).unwrap();
         let spec = WidgetSpec::Sum { fields: vec![["pass".into(), ".summary.pass".into()]] };
         let lines = render_widget("PolicyReports", &spec, &[a, b]);
-        // Title line names the total object count; the bar/legend line names the sum.
         assert!(line_text(&lines[0]).contains("(2 total)"));
     }
 

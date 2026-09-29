@@ -5,9 +5,9 @@ use futures::FutureExt;
 
 /// Waiting longer than this for a step gets a hint on the screen.
 const SLOW: Duration = Duration::from_secs(10);
-/// The screen stays at least this long, even when everything is in, so it can be seen (any key skips it).
+/// The screen stays at least this long so it can be seen; any key skips it.
 const MIN_SHOW: Duration = Duration::from_millis(1500);
-/// After this long the app opens anyway, with whatever has loaded (a list that is forbidden never arrives).
+/// After this long the app opens with whatever loaded, since a forbidden list never arrives.
 const GIVE_UP: Duration = Duration::from_secs(45);
 
 pub(crate) enum Boot {
@@ -60,7 +60,7 @@ pub(crate) async fn wait(
             if matches!(key.code, KeyCode::Char('q' | 'Q')) || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
                 return Ok(Boot::Quit);
             }
-            // Any other key skips the wait for the screen's own sake once everything is in.
+            // Once everything is in, any other key skips the rest of the wait.
             if waiting.is_empty() {
                 return Ok(Boot::Ready);
             }

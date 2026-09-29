@@ -1,80 +1,42 @@
-//! Third-party integrations (Flux, Argo CD, Helm, Karpenter, cert-manager, KEDA,
-//! Prometheus, Crossplane, Istio, Kyverno, OPA Gatekeeper) as data, not code: an
-//! extension is a TOML manifest (see `manifest`) that attaches a category,
-//! and eventually a view, to CRD kinds the cluster already has. Extensions
-//! are read-only: knav is a viewer, not a controller, so a manifest has no
-//! way to patch, annotate, create or delete anything — it can only pick from
-//! the display templates this crate implements.
-//!
-//! Two sources, loaded the same way: the few bundled here (compiled into the
-//! binary via `include_str!`, so they work with no install step) and
-//! whatever a user has dropped under `~/.config/knav/extensions/*/manifest.toml`
-//! (what `knav ext add <repo>` will populate later). Disabled by default;
-//! Settings' Extensions tab turns them on, which just adds their id to
-//! `config.toml`'s `extensions.enabled`.
-//!
-//! `dashboards` is the other half: a category-wide aggregate screen across
-//! several of an extension's kinds at once (a tally, a sorted list, a sum —
-//! see `manifest::DashboardWidget`), which the per-kind `view` templates
-//! can't express. Most of these ARE just data: `[[extension.dashboard]]`
-//! blocks in the same manifest, so `knav ext add` reaches them too, same as
-//! `view`. The couple that genuinely need a join across kinds (Karpenter's
-//! Node↔NodePool, GitOps's Flux+Argo CD combination) stay native Rust,
-//! bundled and reviewed rather than user-authored — but even those are
-//! reached through the same small trait as the declarative ones, so the
-//! core app never has to know a dashboard's name to show it.
+//! Read-only integrations (Flux, Argo CD, cert-manager, ...) described as TOML manifests:
+//! the bundled ones and any under `~/.config/knav/extensions/*/manifest.toml`.
+//! They are off by default; the Extensions screen (`E`) turns them on.
 
 pub mod dashboards;
 pub mod manifest;
 
 use manifest::{DashboardWidget, ExtKind, Manifest};
 
-/// One loaded manifest, bundled or from disk, for the Extensions settings
-/// tab: whether it parsed, and what it'd add if enabled.
+/// One loaded manifest, bundled or from disk: whether it parsed, and what it adds.
 #[derive(Clone, Debug)]
 pub struct Loaded {
     pub id: String,
     pub name: String,
     pub description: String,
     pub bundled: bool,
-    /// `Some` when the file failed to parse; the id/name are then guessed
-    /// from the filename so it still has something to show.
+    /// Set when the manifest failed to load; the id and name then come from the filename.
     pub error: Option<String>,
     pub kinds: Vec<ExtKind>,
     pub dashboard: Vec<DashboardWidget>,
-    /// `manifest::ExtensionMeta::wasm_dashboard`, resolved to an absolute,
-    /// canonicalized path already proven to sit inside this extension's own
-    /// directory and under the size cap — never set for a bundled extension
-    /// (see `resolve_wasm_dashboard`). Still just a path: nothing has read
-    /// or compiled the file yet (see `dashboards::wasm`).
+    /// The WASM dashboard's path, checked to sit inside the extension's own directory
+    /// and under the size cap. Never set for a bundled extension.
     pub wasm_dashboard: Option<std::path::PathBuf>,
 }
 
-/// Every loaded extension, and a lookup from an installed CRD's `(group,
-/// kind)` to whichever enabled extension claims it.
+/// Every loaded extension, with their compiled WASM dashboards.
 #[derive(Default)]
 pub struct Registry {
     pub loaded: Vec<Loaded>,
-    /// Compiled WASM dashboards, keyed by extension id — built once here, at
-    /// load time, so `dashboards::find` only ever borrows a ready-to-run
-    /// module instead of recompiling one every frame. A `Loaded` whose
-    /// `wasm_dashboard` failed to compile has no entry here; its `error` is
-    /// set instead (see `load`), same "never stops the others" contract as
-    /// a bad manifest.
+    /// Compiled WASM dashboards by extension id, built once at load time. One that failed
+    /// to compile has no entry and its extension's `error` set instead.
     pub wasm: std::collections::HashMap<String, dashboards::wasm::WasmDashboardModule>,
-    /// The one process-wide WASM engine every compiled module and every
-    /// `dashboards::wasm::call` runs against. `None` only if building the
-    /// engine itself failed — vanishingly unlikely, and handled the same way
-    /// as any other extension failure: every `wasm_dashboard` extension is
-    /// then just unusable, not a crash.
+    /// The one WASM engine every module runs on. `None` if it failed to build, which
+    /// leaves WASM dashboards unusable without failing anything else.
     pub wasm_engine: Option<wasmtime::Engine>,
 }
 
-/// `(id, manifest text)` for every extension shipped with knav. Helm is
-/// two things under one toggle: real releases, which aren't a CRD (they're
-/// Secrets) so knav reads them natively (see `k8s::helm`), plus Rancher/k3s's
-/// own declarative-install CRDs (`helm.cattle.io`) where a cluster has them —
-/// an ordinary `[[extension.kind]]` match like any other extension.
+/// Every extension shipped with knav, as `(id, manifest text)`. Helm releases are
+/// Secrets, read natively by `knav_k8s::helm`; the manifest adds k3s's HelmChart CRDs.
 const BUNDLED: &[(&str, &str)] = &[
     ("flux", include_str!("../bundled/flux.toml")),
     ("argocd", include_str!("../bundled/argocd.toml")),
@@ -90,8 +52,7 @@ const BUNDLED: &[(&str, &str)] = &[
 ];
 
 impl Registry {
-    /// Loads every bundled extension plus anything under
-    /// `~/.config/knav/extensions/*/manifest.toml`. Never fails: a bad
+    /// Loads the bundled extensions and every external manifest. Never fails: a bad
     /// manifest shows up with `error` set instead of stopping the others.
     pub fn load(config_dir: &std::path::Path) -> Registry {
         let mut loaded: Vec<Loaded> = BUNDLED.iter().map(|(id, text)| from_text(id, text, true, None)).collect();
@@ -132,12 +93,8 @@ impl Registry {
         knav_k8s::catalog::ExtensionIndex { kinds, dashboards: dashboards::categories(self) }
     }
 
-    /// Every dashboard widget any loaded (not necessarily enabled — see
-    /// `dashboards::find`) manifest declares for `category`, with the
-    /// `(group, kind)` each widget's own `kind`/`extra_kinds` resolve to,
-    /// looked up against that same manifest's `kinds`. A widget whose kind
-    /// isn't declared can't happen (`Manifest::parse` rejects it), so this
-    /// silently skips nothing real.
+    /// Every dashboard widget the loaded manifests declare for `category`, enabled or
+    /// not, with the `(group, kind)` pairs each widget reads.
     pub fn dashboard_widgets(&self, category: &str) -> Vec<(&DashboardWidget, Vec<(&str, &str)>)> {
         self.loaded
             .iter()
@@ -152,10 +109,8 @@ impl Registry {
             .collect()
     }
 
-    /// Every category with at least one dashboard widget or a working
-    /// `wasm_dashboard` among the loaded manifests, regardless of enabled —
-    /// same "reachable by `:category` regardless of the toggle" precedent
-    /// `HelmReleases` already set.
+    /// Every category with a dashboard widget or a working WASM dashboard, enabled or
+    /// not, so `:category` reaches it either way.
     pub fn dashboard_categories(&self) -> Vec<&str> {
         let mut categories: Vec<&str> = self
             .loaded
@@ -173,20 +128,15 @@ impl Registry {
     }
 }
 
-/// The Extensions tab's display order: `loaded` narrowed to whatever
-/// fuzzy-matches `filter` on its name (everything, when `filter` is empty),
-/// bundled ones first, alphabetical by name within each group. Indexes into
-/// `loaded`, so both the tab's rows and a toggle's lookup of the actual
-/// `Loaded` it acted on come from the same list.
+/// The Extensions screen's order, as indexes into `loaded`: fuzzy-matched on name,
+/// bundled first, then alphabetical.
 pub fn visible_order(loaded: &[Loaded], filter: &str) -> Vec<usize> {
     let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || knav_common::util::fuzzy::positions(filter, &loaded[i].name).is_some()).collect();
     order.sort_by_key(|&i| (!loaded[i].bundled, loaded[i].name.to_lowercase()));
     order
 }
 
-/// `dir` is this extension's own directory (external only — `None` for a
-/// bundled one, which has no directory of its own to resolve a relative
-/// `wasm_dashboard` path against).
+/// `dir` is an external extension's own directory; `None` for a bundled one.
 fn from_text(fallback_id: &str, text: &str, bundled: bool, dir: Option<&std::path::Path>) -> Loaded {
     let empty = || Loaded { id: fallback_id.to_string(), name: fallback_id.to_string(), description: String::new(), bundled, error: None, kinds: Vec::new(), dashboard: Vec::new(), wasm_dashboard: None };
     match Manifest::parse(text) {
@@ -198,18 +148,11 @@ fn from_text(fallback_id: &str, text: &str, bundled: bool, dir: Option<&std::pat
     }
 }
 
-/// The most a `wasm_dashboard` file can be — generous for real dashboard
-/// logic, small enough that a mistaken or hostile file can't be read wholly
-/// into memory just by sitting in the extensions directory.
+/// The largest WASM dashboard accepted, so a stray huge file isn't read into memory.
 const WASM_DASHBOARD_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
-/// `manifest::ExtensionMeta::wasm_dashboard`, turned into an absolute path
-/// — or an error, same "never panics, becomes `Loaded.error`" contract as
-/// everything else here. Proves the path stays inside the extension's own
-/// directory (a `..` component is already rejected at parse time; this also
-/// catches a symlink that resolves outside it) and under
-/// `WASM_DASHBOARD_MAX_BYTES`, but doesn't read the file's contents — that's
-/// `dashboards::wasm::WasmDashboardModule::compile`'s job.
+/// The WASM dashboard's absolute path, checked to stay inside the extension's directory
+/// (symlinks included) and under `WASM_DASHBOARD_MAX_BYTES`. Doesn't read the file.
 fn resolve_wasm_dashboard(name: Option<&str>, dir: Option<&std::path::Path>) -> Result<Option<std::path::PathBuf>, String> {
     let Some(name) = name else { return Ok(None) };
     let Some(dir) = dir else {
@@ -302,11 +245,7 @@ mod tests {
 
     #[test]
     fn a_bundled_extension_declaring_wasm_dashboard_is_impossible_by_construction() {
-        // Bundled manifests have no directory of their own for a relative
-        // wasm_dashboard path to resolve against — proven directly against
-        // `from_text`, the same function `BUNDLED` loads through, with
-        // `dir: None` exactly as `Registry::load` passes for every bundled
-        // entry.
+        // Bundled manifests have no directory to resolve a WASM path against.
         let loaded = from_text("x", "[extension]\nid = \"x\"\nname = \"x\"\nwasm_dashboard = \"dashboard.wasm\"\n", true, None);
         assert!(loaded.error.is_some());
         assert!(loaded.wasm_dashboard.is_none());
@@ -329,11 +268,7 @@ mod tests {
 
     #[test]
     fn a_wasm_dashboard_next_to_its_manifest_resolves_to_an_absolute_path() {
-        // The bytes here aren't a real component — proving path resolution
-        // doesn't require a real one. `dashboards::wasm`'s own tests (with a
-        // real compiled fixture) cover compilation and execution; this is
-        // just "did the path land where it should", which happens before
-        // compilation is even attempted (see `resolve_wasm_dashboard`).
+        // Not a real component: this only checks where the path lands, before compiling.
         let dir = tempdir();
         let ext_dir = dir.path().join("extensions").join("widgetco");
         std::fs::create_dir_all(&ext_dir).unwrap();
@@ -371,8 +306,7 @@ mod tests {
         tempfile_shim::TempDir::new()
     }
 
-    /// A tiny stand-in for the `tempfile` crate (not a dependency here): a
-    /// directory under the system temp dir, removed when dropped.
+    /// A temporary directory, removed when dropped, so tests need no `tempfile` crate.
     mod tempfile_shim {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(0);

@@ -15,8 +15,8 @@ use kube::{
     discovery::{Scope, pinned_kind},
 };
 
-/// Runs the edit flow for one manifest. Failures become an `Outcome` for the UI,
-/// since the terminal must be restored either way.
+/// Runs the edit flow for one manifest. Failures become an `Outcome`, since the
+/// terminal must be restored either way.
 pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, manifest: &serde_yaml::Value) -> Outcome {
     let original = match serde_yaml::to_string(manifest) {
         Ok(y) => y,
@@ -40,8 +40,7 @@ fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original:
     let outcome = loop {
         write_private(&path, &format!("{header}{current}")).context("writing the temp file")?;
         if !run_editor(terminal, &path)? {
-            // The editor quit with a non-zero status (`:q!`/`:cq` in vi),
-            // that's how you say "abort", so drop the edit quietly.
+            // A non-zero exit (`:cq` in vi) means abort, so drop the edit quietly.
             break None;
         }
         let edited = strip_comment_header(&std::fs::read_to_string(&path).context("reading the temp file back")?);
@@ -80,14 +79,13 @@ fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     options.open(path)?.write_all(text.as_bytes())
 }
 
-/// Drops the leading `#` lines a previous failure left (the editor may
-/// or may not have kept them); real manifests start with `apiVersion`.
+/// Drops the `#` lines a previous failure added; a manifest starts with `apiVersion`.
 fn strip_comment_header(text: &str) -> String {
     text.lines().skip_while(|l| l.starts_with('#')).collect::<Vec<_>>().join("\n") + "\n"
 }
 
-/// Hands the terminal to `$VISUAL`/`$EDITOR` (else `vi`) through `sh -c`, so
-/// editors with arguments work. `Ok(false)` means a non-zero exit.
+/// Hands the terminal to `$VISUAL`, `$EDITOR` or `vi` through `sh -c`, so editors with
+/// arguments work. `Ok(false)` means a non-zero exit.
 fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -> Result<bool> {
     let editor = ["VISUAL", "EDITOR"]
         .iter()
@@ -100,8 +98,7 @@ fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -
     *terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let status = status.with_context(|| format!("couldn't launch the editor '{editor}'"))?;
-    // 126/127 are the shell's "can't run it" / "not found", a real
-    // failure to launch, unlike an editor deliberately exiting non-zero.
+    // 126 and 127 mean the shell couldn't run it, unlike an editor exiting non-zero on purpose.
     if matches!(status.code(), Some(126 | 127)) {
         bail!("couldn't launch the editor '{editor}'");
     }

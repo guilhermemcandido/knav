@@ -1,11 +1,11 @@
-//! The relations diagram: boxes in columns, joined by arrows that flow left to
-//! right, like a Mermaid `flowchart LR`.
+//! The relations diagram: boxes in columns joined by arrows flowing left to right,
+//! like a Mermaid `flowchart LR`.
 
 use super::*;
 use crate::k8s::relations::Graph;
 
-/// Box width, height, the gap between columns (for the arrows) and the gap between
-/// boxes stacked in a column, at each zoom level: compact, normal (the default), large.
+/// Box size and the gaps between columns and between stacked boxes, per zoom level:
+/// compact, normal (the default) and large.
 #[derive(Clone, Copy)]
 struct Dims {
     w: u16,
@@ -23,12 +23,10 @@ fn dims(zoom: usize) -> Dims {
     LEVELS[zoom.min(MAX_ZOOM)]
 }
 
-/// One step closer, up to the largest boxes.
 pub fn zoom_in(zoom: usize) -> usize {
     (zoom + 1).min(MAX_ZOOM)
 }
 
-/// One step further out, down to the most compact boxes.
 pub fn zoom_out(zoom: usize) -> usize {
     zoom.saturating_sub(1)
 }
@@ -40,7 +38,7 @@ pub struct GraphLayout {
     pub height: u16,
 }
 
-/// Most boxes stacked in one column, so the canvas size stays in range.
+/// Most boxes stacked in one column, keeping the canvas size in range.
 const MAX_PER_LAYER: usize = 1000;
 
 pub fn layout(graph: &Graph, zoom: usize) -> GraphLayout {
@@ -121,7 +119,6 @@ fn glyph(mask: u8) -> char {
     }
 }
 
-/// The whole diagram on a character grid.
 fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize, zoom: usize) -> Vec<Vec<(char, Style)>> {
     let d = dims(zoom);
     let (w, h) = (usize::from(layout.width), usize::from(layout.height));
@@ -129,7 +126,7 @@ fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize, zoom: usize) -> 
     let mut lit = vec![vec![false; w]; h];
     let mut arrows: Vec<(usize, usize, char, bool)> = Vec::new();
     let join = |masks: &mut Vec<Vec<u8>>, lit: &mut Vec<Vec<bool>>, from: (usize, usize), to: (usize, usize), highlighted: bool| {
-        // A straight run from one cell to another, each cell joined to its neighbours.
+        // A straight run between two cells, each joined to its neighbours.
         let (dx, dy) = ((to.0 as i32 - from.0 as i32).signum(), (to.1 as i32 - from.1 as i32).signum());
         let (mut x, mut y) = (from.0 as i32, from.1 as i32);
         loop {
@@ -214,7 +211,7 @@ fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize, zoom: usize) -> 
             put(&mut grid, x0, y0 + row, &format!("{}{}{}", set.vertical_left, " ".repeat(inner_w), set.vertical_right), border);
         }
         let name_style = if is_selected { Style::default().fg(theme().accent).add_modifier(Modifier::BOLD) } else { Style::default().add_modifier(Modifier::BOLD) };
-        // The kind, and why it is here on the right; shared by the two multi-line sizes.
+        // The kind, and why it is here, for the two multi-line sizes.
         let kind_row = |grid: &mut Vec<Vec<(char, Style)>>, y: usize| {
             let kind = fit(&node.kind, inner_w);
             let room = inner_w.saturating_sub(kind.chars().count() + 1);
@@ -224,19 +221,17 @@ fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize, zoom: usize) -> 
             put(grid, x0 + 1 + inner_w - detail.chars().count(), y, &detail, muted);
         };
         if d.h >= 5 {
-            // Zoomed in: the kind, then the namespace, then the name, each on its own
-            // line instead of getting truncated together.
+            // Zoomed in: kind, namespace and name each on their own line.
             kind_row(&mut grid, y0 + 1);
             if let Some(namespace) = &node.namespace {
                 put(&mut grid, x0 + 1, y0 + 2, &fit(namespace, inner_w), muted);
             }
             put(&mut grid, x0 + 1, y0 + 3, &fit(&node.name, inner_w), name_style);
         } else if d.h >= 4 {
-            // First line: the kind. Second: the name.
             kind_row(&mut grid, y0 + 1);
             put(&mut grid, x0 + 1, y0 + 2, &fit(&node.name, inner_w), name_style);
         } else {
-            // Zoomed out: one line only, the kind's first letter ahead of the name.
+            // Zoomed out: one line, the kind's first letter before the name.
             let prefix = node.kind.chars().next().map(|c| format!("{c} ")).unwrap_or_default();
             put(&mut grid, x0 + 1, y0 + 1, &fit(&format!("{prefix}{}", node.name), inner_w), name_style);
         }
@@ -244,8 +239,8 @@ fn canvas(graph: &Graph, layout: &GraphLayout, selected: usize, zoom: usize) -> 
     grid
 }
 
-/// Where the diagram sits in `area`: how far it is panned (to keep the selected box in view)
-/// and how much room is left around a small one, which sits in the middle.
+/// Where the diagram sits in `area`: panned to keep the selected box in view, or
+/// centred when small.
 fn viewport(area: Rect, layout: &GraphLayout, selected: usize, zoom: usize) -> (u16, u16, u16, u16) {
     let d = dims(zoom);
     let (sx, sy) = layout.pos.get(selected).copied().unwrap_or((0, 0));
@@ -254,7 +249,7 @@ fn viewport(area: Rect, layout: &GraphLayout, selected: usize, zoom: usize) -> (
     (ox, oy, area.width.saturating_sub(layout.width) / 2, area.height.saturating_sub(layout.height) / 2)
 }
 
-/// The box under a screen position, given the diagram is drawn in `area` with `selected` in view.
+/// The box under a screen position, for a diagram drawn in `area` with `selected` in view.
 pub fn graph_hit(area: Rect, graph: &Graph, selected: usize, column: u16, row: u16, zoom: usize) -> Option<usize> {
     let d = dims(zoom);
     let layout = layout(graph, zoom);

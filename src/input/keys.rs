@@ -1,10 +1,9 @@
-//! Turning a key press into the bytes a terminal program expects, for
-//! typing into an embedded shell.
+//! Encodes key presses as the bytes a terminal program expects, for the embedded shell.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// The bytes for `key`. `app_cursor` is the program's "application cursor
-/// keys" mode (vim and friends), which changes what the arrows send.
+/// The bytes for `key`. `app_cursor` is the application cursor keys mode (vim and
+/// friends), which changes what the arrows send.
 pub fn encode(key: &KeyEvent, app_cursor: bool) -> Vec<u8> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);

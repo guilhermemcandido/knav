@@ -1,6 +1,6 @@
-//! Key bindings: every action has a name, its screens and default keys, and the
-//! config's `[keys]` table replaces them. Handlers match built-in keys, so the keymap
-//! translates your key into the built-in one. Two actions on a screen can't share a key.
+//! Key bindings. Every action has screens and default keys, which `[keys]` in the
+//! config replaces. Handlers match built-in keys, so the keymap translates yours into
+//! them. Two actions on one screen can't share a key.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -36,7 +36,6 @@ const TABLES: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, Node
 const SORTABLE: &[Screen] = &[List, Events, Namespaces, Contexts, Containers, NodeDetail];
 const SEARCHABLE: &[Screen] = &[List, Events, Namespaces, Contexts, NodeDetail, Logs, Extensions];
 
-/// One bindable action.
 pub struct Binding {
     pub id: &'static str,
     pub label: &'static str,
@@ -102,8 +101,8 @@ bindings! {
     ("wide", "Wide columns", &[List], &["ctrl-w"]),
 }
 
-/// A key as the keymap compares them: the code and Ctrl/Alt. Shift is folded
-/// into the character (`D` is shift-d), and is kept only for non-characters.
+/// A key as the keymap compares them: code plus Ctrl and Alt. Shift is folded into
+/// the character (`D`), and kept only for other keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct KeySpec {
     pub code: KeyCode,
@@ -144,7 +143,7 @@ const NAMED_KEYS: &[(&str, KeyCode)] = &[
     ("pagedown", KeyCode::PageDown),
 ];
 
-/// `j`, `D`, `ctrl-z`, `alt-x`, `enter`, `f5`, `space`, ... Digits are
+/// Parses `j`, `D`, `ctrl-z`, `alt-x`, `enter`, `f5`, `space` and so on. Digits are
 /// reserved for the namespace and sort shortcuts.
 pub fn parse_key(text: &str) -> Result<KeySpec, String> {
     let text = text.trim();
@@ -238,9 +237,8 @@ pub fn conflict<'a>(overrides: &Overrides, binding: &Binding, key: KeySpec) -> O
     })
 }
 
-/// The user's keys from the config, checked: an action whose keys don't
-/// parse, or collide with another action on a shared screen, keeps its
-/// defaults. Returns what was ignored and why.
+/// The config's keys, checked. An action whose keys don't parse or collide with
+/// another on a shared screen keeps its defaults; the reasons are returned.
 pub fn overrides_from_config(keys: &BTreeMap<String, Vec<String>>) -> (Overrides, Vec<String>) {
     let mut candidates = Overrides::new();
     let mut problems = Vec::new();
@@ -259,8 +257,8 @@ pub fn overrides_from_config(keys: &BTreeMap<String, Vec<String>>) -> (Overrides
             Err(e) => problems.push(format!("keys.{}: {e}", binding.id)),
         }
     }
-    // Checked against the final set, so two actions can swap keys; when two
-    // really collide, the one later in the list loses and keeps its default.
+    // Checked against the final set, so two actions can swap keys. On a real
+    // collision the later action keeps its default.
     for binding in BINDINGS {
         let Some(list) = candidates.get(binding.id).cloned() else { continue };
         let clash = list.iter().find_map(|key| conflict(&candidates, binding, *key).map(|other| (*key, other.label)));
@@ -279,7 +277,7 @@ use std::sync::RwLock;
 
 static CURRENT: RwLock<Option<Keymap>> = RwLock::new(None);
 
-/// Makes `keymap` the one the UI reads when it names keys (help, hints).
+/// Makes `keymap` the one the UI names keys from (help, hints).
 pub fn set_current(keymap: &Keymap) {
     if let Ok(mut current) = CURRENT.write() {
         *current = Some(keymap.clone());
@@ -310,8 +308,8 @@ pub fn glyph(key: &str) -> String {
 /// What one screen does with each key it is sent.
 #[derive(Clone, Debug, Default)]
 pub struct Keymap {
-    /// The key you pressed -> the built-in key to hand the handler, or `None`
-    /// when that key belongs to an action you moved elsewhere.
+    /// The key you pressed mapped to the built-in key for the handler, or `None`
+    /// when that key's action moved elsewhere.
     tables: HashMap<Screen, HashMap<KeySpec, Option<KeySpec>>>,
     overrides: Overrides,
 }
@@ -348,7 +346,6 @@ impl Keymap {
         (Keymap::new(overrides), problems)
     }
 
-    /// From the whole config (its `[keys]` table).
     pub fn from_app_config(config: &crate::config::Config) -> (Keymap, Vec<String>) {
         Keymap::from_config(&config.keys)
     }
@@ -370,8 +367,7 @@ impl Keymap {
         }
     }
 
-    /// What a built-in key (as the hints and help name it) is called now on
-    /// `screen`: the keys of the action it belongs to, or itself if unbound.
+    /// What a built-in key (as hints and help name it) is called now on `screen`.
     pub fn display(&self, screen: Screen, built_in: &str) -> String {
         let Ok(key) = parse_key(built_in) else { return built_in.to_string() };
         for binding in BINDINGS.iter().filter(|b| b.screens.contains(&screen)) {

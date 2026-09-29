@@ -1,4 +1,4 @@
-//! The `config.toml` file, its defaults, and the settings built on it.
+//! The `config.toml` file and its defaults.
 
 pub mod favorites;
 pub mod edit;
@@ -27,9 +27,8 @@ impl TimestampFormat {
     }
 }
 
-/// Which way the log view reads: `oldest_first` is a normal top-down
-/// reading order with new lines arriving at the bottom (the default);
-/// `newest_first` puts the latest line at the top.
+/// Which way the log view reads: `oldest_first` (the default) has new lines at the
+/// bottom, `newest_first` at the top.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogOrder {
@@ -52,17 +51,14 @@ impl LogOrder {
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct OverviewConfig {
-    /// Category names, in the order to show them.
     pub sections: Vec<String>,
-    /// Kind names per category, in the order to show them.
     pub items: BTreeMap<String, Vec<String>>,
     /// Hidden categories (`Config`) and kinds (`Config/Secrets`).
     pub hidden: Vec<String>,
 }
 
-/// Names a saved layout may still use from before they were renamed. An
-/// unrecognized name is silently unlisted, which drops it after every listed
-/// category (an old "Custom Resources" put CustomResources after Helm).
+/// Names a saved layout may still use from before a rename. An unknown name is
+/// unlisted, which moves its category after every listed one.
 const LEGACY_NAMES: &[(&str, &str)] = &[("Custom Resources", "CustomResources"), ("Helm Releases", "HelmReleases")];
 
 fn current_name(name: &str) -> String {
@@ -70,7 +66,6 @@ fn current_name(name: &str) -> String {
 }
 
 impl OverviewConfig {
-    /// Rewrites legacy category and kind names to their current spelling.
     pub fn migrate_legacy_names(&mut self) {
         for name in &mut self.sections {
             *name = current_name(name);
@@ -124,16 +119,13 @@ pub struct StartupConfig {
     pub mode: StartupMode,
 }
 
-/// Table column sizing. A column is as wide as its content, but never
-/// squeezed below its minimum; when the columns' minimums don't all fit the
-/// screen, the table scrolls sideways (←/→) instead.
+/// Column sizing: as wide as the content, never below the minimum. When the minimums
+/// don't fit, the table scrolls sideways.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TablesConfig {
-    /// The minimum width of every column unless overridden below.
     pub min_column_width: usize,
-    /// Per-column minimums, keyed by the lowercase header name
-    /// (`name = 24`, `namespace = 14`, `"up-to-date" = 12`).
+    /// Per-column minimums by lowercase header, like `name = 24`.
     pub min_widths: std::collections::HashMap<String, usize>,
     /// Start every list with the wide columns / only the faulty rows.
     pub wide_by_default: bool,
@@ -146,12 +138,10 @@ impl Default for TablesConfig {
     }
 }
 
-/// What starting a port-forward does besides forwarding.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PortForwardConfig {
-    /// Open `http://localhost:<port>` in the browser once it is running;
-    /// when false, ask first.
+    /// Open `http://localhost:<port>` once it runs; ask first when false.
     pub open_browser: bool,
 }
 
@@ -214,7 +204,6 @@ impl Default for ThemeConfig {
     }
 }
 
-/// Look-and-feel options.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct UiConfig {
@@ -232,8 +221,7 @@ impl Default for UiConfig {
     }
 }
 
-/// Which extensions (see `crate::extensions`) are turned on, by id. An
-/// extension is inert data until its id is here.
+/// The ids of the extensions turned on.
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct ExtensionsConfig {
@@ -254,19 +242,19 @@ pub struct Config {
     pub api: ApiConfig,
     pub overview: OverviewConfig,
     pub extensions: ExtensionsConfig,
-    /// Key bindings by action id; each is one key or a list (see `keymap`).
+    /// Key bindings by action id, each one key or a list.
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,
 }
 
 impl Config {
-    /// Reads `$XDG_CONFIG_HOME/knav/config.toml`, falling back to `~/.config/knav/config.toml`.
-    /// A missing file or field means the default; a malformed file gives the defaults.
+    /// Reads `config.toml` from `config_dir()`. A missing file or field means the
+    /// default; a malformed file gives all defaults.
     pub fn load() -> Self {
         Self::load_reporting().0
     }
 
-    /// Like `load`, with what went wrong in words, for showing once the screen is up.
+    /// Like `load`, plus what went wrong, to show once the screen is up.
     pub fn load_reporting() -> (Self, Vec<String>) {
         let path = Self::path();
         let contents = match std::fs::read_to_string(&path) {
@@ -287,8 +275,6 @@ impl Config {
         Self::dir().join("config.toml")
     }
 
-    /// `$XDG_CONFIG_HOME/knav` (or `~/.config/knav`), the config file
-    /// and knav's small saved state live here.
     pub fn dir() -> PathBuf {
         crate::util::config_dir()
     }

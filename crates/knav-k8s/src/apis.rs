@@ -46,9 +46,8 @@ impl From<&CrdInfo> for ApiInfo {
     }
 }
 
-/// Strings shown as column headers or kind labels are `&'static str` all over
-/// the UI, so each distinct one is leaked once (a bounded set: the cluster's
-/// resource names and column titles).
+/// Leaks `text` once and returns it as `&'static str`, which headers and labels need.
+/// The set is bounded: the cluster's resource names and column titles.
 pub fn leak(text: &str) -> &'static str {
     static INTERNED: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
     let mut map = INTERNED.get_or_init(Default::default).lock().expect("interner lock");
@@ -60,8 +59,8 @@ pub fn leak(text: &str) -> &'static str {
     leaked
 }
 
-/// The names (`plural.group`) of every installed CRD. Only metadata is listed, in pages: a
-/// full CRD carries its whole schema, which on a big cluster is hundreds of megabytes.
+/// The names (`plural.group`) of every installed CRD. Lists metadata only, in pages,
+/// since full CRDs carry their schemas and can total hundreds of megabytes.
 async fn crd_names(client: &Client) -> std::collections::HashSet<String> {
     use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
     use kube::{ResourceExt, api::{Api, ListParams}, core::PartialObjectMeta};
@@ -81,8 +80,8 @@ async fn crd_names(client: &Client) -> std::collections::HashSet<String> {
     names
 }
 
-/// Runs discovery with the aggregated API (two requests for every group) when the server has
-/// it, else group by group, which costs one round trip per group.
+/// Discovery through the aggregated API (two requests) when the server has it,
+/// else one round trip per group.
 async fn run_discovery(client: &Client) -> Option<Discovery> {
     match Discovery::new(client.clone()).run_aggregated().await {
         Ok(found) => Some(found),
@@ -90,9 +89,8 @@ async fn run_discovery(client: &Client) -> Option<Discovery> {
     }
 }
 
-/// Everything the API server lets us list, one entry per resource (its recommended version),
-/// and the custom resources among them, each at its preferred served version. Both sorted by
-/// group then kind; empty if discovery fails. Custom resources are found in the same pass.
+/// Every listable resource at its recommended version, and the custom resources among
+/// them at their preferred one. Both sorted by group then kind; empty if discovery fails.
 pub async fn discover(client: &Client) -> (Vec<ApiInfo>, Vec<CrdInfo>) {
     let (found, names) = tokio::join!(run_discovery(client), crd_names(client));
     let Some(discovery) = found else { return (Vec::new(), Vec::new()) };
@@ -132,7 +130,7 @@ pub async fn discover(client: &Client) -> (Vec<ApiInfo>, Vec<CrdInfo>) {
     (apis, crds)
 }
 
-/// The list of every resource type (`:api`); Enter on a row opens it.
+/// The list of every resource type (`:api`).
 pub struct ApiList {
     pub apis: Vec<ApiInfo>,
     /// How many objects each type has, filled in by the background counter.
@@ -173,7 +171,6 @@ impl CatalogKind for ApiList {
             .collect()
     }
 
-    /// The resource described as an object, so info and YAML can show it.
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
         let api = self.apis.get(index)?;
         Some(serde_yaml::to_value(serde_json::json!({

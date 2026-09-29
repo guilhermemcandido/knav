@@ -4,8 +4,7 @@ use k8s_openapi::api::core::v1::{Event, Node};
 
 use super::*;
 
-/// Usage, the kind catalog and the newest-first Events feed for the dashboard.
-/// Counts live in `catalog`, not here.
+/// What the Overview shows: usage, the kind catalog and the newest-first events.
 pub struct Overview {
     pub events: Vec<EventEntry>,
     pub cpu_usage_millicores: i64,
@@ -14,13 +13,11 @@ pub struct Overview {
     pub memory_capacity_bytes: i64,
     pub pod_capacity: i64,
     pub metrics_available: bool,
-    /// (section title, [(kind label, live count)]), assembled by the
-    /// caller from whichever watches/pollers it's holding; this function
-    /// just bundles it in alongside everything else.
+    /// Each section's title with its kinds and counts, built by the caller.
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
-    /// Requests, phases and busiest namespaces, worked out while the Resources view is open.
+    /// Requests, phases and busiest namespaces, computed while the Resources view is open.
     pub report: Option<crate::report::Report>,
 }
 
@@ -45,8 +42,8 @@ impl Health {
     }
 }
 
-/// Pods: running and ready or finished are fine, pending or short of ready
-/// need a look, crashing or erroring are broken.
+/// Pods: running and ready, or finished, are fine; pending or not all ready need
+/// a look; crashing or erroring are broken.
 pub fn pods_health(rows: &[std::sync::Arc<PodRow>]) -> Health {
     use crate::describe::Tone;
     let mut health = Health::default();

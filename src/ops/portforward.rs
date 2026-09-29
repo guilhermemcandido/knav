@@ -1,5 +1,5 @@
-//! Port-forwards: `kubectl port-forward` children that live in the
-//! background for as long as knav does (or until stopped from `:pf`).
+//! Port-forwards: `kubectl port-forward` processes that run until knav exits or `:pf`
+//! stops them.
 
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -31,7 +31,6 @@ impl Forward {
         format!("http://localhost:{}", self.local)
     }
 
-    /// This forward as a row of the Port-forwards list.
     pub fn row(&self) -> GenericRow {
         let secs = self.started.elapsed().as_secs() as i64;
         let col = |header, text: String, sort| Col { header, text, tone: Tone::Plain, sort };
@@ -69,7 +68,6 @@ fn parse_port(text: &str, what: &str) -> Result<u16> {
     text.trim().parse::<u16>().ok().filter(|p| *p > 0).with_context(|| format!("{what}: '{}' is not a port (1-65535)", text.trim()))
 }
 
-/// Which part of the dialog has the keyboard.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {
     Container,
@@ -79,8 +77,7 @@ pub enum Field {
     Cancel,
 }
 
-/// The port-forward dialog: the container port, the local port, the address
-/// to listen on, and OK / Cancel.
+/// The port-forward dialog's state.
 #[derive(Clone, Debug)]
 pub struct PortForm {
     pub container: String,
@@ -89,7 +86,6 @@ pub struct PortForm {
     pub focus: Field,
     /// Ports the object declares, to warn when the one typed is not among them.
     pub declared: Vec<u16>,
-    /// What was wrong with the last attempt to submit.
     pub error: Option<String>,
     /// Once the local port is typed by hand it stops following the container port.
     local_edited: bool,
@@ -182,13 +178,12 @@ impl PortForm {
     }
 }
 
-/// The local port to suggest for a remote one: the same, or shifted above
-/// 1024 when that would need root.
+/// The local port to suggest: the remote one, shifted above 1024 when it would need root.
 pub fn suggested_local(remote: u16) -> u16 {
     if remote >= 1024 { remote } else { remote + 8000 }
 }
 
-/// `start` off the UI thread, since it waits a moment to see whether kubectl fails.
+/// `start` off the UI thread, since it waits to see whether kubectl fails.
 pub async fn start_in_background(context: String, namespace: String, resource: String, address: String, local: u16, remote: u16) -> Result<Forward> {
     tokio::task::spawn_blocking(move || start(&context, &namespace, &resource, &address, local, remote)).await?
 }
@@ -210,7 +205,7 @@ pub fn start(context: &str, namespace: &str, resource: &str, address: &str, loca
         }
         bail!("{}", if message.trim().is_empty() { format!("kubectl exited with {status}") } else { message.trim().to_string() });
     }
-    // Nobody reads kubectl's later chatter, and an unread pipe would eventually stall it.
+    // An unread pipe would eventually stall kubectl, so drain its later output.
     if let Some(mut err) = child.stderr.take() {
         std::thread::spawn(move || {
             let _ = std::io::copy(&mut err, &mut std::io::sink());
@@ -219,7 +214,6 @@ pub fn start(context: &str, namespace: &str, resource: &str, address: &str, loca
     Ok(Forward { resource: resource.to_string(), namespace: namespace.to_string(), local, remote, child, started: Instant::now() })
 }
 
-/// Opens `url` in the default browser.
 pub fn open_in_browser(url: &str) -> Result<()> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
         ("open", vec![url])

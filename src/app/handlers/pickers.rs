@@ -1,4 +1,4 @@
-//! Choosers: namespaces and their number keys, contexts, the resource menu, notices.
+//! Choosers: namespaces and their number keys, contexts, and notices.
 
 use super::super::*;
 use super::Cx;
@@ -8,8 +8,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let active_context = cx.active_context;
     let frame_area = cx.frame_area;
     match (event, &mut st.mode) {
-        // Any key (or click) closes a notice, checked before the
-        // global keys below so they don't also fire on that press.
         (Event::Key(key), Mode::NamespacePick { filter, editing: editing @ true, state, .. }) => {
             if super::edit_line(key.code, filter, editing) {
                 state.select(Some(0));
@@ -18,8 +16,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::NamespacePick { names, filter, editing, state, sort, back }) => {
             let mut chosen: Option<String> = None;
             let mut close = false;
-            // A number gives the highlighted namespace that key right here;
-            // `d` (or Delete) takes its key away.
+            // A number gives the highlighted namespace that key; `d` or Delete takes it away.
             let highlighted = state.selected().and_then(|i| filtered_names(names, filter, *sort, &st.favorites).get(i).map(|n| (*n).clone()));
             match key.code {
                 KeyCode::Char(c @ '1'..='9') => {
@@ -42,8 +39,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 _ => {}
             }
             if let Some(name) = chosen {
-                // Straight on to choosing its key; Esc from there goes
-                // back to the view this was opened from.
+                // On to choosing its key; Esc there returns to where this was opened.
                 let back = std::mem::replace(&mut **back, Mode::List);
                 let mut next = key_picker(name, &st.favorites);
                 if let Mode::Slots { back: slot_back, .. } = &mut next {
@@ -57,8 +53,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
             wheel_select(mouse.kind, state, filtered_names(names, filter, *sort, &st.favorites).len());
         }
-        // A click selects a row, or (on the chip strip below) puts the
-        // highlighted namespace on that number.
+        // A click selects a row, or on the chip strip gives the highlighted namespace that key.
         (Event::Mouse(mouse), Mode::NamespacePick { names, filter, state, sort, .. }) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
             let matches: Vec<String> = filtered_names(names, filter, *sort, &st.favorites).into_iter().cloned().collect();
             if let Some(key) = ui::slot_chip_at(frame_area, mouse.column, mouse.row) {
@@ -94,14 +89,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
         }
+        // Any key or click closes a notice.
         (Event::Key(_), Mode::Notice { back, .. }) => st.mode = std::mem::replace(&mut **back, Mode::List),
         (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
             st.mode = std::mem::replace(&mut **back, Mode::List)
         }
-        // No separate typing mode: any letter filters immediately, arrows/wheel/click
-        // scroll, same as typing into a search engine's box instead of a command
-        // line. Esc clears the filter first, then (pressed again) backs out; `q`
-        // only backs out on an empty filter, since a context can contain a 'q'.
+        // No typing mode: letters filter at once. Esc clears the filter, then backs out;
+        // `q` backs out only on an empty filter, since a context name can contain a q.
         (Event::Key(key), Mode::Context { contexts, filter, editing: _, state, error, sort, back }) => match key.code {
             KeyCode::Esc => {
                 if filter.is_empty() {

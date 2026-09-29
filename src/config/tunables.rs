@@ -1,6 +1,5 @@
-//! The numeric knobs that code deep in the app reads (wheel speed, how fast
-//! a double-click is, how often the API lists refresh, ...). Held in one
-//! place that the config screen can change while knav runs.
+//! Numeric settings read deep in the app (wheel speed, double-click time, ...),
+//! kept in one place the Settings screen can change while knav runs.
 
 use std::sync::RwLock;
 

@@ -6,8 +6,7 @@ use anyhow::{Context as _, Result};
 
 use super::Config;
 
-/// `document` with `path` set to `value` (or removed, for `None`), comments
-/// and everything else untouched.
+/// `document` with `path` set to `value`, or removed for `None`, keeping everything else.
 pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>) -> Result<String> {
     let mut doc: toml_edit::DocumentMut = document.parse().context("config.toml is not valid TOML")?;
     let keys: Vec<&str> = path.split('.').collect();
@@ -46,8 +45,8 @@ pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>
     Ok(doc.to_string())
 }
 
-/// Writes `value` (or removes the key) in the config file and returns the
-/// config as it now reads. The file is only replaced if the result parses.
+/// Writes `value` (or removes the key) and returns the config as it now reads.
+/// The file is only replaced if the result parses.
 pub fn save(file: &Path, path: &str, value: Option<toml_edit::Value>) -> Result<Config> {
     let existing = std::fs::read_to_string(file).unwrap_or_default();
     let updated = edit_document(&existing, path, value)?;
@@ -82,7 +81,6 @@ mod tests {
         let removed = edit_document(&updated, "theme.colors.ok", None).unwrap();
         assert!(toml::from_str::<Config>(&removed).unwrap().theme.colors.is_empty());
         assert!(!removed.contains("theme"), "the emptied sections are gone: {removed:?}");
-        // Removing what is not there is harmless.
         assert!(edit_document("", "ui.border", None).is_ok());
     }
 

@@ -1,4 +1,3 @@
-//! What the confirmation dialog says before an action.
 
 use super::{Action, Target};
 
@@ -9,9 +8,9 @@ pub struct ConfirmSpec {
     pub title: String,
     /// The word on the yes button.
     pub verb: String,
-    /// Destructive: drawn in red, and Enter alone does not confirm.
+    /// Destructive: drawn in red, and Enter alone doesn't confirm.
     pub danger: bool,
-    /// (kind, `namespace/name`) of what it applies to, at most a handful.
+    /// Kind and `namespace/name` of what it applies to, at most a handful.
     pub subjects: Vec<(String, String)>,
     /// What to know first, and whether it is a warning.
     pub notes: Vec<(String, bool)>,

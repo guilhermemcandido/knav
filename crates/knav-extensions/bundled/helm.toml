@@ -1,9 +1,5 @@
-# Helm — real releases (chart, revision, status), decoded from the Secrets
-# Helm itself writes, native code (see src/k8s/helm.rs) since Secrets aren't
-# a CRD. Plus, where present, Rancher/k3s's own declarative-install CRDs
-# (helm.cattle.io) — a different mechanism, but the same "Helm" category.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
+# Releases are read natively from Helm's Secrets (knav_k8s::helm). This manifest adds
+# k3s's helm.cattle.io CRDs to the same Helm category.
 
 [extension]
 id = "helm"

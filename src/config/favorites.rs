@@ -1,5 +1,5 @@
-//! Namespaces reserved to the number keys 1-9 (0 is always all), saved per
-//! kubeconfig context in `<config dir>/namespaces` as `context<TAB>slot<TAB>namespace` lines.
+//! Namespaces on number keys 1-9 (0 is always all), saved per context in
+//! `<config dir>/namespaces` as `context<TAB>slot<TAB>namespace` lines.
 
 use crate::config::Config;
 
@@ -19,14 +19,12 @@ impl Favorites {
         Favorites { slots: vec![None; SLOTS] }
     }
 
-    /// The namespace on number key `key` (1-9).
     pub(crate) fn get(&self, key: usize) -> Option<&str> {
         self.slots.get(key.checked_sub(1)?)?.as_deref()
     }
 
-    /// Puts `namespace` on number key `key` (1-9), replacing whatever
-    /// was there. A namespace only ever holds one key, so it leaves any
-    /// key it had before. Returns the namespace that was bumped off `key`.
+    /// Puts `namespace` on key `key` (1-9), moving it off any key it had. Returns
+    /// the namespace that was on `key`.
     pub(crate) fn assign(&mut self, key: usize, namespace: &str) -> Option<String> {
         let index = key.checked_sub(1).filter(|i| *i < SLOTS)?;
         for slot in &mut self.slots {
@@ -37,7 +35,6 @@ impl Favorites {
         self.slots[index].replace(namespace.to_string())
     }
 
-    /// Frees number key `key` (1-9).
     pub(crate) fn clear(&mut self, key: usize) {
         if let Some(slot) = key.checked_sub(1).and_then(|i| self.slots.get_mut(i)) {
             *slot = None;
@@ -72,8 +69,8 @@ impl Favorites {
         favorites
     }
 
-    /// Rewrites this context's lines, leaving every other context's alone.
-    /// Best-effort: failing to save a convenience isn't worth an error.
+    /// Rewrites this context's lines, keeping every other context's. Best effort:
+    /// a failed save isn't worth an error.
     pub(crate) fn save(&self, context: &str) {
         let path = Self::path();
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
@@ -86,7 +83,7 @@ impl Favorites {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        // Written beside the file and renamed over it, so a crash never leaves half a file.
+        // Written beside the file, then renamed over it, so a crash never leaves half a file.
         let temp = path.with_extension("tmp");
         if std::fs::write(&temp, out.join("\n") + "\n").is_ok() {
             let _ = std::fs::rename(temp, path);

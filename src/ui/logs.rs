@@ -2,8 +2,7 @@
 
 use super::*;
 
-/// Log lines matching the filter (a plain, case-insensitive substring: log lines are prose to
-/// scan, not identifiers to narrow), in the order they are read.
+/// Log lines matching the filter, a plain case-insensitive substring, in reading order.
 fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str> {
     let needle = filter.to_lowercase();
     let mut out: Vec<&str> = lines.iter().map(String::as_str).filter(|l| needle.is_empty() || contains_ci(l, &needle)).collect();
@@ -13,13 +12,12 @@ fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str>
     out
 }
 
-/// The lines the logs view shows, as text (filter and order applied), for copying.
+/// The lines the logs view shows, as text, for copying.
 pub fn logs_text(lines: &[String], filter: &str, order: LogOrder) -> String {
     shown(lines, filter, order).join("\n")
 }
 
-/// Case-insensitive `contains` for an already lowercased `needle`, without copying the line
-/// when both are ASCII.
+/// Case-insensitive `contains` for a lowercased `needle`, without copying ASCII lines.
 fn contains_ci(hay: &str, needle: &str) -> bool {
     if hay.is_ascii() && needle.is_ascii() {
         let (h, n) = (hay.as_bytes(), needle.as_bytes());
@@ -28,8 +26,7 @@ fn contains_ci(hay: &str, needle: &str) -> bool {
     hay.to_lowercase().contains(needle)
 }
 
-/// One log line as the screen rows it takes at `width` cells: coloured, then cut at the edge
-/// (logs are read as they come, so a hard wrap beats waiting on word breaks).
+/// One log line as the rows it takes at `width` cells, coloured and hard-wrapped.
 fn rows_of(raw: &str, format: TimestampFormat, filter: &str, width: usize) -> Vec<Line<'static>> {
     let line = colorize_log_line(raw, format, filter);
     let width = width.max(1);
@@ -61,7 +58,6 @@ fn rows_of(raw: &str, format: TimestampFormat, filter: &str, width: usize) -> Ve
     rows
 }
 
-/// The inside of the logs popup, where rows are wrapped.
 fn text_area(frame_area: Rect) -> Rect {
     let area = body_area(frame_area, true);
     Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) }
@@ -92,13 +88,12 @@ pub(super) fn draw_logs_popup(
     filter: &str,
     filter_editing: bool,
 ) {
-    // The whole width of the body, so selecting text with the mouse never takes in what is behind.
+    // The whole body width, so selecting text with the mouse never takes in what is behind.
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let ordered = shown(lines, filter, order);
 
-    // Just the live state; the keys for pausing and toggling live in the `?` panel.
-    // The arrow points the way the log reads: down when the newest line is at the bottom.
+    // Just the live state; the keys are in `?`. The arrow points the way the log reads.
     let direction = if order == LogOrder::OldestFirst { "↓" } else { "↑" };
     let follow_status = if follow { "following" } else { "scrolled" };
     let count = if filter.is_empty() { format!("{} lines", lines.len()) } else { format!("{}/{} lines", ordered.len(), lines.len()) };
@@ -108,8 +103,8 @@ pub(super) fn draw_logs_popup(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Only the rows on screen are built. Following shows the tail when oldest-first and the
-    // head when newest-first; scrolled, the view starts at line `scroll`.
+    // Only the rows on screen are built. Following shows the newest end; scrolled,
+    // the view starts at line `scroll`.
     let (width, height) = (usize::from(inner.width), usize::from(inner.height));
     let mut rows: Vec<Line<'static>> = Vec::new();
     if follow && order == LogOrder::OldestFirst {
@@ -135,17 +130,16 @@ pub(super) fn draw_logs_popup(
     frame.render_widget(Paragraph::new(rows), inner);
 }
 
-/// The furthest a non-following view can scroll: the first line for which everything after it
-/// still fits on screen. Also where scrolling down hands back to following.
+/// The furthest a paused view can scroll: the first line after which everything still
+/// fits. Scrolling past it resumes following.
 fn logs_max_scroll(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder) -> usize {
     let inner = text_area(frame_area);
     let ordered = shown(lines, filter, order);
     ordered.len().saturating_sub(lines_fitting_at_end(&ordered, format, filter, usize::from(inner.width), usize::from(inner.height)))
 }
 
-/// Moves the view one line up. Oldest-first, up goes to older lines and leaves
-/// following from where the tail was. Newest-first, up goes toward the newest line
-/// and resumes following at the top.
+/// Moves up one line. Oldest-first, that pauses on older lines; newest-first, it heads
+/// to the newest line and resumes following at the top.
 pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder, follow: &mut bool, scroll: &mut usize) {
     match order {
         LogOrder::OldestFirst => {
@@ -167,8 +161,8 @@ pub fn logs_scroll_up(frame_area: Rect, lines: &[String], filter: &str, format: 
     }
 }
 
-/// The opposite move. Oldest-first, down goes toward the newest line and resumes
-/// following at the end, like `tail -f`. Newest-first, down leaves following.
+/// The opposite move. Oldest-first, down resumes following at the end like `tail -f`;
+/// newest-first, it pauses.
 pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, format: TimestampFormat, order: LogOrder, follow: &mut bool, scroll: &mut usize) {
     match order {
         LogOrder::OldestFirst => {
@@ -190,17 +184,15 @@ pub fn logs_scroll_down(frame_area: Rect, lines: &[String], filter: &str, format
     }
 }
 
-/// Colours one log line: the server timestamp in cyan brackets, the message red for
-/// error/fatal/panic/fail, yellow for warn, else gray. A substring guess, since the
-/// API merges stdout and stderr.
+/// Colours one log line: the timestamp in cyan, the message red for error words,
+/// yellow for warnings, else grey. A guess, since stdout and stderr arrive merged.
 pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, filter: &str) -> Line<'static> {
     let (timestamp, rest) = match raw.split_once(' ') {
         Some((ts, rest)) if looks_like_timestamp(ts) => (Some(ts), rest),
         _ => (None, raw),
     };
-    // An aggregated view (`k8s::stream_logs_many`) tags each line `\u{200B}[pod/container] `
-    // right after the timestamp; the zero-width space can't appear in a real log line, so
-    // this can't misfire on an app's own bracketed text (e.g. a line starting `[INFO] `).
+    // An aggregated view tags lines `\u{200B}[pod/container] ` after the timestamp. The
+    // zero-width space never appears in real logs, so an app's own `[INFO]` isn't misread.
     let (tag, message) = match rest.strip_prefix('\u{200B}').and_then(|r| r.strip_prefix('[')).and_then(|r| r.split_once("] ")) {
         Some((tag, message)) => (Some(tag), message),
         None => (None, rest),
@@ -230,9 +222,8 @@ pub(super) fn colorize_log_line(raw: &str, timestamp_format: TimestampFormat, fi
     Line::from(spans)
 }
 
-/// Splits `text` around each case-insensitive match of `needle` and highlights it.
-/// An empty `needle` means no filter, so the text keeps `base_style`. Matching goes by
-/// character, so text whose lowercase form changes length is still cut on boundaries.
+/// Splits `text` around each case-insensitive match of `needle` and highlights it,
+/// matching by character so case changes that alter length still cut cleanly.
 pub(super) fn highlight_matches(text: &str, needle: &str, base_style: Style) -> Vec<Span<'static>> {
     let needle: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
     if needle.is_empty() {
@@ -279,8 +270,8 @@ pub(super) fn short_timestamp(ts: &str) -> String {
     }
 }
 
-/// Cheap shape check for the RFC3339 timestamp `timestamps: true` adds, so lines
-/// without one (like our own `[failed to start log stream: ...]`) aren't misread.
+/// A quick shape check for the RFC3339 timestamp the server adds, so lines without
+/// one (like our own errors) aren't misread.
 pub(super) fn looks_like_timestamp(s: &str) -> bool {
     s.len() >= 20 && s.as_bytes().get(4) == Some(&b'-') && s.contains('T') && s.ends_with('Z')
 }
@@ -346,8 +337,7 @@ mod log_color_tests {
 
     #[test]
     fn a_real_line_starting_with_brackets_is_not_mistaken_for_a_tag() {
-        // No zero-width space: an app logging its own `[INFO] ...` prefix must not be
-        // stripped out as if it were an aggregated view's tag.
+        // Without the zero-width space, an app's own `[INFO]` prefix stays in the message.
         let line = colorize_log_line("2026-09-16T18:36:38.477289255Z [INFO] starting up", TimestampFormat::Full, "");
         assert_eq!(line.spans.len(), 2);
         assert_eq!(line.spans[1].content, "[INFO] starting up");
@@ -435,7 +425,7 @@ mod wrap_tests {
     fn the_last_lines_that_fit_count_their_wrapped_rows() {
         let long = "y".repeat(30);
         let ordered = vec!["a", "b", long.as_str(), "c"];
-        // Width 10: "c" takes 1 row, the long line 3, so 4 rows fit "c" and the long line, not "b".
+        // At width 10, "c" takes 1 row and the long line 3, so 4 rows fit those two.
         assert_eq!(lines_fitting_at_end(&ordered, TimestampFormat::Short, "", 10, 4), 2);
     }
 

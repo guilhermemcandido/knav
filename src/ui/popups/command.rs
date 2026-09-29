@@ -7,9 +7,8 @@ const SUGGESTION_HEIGHT: u16 = 3;
 
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
-/// The `:` command line, k9s-style: one full-width box with the input on top and the live
-/// autocomplete listed under it, each match with its icon. The best match's
-/// remaining letters show dimmed after the cursor.
+/// The `:` command line: the input on top and the live suggestions under it, each with
+/// its icon. The best match's remaining letters show dimmed after the cursor.
 pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     let width = bar.width;
     // As many rows as the screen has room for, scrolled to keep the selection in view.
@@ -23,7 +22,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // "namespaces (ns)": complete against the name, not the alias note.
+    // Complete against the name, not the alias note in "namespaces (ns)".
     let ghost = suggestions
         .get(selected)
         .and_then(|s| s.label.split(" (").next())
@@ -57,7 +56,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
         let style = if chosen { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
         frame.render_widget(Block::default().style(style), row);
         let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
-        // All the same size, a little inside the square so they don't crowd the row.
+        // Icons a little inside their square, so they don't crowd the row.
         let fill = crate::config::tunables::tunables().suggestion_icon_percent as f32 / 100.0;
         let square = icons.centered_square(icon_area);
         match suggestion.icon {

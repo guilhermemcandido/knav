@@ -2,8 +2,6 @@
 
 use super::*;
 
-/// The keys available on the focused screen as (key, description) pairs, shown
-/// in their own bar. `Command` and `Search` return nothing: they use that bar.
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
@@ -23,11 +21,11 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     hints
 }
 
+/// The focused screen's keys as (key, description) pairs. `Command` and `Search`
+/// return nothing, since they use the hint bar themselves.
 pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     match mode {
-        // Nothing on the main screen, deliberately kept clean. The
-        // commands panel only exists once you've actually entered some
-        // resource view.
+        // The Overview has no hint bar, to keep it clean.
         Mode::List if current_kind == ResourceKind::Overview => Vec::new(),
         Mode::List if current_kind == ResourceKind::ApiResources => {
             vec![("↑↓/jk", "move"), ("enter", "open"), ("s", "sort"), ("/", "search"), ("q/esc", "back")]
@@ -84,14 +82,12 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::Settings { .. } => vec![("↑↓/jk", "move"), ("←→/enter", "change"), ("r", "reset"), ("tab", "next tab"), ("q/esc", "back")],
         Mode::Extensions { .. } => vec![("↑↓/jk", "move"), ("space/enter", "on/off"), ("/", "filter"), ("q/esc", "back")],
         Mode::Details { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("enter", "open list"), ("y", "yaml"), ("q/esc", "back")],
-        // The minus sign (U+2212), not a hyphen: next to the closing `>` a hyphen
-        // ligatures into an arrow in fonts like Fira Code.
+        // U+2212 minus, not a hyphen, which some fonts fuse with `>` into an arrow.
         Mode::Relations { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("+/\u{2212}", "zoom"), ("m", "copy as Mermaid"), ("q/esc", "close")],
         Mode::Yaml { .. } => vec![("↑↓/jk", "scroll"), ("g/G", "top/bottom"), ("c", "copy"), ("q/esc", "back")],
         Mode::NamespacePick { editing: true, .. } => Vec::new(),
         Mode::NamespacePick { .. } => vec![("↑↓/jk", "move"), ("1-9", "assign key"), ("d", "clear key"), ("enter", "key list"), ("/", "filter"), ("q/esc", "back")],
-        // No typing mode to fall silent in: type to filter, ↑↓ (or the wheel, or a
-        // click) to move, whichever the moment calls for.
+        // No typing mode: typing filters, arrows, wheel or clicks move.
         Mode::Context { .. } => vec![("type", "filter"), ("↑↓", "move"), ("enter", "connect"), ("esc", "back")],
         Mode::Spec { .. } => {
             vec![("↑↓/jk", "move"), ("enter", "toggle"), ("v", "value"), ("a", "expand all"), ("q/esc", "back")]

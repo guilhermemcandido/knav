@@ -7,9 +7,8 @@ use kube::{
 };
 use tokio::{sync::watch, task::JoinHandle};
 
-/// Parses a Kubernetes CPU quantity, plain cores ("2"), millicores
-/// ("250m"), or the nanocore form metrics-server actually reports for
-/// live usage ("123456789n"), into millicores.
+/// A CPU quantity in millicores: plain cores ("2"), millicores ("250m") or the
+/// nanocores metrics-server reports ("123456789n").
 pub fn parse_cpu_millicores(s: &str) -> i64 {
     if let Some(n) = s.strip_suffix('n') {
         (n.parse::<f64>().unwrap_or(0.0) / 1_000_000.0) as i64
@@ -22,8 +21,8 @@ pub fn parse_cpu_millicores(s: &str) -> i64 {
     }
 }
 
-/// Parses a Kubernetes memory quantity, binary suffixes (Ki/Mi/Gi/Ti),
-/// decimal suffixes (k/M/G/T), or a plain byte count, into bytes.
+/// A memory quantity in bytes: binary (Ki, Mi, ...) or decimal (k, M, ...) suffixes,
+/// or a plain count.
 pub fn parse_memory_bytes(s: &str) -> i64 {
     const UNITS: &[(&str, f64)] = &[
         ("Ki", 1024.0),
@@ -67,8 +66,7 @@ pub struct NodeUsage {
 pub struct ClusterUsage {
     pub cpu_millicores: i64,
     pub memory_bytes: i64,
-    /// Per-node breakdown, same poll, the Node detail view needs just
-    /// one node's numbers, not the cluster total.
+    /// Per-node usage, for the node detail view.
     pub nodes: Vec<NodeUsage>,
 }
 
@@ -78,9 +76,8 @@ impl ClusterUsage {
     }
 }
 
-/// Polls `metrics.k8s.io/v1beta1/nodes` and publishes cluster and per-node usage
-/// through a `watch` channel (metrics-server has no watch). `None` means
-/// metrics-server is unavailable, shown as such rather than as zero.
+/// Polls node metrics (metrics-server has no watch) and publishes cluster and
+/// per-node usage. `None` means metrics-server is unavailable, not zero usage.
 pub fn watch_node_metrics(client: Client) -> (watch::Receiver<Option<ClusterUsage>>, JoinHandle<()>) {
     let (tx, rx) = watch::channel(None);
 

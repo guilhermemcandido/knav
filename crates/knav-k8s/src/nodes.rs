@@ -3,9 +3,7 @@ use k8s_openapi::api::core::v1::Node;
 
 use super::*;
 
-/// One node's own capacity, the Node detail view's gauges need a single
-/// node's numbers, not the cluster-wide sum `node_allocatable_sum` gives
-/// the Overview.
+/// One node's own capacity, for the node detail view's gauges.
 pub struct NodeCapacity {
     pub cpu_millicores: i64,
     pub memory_bytes: i64,
@@ -24,14 +22,11 @@ pub fn node_capacity(node: &Node) -> NodeCapacity {
     }
 }
 
-/// A row for the Nodes list, with its own columns so usage shows in the list.
-/// `cpu_millicores`/`memory_bytes` are `None` without metrics-server.
+/// A row for the Nodes list. CPU and memory are `None` without metrics-server.
 pub struct NodeRow {
     pub name: String,
     pub ready: bool,
-    /// `false` when the node is cordoned (`spec.unschedulable`), kubectl
-    /// shows this by appending ",SchedulingDisabled" to STATUS rather than
-    /// a separate column, the same convention `draw_nodes_table` follows.
+    /// `false` when cordoned. Shown like kubectl, as ",SchedulingDisabled" after STATUS.
     pub schedulable: bool,
     pub roles: String,
     pub version: String,
@@ -115,16 +110,14 @@ pub fn node_row(node: &Node, usage: Option<&crate::metrics::NodeUsage>, pod_coun
     }
 }
 
-/// One node condition, unfiltered. The detail view shows healthy ones too,
-/// unlike `node_warnings`.
+/// One node condition. The detail view shows healthy ones too, unlike `node_warnings`.
 pub struct NodeConditionRow {
     pub type_: String,
     pub status: String,
     pub reason: String,
 }
 
-/// Everything the node detail page shows beyond `NodeRow`: conditions, taints,
-/// schedulability, addresses and the versions from `status.nodeInfo`.
+/// What the node detail page shows beyond `NodeRow`.
 pub struct NodeDetailInfo {
     pub roles: String,
     pub schedulable: bool,
@@ -134,8 +127,7 @@ pub struct NodeDetailInfo {
     pub container_runtime: String,
     pub internal_ip: String,
     pub external_ip: String,
-    /// Pre-formatted as `key=value:Effect` (or `key:Effect` with no
-    /// value), kubectl's own taint display convention.
+    /// Formatted like kubectl: `key=value:Effect`, or `key:Effect` without a value.
     pub taints: Vec<String>,
     pub conditions: Vec<NodeConditionRow>,
 }

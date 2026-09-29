@@ -1,6 +1,5 @@
-//! `knav update`: checks the latest GitHub release and, if it is newer, replaces this binary.
-//! Talks to the network through `curl` (already needed to install knav in the first place)
-//! rather than pulling in an HTTP client crate for the one command that needs one.
+//! `knav update`: replaces this binary with the latest GitHub release when newer.
+//! Uses `curl` rather than an HTTP client crate for this one command.
 
 use anyhow::{Context as _, Result};
 
@@ -40,12 +39,12 @@ fn version(tag: &str) -> &str {
     tag.trim_start_matches('v')
 }
 
-/// The `<arch>-<os>` half of the release asset names this platform's binary is built for.
+/// The `<arch>-<os>` part of the release asset name for this platform.
 fn target_triple() -> Option<&'static str> {
     triple_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// What `.github/workflows/release.yml` names each target it builds.
+/// The name `.github/workflows/release.yml` gives each target it builds.
 fn triple_for(os: &str, arch: &str) -> Option<&'static str> {
     match (os, arch) {
         ("macos", "aarch64") => Some("aarch64-apple-darwin"),
@@ -105,8 +104,7 @@ fn running_exe() -> Result<std::path::PathBuf> {
     Ok(exe.canonicalize().unwrap_or(exe))
 }
 
-/// A binary under a package manager's own directory should be updated with that
-/// manager, not overwritten here (it would leave the manager's bookkeeping wrong).
+/// Refuses a binary under a package manager's directory: that manager should update it.
 fn refuse_if_package_managed(exe: &std::path::Path) -> Result<()> {
     let path = exe.to_string_lossy();
     if path.contains("/Cellar/") || path.contains("/homebrew/") {
@@ -118,8 +116,8 @@ fn refuse_if_package_managed(exe: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-/// Writes `bytes` beside `exe` and renames over it: on Unix a rename just repoints the
-/// directory entry, so this is safe while `exe` is the very binary currently running.
+/// Writes `bytes` beside `exe` and renames over it. On Unix a rename only repoints the
+/// directory entry, so this is safe while `exe` is running.
 fn replace_running_binary(exe: &std::path::Path, bytes: &[u8]) -> Result<()> {
     let dir = exe.parent().context("the running binary has no parent directory")?;
     let tmp = dir.join(".knav-update");

@@ -35,9 +35,8 @@ where
     (store, handle)
 }
 
-/// As `watch_store`, but only objects matching `field_selector` (e.g. Helm's release
-/// Secrets, `type=helm.sh/release.v1`) — for a kind that would otherwise mean pulling
-/// down everything of that type just to keep the handful that matter.
+/// Like `watch_store`, for objects matching `field_selector` only, so a kind with
+/// few interesting objects (Helm's release Secrets) isn't downloaded whole.
 pub fn watch_store_selected<K>(client: Client, field_selector: &str) -> (reflector::Store<K>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
@@ -54,7 +53,7 @@ where
     (reader, handle)
 }
 
-/// As `watch_store`, plus the queue of which objects changed since it was last taken.
+/// Like `watch_store`, plus a queue of the objects changed since it was last taken.
 pub fn watch_live<K>(client: Client) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
@@ -64,7 +63,7 @@ where
     let feed = Arc::new(Feed::default());
     let noted = Arc::clone(&feed);
     // After the reflector, so a queued key always finds its object in the store.
-    // managedFields are often a third to a half of an object and nothing here shows them.
+    // managedFields are often a third of an object and nothing shows them.
     let stream = watcher(api, watcher::Config::default()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer).inspect(move |event| {
         if let Ok(event) = event {
             noted.note(event);
@@ -79,13 +78,12 @@ where
     (reader, feed, handle)
 }
 
-/// An object's place in the sort order: its namespace and name.
 pub type Key = (Option<String>, String);
 
-/// Which objects a watch touched since the last `take`, so a kept list can follow
-/// them one by one. A relist, or more changes than are worth tracking, says "everything".
+/// Which objects a watch touched since the last `take`. A relist, or more changes
+/// than are worth tracking, means everything.
 pub struct Feed {
-    /// (everything may have changed, the keys touched otherwise)
+    /// Whether everything may have changed, and the keys touched otherwise.
     pending: std::sync::Mutex<(bool, std::collections::HashSet<Key>)>,
 }
 
@@ -111,7 +109,7 @@ impl Feed {
                     }
                 }
             }
-            // A list in progress or finished replaces the store's contents wholesale.
+            // A relist replaces the store's contents wholesale.
             _ => *pending = (true, Default::default()),
         }
     }
@@ -124,8 +122,8 @@ impl Feed {
     }
 }
 
-/// Everything in the store ordered by namespace then name, so a selected row keeps
-/// pointing at the same object between refreshes (the store has no order of its own).
+/// Everything in the store by namespace then name, so a selected row keeps pointing
+/// at the same object between refreshes.
 pub fn sorted<K>(store: &reflector::Store<K>) -> Vec<Arc<K>>
 where
     K: Resource + Clone + Send + Sync,
@@ -142,9 +140,8 @@ where
 /// How many counting watches may still be on their first list.
 static STARTUP: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
-/// How many `K` exist, kept up to date from a metadata-only watch: no spec or data is
-/// downloaded, and only each object's uid is held (a Secret's contents never arrive), so it
-/// is cheap to run for every kind just to show a count.
+/// How many `K` exist, from a metadata-only watch that keeps only uids. Cheap enough
+/// to run for every kind, and a Secret's contents never arrive.
 pub fn watch_count<K>(client: Client) -> Arc<std::sync::atomic::AtomicUsize>
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
@@ -156,7 +153,7 @@ where
     let stream = watcher(api, watcher::Config::default()).default_backoff();
     let seen = Arc::clone(&count);
     tokio::spawn(async move {
-        // Only a few first lists run at once, so opening a cluster does not send dozens together.
+        // A few first lists at a time, so opening a cluster doesn't send dozens at once.
         let mut turn = STARTUP.acquire().await.ok();
         let (mut live, mut listing): (HashSet<String>, HashSet<String>) = Default::default();
         let uid = |object: &PartialObjectMeta<K>| object.metadata.uid.clone().unwrap_or_else(|| format!("{:?}/{:?}", object.metadata.namespace, object.metadata.name));

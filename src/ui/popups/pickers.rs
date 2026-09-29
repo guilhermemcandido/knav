@@ -2,15 +2,13 @@
 
 use super::*;
 
-/// Every picker in this file (context, namespace) and its chip hit-testing share this size, so
-/// they all have to agree on it.
+/// The size the context and namespace pickers and their chip hit-testing share.
 fn picker_area(frame: Rect) -> Rect {
     centered_rect(94, 88, frame)
 }
 
-/// The `:ctx` / `C` context browser, same full-size table as the
-/// Events browser (and the same geometry, so `event_row_at` hit-tests
-/// its rows too). Typing filters immediately, no `/` needed.
+/// The context browser (`C`), with the Events browser's geometry so `event_row_at`
+/// hit-tests it too. Typing filters at once.
 pub(in crate::ui) fn draw_context_popup(
     frame: &mut Frame,
     items: &[(String, String, bool)],
@@ -62,16 +60,15 @@ pub(in crate::ui) fn draw_context_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// The chip strip along the namespace picker's bottom border: a label, then
-/// `1`..`9`, each three cells wide, one cell apart.
+/// The chip strip on the namespace picker's bottom border: a label, then keys 1 to 9,
+/// three cells wide and one apart.
 const CHIP_LABEL: &str = " assign to key: ";
 
 fn chips_origin(area: Rect) -> u16 {
     area.x + 1 + CHIP_LABEL.chars().count() as u16
 }
 
-/// Which number chip (1-9) a click on the namespace picker's bottom border
-/// lands on.
+/// The number chip a click on the namespace picker's bottom border lands on.
 pub fn slot_chip_at(frame_area: Rect, column: u16, row: u16) -> Option<usize> {
     let area = picker_area(frame_area);
     if row != area.y + area.height.saturating_sub(1) || column < chips_origin(area) {
@@ -106,8 +103,7 @@ pub(in crate::ui) fn draw_namespace_picker(
 
     let title = pill_title(&format!("Choose the namespace to filter by ({}/{total})", items.len()), false, Style::default());
 
-    // The number chips: each key, lit when the highlighted namespace has it,
-    // orange when another namespace does.
+    // Each key's chip is lit when the highlighted namespace has it, orange when another does.
     let selected_key = state.selected().and_then(|i| items.get(i)).and_then(|(_, key)| *key);
     let mut chips = vec![Span::styled(CHIP_LABEL, Style::default().fg(theme().muted))];
     for key in 1..=9usize {
@@ -137,8 +133,8 @@ pub(in crate::ui) fn draw_namespace_picker(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// The key picker: `0` (always "all", not assignable) and keys 1-9 with
-/// what each holds; the highlighted key is where Enter puts the namespace.
+/// The key picker: `0` (always all) and keys 1 to 9 with what each holds. Enter puts
+/// the namespace on the highlighted key.
 pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots: &[Option<String>], selected: usize) {
     let bar = centered_box(frame.area(), 2 + 1 + 9 + 1 + 1);
     frame.render_widget(Clear, bar);
@@ -181,8 +177,8 @@ pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots:
     }
 }
 
-/// The theme list: each theme with a strip of its colours. The screen behind
-/// is drawn in the theme being previewed, so the whole interface is the sample.
+/// The theme list with a swatch per theme. The screen behind is drawn in the theme
+/// being previewed.
 pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::theme::ThemeEntry], state: &mut TableState, saved: &str) {
     let area = centered_rect(64, 86, frame.area());
     frame.render_widget(Clear, area);
@@ -194,9 +190,8 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::them
         .title_bottom(hint_strip(&[("enter", "keeps"), ("esc", "cancels")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    // The first two colours are the theme's background and text, which the live
-    // preview already shows; the swatch is the accents. The selected row is
-    // shaded through the row style so its dots keep their own colours.
+    // The swatch skips the background and text colours, which the preview already shows.
+    // The selected row is shaded through the row style so its dots keep their colours.
     let selected = state.selected();
     let rows: Vec<Row> = entries
         .iter()

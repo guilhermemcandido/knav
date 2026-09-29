@@ -1,10 +1,10 @@
-//! The Overview's categories and kinds in the order and visibility the config
-//! asks for: applied to the live catalog, and edited by the settings screen.
+//! The Overview's categories and kinds in the configured order and visibility, applied
+//! to the live catalog and edited by the Settings screen.
 
 use crate::config::OverviewConfig;
 
-/// Every category and its kinds, in the default order. "CustomResources"
-/// lists API groups found at run time, so it has no fixed kinds.
+/// Every category and its kinds in the default order. CustomResources lists API groups
+/// found at run time, so it has no fixed kinds.
 pub const DEFAULT_LAYOUT: &[(&str, &[&str])] = &[
     ("Cluster", &["Nodes", "Namespaces", "API Resources"]),
     ("Workloads", &["Pods", "Deployments", "ReplicaSets", "StatefulSets", "DaemonSets", "Jobs", "CronJobs"]),
@@ -28,19 +28,15 @@ pub struct LayoutSection {
     pub items: Vec<LayoutItem>,
 }
 
-/// Position of `name` in `order`, with names not listed after all listed ones
-/// (and in their default order, since sorting is stable).
+/// Position of `name` in `order`. Unlisted names go after the listed ones, in their
+/// default order, since the sort is stable.
 fn rank(order: &[String], name: &str) -> usize {
     order.iter().position(|n| n == name).unwrap_or(usize::MAX)
 }
 
-/// The full layout, hidden entries included, in the configured order. `live`
-/// is every category and its kinds as the catalog currently has them —
-/// built-ins plus whatever's enabled (Helm, Flux, ...) — so a category that
-/// only exists once its extension is turned on still shows up here to be
-/// reordered or hidden, not just the fixed built-in set. Falls back to
-/// `DEFAULT_LAYOUT` only when `live` is empty (e.g. before the catalog's
-/// first read).
+/// The full layout, hidden entries included, in the configured order. `live` is the
+/// catalog as it is now, so enabled extensions' categories can be edited too.
+/// Falls back to `DEFAULT_LAYOUT` only when `live` is empty.
 pub fn resolve(config: &OverviewConfig, live: &[(&str, Vec<&str>)]) -> Vec<LayoutSection> {
     let fallback: Vec<(&str, Vec<&str>)> = DEFAULT_LAYOUT.iter().map(|(n, items)| (*n, items.to_vec())).collect();
     let source = if live.is_empty() { &fallback } else { live };
@@ -73,8 +69,8 @@ pub fn to_config(layout: &[LayoutSection]) -> OverviewConfig {
     config
 }
 
-/// Whether anything of the layout would show: a category shows when it is not
-/// hidden and has a visible kind (or is the custom resources one).
+/// Whether any of the layout would show: a category shows when it isn't hidden and
+/// has a visible kind, or is CustomResources.
 pub fn any_visible(layout: &[LayoutSection]) -> bool {
     layout.iter().any(|s| !s.hidden && (s.items.is_empty() || s.items.iter().any(|i| !i.hidden)))
 }
@@ -166,8 +162,7 @@ mod tests {
 
     #[test]
     fn a_category_that_only_exists_once_enabled_is_still_editable() {
-        // Helm, Flux, ... aren't in DEFAULT_LAYOUT: they only exist in what the
-        // catalog currently has, so the editor has to read that, not the fixed set.
+        // Extension categories aren't in DEFAULT_LAYOUT, so the editor reads the live catalog.
         let live: Vec<(&str, Vec<&str>)> = vec![("Cluster", vec!["Nodes"]), ("Helm", vec!["HelmReleases"])];
         let layout = resolve(&OverviewConfig::default(), &live);
         assert_eq!(names(&layout), ["Cluster", "Helm"]);

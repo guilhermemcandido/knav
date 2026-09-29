@@ -20,8 +20,7 @@ fn style_of(style: DStyle) -> Style {
     }
 }
 
-/// `text` cut into `width`-cell pieces on whole characters, never splitting one
-/// in half.
+/// `text` cut into `width`-cell pieces on whole characters.
 fn wrap_at(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut pieces = Vec::new();
@@ -47,11 +46,8 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
     let mut spans = first_prefix;
     let mut used = indent;
     let mut previous_chip = false;
-    // A pill wider than a whole fresh line could ever hold (a long annotation
-    // value, say) would otherwise just run off the edge forever, reached only
-    // by scrolling sideways — one giant colour bar, and no way to read the
-    // rest of it without hunting for it. Wrapped, its own background still
-    // reads as one pill; it's just not one physically impossible line.
+    // A pill wider than a whole line (a long annotation value) wraps instead of
+    // running off the edge; its background still reads as one pill.
     let usable = width.saturating_sub(indent).max(1);
     for chunk in chunks {
         let chip = chunk.style.is_chip();
@@ -82,7 +78,7 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         if chunk.style == DStyle::PairChip
             && let Some((key, value)) = chunk.text.split_once('=')
         {
-            // key=value: the key and the value in their own colours on the same pill.
+            // key=value: key and value in their own colours on one pill.
             let pill = Style::default().bg(theme().pill_bg);
             spans.push(Span::styled(format!(" {key}"), pill.fg(theme().namespace)));
             spans.push(Span::styled("=", pill.fg(theme().muted)));
@@ -93,16 +89,13 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         used += w;
         previous_chip = chip;
     }
-    // Skip a final line that's nothing but the indent: the oversized-chip branch
-    // above already pushed its own real lines and left this placeholder behind
-    // in case something followed it, but nothing did.
+    // Skip a last line that is only the indent, left behind by an oversized pill.
     if used > indent || lines.is_empty() {
         lines.push(Line::from(spans));
     }
     lines
 }
 
-/// Every line of the summary at `width` columns.
 pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
     for (i, section) in sections.iter().enumerate() {
@@ -160,7 +153,6 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 
-/// What the side panel next to a list shows.
 pub struct SidePanel {
     pub title: String,
     pub sections: Vec<Section>,
@@ -174,7 +166,7 @@ pub struct SidePanel {
 /// Terminals narrower than this show the info full screen instead of beside the list.
 pub const SIDE_PANEL_MIN_WIDTH: u16 = 100;
 
-/// How wide the panel is at `full_width` columns; 0 when there is none.
+/// The panel's width at `full_width` columns; 0 when there is none.
 pub fn side_panel_width(full_width: u16, chrome: &Chrome) -> u16 {
     if full_width >= SIDE_PANEL_MIN_WIDTH && chrome.panel.is_some() { (full_width * 2 / 5).max(44) } else { 0 }
 }
@@ -194,7 +186,6 @@ pub fn list_body(frame_area: Rect, chrome: &Chrome) -> Rect {
     Rect { width: body.width - side_panel_width(frame_area.width, chrome).min(body.width), ..body }
 }
 
-/// Draws the panel, if there is one, in the right of `body`.
 pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect, chrome: &Chrome) {
     let width = side_panel_width(frame.area().width, chrome).min(body.width);
     if width == 0 {
@@ -246,16 +237,15 @@ mod flow_tests {
 
     #[test]
     fn a_pill_wider_than_the_line_wraps_instead_of_running_off_the_edge() {
-        // A 40-cell-wide value: nothing this test's width (20) could ever hold on one line.
+        // 40 cells, more than this test's width of 20 can hold on one line.
         let long = "a".repeat(40);
         let lines = flow(vec![Span::raw("Annotations ")], 12, &[pair("some.thing.io/key", &long)], 20);
         assert!(lines.len() > 1, "expected the oversized pill to wrap across lines, got {}", lines.len());
         for line in &lines {
             assert!(line.width() <= 20, "line {line:?} is {} cells wide, wider than the 20-cell limit", line.width());
         }
-        // Nothing of the value was dropped: every 'a' from the value shows up somewhere
-        // (can't just concatenate spans and look for the run intact, since each wrapped
-        // line's own indent padding sits between pieces of it).
+        // Every 'a' still shows up somewhere; the pieces are split by indent padding,
+        // so the run can't be searched for intact.
         let count = lines.iter().flat_map(|l| l.spans.iter()).flat_map(|s| s.content.chars()).filter(|&c| c == 'a').count();
         assert_eq!(count, 40);
     }
@@ -270,12 +260,10 @@ mod flow_tests {
 
     #[test]
     fn an_empty_value_pair_is_a_bare_chip_not_a_blank_pill() {
-        // What properties() does for an annotation like `objectset.rio.cattle.io/id: ""`:
-        // a short chip of just the key, not a pill stretched wide by a blank value.
+        // An annotation with an empty value is a short chip of just the key.
         let bare = chip("objectset.rio.cattle.io/id");
         let lines = flow(vec![Span::raw("Annotations ")], 12, &[bare], 60);
         assert_eq!(lines.len(), 1, "a chip that fits shouldn't wrap");
-        // The whole line is the prefix plus the key itself, nothing padded on beyond that.
         assert_eq!(lines[0].width(), cell_width("Annotations ") + cell_width(" objectset.rio.cattle.io/id "));
     }
 }

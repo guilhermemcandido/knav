@@ -27,29 +27,22 @@ pub enum ResourceKind {
     RoleBindings,
     ClusterRoles,
     ClusterRoleBindings,
-    /// Helm releases, decoded from the Secrets Helm itself writes — not tied
-    /// to any particular distribution.
+    /// Helm releases, decoded from the Secrets Helm writes.
     HelmReleases,
-    /// An extension category's native dashboard (Karpenter, GitOps,
-    /// cert-manager, ...), not a list of objects of its own — see
-    /// `EXTENSION_DASHBOARDS` for the full set and `k8s::Dashboard` for what
-    /// each one builds. The `&'static str` is the category name, the same
-    /// one `ExtKind.category` and the Overview tile it's reached from carry.
+    /// An extension category's dashboard, by category name.
     ExtensionDashboard(&'static str),
-    /// The running port-forwards, knav's own, not a cluster resource.
+    /// The running port-forwards, knav's own rather than a cluster resource.
     PortForwards,
-    /// The Custom Resources picker, every discovered CRD kind
-    /// (group/kind/scope), not object instances, not filtered by group.
+    /// The Custom Resources picker: every discovered CRD kind.
     CustomResourceList,
     /// The same picker, filtered to one API group (a leaked `&'static str`).
     CustomResourceGroup(&'static str),
-    /// One CRD kind's instances: `usize` indexes `Catalog`'s CRD list, and the label
-    /// is carried along because it is a runtime string.
+    /// One CRD kind's objects: an index into `Catalog::crds`, and its label.
     CustomResource(usize, &'static str),
-    /// Every resource type the API server lists (`:api`); Enter opens one.
+    /// Every resource type the API server lists (`:api`).
     ApiResources,
-    /// One discovered resource type shown through the server's Table view,
-    /// `usize` indexes the catalog's discovered list, the label is its plural.
+    /// One discovered type shown through the server's Table view: an index into
+    /// `Catalog::apis`, and its plural.
     Api(usize, &'static str),
 }
 
@@ -92,7 +85,7 @@ impl ResourceKind {
     }
 
     /// What Enter drills into: a Deployment's ReplicaSets, a workload's or Service's
-    /// Pods, a CronJob's Jobs, a Namespace's Pods. Pods and Nodes open popups instead.
+    /// Pods, a CronJob's Jobs, a Namespace's Pods.
     pub fn drill_target(self) -> Option<ResourceKind> {
         match self {
             ResourceKind::Deployments => Some(ResourceKind::ReplicaSets),
@@ -107,8 +100,7 @@ impl ResourceKind {
         }
     }
 
-    /// Whether Enter on a row of this kind opens its manifest (`d`):
-    /// everything that doesn't drill somewhere else.
+    /// Whether Enter opens the manifest, for kinds that don't drill anywhere.
     pub fn opens_spec_on_enter(self) -> bool {
         self.drill_target().is_none()
             && !matches!(
@@ -123,8 +115,7 @@ impl ResourceKind {
             )
     }
 
-    /// The reverse of `label()` for fixed kinds only (a `CustomResource` can't be
-    /// rebuilt from its label). Joins the Overview tiles to `current_kind`.
+    /// The reverse of `label()`, for fixed kinds only.
     pub fn from_label(label: &str) -> Option<Self> {
         match label {
             "Pods" => Some(ResourceKind::Pods),
@@ -155,15 +146,12 @@ impl ResourceKind {
             "Port-forwards" => Some(ResourceKind::PortForwards),
             "API Resources" => Some(ResourceKind::ApiResources),
             "CustomResources" => Some(ResourceKind::CustomResourceList),
-            // Extension dashboards aren't resolved here: which categories
-            // currently have one depends on loaded manifests, which this
-            // function has no access to (see `Catalog::kind_for_tile_label`).
+            // Dashboards depend on the loaded extensions: see `Catalog::kind_for_tile_label`.
             _ => None,
         }
     }
 
-    /// The list an owner reference's `kind` belongs to (a pod's ReplicaSet,
-    /// a ReplicaSet's Deployment, ...); `None` for kinds knav has no list for.
+    /// The list an owner reference's kind belongs to, if knav has one.
     pub fn from_owner_kind(kind: &str) -> Option<Self> {
         Some(match kind {
             "Deployment" => ResourceKind::Deployments,
@@ -187,22 +175,18 @@ impl ResourceKind {
         })
     }
 
-    /// Resolves a lowercased `:command` to a kind through `COMMAND_ALIASES`; `None`
-    /// if unrecognized.
     pub fn from_command(cmd: &str) -> Option<Self> {
         COMMAND_ALIASES.iter().find(|(_, names)| names.contains(&cmd)).map(|(kind, _)| *kind)
     }
 
-    /// Every name `:` accepts for this kind, primary (plural) name first.
-    /// Empty for kinds with no fixed name (a CRD group or instance).
+    /// Every name `:` accepts for this kind, plural first. Empty for CRD groups and kinds.
     pub fn aliases(self) -> &'static [&'static str] {
         COMMAND_ALIASES.iter().find(|(kind, _)| *kind == self).map(|(_, names)| *names).unwrap_or(&[])
     }
 }
 
-/// The names `:` accepts for each kind, the full plural first (it's what
-/// the autocomplete shows), then the singular and the k9s short aliases
-/// (`po`, `dp`, `ns`, `svc`, `cm`, `sa`, ...).
+/// The names `:` accepts per kind: the plural first (what autocomplete shows),
+/// then the singular and k9s's short aliases.
 pub const COMMAND_ALIASES: &[(ResourceKind, &[&str])] = &[
     (ResourceKind::Overview, &["overview", "home"]),
     (ResourceKind::Pods, &["pods", "pod", "po"]),

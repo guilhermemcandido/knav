@@ -148,7 +148,6 @@ fn volume_source(volume: &Value) -> String {
     }
 }
 
-/// The volumes of a pod spec, or of a workload's pod template.
 pub(super) fn volumes_section(pod_spec: Option<&Value>) -> Option<Section> {
     let lines: Vec<Line> = items(pod_spec?, &["volumes"]).iter().map(|v| Line::Item(vec![chunk(format!("{:<28}", text(v, &["name"]).unwrap_or("?")), Style::Plain), chunk(volume_source(v), Style::Muted)])).collect();
     (!lines.is_empty()).then(|| Section { title: "Volumes".into(), lines })

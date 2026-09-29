@@ -1,6 +1,5 @@
-//! The `?` help screen: a few columns (what this screen's selection does,
-//! general keys, navigation, namespace hotkeys), each key in the key colour
-//! with what it does beside it, every column as wide as what it holds.
+//! The `?` help: columns for this screen's keys, general keys, navigation and namespace
+//! hotkeys, each column as wide as what it holds.
 
 use super::*;
 
@@ -18,9 +17,8 @@ fn capitalized(what: &str) -> String {
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
-/// Splits the screen's own `hints` (see `mode::hints_for`) into the help
-/// columns and adds the keys that work everywhere. The Overview is the one
-/// screen with no hints at all.
+/// Splits the screen's `hints` into help columns and adds the keys that work everywhere.
+/// The Overview is the one screen with no hints.
 pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) -> Vec<Section> {
     let entry = |key: &str, what: &str| (key.to_string(), what.to_string());
     // An action's keys as they are now: `default` when untouched.
@@ -42,8 +40,8 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
     namespaces.extend(slots.iter().enumerate().filter_map(|(i, ns)| ns.as_ref().map(|ns| (format!("{}", i + 1), ns.clone()))));
     let namespaces = Section { title: "NAMESPACES", entries: namespaces };
 
-    // The Overview has no rows to filter, sort, mark or scroll sideways, so
-    // moving between tiles is its whole navigation: one column, said once.
+    // The Overview has no rows to filter, sort or mark, so moving between tiles is
+    // its whole navigation, said once.
     if hints.is_empty() {
         return vec![
             Section {
@@ -116,16 +114,14 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         },
         namespaces,
     ];
-    // An extension dashboard has nothing of its own beyond scrolling.
+    // A dashboard has nothing of its own beyond scrolling.
     sections.retain(|s| !s.entries.is_empty());
     sections
 }
 
-/// Gap between a key and what it does, and between columns.
 const KEY_GAP: usize = 2;
 const COLUMN_GAP: u16 = 4;
 
-/// A column's natural width: its widest key, the gap, its widest description.
 fn key_width(section: &Section) -> usize {
     section.entries.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0)
 }
@@ -135,12 +131,10 @@ fn column_width(section: &Section) -> u16 {
     (key_width(section) + KEY_GAP + what).max(section.title.chars().count()) as u16
 }
 
-/// Draws the help centred over the screen, sized to what it actually holds:
-/// every column as wide as its content, so nothing is cut off while another
-/// column sits half empty. On a terminal too narrow for that, the columns
-/// share what there is in proportion instead.
+/// Draws the help centred, each column as wide as its content. On a terminal too
+/// narrow for that, the columns share the room in proportion.
 pub(super) fn draw_help(frame: &mut Frame, hints: &[(&str, &str)], slots: &[Option<String>], shortcuts_line: bool) {
-    // The same body the page itself uses (the Overview has one header line, lists two).
+    // The same body area the page uses.
     let bounds = body_area(frame.area(), shortcuts_line);
     let sections = help_sections(hints, slots);
     let widths: Vec<u16> = sections.iter().map(column_width).collect();
@@ -206,7 +200,7 @@ mod tests {
 
     #[test]
     fn every_entry_names_a_key() {
-        // A wrong action id in `shown` gives no keys, so nothing but a label.
+        // A wrong action id in `shown` gives no keys.
         for hints in [&[][..], &[("enter", "open"), ("d", "spec")][..]] {
             for (key, what) in help_sections(hints, &[]).iter().flat_map(|s| &s.entries) {
                 assert!(!key.trim().is_empty(), "\"{what}\" has no key");

@@ -10,12 +10,12 @@ use resvg::{
 
 use crate::k8s::ResourceKind;
 
-/// Every rasterized icon is this many pixels square, well above the size a tile
-/// renders at, so downscaling keeps detail.
+/// Icons are rasterized this many pixels square, well above tile size, so downscaling
+/// keeps detail.
 const RENDER_SIZE: u32 = 128;
 
-/// Each kind's Kubernetes icon, vendored from `kubernetes/community` (see
-/// `svg/ATTRIBUTION.md`) and keyed by its filename. All CRDs share the "crd" icon.
+/// Each kind's icon, vendored from `kubernetes/community` (see `svg/ATTRIBUTION.md`).
+/// Every CRD shares the "crd" icon.
 fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
     match kind {
         ResourceKind::Nodes => ("node", include_bytes!("svg/node.svg")),
@@ -49,15 +49,11 @@ fn icon_asset(kind: ResourceKind) -> (&'static str, &'static [u8]) {
         | ResourceKind::Api(_, _)
         | ResourceKind::HelmReleases
         | ResourceKind::ExtensionDashboard(_) => ("crd", include_bytes!("svg/crd.svg")),
-        // The Overview tile has no icon, so this arm is never reached, but `icon_asset`
-        // must be total over `ResourceKind`.
-        // The command line shows Overview as a house.
+        // The command line shows the Overview as a house.
         ResourceKind::Overview => ("home", include_bytes!("svg/home.svg")),
     }
 }
 
-/// Rasterizes one SVG onto a square transparent `RENDER_SIZE` canvas, scaled
-/// uniformly and centred so non-square icons don't distort.
 /// Icons that are not a resource kind, by name.
 fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
     Some(match name {
@@ -71,6 +67,8 @@ fn named_asset(name: &str) -> Option<(&'static str, &'static [u8])> {
     })
 }
 
+/// One SVG on a square transparent canvas, scaled evenly and centred so non-square
+/// icons don't distort.
 fn rasterize(svg: &[u8], fill: f32) -> Option<DynamicImage> {
     let tree = Tree::from_data(svg, &Options::default()).ok()?;
     let size = tree.size();
@@ -79,7 +77,7 @@ fn rasterize(svg: &[u8], fill: f32) -> Option<DynamicImage> {
         return None;
     }
 
-    // `fill` is how much of the square the icon takes (1.0 = all of it).
+    // `fill` is the share of the square the icon takes.
     let scale = RENDER_SIZE as f32 * fill / w.max(h);
     let tx = (RENDER_SIZE as f32 - w * scale) / 2.0;
     let ty = (RENDER_SIZE as f32 - h * scale) / 2.0;
@@ -96,14 +94,13 @@ fn rasterize(svg: &[u8], fill: f32) -> Option<DynamicImage> {
 /// Rasterizes and caches one `StatefulProtocol` per icon, lazily on first draw.
 pub struct IconCache {
     picker: Picker,
-    /// Keyed by asset and fill (in percent), so a smaller version of an icon is its own image.
+    /// Keyed by asset and fill percent, so a smaller icon is its own image.
     protocols: HashMap<(&'static str, u8), StatefulProtocol>,
 }
 
 impl IconCache {
-    /// `Picker::from_query_stdio` detects Kitty/Sixel/iTerm2 support by writing an
-    /// escape sequence and reading the reply, so it must run after raw mode is on.
-    /// It falls back to halfblocks if detection fails, e.g. without a TTY.
+    /// Detects Kitty, Sixel or iTerm2 support by querying the terminal, so it must run
+    /// in raw mode. Falls back to half blocks without a TTY.
     pub fn detect() -> Self {
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
         IconCache { picker, protocols: HashMap::new() }
@@ -115,8 +112,8 @@ impl IconCache {
         IconCache { picker: Picker::halfblocks(), protocols: HashMap::new() }
     }
 
-    /// Centres a roughly square sub-area of `area` using the terminal's font aspect
-    /// ratio, so icons don't letterbox into slivers.
+    /// A roughly square part of `area` given the font's aspect ratio, so icons don't
+    /// squash.
     pub fn centered_square(&self, area: Rect) -> Rect {
         let font = self.picker.font_size();
         if font.width == 0 || area.height == 0 {
@@ -137,14 +134,12 @@ impl IconCache {
         self.protocols.get_mut(&slot)
     }
 
-    /// Draws `kind`'s icon into `area`. A no-op if rasterizing failed, leaving an
-    /// icon-less tile.
+    /// Draws `kind`'s icon into `area`; nothing if rasterizing failed.
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind) {
         self.draw_kind(frame, area, kind, 1.0);
     }
 
-    /// `draw`, with the icon filling only `fill` (0.0-1.0) of its square, a
-    /// little smaller, with an even margin.
+    /// `draw` with the icon filling `fill` (0 to 1) of its square.
     pub fn draw_kind(&mut self, frame: &mut Frame, area: Rect, kind: ResourceKind, fill: f32) {
         let (key, svg) = icon_asset(kind);
         if let Some(protocol) = self.protocol_for(key, svg, fill) {
@@ -166,8 +161,8 @@ impl IconCache {
 mod debug_dump {
     use super::*;
 
-    /// Not a real test: dumps a few icons to PNG at full res and at a tile's rough
-    /// resolution, to inspect by eye. `cargo test dump_icons -- --ignored --nocapture`.
+    /// Not a real test: dumps icons to PNG to inspect by eye.
+    /// `cargo test dump_icons -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn dump_icons() {

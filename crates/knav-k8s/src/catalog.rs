@@ -23,14 +23,14 @@ use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 struct Entry {
     kind: ResourceKind,
     label: &'static str,
-    /// From a metadata-only watch; nothing but the number is kept.
+    /// From a metadata-only watch, keeping just the number.
     count: Arc<AtomicUsize>,
     start: Box<dyn Fn(&Client) -> Box<dyn crate::CatalogKind> + Send + Sync>,
     full: Option<Box<dyn crate::CatalogKind>>,
 }
 
-/// What the loaded extensions add to the catalog, as plain data built by
-/// `extensions::Registry::index`, so this module never depends on extensions.
+/// What the loaded extensions add, as plain data from `Registry::index`,
+/// so this crate never depends on the extensions crate.
 #[derive(Default)]
 pub struct ExtensionIndex {
     pub kinds: Vec<IndexedKind>,
@@ -38,7 +38,6 @@ pub struct ExtensionIndex {
     pub dashboards: Vec<&'static str>,
 }
 
-/// One kind an extension adds.
 pub struct IndexedKind {
     pub extension: String,
     pub group: String,
@@ -48,37 +47,29 @@ pub struct IndexedKind {
 }
 
 impl ExtensionIndex {
-    /// The kinds of the extensions turned on in `enabled`.
     pub fn enabled<'a, 'b>(&'a self, enabled: &'b [String]) -> impl Iterator<Item = &'a IndexedKind> + use<'a, 'b> {
         self.kinds.iter().filter(move |k| enabled.contains(&k.extension))
     }
 }
 
-/// Every built-in kind besides Pods and Deployments. Counts are always live; a kind's full
-/// objects are watched only once it is opened (see `resolve`), so a cluster's Secrets and
-/// ConfigMaps are not downloaded just to show the Overview.
+/// Every built-in kind besides Pods and Deployments. Counts are always live, but a kind's
+/// objects are watched only once it is opened, so the Overview never downloads every Secret.
 pub struct Catalog {
     client: Client,
     entries: Vec<Entry>,
-    /// Every discovered CRD kind, listed once at startup, watched lazily
-    /// (see `resolve`) only once the user actually opens one.
+    /// Every discovered CRD kind, watched only once it is opened.
     pub crds: Vec<crate::CrdInfo>,
     crd_watches: HashMap<usize, Box<dyn crate::CatalogKind>>,
-    /// Every resource type the API server lists, from discovery; each is
-    /// fetched (as a server-side Table) only once it is opened.
+    /// Every resource type the API server lists, fetched as a Table once opened.
     pub apis: Vec<crate::ApiInfo>,
     api_list: crate::ApiList,
-    /// Object counts per type for the type lists, counted in the background once one is opened.
+    /// Object counts per type, counted in the background once a type list is opened.
     pub counts: crate::InstanceCounts,
     counter: Option<crate::Counter>,
     api_tables: HashMap<usize, crate::TableKind>,
-    /// Every loaded extension (bundled and from `~/.config/knav/extensions/`),
-    /// enabled or not; `sections` only uses the enabled ones.
     pub extensions: ExtensionIndex,
-    /// Helm releases: a field-selected watch of Secrets (see `crate::HelmStore`),
-    /// started once "helm" is enabled (see `ensure_helm`) — not one of the
-    /// fixed `entries` above, since whether it runs at all is a toggle, not
-    /// "has anything asked for it yet".
+    /// Helm releases, from a watch of the release Secrets. Kept apart from `entries`
+    /// because it runs only while the Helm extension is on.
     helm: Option<Box<dyn crate::CatalogKind>>,
 }
 
@@ -138,19 +129,19 @@ impl Catalog {
         }
     }
 
-    /// Fills in what discovery found. It runs while the built-in kinds already load, and
-    /// nothing reads these before it is done (the loading screen waits for it).
+    /// Fills in what discovery found. Nothing reads these before then: the loading
+    /// screen waits for discovery.
     pub fn set_types(&mut self, apis: Vec<crate::ApiInfo>, crds: Vec<crate::CrdInfo>) {
         self.api_list.apis = apis.clone();
         self.apis = apis;
         self.crds = crds;
     }
 
-    /// Starts counting the objects of every type (once), and follows the namespace shown.
+    /// Starts counting every type's objects (once), following the namespace shown.
     pub fn count_instances(&mut self, namespace: Option<&str>) {
         let counter = self.counter.get_or_insert_with(|| {
-            // Custom resources by their own storage version, then every other type discovery lists
-            // (a CRD served only in an older version is missing from discovery's preferred one).
+            // CRDs by their storage version first: one served only in an older
+            // version is missing from discovery's preferred list.
             let mut types: HashMap<String, crate::ApiInfo> = self.crds.iter().map(crate::ApiInfo::from).map(|t| (crate::count_key(t.group, t.plural), t)).collect();
             for api in &self.apis {
                 types.entry(crate::count_key(api.group, api.plural)).or_insert_with(|| api.clone());
@@ -167,7 +158,6 @@ impl Catalog {
         }
     }
 
-    /// Starts the full watch of a built-in kind if it is not running.
     pub fn ensure(&mut self, kind: ResourceKind) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.kind == kind)
             && entry.full.is_none()
@@ -203,8 +193,8 @@ impl Catalog {
         self.entries.iter().find(|e| e.kind == kind).map(|e| e.full.as_ref().map_or_else(|| e.count.load(Ordering::Relaxed), |f| f.count())).unwrap_or(0)
     }
 
-    /// The live watch for a built-in kind. `None` for Overview, Pods, Deployments and
-    /// CRDs, which are not in `entries` (CRDs go through `resolve`).
+    /// The live watch for a built-in kind. `None` for the Overview, Pods, Deployments
+    /// and CRDs, which are not in `entries` (CRDs go through `resolve`).
     pub fn get(&self, kind: ResourceKind) -> Option<&dyn crate::CatalogKind> {
         if kind == ResourceKind::HelmReleases {
             return self.helm.as_deref();
@@ -212,22 +202,16 @@ impl Catalog {
         self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_deref())
     }
 
-    /// Starts the Helm watch as soon as "helm" is enabled, not just once its
-    /// list is opened — cheap (a field-selected watch of the release Secrets
-    /// only, see `crate::HelmStore`), so its Overview count is never a stale or
-    /// misleading 0 for something that's actually on. Call every tick, like
-    /// `want_extension_counts`/`want_counts` for the CRD-backed extensions.
+    /// Starts the Helm watch as soon as Helm is enabled, not when its list opens,
+    /// so its Overview count is right from the start. Cheap enough to call every tick.
     pub fn ensure_helm(&mut self, client: &Client, extensions_enabled: &[String]) {
         if self.helm.is_none() && extensions_enabled.iter().any(|e| e == "helm") {
             self.helm = Some(Box::new(crate::HelmStore::start(client.clone())));
         }
     }
 
-    /// Resolves one CRD kind's watch directly by group+kind, starting it if
-    /// needed — what a dashboard uses to pull several CRD kinds' data at
-    /// once, since it isn't itself one list a user opens through `resolve`.
-    /// Goes through the same `CustomResource(index, _)` path `resolve` does,
-    /// so a watch this starts is the one a normal list of the same kind reuses.
+    /// One CRD kind's watch by group and kind, started if needed. Dashboards use it,
+    /// and it shares the watch a normal list of that kind would use.
     pub fn resolve_crd(&mut self, group: &str, kind: &str, client: &Client) -> Option<&dyn crate::CatalogKind> {
         let index = self.crds.iter().position(|c| c.group == group && c.kind == kind)?;
         let label = self.crds[index].kind;
@@ -237,7 +221,6 @@ impl Catalog {
     /// Like `get`, but also covers CRD kinds, starting their watch on first use.
     pub fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn crate::CatalogKind> {
         match kind {
-            // A custom resource's instances, with the printer columns its CRD defines.
             ResourceKind::CustomResource(index, _) => {
                 if !self.crd_watches.contains_key(&index) {
                     let api = crate::ApiInfo::from(self.crds.get(index)?);
@@ -266,18 +249,14 @@ impl Catalog {
         }
     }
 
-    /// Every category and kind name `sections` would currently show, counts
-    /// dropped — what the Layout tab reorders/hides. `overview_layout::resolve` uses
-    /// this instead of its own fixed default so a category that only exists
-    /// once an extension is enabled (Helm, Flux, ...) is still editable, not
-    /// just the built-in set.
+    /// Every category and kind `sections` would show, without counts, for the Layout
+    /// tab. Built from the live catalog so enabled extensions' categories are editable too.
     pub fn layout_names(&self, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
         self.sections(0, 0, extensions_enabled).into_iter().map(|(category, items)| (category, items.into_iter().map(|(name, _)| name).collect())).collect()
     }
 
-    /// The view template an enabled extension declares for `manifest`'s kind,
-    /// if any (group from its `apiVersion`, up to the `/`) — what
-    /// `crate::details::details` renders for it instead of the generic dump.
+    /// The view template an enabled extension declares for `manifest`'s kind, which
+    /// `details::details` shows instead of the generic summary.
     pub fn view_for<'a>(&'a self, extensions_enabled: &[String], manifest: &serde_yaml::Value) -> Option<&'a crate::details::ViewTemplate> {
         let api_version = manifest.get("apiVersion")?.as_str()?;
         let kind = manifest.get("kind")?.as_str()?;
@@ -285,10 +264,8 @@ impl Catalog {
         self.extensions.enabled(extensions_enabled).find(|k| k.group == group && k.kind == kind).and_then(|k| k.view.as_ref())
     }
 
-    /// Merges in the live-reflector counts for Pods/Deployments so
-    /// callers get one complete catalog instead of two partial ones, plus
-    /// one section per category an enabled extension asked for (see
-    /// `extension_sections`), for CRD kinds the cluster actually has.
+    /// Every Overview category with its kinds and counts: the built-ins, then one
+    /// section per category of the enabled extensions, for CRDs the cluster has.
     pub fn sections(&self, pod_count: usize, deployment_count: usize, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
         let mut sections = vec![
             (
@@ -344,21 +321,17 @@ impl Catalog {
             ),
             (
                 "CustomResources",
-                // "CustomResources" is the whole picker; one more tile per API group. Counts
-                // are CRD kinds known from discovery, not live objects.
+                // The picker, then one tile per API group, counting CRD kinds, not objects.
                 std::iter::once(("CustomResources", self.crds.len()))
                     .chain(self.crd_groups().into_iter().map(|group| (group, self.crds.iter().filter(|c| c.group == group).count())))
                     .collect(),
             ),
         ];
-        // After "CustomResources": these are optional, opt-in categories, not
-        // built-ins, so they read as an addition past the fixed set rather than
-        // interrupting it.
+        // Extensions go after CustomResources: optional additions past the fixed set.
         let mut extension_sections = self.extension_sections(extensions_enabled);
         if extensions_enabled.iter().any(|e| e == "helm") {
-            // Native (releases aren't a CRD, so `extension_sections` never
-            // produces this tile on its own) alongside whatever `helm.cattle.io`
-            // CRD kinds the manifest matched — one "Helm" box either way, not two.
+            // Releases aren't a CRD, so they join whatever helm.cattle.io kinds
+            // matched, making one Helm box either way.
             let releases = ("HelmReleases", self.count(ResourceKind::HelmReleases));
             match extension_sections.iter_mut().find(|(name, _)| *name == "Helm") {
                 Some((_, items)) => items.push(releases),
@@ -368,10 +341,8 @@ impl Catalog {
                 }
             }
         }
-        // A dashboard tile, first in its category, but only once the category
-        // is real (at least one of its CRD kinds is actually installed) — an
-        // enabled extension whose CRDs aren't present still contributes
-        // nothing, same as any other extension kind.
+        // A dashboard tile goes first in its category, once the category exists
+        // (at least one of its CRDs is installed).
         for category in self.dashboard_categories() {
             if let Some((_, items)) = extension_sections.iter_mut().find(|(name, _)| *name == category) {
                 items.insert(0, (category, 0));
@@ -381,11 +352,8 @@ impl Catalog {
         sections
     }
 
-    /// One section per distinct category an enabled extension declared, listing
-    /// only the kinds among them that the cluster actually has installed (an
-    /// extension whose CRD isn't present contributes nothing, not an error).
-    /// Counts come from the same background instance-counter the Custom
-    /// Resources/API pickers use, so opening one doesn't start a new watch.
+    /// One section per category of the enabled extensions, listing only kinds the
+    /// cluster has installed. Counts come from the shared background counter.
     fn extension_sections(&self, extensions_enabled: &[String]) -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
         let mut by_category: BTreeMap<&'static str, Vec<(&'static str, usize)>> = BTreeMap::new();
         for ext_kind in self.extensions.enabled(extensions_enabled) {
@@ -397,9 +365,8 @@ impl Catalog {
         by_category.into_iter().collect()
     }
 
-    /// Extension kinds are counted the same lazy, budgeted way as any other
-    /// CRD type: only while something wants them. The Overview always wants
-    /// them, so they don't sit at "…" on the one screen most people leave open.
+    /// Count keys for the enabled extensions' kinds. The Overview always shows them,
+    /// so they are always wanted.
     pub fn want_extension_counts(&self, extensions_enabled: &[String]) -> Vec<String> {
         self.extensions
             .enabled(extensions_enabled)
@@ -408,15 +375,12 @@ impl Catalog {
             .collect()
     }
 
-    /// Every category with a dashboard right now (native or a loaded
-    /// manifest's `[[extension.dashboard]]`), for the `:` command menu and
-    /// the Overview tile lookup (see `extensions::dashboards::categories`).
+    /// Every category with a dashboard, for the `:` menu and Overview tiles.
     pub fn dashboard_categories(&self) -> Vec<&'static str> {
         self.extensions.dashboards.clone()
     }
 
-    /// Every distinct API group among the CRDs, in the order `discover_crds` sorted
-    /// them (adjacent dedup keeps that order).
+    /// Every distinct CRD API group, in discovery's sorted order.
     pub fn crd_groups(&self) -> Vec<&'static str> {
         let mut groups: Vec<&'static str> = Vec::new();
         for crd in &self.crds {
@@ -427,10 +391,8 @@ impl Catalog {
         groups
     }
 
-    /// Resolves an Overview tile or menu label to its `ResourceKind`: a fixed kind
-    /// first, else a discovered CRD group's tile, else one CRD kind an extension
-    /// placed directly on the Overview (matched by its own `kind`, e.g.
-    /// `Kustomization`, rather than by group like the Custom Resources picker).
+    /// The kind an Overview tile or menu label opens: a fixed kind, else a CRD
+    /// group's tile, else a CRD kind an extension put on the Overview directly.
     pub fn kind_for_tile_label(&self, label: &str) -> Option<ResourceKind> {
         ResourceKind::from_label(label)
             .or_else(|| self.crds.iter().find(|c| c.group == label).map(|c| ResourceKind::CustomResourceGroup(c.group)))

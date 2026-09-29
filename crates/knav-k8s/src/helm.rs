@@ -1,7 +1,5 @@
-//! Helm releases, read from the Secrets Helm itself writes (`type=helm.sh/release.v1`,
-//! one per revision), decoded the same way `helm list` would: base64, then gzip, then
-//! JSON. Works on any cluster with real Helm releases on it — nothing k3s- or
-//! Rancher-specific, unlike the `helm.cattle.io/HelmChart` CRD some distributions add.
+//! Helm releases, read from the Secrets Helm writes (one per revision) and decoded
+//! like `helm list` does: base64, gzip, JSON. Works on any cluster, not just k3s.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -18,8 +16,7 @@ use super::*;
 
 const FIELD_SELECTOR: &str = "type=helm.sh/release.v1";
 
-/// The bits of a release's payload this view shows; values, the rendered
-/// manifest and hooks aren't parsed since nothing here shows them.
+/// The parts of a release payload this view shows.
 #[derive(Deserialize, Default)]
 struct ReleasePayload {
     #[serde(default)]
@@ -84,9 +81,8 @@ fn release_row(secret: &Secret) -> GenericRow {
     GenericRow { namespace, name, age, age_secs, extras: cols, status: Some((tone, status)), uid, owners: Vec::new(), labels: label_text(secret.metadata.labels.as_ref()) }
 }
 
-/// `secrets`, one row per (namespace, release name) — the highest revision only,
-/// same as `helm list` (old revisions stick around for rollback, not as separate
-/// releases). Sorted so `rows()`/`spec_at()` agree call to call.
+/// One Secret per release: the highest revision, like `helm list`.
+/// Sorted so `rows()` and `spec_at()` agree between calls.
 fn current_revisions(secrets: &[Arc<Secret>]) -> Vec<Arc<Secret>> {
     let mut latest: HashMap<(String, String), Arc<Secret>> = HashMap::new();
     for secret in secrets {

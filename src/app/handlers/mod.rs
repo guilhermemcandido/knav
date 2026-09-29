@@ -1,6 +1,5 @@
-//! Input handling: one module per family of screens. `dispatch` routes an
-//! event to the right one; each `handle` changes the `State` (or ends the
-//! session by returning an `Outcome`).
+//! Input handling, one module per family of screens. `dispatch` routes an event to the
+//! right one, which changes the `State` or ends the session.
 
 mod command;
 mod extensions;
@@ -20,8 +19,8 @@ use crate::ops::NoticeTone;
 use super::derive::Derived;
 use super::*;
 
-/// One key of a search box being typed in: Esc clears and leaves, Enter keeps and leaves,
-/// characters and Backspace edit. `true` when the text changed, so the caller can reset its selection.
+/// One key typed into a search box: Esc clears and leaves, Enter keeps and leaves, the
+/// rest edits. `true` when the text changed, so the caller can reset its selection.
 pub(super) fn edit_line(code: KeyCode, text: &mut String, editing: &mut bool) -> bool {
     match code {
         KeyCode::Esc => {
@@ -51,7 +50,7 @@ pub(super) struct Cx<'a> {
     pub client: &'a Client,
     pub config: &'a Config,
     pub active_context: &'a str,
-    /// The screen area of the frame the user was looking at.
+    /// The screen area of the last frame.
     pub frame_area: Rect,
     pub row_count: usize,
     pub d: &'a Derived,
@@ -91,8 +90,8 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     if matches!(st.mode, Mode::Shell { .. }) {
         return inspect::handle(event, st, cx);
     }
-    // Your key bindings: the key pressed becomes the built-in key of the
-    // action it is bound to (or is dropped if that action moved elsewhere).
+    // Key bindings: the key pressed becomes the built-in key of its action, or is dropped
+    // if that action moved elsewhere.
     let event = match event {
         Event::Key(key) => match crate::app::mode::screen_of(&st.mode, st.current_kind) {
             Some(screen) => match st.keymap.translate(screen, &key) {
@@ -131,7 +130,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         }
         return Ok(None);
     }
-    // The resource sidebar comes first: `m`, Shift-Left, its own keys and clicks.
+    // The sidebar comes first: `m`, Shift-Left, its own keys and clicks.
     if sidebar::handle(&event, st, cx) {
         return Ok(None);
     }
@@ -268,8 +267,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     }
 }
 
-/// The table the keyboard is on, with its row count, for the screens that
-/// have one.
+/// The table the keyboard is on and its row count, for screens that have one.
 fn focused_table<'a>(st: &'a mut State, cx: &Cx) -> Option<(&'a mut TableState, usize)> {
     match &mut st.mode {
         Mode::List if st.current_kind != ResourceKind::Overview => Some((&mut st.table_state, cx.row_count)),
@@ -291,16 +289,15 @@ fn focused_table<'a>(st: &'a mut State, cx: &Cx) -> Option<(&'a mut TableState, 
     }
 }
 
-/// Keys that work on every screen except while typing: `?` the commands panel, `:` the command line, `C` the context switcher.
-/// True when the key was one of them.
+/// Keys that work everywhere except while typing: `?`, `:` and `C`. True when the key
+/// was one of them.
 fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<bool> {
     if owns_keys(&st.mode) {
         return Ok(false);
     }
     match code {
         KeyCode::Char('?') => st.show_hints_panel = !st.show_hints_panel,
-        // Remembers whatever mode was active as `back`, so Esc returns to
-        // exactly where the command line was opened from.
+        // The current mode becomes `back`, so Esc returns to where `:` was pressed.
         KeyCode::Char(':') => {
             let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
             st.mode = Mode::Command { input: String::new(), selected: 0, back };

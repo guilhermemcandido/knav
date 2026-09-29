@@ -1,6 +1,5 @@
-//! How one object relates to the others around it: what owns it and what it
-//! owns, what it uses (ConfigMaps, Secrets, volumes, ...), what uses it, and
-//! what exposes it. It works on plain manifests, so it needs no cluster calls.
+//! How one object relates to those around it: owners, children, what it uses, what
+//! uses it and what exposes it. Works on manifests alone, with no cluster calls.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -12,8 +11,8 @@ mod uses;
 pub use graph::{Graph, GraphNode, graph, mermaid};
 use uses::uses;
 
-/// Drops what relations never need and secrets should not sit around in memory for:
-/// the payload of ConfigMaps and Secrets.
+/// Drops the ConfigMap and Secret payloads, which relations never need and secrets
+/// shouldn't keep in memory.
 pub fn slim(mut manifest: Value) -> Value {
     if let Some(map) = manifest.as_mapping_mut() {
         for key in ["data", "binaryData", "stringData"] {
@@ -23,7 +22,6 @@ pub fn slim(mut manifest: Value) -> Value {
     manifest
 }
 
-/// One related object.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub kind: String,
@@ -41,7 +39,6 @@ pub struct Group {
     pub entries: Vec<Entry>,
 }
 
-/// An object seen through its manifest.
 struct Obj<'a> {
     kind: &'a str,
     namespace: Option<&'a str>,
@@ -68,7 +65,6 @@ fn obj(manifest: &Value) -> Option<Obj<'_>> {
     })
 }
 
-/// Kinds that live outside any namespace.
 fn cluster_scoped(kind: &str) -> bool {
     matches!(kind, "Node" | "PersistentVolume" | "StorageClass" | "Namespace")
 }
@@ -127,9 +123,8 @@ impl<'a> Index<'a> {
         self.all.iter().find(|o| o.kind == kind && o.name == name && (cluster_scoped(kind) || o.namespace == namespace))
     }
 
-    /// Walks upward from `start` (inclusive) through single-controller owner
-    /// references, stopping as soon as `stop` says so (or the chain runs out);
-    /// returns wherever it stopped.
+    /// Walks up from `start` through single-controller owners until `stop` says so
+    /// or the chain ends, returning where it stopped.
     fn walk_up<'s>(&'s self, start: &'s Obj<'a>, mut stop: impl FnMut((&str, Option<&str>, &str)) -> bool) -> (&'s str, Option<&'s str>, &'s str) {
         let mut current: (&str, Option<&str>, &str) = (start.kind, start.namespace, start.name);
         if stop(current) {
@@ -159,8 +154,7 @@ impl<'a> Index<'a> {
     }
 }
 
-/// Who runs on behalf of whom: the pods among `objects`, grouped by the object
-/// at the top of their owner chain ("Deployment web, 3 pods").
+/// The pods among `objects`, grouped by the top of their owner chain ("Deployment web, 3 pods").
 fn by_top_owner(index: &Index, objects: &[&Obj], reason: &str) -> Vec<Entry> {
     let mut groups: BTreeMap<(String, Option<String>, String), (usize, bool)> = BTreeMap::new();
     for o in objects {
@@ -184,8 +178,7 @@ fn by_top_owner(index: &Index, objects: &[&Obj], reason: &str) -> Vec<Entry> {
         .collect()
 }
 
-/// The groups of relations for `target`, looking through `manifests` (the
-/// objects around it; the target itself may be among them).
+/// The relations of `target` among `manifests`, which may include the target itself.
 pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     let Some(t) = obj(target) else { return Vec::new() };
     let index = Index::new(manifests);
@@ -196,7 +189,6 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
         }
     };
 
-    // Owned by: the chain upwards.
     let mut chain = Vec::new();
     let mut current = owners(&t).into_iter().min_by_key(|(_, _, _, controller)| !*controller);
     let mut namespace = t.namespace;
@@ -209,7 +201,6 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     }
     push("Owned by", chain);
 
-    // Owns: direct children, with what stands behind each.
     if !t.uid.is_empty() {
         let mut children: Vec<Entry> = index
             .all
@@ -225,7 +216,6 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
         push("Owns", children);
     }
 
-    // Uses: what it refers to, each once with every reason.
     let mut used: BTreeMap<(String, Option<String>, String), BTreeSet<&'static str>> = BTreeMap::new();
     for (kind, namespace, name, why) in uses(&t) {
         used.entry((kind, namespace, name)).or_default().insert(why);
@@ -233,7 +223,7 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     let uses_entries: Vec<Entry> = used.into_iter().map(|((kind, namespace, name), why)| Entry { kind, namespace, name, detail: why.into_iter().collect::<Vec<_>>().join(", "), depth: 0 }).collect();
     push("Uses", uses_entries);
 
-    // Used by: who refers to it, folded up to the top of their owner chain.
+    // Used by: folded up to the top of each user's owner chain.
     let users: Vec<&Obj> = index
         .all
         .iter()
@@ -282,18 +272,13 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     }
     groups
 }
-/// The manifest of `kind`/`name` among `all`.
 pub fn find_manifest(all: &[Value], kind: &str, namespace: Option<&str>, name: &str) -> Option<Value> {
     Index::new(all).find(kind, namespace, name).map(|o| o.manifest.clone())
 }
 
-/// Every Pod among `manifests` downstream of `target` (whose owner chain passes
-/// through it), and `target`'s own kind and name for the title. A Pod has nothing
-/// downstream of itself, so a Pod target walks up to its own top instead — "this
-/// pod's siblings" means its whole workload, not literally just this one pod. This
-/// distinction matters for a ReplicaSet specifically: mid-rollout a Deployment can
-/// briefly own two of them, and selecting one should show only its own pods, not
-/// the sibling generation's too. Used to aggregate a workload's logs.
+/// The pods downstream of `target`, and its kind and name, for aggregated logs. A Pod
+/// walks up to its top owner, meaning its whole workload; a ReplicaSet keeps only its
+/// own pods, not a sibling generation's mid-rollout.
 pub fn sibling_pods(target: &Value, manifests: &[Value]) -> (Vec<Value>, String, String) {
     let Some(t) = obj(target) else { return (Vec::new(), String::new(), String::new()) };
     let index = Index::new(manifests);

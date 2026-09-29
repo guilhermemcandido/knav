@@ -2,11 +2,10 @@
 
 use super::*;
 
-/// `dimmed` applies only when this is the background of its `ValueDetail` popup.
-/// Node colours are baked into each `TreeItem`, so only the border, title and
-/// selection are muted.
+/// The manifest tree. `dimmed` applies when it sits behind the value popup; node
+/// colours are fixed per item, so only the border, title and selection mute.
 pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, dimmed: bool) {
-    // Full width, so selecting text with the mouse never takes in what is behind.
+    // The whole body width, so selecting text with the mouse never takes in what is behind.
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
 
@@ -26,8 +25,7 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     frame.render_stateful_widget(tree, area, state);
 }
 
-/// A leaf's full value, opened by `v`. Wrapped plain text, since the tree clips
-/// long values.
+/// A leaf's full value (`v`), wrapped, since the tree clips long values.
 pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &str) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
@@ -37,8 +35,7 @@ pub(super) fn draw_value_detail_popup(frame: &mut Frame, label: &str, value: &st
     frame.render_widget(paragraph, area);
 }
 
-/// Click-to-toggle at an absolute terminal position, `TreeState` already
-/// knows where everything was last rendered, so no manual hit-testing.
+/// Toggles the tree node at a terminal position; `TreeState` knows where it drew them.
 pub fn click_tree(state: &mut TreeState<String>, column: u16, row: u16) {
     if let Some(path) = state.rendered_at(Position::new(column, row)) {
         let path = path.to_vec();
@@ -47,11 +44,11 @@ pub fn click_tree(state: &mut TreeState<String>, column: u16, row: u16) {
     }
 }
 
-/// Builds the collapsible tree for a manifest from its value tree. Each identifier
-/// is its full path (`root/spec/containers/[0]/image`), unique even when siblings
-/// reuse names. Also returns leaf identifier to `(label, full value)`, for `v`.
+/// Each leaf's identifier mapped to its label and full value, for `v`.
 pub type LeafValues = HashMap<String, (String, String)>;
 
+/// The collapsible tree of a manifest. Each identifier is its full path
+/// (`root/spec/containers/[0]/image`), unique even when siblings share names.
 pub fn build_manifest_tree(value: &serde_yaml::Value) -> (Vec<TreeItem<'static, String>>, LeafValues) {
     let mut leaf_values = HashMap::new();
     let items = children_of(value, "root", &mut leaf_values);

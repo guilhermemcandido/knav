@@ -2,7 +2,6 @@
 
 use super::*;
 
-/// Handles one key on the Overview.
 pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) {
     let overview = &cx.d.overview;
     let (catalog, frame_area, client) = (&mut *cx.catalog, cx.frame_area, cx.client);
@@ -12,9 +11,7 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                     catalog.resolve(ResourceKind::Namespaces, &client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();
                 open_namespace_picker(&mut st.mode, names);
             }
-            // Esc and `q` are no-ops here, there's nowhere
-            // further "back" than the main screen, and quitting
-            // takes a deliberate `:q` so a stray key can't do it.
+            // Esc and `q` do nothing here: nothing is further back, and quitting takes `:q`.
             KeyCode::Char('j') | KeyCode::Down => {
                 st.overview_selection = ui::move_overview_selection(&overview, st.overview_selection, ui::Direction::Down);
             }

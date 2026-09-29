@@ -1,6 +1,5 @@
 //! Measuring and shortening text in terminal cells.
 
-/// Width of `text` in terminal cells.
 pub fn cell_width(text: &str) -> usize {
     unicode_width::UnicodeWidthStr::width(text)
 }

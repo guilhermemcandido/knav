@@ -1,7 +1,5 @@
-//! Karpenter: NodePools joined against the Nodes they've provisioned, via
-//! the `karpenter.sh/nodepool` label Karpenter itself sets on every Node it
-//! creates (not through NodeClaim as an indirection — the label is already
-//! there, direct and always current).
+//! Karpenter: NodePools joined to their Nodes through the `karpenter.sh/nodepool`
+//! label Karpenter sets on every Node it creates.
 
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -266,7 +264,6 @@ mod tests {
         assert_eq!(pools[0].nodes.len(), 1);
         assert_eq!(unmanaged, 1);
         assert_eq!(pools[0].instance_types, vec!["m5.large", "m5.xlarge"]);
-        // Renders without panicking, including the "unmanaged" footer line.
         assert!(!render(2, unmanaged, &pools).is_empty());
     }
 }

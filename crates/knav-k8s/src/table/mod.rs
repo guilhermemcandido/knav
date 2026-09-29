@@ -1,5 +1,5 @@
 //! Any resource shown through the server's Table view: the columns `kubectl get`
-//! prints, custom resources' printer columns included.
+//! prints, including custom resources' printer columns.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,7 +50,7 @@ pub(super) struct TableData {
     pub(super) error: Option<String>,
     /// More pages of the first load are still coming.
     pub(super) loading: bool,
-    /// The namespace the rows were fetched for (`None`: all of them), and whether that is all of them.
+    /// The namespace the rows were fetched for (`None`: all).
     pub(super) scope: Option<String>,
     pub(super) complete: bool,
 }
@@ -63,8 +63,7 @@ impl TableData {
 }
 
 /// One resource type shown through the server's Table view, kept current by a watch
-/// in the background for as long as it is open. With a namespace
-/// selected only that namespace is fetched.
+/// while it is open. With a namespace selected, only that namespace is fetched.
 pub struct TableKind {
     data: Arc<Mutex<TableData>>,
     wide: AtomicBool,
@@ -72,7 +71,7 @@ pub struct TableKind {
     client: Client,
     resource: ApiResource,
     namespaced: bool,
-    /// Full objects fetched for the info view and actions, so asking again costs nothing.
+    /// Full objects fetched for the info view and actions, cached.
     objects: Arc<Mutex<HashMap<(String, String), (std::time::Instant, serde_yaml::Value)>>>,
     /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
     scope: Arc<Mutex<Option<String>>>,
@@ -104,8 +103,8 @@ impl TableKind {
                         listed = refresh_table(&client, &resource, &data, wanted.as_deref()) => listed,
                         _ = changed.notified() => continue,
                     };
-                    // Then the watch keeps the rows current, until it cannot (the version is too old,
-                    // the connection fails) or the namespace changes; then the list is read again.
+                    // The watch keeps the rows current until it fails, gets too old or the
+                    // namespace changes; then the list is read again.
                     let mut ended = listed.is_none();
                     if let Some(mut version) = listed {
                         ended = tokio::select! {
@@ -114,7 +113,7 @@ impl TableKind {
                         };
                     }
                     if ended {
-                        // Failing over and over must not hammer the server with whole lists.
+                        // Repeated failures back off, so the server isn't hammered with lists.
                         let pause = Duration::from_secs(REFRESH_SECONDS.load(Ordering::Relaxed)).max(started.elapsed() * 3);
                         tokio::select! {
                             _ = tokio::time::sleep(pause) => {}
@@ -133,10 +132,9 @@ impl TableKind {
     }
 }
 
-/// Rows asked for per request; the server hands the rest over with a continue token.
+/// Rows per request; the rest follow with a continue token.
 const PAGE: usize = 500;
 
-/// One page of the Table view of `resource`, and the token for the next page if there is one.
 /// The path of `resource`'s list, in `namespace` or across all of them.
 pub(super) fn list_path(resource: &ApiResource, namespace: Option<&str>) -> String {
     let root = if resource.group.is_empty() { format!("/api/{}", resource.version) } else { format!("/apis/{}/{}", resource.group, resource.version) };
@@ -167,9 +165,8 @@ pub(super) fn percent_encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-/// Reads every page of `namespace` (all when `None`), returning the list's version for a watch
-/// to carry on from (`None` on failure). Rows show up as pages arrive when what is held cannot
-/// stand in for the new list; otherwise the whole snapshot is gathered and swapped in at once.
+/// Reads every page and returns the list's version for a watch to continue from (`None`
+/// on failure). Rows appear page by page only when what is held can't stand in meanwhile.
 async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) -> Option<String> {
     let in_place = data.lock().map(|d| d.columns.is_empty() || !d.covers(namespace)).unwrap_or(true);
     if in_place && let Ok(mut d) = data.lock() {
@@ -276,7 +273,6 @@ pub(super) fn parse_table(table: &Value) -> anyhow::Result<(Vec<TableColumn>, Ve
     Ok((columns, rows))
 }
 
-/// How a status-like cell should be coloured.
 fn status_tone(text: &str) -> Tone {
     match text {
         "Ready" | "Active" | "Bound" | "Available" | "Running" | "Healthy" | "Complete" | "Succeeded" | "Established" | "Approved" => Tone::Good,
@@ -305,7 +301,7 @@ impl CatalogKind for TableKind {
         {
             *scope = namespace.map(str::to_string);
             self.changed.notify_one();
-            // Rows of another namespace are not this list: say it is loading rather than show a gap.
+            // Rows of another namespace don't belong here: show loading, not a gap.
             if let Ok(mut data) = self.data.lock()
                 && !data.covers(namespace)
             {
@@ -324,7 +320,7 @@ impl CatalogKind for TableKind {
         if data.rows.is_empty()
             && let Some(error) = &data.error
         {
-            // A resource we can't list (forbidden, gone): say so in the list itself.
+            // A resource we can't list (forbidden, gone) says so in the list itself.
             let extras = shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect();
             return vec![Arc::new(GenericRow {
                 namespace: "-".into(),
@@ -433,8 +429,8 @@ mod tests {
         })
     }
 
-    /// No refresh task and no cluster: only the row/column shaping is under
-    /// test. The runtime is returned so the client it needs stays valid.
+    /// No refresh task and no cluster, just the row and column shaping. The runtime
+    /// is returned so the client stays valid.
     fn kind_with(data: TableData) -> (TableKind, tokio::runtime::Runtime) {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let _entered = runtime.enter();

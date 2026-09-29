@@ -1,9 +1,8 @@
-//! Node detail popup and its info panel.
+//! The node detail popup and its info panel.
 
 use super::*;
 
-/// Node drill-down: the node's gauges (`draw_gauge`) above its pods, using the
-/// same pod table and container dots as the Pods list.
+/// A node's gauges above its pods, in the same table as the Pods list.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::ui) fn draw_node_detail_popup(
     frame: &mut Frame,
@@ -56,15 +55,13 @@ pub(in crate::ui) fn draw_node_detail_popup(
     draw_table(frame, chunks[2], pods, state, if dimmed { Search::default() } else { search }, if dimmed { SortState::default() } else { sort }, &mut 0, &HashSet::new(), false, ListLook::dimmed(dimmed));
 }
 
-/// How tall the node-info panel is: three summary lines, a blank, the conditions
-/// header and rows, then a blank and a taints line if any. Sizing and drawing share it.
+/// The node info panel's height, shared by sizing and drawing.
 pub(in crate::ui) fn node_info_height(info: &crate::k8s::NodeDetailInfo) -> u16 {
     let base = 3 + 1 + 1 + info.conditions.len() as u16;
     if info.taints.is_empty() { base } else { base + 1 + info.taints.len() as u16 }
 }
 
-/// Node summary: schedulability, roles, version, addresses, host details, the full
-/// condition list (healthy ones too) and any taints.
+/// The node summary: schedulability, roles, version, addresses, all conditions and taints.
 pub(in crate::ui) fn draw_node_info_panel(frame: &mut Frame, area: Rect, info: &crate::k8s::NodeDetailInfo, dimmed: bool) {
     let label = Style::default().fg(theme().muted);
     let value = if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) };

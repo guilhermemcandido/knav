@@ -1,4 +1,4 @@
-//! The `>` command line and the `/` search bar.
+//! The `:` command line and the `/` search bar.
 
 use super::super::*;
 use super::Cx;
@@ -10,8 +10,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     match (event, &mut st.mode) {
         (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
-            // Tab completes the highlighted suggestion; on one already typed
-            // out in full it moves on to the next.
+            // Tab completes the highlighted suggestion, or moves on to the next when it is
+            // already typed out.
             KeyCode::Tab => {
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
@@ -31,8 +31,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
-                // The highlighted suggestion wins; what was typed is only the fallback for
-                // an exact alias that did not make the visible list.
+                // The highlighted suggestion wins; what was typed is the fallback for an exact
+                // alias that isn't in the visible list.
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
                 let typed = || match cmd.as_str() {
                     "q" | "quit" | "exit" => Some(Cmd::Quit),

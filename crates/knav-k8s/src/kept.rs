@@ -1,5 +1,5 @@
-//! A watched kind kept sorted with each object's row built once: watch events change only
-//! the entries they touch, and ages are refreshed where the shown value moves on.
+//! A watched kind kept sorted, each object's row built once. Watch events touch only
+//! their entries, and ages are refreshed only where the shown value changes.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,10 +14,8 @@ pub trait AgeRow: Clone + Send + Sync + 'static {
     fn set_age(&mut self, age: String, secs: i64);
 }
 
-/// An object with the row built from it.
 pub type Item<K, R> = (Arc<K>, Arc<R>);
 
-/// Ages are looked at this often.
 const AGE_EVERY: Duration = Duration::from_secs(1);
 
 pub struct Kept<K: Resource<DynamicType = ()> + 'static, R> {
@@ -61,7 +59,7 @@ where
         match self.feed.take() {
             Some(keys) if !keys.is_empty() => {
                 self.apply(&mut state, keys);
-                // A safety net: the store and the list must agree on how many there are.
+                // A safety net: the store and the list must hold the same count.
                 if state.items.len() != self.store.len() {
                     self.rebuild(&mut state);
                 }
@@ -75,7 +73,6 @@ where
         Arc::clone(&state.items)
     }
 
-    /// The objects alone, for readers that need no rows.
     pub fn objects(&self) -> Vec<Arc<K>> {
         self.items().iter().map(|(o, _)| Arc::clone(o)).collect()
     }
@@ -115,8 +112,7 @@ where
         }
     }
 
-    /// Rewrites the age of the rows whose shown value moved on (a row nobody else holds is
-    /// changed in place).
+    /// Rewrites the rows whose shown age changed, in place when nothing else holds them.
     fn age(state: &mut State<K, R>) {
         let now = k8s_openapi::jiff::Timestamp::now().as_second();
         let items = Arc::make_mut(&mut state.items);

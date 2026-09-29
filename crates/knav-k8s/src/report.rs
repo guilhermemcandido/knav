@@ -14,15 +14,13 @@ pub struct Report {
     pub memory_requests_bytes: i64,
     /// CPU (millicores) and memory (bytes) requested by the pods on each node.
     pub node_requests: HashMap<String, (i64, i64)>,
-    /// Pods per phase, in a fixed order.
     pub phases: Vec<(&'static str, usize)>,
     /// The ten namespaces with the most pods, biggest first.
     pub namespaces: Vec<(String, usize)>,
-    /// How many namespaces have pods at all.
     pub namespace_count: usize,
 }
 
-/// What one pod asks for: the sum over its containers.
+/// What one pod requests: the sum over its containers.
 fn requests(pod: &Pod) -> (i64, i64) {
     let Some(spec) = pod.spec.as_ref() else { return (0, 0) };
     spec.containers.iter().filter_map(|c| c.resources.as_ref()?.requests.as_ref()).fold((0, 0), |(cpu, memory), r| {
@@ -44,7 +42,7 @@ pub fn report(pods: &[Arc<Pod>]) -> Report {
         };
         *phases.entry(phase).or_default() += 1;
         *namespaces.entry(pod.metadata.namespace.clone().unwrap_or_default()).or_default() += 1;
-        // Finished pods hold nothing, and neither do pods no node has taken yet.
+        // Pods not scheduled yet hold nothing on any node.
         let Some(node) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) else { continue };
         if matches!(phase, "Succeeded" | "Failed") {
             continue;

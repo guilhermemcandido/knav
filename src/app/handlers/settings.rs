@@ -1,6 +1,5 @@
-//! The settings screen: change a value with the arrows or Enter (numbers and
-//! colours can be typed), reset one with `r`. Each change is saved to
-//! `config.toml` and applied at once.
+//! The settings screen: change a value with the arrows or Enter, typing numbers and
+//! colours, or reset it with `r`. Each change is saved and applied at once.
 
 use super::super::*;
 use super::Cx;
@@ -122,8 +121,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
             }
-            // The key popup: a menu of what to do with the keys, then (to add or
-            // replace) the key itself, which is confirmed before anything is saved.
+            // The key popup: what to do with the keys, then the key itself, confirmed
+            // before anything is saved.
             Event::Key(key) if capture.is_some() => {
                 let picking = capture.as_mut().expect("checked above");
                 let keys: Vec<String> = current.split(", ").map(String::from).collect();

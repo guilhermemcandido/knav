@@ -1,6 +1,4 @@
-//! The extensions browser (`E`): toggle a third-party kind's category/icon/view
-//! on or off, live-search by name. Its own screen, not a Settings tab, so it's
-//! reachable from anywhere the same way `C` reaches the context switcher.
+//! The Extensions screen (`E`): turn extensions on or off and search them by name.
 
 use super::super::*;
 use super::Cx;
@@ -9,14 +7,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut enable_change: Option<Vec<String>> = None;
     let mut close = false;
     if let Mode::Extensions { filter, filter_editing, state, error, back } = &mut st.mode {
-        // The visible order (filtered, bundled-first, alphabetical): what
-        // `state.selected()` indexes into, and the same list the draw side
-        // builds its rows from, so a toggle always lands on the extension
-        // actually on screen.
+        // The order drawn on screen, so a toggle lands on the extension shown.
         let order = crate::extensions::visible_order(&cx.registry.loaded, filter);
         let len = order.len().max(1);
         match event {
-            // While typing a filter: every key is text, `/` included, same as Logs.
+            // While typing a filter every key is text, `/` included.
             Event::Key(key) if *filter_editing => {
                 if super::edit_line(key.code, filter, filter_editing) {
                     state.select(Some(0));

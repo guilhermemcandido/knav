@@ -22,8 +22,7 @@ use input::keymap;
 use k8s::{catalog::Catalog, metrics};
 use startup::{cli::{self, Cli, resolve_context}, update};
 
-/// How one connected session ended: quit for good, or reconnect to a
-/// different kubeconfig context.
+/// How a connected session ended: quit, or reconnect to another context.
 pub(crate) enum SessionEnd {
     Quit,
     SwitchContext(String),
@@ -48,9 +47,8 @@ fn main() -> Result<()> {
     notes.extend(settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1));
     let mut context = resolve_context(context_query.as_deref(), pick, &config)?;
 
-    // One runtime per connected session: dropping it kills every watch and
-    // log-stream task spawned against the old cluster, which switching
-    // context would otherwise leave running in the background forever.
+    // One runtime per session: dropping it stops every watch and log stream of the
+    // old cluster, which switching context would otherwise leave running.
     loop {
         // Reloaded so a switch keeps what was saved in Settings meanwhile.
         let config = Config::load();
@@ -69,7 +67,7 @@ fn main() -> Result<()> {
 
 pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>) -> Result<SessionEnd> {
     let client = k8s::connect_to_context(context).await?;
-    // Everything that loads starts now, beside the reachability check and the loading screen.
+    // Everything starts loading now, beside the reachability check and loading screen.
     let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
     let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());
     let (node_store, node_feed, _node_watch_handle) = k8s::watch_live::<Node>(client.clone());

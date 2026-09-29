@@ -52,8 +52,8 @@ pub(super) const RELATED_KINDS: [ResourceKind; 15] = [
     ResourceKind::ServiceAccounts,
 ];
 
-/// The manifests around `target` (its namespace, plus everything cluster-wide it may
-/// point at), with ConfigMap and Secret payloads dropped.
+/// The manifests around `target`: its namespace plus cluster-wide objects it may use,
+/// with ConfigMap and Secret payloads dropped.
 pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, catalog: &mut Catalog, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
     use kube::ResourceExt;
     let kind = target.get("kind").and_then(|k| k.as_str()).unwrap_or("");
@@ -77,8 +77,8 @@ pub(super) enum PodView {
     Logs { previous: bool },
 }
 
-/// Opens a shell or the logs in a pod's container: straight away when the
-/// pod has just one, else the container list to choose from.
+/// Opens a shell or logs in a pod's container: at once for a single container, else
+/// the container list.
 pub(super) fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodView) {
     let Ok(pod) = serde_yaml::from_value::<k8s_openapi::api::core::v1::Pod>(target.manifest.clone()) else { return };
     let containers = k8s::containers_for(&pod);

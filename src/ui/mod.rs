@@ -1,6 +1,5 @@
-//! Everything drawn on screen, split by concern (`theme`, `tables`, `overview`,
-//! `columns`, `menu`, `popups`, `spec`, `logs`). This file owns the shared
-//! types (`Rows`, `Overlay`) and the top-level `draw`.
+//! Everything drawn on screen. This file owns the shared types (`Rows`, `Overlay`,
+//! `Chrome`) and the top-level `draw`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -69,26 +68,18 @@ use self::style::*;
 pub use self::style::{border_set, configure_border, mark_key};
 
 pub enum Rows<'a> {
-    /// The two `usize`s are the horizontal column scroll offset and the
-    /// vertical item scroll offset (within whichever column is currently
-    /// selected).
+    /// With the column scroll and the item scroll within the selected column.
     Overview(&'a Overview, OverviewSelection, usize, usize),
     Pods(&'a [std::sync::Arc<PodRow>]),
     Deployments(&'a [std::sync::Arc<DeploymentRow>]),
-    /// Nodes get their own specialized columns (CPU/Memory usage right
-    /// in the list, not just after drilling into one) instead of the
-    /// generic Namespace/Name/Age table every other kind uses.
+    /// Nodes have their own columns, with CPU and memory usage in the list.
     Nodes(&'a [NodeRow]),
-    /// Every other resource kind, a plain namespace/name/age table,
-    /// labeled with the kind so the title bar and log line make sense.
-    /// Rows, the kind's label, and its extra column headers (for when there are no rows yet).
+    /// Any other kind: rows, the kind's label, and its extra headers (for an empty list).
     Generic(&'a [std::sync::Arc<GenericRow>], &'static str, &'a [&'static str]),
-    /// The Custom Resources picker: every discovered CRD kind, or one API group's. Each
-    /// entry keeps its real index into `Catalog`'s list, next to a heading.
-    /// Custom resource kinds, how many objects each has, and the list's heading.
+    /// The Custom Resources picker: CRD kinds with their catalog index, object
+    /// counts, and the heading.
     CrdList(&'a [(usize, CrdInfo)], &'a [crate::k8s::Count], &'a str),
-    /// An extension dashboard (see `extensions::dashboards`): its box title,
-    /// its already-rendered content, and how far it's scrolled.
+    /// An extension dashboard: title, rendered content and scroll.
     Dashboard(&'a str, &'a [Line<'static>], usize),
 }
 
@@ -102,8 +93,7 @@ pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs { title: &'a str, lines: &'a [String], scroll: usize, follow: bool, timestamp_format: TimestampFormat, order: LogOrder, filter: &'a str, filter_editing: bool },
-    /// A node's CPU/Memory/Pods gauges plus the pods scheduled on it. The usage values
-    /// are `None` without metrics-server.
+    /// A node's gauges and the pods on it. Usage is `None` without metrics-server.
     NodeDetail {
         name: &'a str,
         cpu_usage: Option<i64>,
@@ -111,87 +101,65 @@ pub enum Overlay<'a> {
         memory_usage: Option<i64>,
         memory_capacity: i64,
         pod_capacity: i64,
-        /// `None` only in the brief window where the node has vanished
-        /// from the store between frames (e.g. right after deletion).
+        /// `None` briefly when the node vanished between frames.
         info: Option<&'a crate::k8s::NodeDetailInfo>,
         pods: &'a [std::sync::Arc<PodRow>],
         state: &'a mut TableState,
         sort: SortState,
         search: Search<'a>,
     },
-    /// The `:` command line with live autocomplete: `suggestions` are sorted and
-    /// `selected` is the highlighted one. Unlike `Search` it dims the background.
+    /// The `:` command line with its sorted suggestions. Unlike `Search` it dims the page.
     Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
-    /// The context browser (`:ctx` / `C`): a table of `(name, cluster, is_current)`,
-    /// already filtered. `error` is why the last connect failed.
+    /// The context browser: `(name, cluster, is_current)` rows, already filtered, and why
+    /// the last connect failed.
     Context { items: &'a [(String, String, bool)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, error: Option<&'a str>, sort: SortState },
-    /// The dedicated Events browser, opened by pressing Enter on the
-    /// Overview's Events panel, every event (not capped, unlike the
-    /// dashboard preview), filterable by severity with a/w/n.
+    /// The Events browser: every event, filterable by severity with a/w/n.
     Events { events: &'a [EventEntry], filter: EventFilter, search: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
-    /// One event's full detail, opened by pressing Enter or clicking a
-    /// row in the Events browser, since the browser's own MESSAGE column
-    /// clips long messages to fit the table.
+    /// One event in full, since the browser clips long messages.
     EventDetail { entry: &'a EventEntry },
-    /// The Resources panel opened up: cluster-wide gauges plus per-node usage, drawn
-    /// by the same code as the compact panel.
+    /// The Resources panel opened up: cluster gauges plus per-node usage.
     ResourcesDetail { overview: &'a Overview, nodes: &'a [crate::k8s::NodeRow] },
-    /// One category column opened into a bigger grid of the same cards, for categories
-    /// with many kinds.
+    /// One category column opened into a bigger grid.
     ColumnDetail { title: &'a str, items: &'a [(&'a str, usize)], health: &'a std::collections::HashMap<&'static str, crate::k8s::Health>, selected: usize, row_scroll: usize },
-    /// A short result message (e.g. after an edit), any key closes it.
+    /// A short result message; any key closes it.
     Notice { text: &'a str, tone: crate::ops::NoticeTone },
     /// A yes/no question about a destructive action.
     Confirm { spec: &'a crate::ops::actions::ConfirmSpec },
-    /// A background job: what it is doing, for how long, and how far it has got (`total` 0 when unknown).
+    /// A background job: what, for how long, and progress (`total` 0 when unknown).
     Working { title: &'a str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool },
-    /// A readable summary of one object.
     Details { title: &'a str, sections: &'a [crate::k8s::details::Section], scroll: usize, hscroll: usize },
-    /// What an object relates to, one group at a time.
     Relations { title: &'a str, graph: &'a crate::k8s::relations::Graph, selected: usize, zoom: usize },
-    /// The settings screen.
     Settings { tab: SettingsTab, rows: &'a [SettingView], layout: &'a [LayoutRow], state: &'a mut TableState, error: Option<&'a str>, capture: Option<CaptureView> },
-    /// The extensions browser (`E`): on/off, presence on this cluster, search.
     Extensions { rows: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, filter: &'a str, filter_editing: bool },
-    /// The theme list: name, colour swatch, and a mark on the one in use.
     ThemePicker { entries: &'a [crate::theme::ThemeEntry], state: &'a mut TableState, saved: &'a str },
-    /// An embedded shell's screen.
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
-    /// A manifest as text, from line `scroll`.
     Yaml { title: &'a str, text: &'a str, scroll: usize },
-    /// The port-forward dialog.
     PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
     /// A number being typed.
     Prompt { title: &'a str, value: &'a str, hint: &'a str },
-    /// The `n` namespace picker: every namespace in the cluster with the
-    /// number key it already has (if any), for choosing which one to give a
-    /// key to. Same table layout as `Context`.
+    /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
-    /// The key picker: keys 1-9 (and the fixed `0` = all) with what each
-    /// currently holds, for choosing where a namespace goes.
+    /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
     Slots { namespace: &'a str, slots: &'a [Option<String>], selected: usize },
     ValueDetail { label: &'a str, value: &'a str },
 }
 
-/// The `/` search on the main list: what's typed, and whether it's still
-/// being typed (which shows the cursor).
+/// The `/` search on the main list, and whether it is still being typed.
 #[derive(Clone, Copy, Default)]
 pub struct Search<'a> {
     pub text: &'a str,
     pub editing: bool,
 }
 
-/// Height of the `:` command bar (border, input line, border).
 const COMMAND_BAR_HEIGHT: u16 = 3;
 
-/// How the main list is sorted: which column (0-based) and direction, and
-/// whether the next digit chooses a column (`s` pressed).
+/// How the main list is sorted, and whether a column is being chosen (`s`).
 #[derive(Clone, Copy, Default)]
 pub struct SortState {
     pub column: Option<usize>,
     pub descending: bool,
     pub choosing: bool,
-    /// The column the sort cursor is on while choosing (arrows move it, Enter sorts by it).
+    /// The column the cursor is on while choosing.
     pub cursor: Option<usize>,
 }
 
@@ -201,9 +169,7 @@ impl SortState {
     }
 }
 
-/// Mouse hover state: which row it's over, and the raw cursor position
-/// (needed to place the floating popup right next to the cursor). Only
-/// meaningful for the Pods view, Deployments have no per-row containers.
+/// The row the mouse is over and its position, to place the Pods hover popup.
 #[derive(Clone, Copy)]
 pub struct Hover {
     pub row: usize,
@@ -211,8 +177,8 @@ pub struct Hover {
     pub row_on_screen: u16,
 }
 
-/// The line shown in the middle of an empty list: yellow when there is simply
-/// nothing, and saying why when a search or the faults filter emptied it.
+/// The line in the middle of an empty list, saying why when a search or the
+/// faults filter emptied it.
 pub(super) fn empty_list_message(label: &str, search: &str, faults_only: bool) -> Line<'static> {
     let label = label.to_lowercase();
     if !search.is_empty() {
@@ -224,24 +190,21 @@ pub(super) fn empty_list_message(label: &str, search: &str, faults_only: bool) -
     }
 }
 
-/// One line of the settings screen.
 pub struct SettingView {
     pub section: &'static str,
     pub label: String,
     pub value: String,
     /// A colour setting's current colour, shown as a swatch.
     pub swatch: Option<Color>,
-    /// The config file sets this one itself.
+    /// Set by the config file itself.
     pub customised: bool,
     /// Takes effect the next time knav starts.
     pub restart: bool,
-    /// Being typed right now.
     pub editing: bool,
-    /// What the setting does, shown under the list while it is selected.
+    /// Shown under the list while selected.
     pub help: &'static str,
 }
 
-/// The tabs along the top of the settings screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettingsTab {
     General,
@@ -269,30 +232,25 @@ impl SettingsTab {
     }
 }
 
-/// One category in the Overview layout editor.
 pub struct LayoutRow {
     pub name: String,
-    /// Its place from the left, counting from 1.
+    /// Its place from the left, from 1.
     pub number: usize,
     pub hidden: bool,
 }
 
-/// One extension in the Extensions settings tab.
+/// One row of the Extensions screen.
 pub struct ExtensionRow {
     pub name: String,
     pub description: String,
     pub enabled: bool,
     /// Bundled with knav, versus added from `~/.config/knav/extensions/`.
     pub bundled: bool,
-    /// Whether any of this extension's kinds are actually installed on the
-    /// cluster; `None` while disabled or on an error, where asking "does the
-    /// cluster have these" isn't a meaningful question yet.
+    /// Whether the cluster has any of its kinds; `None` while it is off or broken.
     pub present: Option<bool>,
-    /// Set when the manifest failed to parse; shown instead of a toggle.
     pub error: Option<String>,
 }
 
-/// The "press a key" popup on the settings screen.
 pub struct CaptureView {
     pub label: String,
     pub keys: Vec<String>,
@@ -302,18 +260,15 @@ pub struct CaptureView {
 
 pub enum CaptureStage {
     Menu,
-    /// Waiting for a key.
     Waiting,
-    /// A key was pressed: `key`, to replace the others or be added to them.
+    /// A key was pressed, to replace the others or be added to them.
     Confirm { key: String, replace: bool },
 }
 
-/// What a command suggestion shows beside its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SuggestionIcon {
-    /// The resource kind's own icon, as in the menu.
     Kind(crate::k8s::ResourceKind),
-    /// One of the drawn icons that is not a resource (`door`, `bell`, `switch`).
+    /// A drawn icon that isn't a resource (`door`, `bell`, `switch`).
     Named(&'static str),
 }
 
@@ -323,8 +278,8 @@ pub struct SuggestionView {
     pub icon: SuggestionIcon,
 }
 
-/// One path segment: `kind` ("Node") in one colour and its bracketed `value`
-/// ("worker-1") in another. `value` is `None` for plain labels (`Resources`).
+/// One path segment: a kind ("Node") and its value ("worker-1"), each in its own
+/// colour. `value` is `None` for plain labels.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PathSegment {
     pub kind: String,
@@ -332,7 +287,6 @@ pub struct PathSegment {
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Whether the rows are a resource list (not the Overview).
 /// What sits around the main content this frame. The app builds it before
 /// drawing and hit-tests the mouse against the same one.
 #[derive(Default)]
@@ -345,8 +299,7 @@ pub struct Chrome {
     pub content_unfocused: bool,
 }
 
-/// Whether `rows` is a resource list: not the Overview, and not a bespoke
-/// dashboard — neither has selectable rows or a side panel.
+/// Whether `rows` is a resource list, with selectable rows and a side panel.
 fn is_list_kind(rows: &Rows) -> bool {
     !matches!(rows, Rows::Overview(..) | Rows::Dashboard(..))
 }
@@ -356,34 +309,25 @@ pub fn draw(
     rows: Rows,
     table_state: &mut TableState,
     hover: Option<Hover>,
-    // The parent screen, drawn dimmed under `overlay` (Containers behind Logs).
-    // `None` when the parent is the base list.
+    // The parent screen, drawn dimmed under `overlay`; `None` for the base list.
     background: Option<Overlay>,
     overlay: Option<Overlay>,
-    // The screen's key hints and whether the help panel is open. Hidden while
-    // `Command` or `Search` is active, since `hints_for` returns nothing for them.
+    // The screen's key hints, and whether the help is open.
     hints: &[(&str, &str)],
     show_hints_panel: bool,
-    // The full "how did I get here" path, rendered as a bottom bar on
-    // top of everything, e.g. "Nodes › Node: worker-1 › Pod: web-1 ›
-    // Container: nginx › Logs".
+    // The breadcrumb path in the bottom bar, like "Nodes › worker-1 › Logs".
     path: Option<&[PathSegment]>,
     icons: &mut IconCache,
     header: &HeaderInfo,
-    // The `/` search on the main list: shown in its title and highlighted
-    // in the rows.
     search: Search,
     sort: SortState,
-    // How many columns the main list is scrolled right; clamped here to
-    // what its columns actually allow.
+    // How far the main list is scrolled right, clamped here to what its columns allow.
     hscroll: &mut usize,
-    // Rows marked with Space, by `mark_key`.
     marked: &HashSet<String>,
     chrome: &Chrome,
 ) {
-    // Popups dim what's behind them. The `:` command line only softens it a
-    // little (below), and the `/` search is a bar in the page: the list stays
-    // in full colour.
+    // Popups dim what's behind them. The `:` line only softens it (below), and `/`
+    // search leaves the list in full colour.
     let dimmed = background.is_some()
         || show_hints_panel
         || matches!(
@@ -413,24 +357,19 @@ pub fn draw(
         );
     let suppress_hints = matches!(overlay, Some(Overlay::Command { .. }) | Some(Overlay::Context { .. }));
 
-    // Terminals can't blur, so a modal fakes depth by muting the background to gray;
-    // only what is in full colour reads as in focus.
     let full = frame.area();
-    // The search on a list's top border keeps clear of the badges in its corner.
-    // Room for all three, so the search stays put as they come and go.
+    // Room for the three badges at the right of the list's top border, so the
+    // search text stays put as they come and go.
     let title_reserve = if !is_list_kind(&rows) || dimmed { 0 } else { [" sorting ", " faults ", " wide "].iter().map(|b| b.chars().count() as u16 + 1).sum::<u16>() + 2 };
     let look = ListLook { dimmed, focused: chrome.list_focused, unfocused: chrome.content_unfocused, title_reserve };
-    // The namespace-shortcut line is for the resource lists; the main
-    // Overview and the dashboards keep just the info line.
+    // The namespace shortcut line is for resource lists only.
     let shortcuts_line = is_list_kind(&rows);
     let side = sidebar_area(full, shortcuts_line, chrome);
     sidebar::draw_sidebar(frame, side, dimmed, chrome);
     let body = beside_sidebar(full, shortcuts_line, chrome);
-    // A panel beside the list (`i`) takes the right of the body.
     let full_body = body;
     let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width, chrome).min(body.width), ..body } } else { body };
-    // The `:` command line takes a bar under the header and pushes the
-    // list down, k9s-style.
+    // The `:` command line takes a bar under the header and pushes the list down.
     let (command_bar, body) = match &overlay {
         Some(Overlay::Command { .. }) if body.height > COMMAND_BAR_HEIGHT + 4 => (
             Some(Rect { height: COMMAND_BAR_HEIGHT, ..body }),
@@ -440,21 +379,18 @@ pub fn draw(
     };
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
-    // The header lines line up with the boxes' content (one in from their edge) as they are without
-    // the sidebar, so opening it does not push them aside.
+    // Header lines align with the boxes' content as it sits without the sidebar,
+    // so opening it doesn't push them aside.
     let header_left = 1 + match &rows {
         Rows::Overview(overview, ..) => columns_span(body_area(full, false), overview.catalog.len()).x,
         _ => body_area(full, true).x,
     };
-    // The digit shortcuts only switch namespace on the plain list; anywhere an overlay
-    // is open (Relations, Details, a popup, ...) or a sort column is being picked, they
-    // do something else or nothing, so the line should read as unavailable there too.
+    // Digits only switch namespace on the plain list, so the line reads as
+    // unavailable under an overlay or while picking a sort column.
     draw_header(frame, full, header_left, header, shortcuts_line, sort.choosing || overlay.is_some(), dimmed);
-    // The keyboard-selected row, shown at the end of the path bar
-    // (only while nothing is open on top of the list).
+    // The selected row, named at the end of the path bar while nothing is on top.
     let selected_row = table_state.selected();
     let selected_pod: Option<SelectedItem> = match &overlay {
-        // A node's own view: the pod highlighted in its pods table.
         Some(Overlay::NodeDetail { pods, state, .. }) if background.is_none() => {
             state.selected().and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r))
         }
@@ -472,7 +408,6 @@ pub fn draw(
     if is_list_kind(&rows) && overlay.is_none() {
         details::draw_side_panel(frame, full_body, chrome);
     }
-    // What to say in the middle of a list with nothing in it.
     let empty_message = match &rows {
         Rows::Pods(r) if r.is_empty() => Some("pods"),
         Rows::Deployments(r) if r.is_empty() => Some("deployments"),
@@ -486,8 +421,7 @@ pub fn draw(
         Rows::Pods(pods) => {
             draw_table(frame, body, pods, table_state, search, sort, hscroll, marked, header.wide, look);
 
-            // The hover popup is separate from the status line and only shows while the
-            // cursor is over a container dot, floating near the cursor.
+            // Floats near the cursor while it is over a container dot.
             if !dimmed
                 && let Some(hover) = &hover
                 && let Some(pod) = pods.get(hover.row)
@@ -502,8 +436,7 @@ pub fn draw(
             draw_nodes_table(frame, body, nodes, table_state, search, sort, hscroll, marked, header.wide, look);
         }
         Rows::Overview(overview, selection, col_scroll, item_scroll) => {
-            // With the keys in the sidebar nothing on Home is selected: a column that does not exist
-            // matches no box.
+            // With the keys in the sidebar nothing on Home is selected.
             let selection = if chrome.content_unfocused { OverviewSelection::Header(usize::MAX) } else { selection };
             draw_overview(frame, body, overview, selection, col_scroll, item_scroll, dimmed, icons);
         }
@@ -519,7 +452,7 @@ pub fn draw(
     }
 
     if let Some(message) = empty_message.filter(|_| !dimmed) {
-        // Inside the border, below the header row: the middle of what is left.
+        // The middle of the list, inside the border and below the header row.
         let inner = Rect { x: body.x + 1, y: body.y + 2, width: body.width.saturating_sub(2), height: body.height.saturating_sub(3) };
         if inner.height > 0 {
             frame.render_widget(Paragraph::new(message).centered(), Rect { y: inner.y + inner.height / 2, height: 1, ..inner });
@@ -551,15 +484,13 @@ pub fn draw(
     if let Some(bg) = background {
         draw_overlay(frame, bg, true, icons);
     }
-    // Behind the command line everything recedes just a little, so the
-    // suggestions read clearly without the page vanishing.
+    // Behind the command line the page recedes a little, without vanishing.
     if matches!(overlay, Some(Overlay::Command { .. })) {
         frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     }
     match overlay {
         Some(Overlay::Command { input, suggestions, selected }) => {
-            // Normally the bar under the header; on a screen too short for
-            // that it sits over the top of the list instead.
+            // Under the header, or over the top of the list on a short screen.
             let bar = command_bar.unwrap_or(Rect { height: COMMAND_BAR_HEIGHT.min(body.height), ..body });
             draw_command_line(frame, bar, input, suggestions, selected, icons);
         }
@@ -575,8 +506,8 @@ pub fn draw(
     paint_theme_base(frame);
 }
 
-/// A theme's background and default text colour, filled in wherever nothing
-/// else set one (popups `Clear` their area, so this runs last).
+/// The theme's background and text colour wherever nothing else set one.
+/// Runs last, since popups clear their area.
 fn paint_theme_base(frame: &mut Frame) {
     let (background, foreground) = (theme().background, theme().foreground);
     if background == Color::Reset && foreground == Color::Reset {
@@ -592,9 +523,8 @@ fn paint_theme_base(frame: &mut Frame) {
     }
 }
 
-/// Dispatches one `Overlay` to its draw function, for both the focused pass and
-/// the dimmed background pass. `dimmed` only matters for overlays that can be
-/// backgrounds (Containers, NodeDetail, Events, ResourcesDetail).
+/// Draws one overlay, focused or as a dimmed background. `dimmed` only matters for
+/// overlays that can be backgrounds.
 pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
         Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
@@ -632,8 +562,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     }
 }
 
-/// The screen's key hints: a small "help: ?" indicator sits top-right and
-/// `?` toggles a bordered panel under it. Key and description get their own colours.
+/// The help indicator at the top right, and the help itself when `open`.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
     let key_style = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme().text_soft);
@@ -654,8 +583,8 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
         return;
     }
 
-    // Some widgets keep their own colours even when dimmed (warning rows,
-    // selection bars), so mute every cell under the help as well.
+    // Some widgets keep their colours when dimmed (warning rows, selection bars),
+    // so every cell under the help is muted as well.
     for cell in &mut frame.buffer_mut().content {
         cell.set_fg(theme().dim).set_bg(theme().background);
         cell.modifier = Modifier::DIM;
@@ -663,8 +592,8 @@ pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, 
     draw_help(frame, hints, slots, shortcuts_line);
 }
 
-/// A floating box, centred horizontally with its top edge a quarter down the screen.
-/// The top stays put so the input doesn't jump as suggestions change.
+/// A floating box, centred, its top a quarter down the screen. The top stays put so
+/// the input doesn't jump as suggestions change.
 pub(super) fn centered_box(area: Rect, height: u16) -> Rect {
     let width = (area.width * 3 / 5).max(20).min(area.width);
     let height = height.min(area.height).max(1);
@@ -673,8 +602,7 @@ pub(super) fn centered_box(area: Rect, height: u16) -> Rect {
     Rect { x, y, width, height }
 }
 
-/// Places a small box near a screen position, nudged so it never renders
-/// past the right/bottom edge of the terminal.
+/// A small box near a screen position, kept inside the terminal.
 pub(super) fn popup_near(column: u16, row: u16, width: u16, height: u16, bounds: Rect) -> Rect {
     let x = (column + 1).min(bounds.width.saturating_sub(width));
     let y = (row + 1).min(bounds.height.saturating_sub(height));

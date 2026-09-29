@@ -6,13 +6,12 @@ const LOGO: [&str; 5] = [r" _", r"| | __ _ __    __ _ __   __", r"| |/ /| '_ \  
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/// What the loading screen shows.
 pub struct Loading<'a> {
     pub context: &'a str,
     pub version: &'a str,
     /// Each thing being waited for, and whether it has arrived.
     pub steps: &'a [(&'static str, bool)],
-    /// Counts up while waiting, to turn the spinner.
+    /// Counts up while waiting, turning the spinner.
     pub tick: usize,
     /// Said under the steps when something is taking long.
     pub hint: Option<&'a str>,

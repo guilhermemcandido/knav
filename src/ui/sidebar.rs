@@ -2,16 +2,14 @@
 
 use super::*;
 
-/// One line of the sidebar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SidebarRow {
     pub label: String,
-    /// A category heading (collapsible) rather than a kind.
+    /// A collapsible category heading rather than a kind.
     pub heading: bool,
-    /// Whether a heading is folded.
     pub collapsed: bool,
     pub count: Option<usize>,
-    /// The list on screen is this one.
+    /// This is the list on screen.
     pub current: bool,
 }
 
@@ -28,7 +26,7 @@ pub struct Sidebar {
 pub const SIDEBAR_MIN_WIDTH: u16 = 90;
 const SIDEBAR_WIDTH: u16 = 28;
 
-/// How wide the sidebar is at `full_width` columns; 0 when it is off.
+/// The sidebar's width at `full_width` columns; 0 when it is off.
 fn sidebar_width(full_width: u16, chrome: &Chrome) -> u16 {
     if full_width >= SIDEBAR_MIN_WIDTH && chrome.sidebar.is_some() { SIDEBAR_WIDTH } else { 0 }
 }
@@ -48,13 +46,11 @@ pub fn sidebar_row_at(area: Rect, selected: usize, len: usize, column: u16, row:
     (index < len).then_some(index)
 }
 
-/// The rectangle the sidebar takes out of the body.
 pub fn sidebar_area(frame_area: Rect, shortcuts_line: bool, chrome: &Chrome) -> Rect {
     let body = body_area(frame_area, shortcuts_line);
     Rect { width: sidebar_width(frame_area.width, chrome).min(body.width), ..body }
 }
 
-/// What is left of the body once the sidebar has taken its share.
 pub fn beside_sidebar(frame_area: Rect, shortcuts_line: bool, chrome: &Chrome) -> Rect {
     let body = body_area(frame_area, shortcuts_line);
     let taken = sidebar_width(frame_area.width, chrome).min(body.width);
@@ -96,7 +92,7 @@ pub(super) fn draw_sidebar(frame: &mut Frame, area: Rect, dimmed: bool, chrome: 
             } else if row.heading {
                 Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)
             } else if row.count == Some(0) {
-                // Nothing in it: quiet, so what has objects stands out.
+                // Empty kinds are quiet, so the ones with objects stand out.
                 Style::default().fg(theme().muted)
             } else {
                 Style::default().fg(theme().row)

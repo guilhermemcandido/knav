@@ -2,13 +2,13 @@
 
 use super::*;
 
-/// The width most dialogs in this file settle on: 3/5 of the terminal, kept readable.
+/// The width the dialogs share: 3/5 of the terminal, between 44 and 72 columns.
 fn narrow_dialog_width(full_width: u16) -> u16 {
     (full_width * 3 / 5).clamp(44, 72)
 }
 
-/// A small centred message box, as wide as its text needs up to the usual
-/// dialog width: green "Done", accent "Info", red "Failed". Any key closes it.
+/// A small centred message, as wide as its text up to the dialog width: green "Done",
+/// accent "Info" or red "Failed". Any key closes it.
 pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crate::ops::NoticeTone) {
     use crate::ops::NoticeTone as Tone;
     let full = frame.area();
@@ -37,8 +37,7 @@ pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crat
     frame.render_widget(Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// A small centred box with a title and body lines, for the question popups.
-/// Same width as the confirmation dialog, so the dialogs read as one family.
+/// A small centred box with a title and body lines, as wide as the other dialogs.
 fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'static>>) {
     let full = frame.area();
     let width = narrow_dialog_width(full.width).min(full.width);
@@ -49,8 +48,8 @@ fn small_popup(frame: &mut Frame, title: &str, color: Color, body: Vec<Line<'sta
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block), area);
 }
 
-/// The confirmation dialog: what is about to happen, to what, what follows, and
-/// two buttons. Destructive actions are drawn in red and need an explicit `y`.
+/// The confirmation dialog: what is about to happen, to what, and two buttons.
+/// Destructive actions are red and need an explicit `y`.
 pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::actions::ConfirmSpec) {
     let full = frame.area();
     let color = if spec.danger { theme().bad } else { theme().accent };
@@ -86,7 +85,6 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
     let wrapped: usize = lines.iter().map(|l| (l.width() / inner_w.max(1)) + 1).sum();
     let height = (wrapped as u16 + 2).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
-    // The screen behind recedes, and the dialog gets its own clear panel.
     let backdrop = full;
     frame.buffer_mut().set_style(backdrop, Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(Clear, area);
@@ -102,8 +100,8 @@ pub(in crate::ui) fn draw_confirm_popup(frame: &mut Frame, spec: &crate::ops::ac
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text_area);
 }
 
-/// The port-forward dialog, laid out like k9s's: labelled fields, a warning
-/// when the port is a guess, and OK / Cancel.
+/// The port-forward dialog: labelled fields, a warning when the port is a guess, and
+/// OK or Cancel.
 pub(in crate::ui) fn draw_port_forward_popup(frame: &mut Frame, title: &str, form: &crate::ops::portforward::PortForm) {
     use crate::ops::portforward::Field;
     let full = frame.area();
@@ -157,8 +155,8 @@ pub(in crate::ui) fn draw_prompt_popup(frame: &mut Frame, title: &str, value: &s
     small_popup(frame, title, theme().namespace, body);
 }
 
-/// "Working" box for a background job: a spinner, what it is doing, a progress bar when the
-/// total is known, and how to cancel.
+/// A background job's box: a spinner, what it is doing, progress when the total is
+/// known, and how to cancel.
 pub(in crate::ui) fn draw_working_popup(frame: &mut Frame, title: &str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool) {
     const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let spinner = SPINNER[(elapsed.as_millis() / 80) as usize % SPINNER.len()];

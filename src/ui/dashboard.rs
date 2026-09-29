@@ -1,7 +1,5 @@
-//! Draws whichever extension dashboard is active: one bordered, scrollable
-//! page, the same shape for all of them. What it shows is entirely the
-//! extension's own doing (see `extensions::dashboards`) — this only knows
-//! how to frame and scroll a title and some lines, never which extension.
+//! Draws the active extension dashboard: one bordered, scrollable page of the lines
+//! the dashboard produced.
 
 use super::*;
 

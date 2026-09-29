@@ -1,6 +1,5 @@
-//! Table column widths: content or header wide (room for the sort number), one gap,
-//! packed left. Columns shrink to a configurable minimum (`config::TablesConfig`)
-//! when short of space, then the table scrolls sideways by column (`Window`).
+//! Table column widths: as wide as the content or header, packed left. Columns shrink
+//! to a configurable minimum when space runs short, then the table scrolls by column.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -8,13 +7,12 @@ use std::sync::RwLock;
 
 use super::*;
 
-/// The gap between columns, everywhere.
 pub(super) const COLUMN_GAP: u16 = 3;
 
 /// `(n)` before a header plus ` ▲` after it.
 const SORT_RESERVE: usize = 5;
 
-/// Room the free-text (`flex`) column keeps at least, unless configured.
+/// The least room the free-text (`flex`) column keeps.
 const FLEX_MIN: usize = 20;
 
 struct ColumnMins {
@@ -24,8 +22,7 @@ struct ColumnMins {
 
 static COLUMN_MINS: RwLock<Option<ColumnMins>> = RwLock::new(None);
 
-/// Sets the column minimums from the config (at startup, and when they are edited). Unset (as in
-/// tests), every column's minimum is 10.
+/// Sets the column minimums from the config. Unset (as in tests), every minimum is 10.
 pub fn configure_columns(default: usize, per_column: HashMap<String, usize>) {
     let per_column = per_column.into_iter().map(|(name, width)| (name.to_lowercase(), width)).collect();
     if let Ok(mut mins) = COLUMN_MINS.write() {
@@ -40,20 +37,17 @@ fn configured_min(header: &str) -> usize {
     }
 }
 
-/// Every column's width, decided once for a table.
 pub(super) struct Fitted {
     widths: Vec<usize>,
-    /// The free-text column that takes all leftover room, if there is one
-    /// and everything fits.
+    /// The free-text column that takes the leftover room, when everything fits.
     flex: Option<usize>,
     /// Whether the columns fit the screen at their minimums.
     scrolls: bool,
 }
 
-/// The slice of columns currently on screen.
 pub(super) struct Window {
     range: Range<usize>,
-    /// The offset actually used (the requested one, clamped).
+    /// The requested offset, clamped.
     pub(super) offset: usize,
     pub(super) constraints: Vec<Constraint>,
     pub(super) can_left: bool,
@@ -61,12 +55,10 @@ pub(super) struct Window {
 }
 
 impl Window {
-    /// The visible range of a full row of `len` cells.
     pub(super) fn range(&self) -> Range<usize> {
         self.range.clone()
     }
 
-    /// Keeps only the visible columns of a full row.
     pub(super) fn slice<T>(&self, mut cells: Vec<T>) -> Vec<T> {
         cells.truncate(self.range.end);
         cells.drain(..self.range.start);
@@ -75,17 +67,16 @@ impl Window {
 }
 
 impl Fitted {
-    /// `rows` yields each row's text width per column. `flex` names the one
-    /// column allowed to take the leftover room (an event message).
+    /// `rows` yields each row's text width per column. `flex` is the one column
+    /// allowed the leftover room.
     pub(super) fn new(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>, available: u16, flex: Option<usize>) -> Self {
         Self::from_natural(headers, natural_widths(headers, rows), available, flex)
     }
 
-    /// The fit for columns whose natural widths are already known.
     fn from_natural(headers: &[&str], natural: Vec<usize>, available: u16, flex: Option<usize>) -> Self {
         let mut widths = natural;
-        // A column is never asked to be wider than it needs to be.
-        // A column never shrinks below its own header plus the `(n)` sort number, so headers are not cut.
+        // A column is never wider than it needs, nor narrower than its header plus the
+        // sort number.
         let mins: Vec<usize> = headers.iter().zip(&widths).map(|(h, natural)| configured_min(h).max(cell_width(h) + 3).min(*natural)).collect();
         if let Some(f) = flex {
             widths[f] = mins[f].max(FLEX_MIN.min(widths[f]));
@@ -93,8 +84,7 @@ impl Fitted {
 
         let gaps = usize::from(COLUMN_GAP) * headers.len().saturating_sub(1);
         let available = usize::from(available);
-        // Narrow the widest columns, one cell at a time, but not below
-        // their minimums.
+        // Narrow the widest columns a cell at a time, not below their minimums.
         while widths.iter().sum::<usize>() + gaps > available {
             let widest = (0..widths.len()).filter(|i| Some(*i) != flex && widths[*i] > mins[*i]).max_by_key(|i| widths[*i]);
             match widest {
@@ -106,7 +96,6 @@ impl Fitted {
         Fitted { widths, flex: flex.filter(|_| !scrolls), scrolls }
     }
 
-    /// The columns to show when scrolled `offset` columns to the right.
     pub(super) fn window(&self, offset: usize, available: u16) -> Window {
         let n = self.widths.len();
         let gap = usize::from(COLUMN_GAP);
@@ -132,7 +121,6 @@ impl Fitted {
     }
 }
 
-/// Each column's widest cell or header.
 fn natural_widths(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>) -> Vec<usize> {
     let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count() + SORT_RESERVE).collect();
     for row in rows {
@@ -143,7 +131,7 @@ fn natural_widths(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>) -> V
     widths
 }
 
-/// Bumped whenever the lists are recomputed, which is what makes cached widths stale.
+/// Bumped whenever the lists are recomputed, making cached widths stale.
 static DATA_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn set_data_version(version: u64) {
@@ -156,8 +144,8 @@ static WIDTHS: std::sync::Mutex<Vec<(WidthKey, Vec<usize>)>> = std::sync::Mutex:
 
 pub(super) use crate::util::text::cell_width;
 
-/// The one call every table makes: fit the columns to the content, then
-/// pick the visible window (updating `hscroll` to what's actually usable).
+/// Fits the columns to the content, then picks the visible window, updating
+/// `hscroll` to what is usable.
 pub(super) fn layout_table(
     headers: &[&str],
     rows: impl Iterator<Item = Vec<usize>>,
@@ -170,8 +158,8 @@ pub(super) fn layout_table(
     window
 }
 
-/// `layout_table` for the lists on screen: the widest-cell scan over every row runs once per
-/// recomputation of the data (`data` is the rows' address and count), not once per frame.
+/// `layout_table` for the main lists, scanning every row's widths only once per data
+/// change rather than every frame.
 pub(super) fn layout_list(
     headers: &[&str],
     data: (usize, usize),
@@ -196,7 +184,7 @@ pub(super) fn layout_list(
     });
     let fitted = Fitted::from_natural(headers, natural, available, flex);
     let mut window = fitted.window(*hscroll, available);
-    // Scroll sideways until the column `keep` names (the sort cursor) is in view.
+    // Scroll sideways until the column `keep` (the sort cursor) is in view.
     if let Some(column) = keep {
         for _ in 0..headers.len() {
             let range = window.range();
@@ -245,8 +233,8 @@ mod tests {
 
     #[test]
     fn the_widest_columns_shrink_toward_their_minimums_before_scrolling() {
-        // 3 columns, 2 gaps of 3: 30 + 10 + 10 + 6 = 56 wanted, 40 available. The
-        // 30-wide column narrows (minimum 10 here); no scrolling needed.
+        // 30 + 10 + 10 plus two gaps is 56, with 40 available: the 30-wide
+        // column narrows, no scrolling needed.
         let fit = Fitted::new(&["A", "B", "C"], vec![vec![30, 10, 10]].into_iter(), 40, None);
         let w = fit.window(0, 40);
         assert!(!w.can_right && !w.can_left);
@@ -257,7 +245,7 @@ mod tests {
 
     #[test]
     fn when_minimums_do_not_fit_the_table_scrolls_a_column_at_a_time() {
-        // Four columns of 10 (their minimum) + 3 gaps of 3 = 49; only 30 available.
+        // Four columns at their minimum of 10 plus gaps is 49, with 30 available.
         let fit = Fitted::new(&["A", "B", "C", "D"], vec![vec![10; 4]].into_iter(), 30, None);
         let first = fit.window(0, 30);
         assert_eq!(first.range(), 0..2);

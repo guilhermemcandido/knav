@@ -2,8 +2,7 @@
 
 use super::*;
 
-/// Everything `draw_settings` reads but doesn't own, gathered so the
-/// function takes one argument instead of a fistful.
+/// What `draw_settings` reads, gathered into one argument.
 pub(in crate::ui) struct SettingsView<'a> {
     pub tab: SettingsTab,
     pub rows: &'a [SettingView],
@@ -12,8 +11,8 @@ pub(in crate::ui) struct SettingsView<'a> {
     pub capture: Option<&'a CaptureView>,
 }
 
-/// The settings screen: one row per setting under its section, the value in
-/// bold when the config file sets it, and a swatch for colours.
+/// The settings screen: settings under their sections, the value bold when the config
+/// file sets it, and a swatch for colours.
 pub(in crate::ui) fn draw_settings(frame: &mut Frame, view: SettingsView, state: &mut TableState) {
     let SettingsView { tab, rows, layout, error, capture } = view;
     let area = body_area(frame.area(), true);
@@ -85,7 +84,6 @@ pub(in crate::ui) fn draw_settings(frame: &mut Frame, view: SettingsView, state:
     }
 }
 
-/// The tab names for the top border, the current one lit.
 fn settings_tabs(current: SettingsTab) -> Line<'static> {
     let mut spans = Vec::new();
     for (i, tab) in SettingsTab::ALL.iter().enumerate() {
@@ -119,8 +117,7 @@ pub fn settings_tab_at(frame_area: Rect, column: u16, row: u16) -> Option<Settin
     None
 }
 
-/// The Overview layout editor: each category with its place from the left,
-/// and a line showing the result.
+/// The Overview layout editor: each category with its place, and a preview below.
 fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: &mut TableState) {
     let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(4)]).split(area);
     let rows: Vec<Row> = layout
@@ -146,9 +143,7 @@ fn draw_layout_rows(frame: &mut Frame, area: Rect, layout: &[LayoutRow], state: 
     draw_category_boxes(frame, boxes_area, &shown);
 }
 
-/// The layout preview as actual boxes, one per visible category, left to
-/// right in the order they'll show on the Overview — closer to what you're
-/// really changing than a plain `A › B › C` line of text.
+/// The layout preview: one box per visible category, left to right as on the Overview.
 fn draw_category_boxes(frame: &mut Frame, area: Rect, names: &[&str]) {
     if area.height < 3 {
         return;
@@ -173,8 +168,7 @@ fn draw_category_boxes(frame: &mut Frame, area: Rect, names: &[&str]) {
     }
 }
 
-/// The popup for changing an action's keys: what to do with them, then the
-/// key itself, pressed and confirmed.
+/// The popup for changing an action's keys: replace or add, then the key, confirmed.
 fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
     let muted = Style::default().fg(theme().muted);
     let strong = Style::default().fg(theme().text_strong);
@@ -213,7 +207,6 @@ fn draw_key_capture(frame: &mut Frame, capture: &CaptureView) {
     let height = (lines.len() as u16 + 4).min(frame.area().height);
     let area = centered_rect(60, 100, frame.area());
     let area = Rect { y: frame.area().y + frame.area().height.saturating_sub(height) / 2, height, ..area };
-    // Everything behind recedes and the popup gets a bright border.
     let full = frame.area();
     frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(Clear, area);

@@ -1,7 +1,5 @@
-//! The extensions browser (`E`): third-party kinds (Flux, Argo CD, Helm, ...)
-//! toggled on or off, whether each is actually present on this cluster, and
-//! a live search — its own screen, not a Settings tab, reachable from
-//! anywhere the same way `C` reaches the context switcher.
+//! The Extensions screen (`E`): turn extensions on or off, see whether each one's kinds
+//! exist on this cluster, and search.
 
 use super::*;
 
@@ -9,15 +7,13 @@ fn extensions_area(frame: Rect) -> Rect {
     centered_rect(94, 88, frame)
 }
 
-/// EXTENSION column width bounds: never narrower than the "EXTENSION" header
-/// itself, never so wide (a long external name, `knav ext add`) that it
-/// crowds the description out of a normal terminal.
+/// EXTENSION column width bounds: at least the header, at most enough to leave the
+/// description room.
 const EXTENSION_NAME_MIN: usize = 10;
 const EXTENSION_NAME_MAX: usize = 28;
 
-/// One extension's row: status, name, whether it's present (separate from
-/// on/off), and its static description — an error takes over the description
-/// spot instead.
+/// One extension's row: status, name, presence and description. An error replaces
+/// the description.
 fn extension_row(row: &ExtensionRow) -> Row<'static> {
     let (status, status_style) = match (&row.error, row.enabled) {
         (Some(_), _) => ("error".to_string(), Style::default().fg(theme().bad)),
@@ -31,13 +27,12 @@ fn extension_row(row: &ExtensionRow) -> Row<'static> {
     } else {
         Style::default().fg(theme().desc)
     };
-    // Its own column, not folded into the description: on/off asks "did you turn
-    // this on", present asks "is it actually here on THIS cluster" — two
-    // different questions, so a glance at one doesn't answer the other.
+    // On/off says whether you turned it on; present says whether this cluster has
+    // its kinds. Separate columns, since one doesn't answer the other.
     let (present, present_style) = match row.present {
         Some(true) => ("Present".to_string(), Style::default().fg(theme().ok)),
         Some(false) => ("Missing".to_string(), Style::default().fg(theme().warn)),
-        None => ("—".to_string(), Style::default().fg(theme().muted)),
+        None => ("-".to_string(), Style::default().fg(theme().muted)),
     };
     let detail = row.error.clone().unwrap_or_else(|| row.description.clone());
     Row::new(vec![
@@ -60,21 +55,13 @@ fn blank_row() -> Row<'static> {
     Row::new(vec![Cell::from("")])
 }
 
-/// What a section with nothing in it says: a search that turned up nothing
-/// names what was typed, an empty External section (never filtered) points
-/// at how to add one instead.
+/// What an empty section says: the search that found nothing, or `fallback`.
 fn no_matches(filter: &str, fallback: &str) -> String {
     if filter.is_empty() { fallback.to_string() } else { format!("<none match \"{filter}\">") }
 }
 
-/// The render position (a row index into what `draw_extension_rows` actually
-/// builds, headings, the spacer and any placeholder included) of logical
-/// extension index `i`. The layout is always "Bundled" heading, then bundled
-/// rows or (if there are none — only possible while filtering, bundled ships
-/// at least one) a single placeholder row, a blank spacer, "External"
-/// heading, then external rows or a placeholder the same way. Both section
-/// heights are `.max(1)` for exactly that reason: a real section is as tall
-/// as its rows, an empty one is one placeholder tall.
+/// Where logical extension `i` is drawn, counting the headings, spacer and any
+/// placeholder rows. An empty section still takes one placeholder row.
 fn extension_render_index(i: usize, bundled_count: usize) -> usize {
     if i < bundled_count {
         return i + 1;
@@ -83,10 +70,8 @@ fn extension_render_index(i: usize, bundled_count: usize) -> usize {
     bundled_h + 3 + (i - bundled_count)
 }
 
-/// The reverse of `extension_render_index`: which logical extension (if any)
-/// sits at render position `r` — `None` on a heading, the spacer, a
-/// placeholder, or past the end. The same `.max(1)` section-height rule as
-/// `extension_render_index`, so the two can't disagree about where a row landed.
+/// The reverse of `extension_render_index`: the extension at render row `r`, `None`
+/// on a heading, spacer, placeholder or past the end.
 fn extension_at_render(r: usize, bundled_count: usize, total: usize) -> Option<usize> {
     let bundled_h = bundled_count.max(1);
     if r == 0 {
@@ -108,8 +93,7 @@ fn draw_extension_rows(frame: &mut Frame, area: Rect, extensions: &[ExtensionRow
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(extensions.len().saturating_sub(1))));
     }
-    // The caller lists bundled ones first, so finding where they stop is the
-    // whole split, not a real sort.
+    // The caller lists bundled ones first, so this finds the split.
     let bundled_count = extensions.iter().take_while(|e| e.bundled).count();
 
     let mut rows: Vec<Row> = vec![section_heading("Bundled")];
@@ -123,18 +107,11 @@ fn draw_extension_rows(frame: &mut Frame, area: Rect, extensions: &[ExtensionRow
     if bundled_count < extensions.len() {
         rows.extend(extensions[bundled_count..].iter().map(extension_row));
     } else {
-        rows.push(placeholder_row(no_matches(filter, "<none> — add one with `knav ext add <repo>`")));
+        rows.push(placeholder_row(no_matches(filter, "<none>: add one under ~/.config/knav/extensions/<id>/manifest.toml")));
     }
 
-    // The heading/placeholder rows aren't selectable, so the selection needs
-    // remapping from logical (an index into `extensions`, what the handler
-    // indexes directly) to render position (a row in `rows` above, heading
-    // rows included) — the same remap `extension_row_at` uses for mouse
-    // clicks, or clicking a row and landing on the one above or below it
-    // would disagree. The offset lives in render terms the whole time
-    // instead: nothing outside this screen reads it, so there's no logical
-    // meaning it needs to hold, and the widget already knows how to shift it
-    // to keep the selection in view.
+    // The selection is kept as an extension index and mapped to its render row, the
+    // same mapping mouse clicks use. The scroll offset stays in render rows.
     let logical = state.selected().unwrap_or(0);
     let mut render_state = TableState::default().with_selected(Some(extension_render_index(logical, bundled_count))).with_offset(state.offset());
 
@@ -144,9 +121,7 @@ fn draw_extension_rows(frame: &mut Frame, area: Rect, extensions: &[ExtensionRow
         Cell::from(Span::styled("PRESENT", Style::default().fg(theme().muted))),
         Cell::from(""),
     ]);
-    // Wide enough for every bundled name today ("OPA Gatekeeper", 14 chars)
-    // with headroom, and grows with whatever an external manifest names
-    // itself rather than silently cutting it off (see `EXTENSION_NAME_MIN`).
+    // Grows with the longest name, up to the cap.
     let name_width = extensions.iter().map(|e| e.name.chars().count()).max().unwrap_or(0).clamp(EXTENSION_NAME_MIN, EXTENSION_NAME_MAX) as u16;
     let table = Table::new(rows, [Constraint::Length(6), Constraint::Length(name_width), Constraint::Length(7), Constraint::Min(10)])
         .column_spacing(2)
@@ -158,17 +133,8 @@ fn draw_extension_rows(frame: &mut Frame, area: Rect, extensions: &[ExtensionRow
     *state.offset_mut() = render_state.offset();
 }
 
-/// The extensions browser's own screen: bundled ones under their own
-/// heading, then anything added from `~/.config/knav/extensions/` under an
-/// "External" heading of its own — the two are a different kind of thing
-/// (shipped with knav vs. someone's own manifest), worth keeping visually
-/// apart rather than one flat list. Both headings always show, even over
-/// nothing, either because a search matched nothing in that section or
-/// because External has nothing added yet — a placeholder row says which,
-/// rather than the section just vanishing. `rows` is already filtered and
-/// sorted by the caller (`extensions::visible_order`); this only knows how
-/// to lay it out. A bad manifest shows its error instead of the on/off
-/// toggle doing anything.
+/// The Extensions screen: bundled extensions, then external ones, each under a heading
+/// that shows even when empty. `rows` is already filtered and sorted.
 pub(in crate::ui) fn draw_extensions_popup(frame: &mut Frame, rows: &[ExtensionRow], filter: &str, filter_editing: bool, error: Option<&str>, state: &mut TableState) {
     let area = extensions_area(frame.area());
     frame.render_widget(Clear, area);
@@ -187,15 +153,8 @@ pub(in crate::ui) fn draw_extensions_popup(frame: &mut Frame, rows: &[ExtensionR
     draw_extension_rows(frame, parts[1], rows, filter, state);
 }
 
-/// Which extension a click on the Extensions screen lands on: converts the
-/// click into a render-space row the same way `settings_row_at` does, then
-/// translates it through the same heading-aware remap `draw_extension_rows`
-/// uses, so a click can't land on the wrong row just because a
-/// "Bundled"/"External" heading sits somewhere above it on screen.
-/// `bundled_count`/`total` describe the loaded extensions the same way
-/// `draw_extension_rows` derives them, just handed in rather than a typed
-/// slice. `offset` is already in render terms (see `draw_extension_rows`),
-/// the same value `state.offset()` holds for this screen.
+/// The extension a click lands on, mapped through the same heading-aware rows the
+/// drawing uses. `offset` is in render rows, like `state.offset()` here.
 pub fn extension_row_at(frame_area: Rect, bundled_count: usize, total: usize, offset: usize, row: u16) -> Option<usize> {
     let area = extensions_area(frame_area);
     let top = area.y + 1 /* border */ + 2 /* help */ + 1 /* column header */;
@@ -213,8 +172,7 @@ mod extension_row_tests {
 
     #[test]
     fn every_logical_index_round_trips_through_its_render_position() {
-        // 3 bundled, 2 external: headings at render 0 ("Bundled") and render 5 ("External"),
-        // with a blank spacer at render 4.
+        // 3 bundled and 2 external: headings at rows 0 and 5, a spacer at row 4.
         let (bundled_count, total) = (3, 5);
         for logical in 0..total {
             let r = extension_render_index(logical, bundled_count);
@@ -244,9 +202,8 @@ mod extension_row_tests {
 
     #[test]
     fn a_search_that_clears_the_bundled_section_still_round_trips_the_external_rows() {
-        // A filter can match nothing bundled while still matching something external:
-        // the Bundled section falls back to its own one-row placeholder instead of
-        // disappearing, which shifts every external row down by one render position.
+        // Nothing bundled matches but something external does: the Bundled placeholder
+        // takes a row, shifting the external rows down by one.
         let (bundled_count, total) = (0, 2);
         assert_eq!(extension_at_render(0, bundled_count, total), None, "the \"Bundled\" heading");
         assert_eq!(extension_at_render(1, bundled_count, total), None, "the bundled placeholder row");

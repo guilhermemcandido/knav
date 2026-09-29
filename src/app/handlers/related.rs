@@ -21,8 +21,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         match event {
             Event::Key(key) => match key.code {
                 KeyCode::Char('q') => close = true,
-                // Esc steps back through what Space followed, same as Backspace; only
-                // closes once there is nothing left to step back through.
+                // Esc steps back through what Space followed, like Backspace, and closes
+                // once there is nothing left.
                 KeyCode::Esc if !previous.is_empty() => restore = true,
                 KeyCode::Esc => close = true,
                 KeyCode::Left | KeyCode::Char('h') => go(ui::Move::Left, selected),
@@ -36,7 +36,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
                 KeyCode::Backspace => restore = true,
-                // Zoom the boxes out (more fit on screen) or back in (more detail per box).
+                // Zoom out (more boxes fit) or back in (more detail).
                 KeyCode::Char('-') | KeyCode::Char('_') => *zoom = ui::zoom_out(*zoom),
                 KeyCode::Char('+') | KeyCode::Char('=') => *zoom = ui::zoom_in(*zoom),
                 // `m` copies the diagram as Mermaid text.
@@ -60,8 +60,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 _ => {}
             },
-            // Ctrl+wheel zooms (a pinch on a trackpad reaches the terminal this way too); a plain
-            // wheel moves the selection.
+            // Ctrl and the wheel zoom (a trackpad pinch arrives this way); the plain wheel moves.
             Event::Mouse(mouse) if mouse.modifiers.contains(KeyModifiers::CONTROL) => match mouse.kind {
                 MouseEventKind::ScrollUp => *zoom = ui::zoom_in(*zoom),
                 MouseEventKind::ScrollDown => *zoom = ui::zoom_out(*zoom),
@@ -107,12 +106,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
     }
     if let Some((kind, namespace, name)) = open {
-        // The diagram itself is one of the steps q/Esc undoes, same as any drill-down.
+        // The diagram is one of the steps q or Esc undoes, like a drill-down.
         let snap = st.list_snapshot();
         st.back_stack.push(Step::Mode(Box::new(std::mem::replace(&mut st.mode, Mode::List)), snap));
         st.jump_to_object(kind, namespace.as_deref(), &name);
-        // `jump_to_object` also pushes the pre-Relations list; the step just pushed already
-        // covers getting back there, so drop that redundant entry.
+        // `jump_to_object` pushed the list too, which the step above already covers.
         st.back_stack.pop();
     }
     Ok(None)

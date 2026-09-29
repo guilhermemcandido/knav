@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// Handles a mouse event on the list; the flags say a double click asked to open the row
-/// or to follow a pod's owner.
+/// Handles a mouse event on the list. The flags say a double click asked to open the
+/// row, or to follow a pod's owner.
 pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &mut Cx) -> (bool, bool) {
     let Derived { pod_rows, overview, .. } = cx.d;
     let (frame_area, row_count) = (cx.frame_area, cx.row_count);
@@ -34,8 +34,8 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             keep_overview_selection_visible(st, overview, frame_area);
         } else {
             let table = ui::list_body(frame_area, &st.chrome);
-            // Over the info panel: the wheel scrolls it, a click gives it the keys, and
-            // nothing reaches the list underneath. A click on the list takes the keys back.
+            // Over the info panel, the wheel scrolls it and a click gives it the keys; a click
+            // on the list takes them back.
             if st.info_panel {
                 let over_panel = mouse.column >= table.x + table.width;
                 match mouse.kind {

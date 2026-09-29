@@ -11,8 +11,7 @@ pub(in crate::ui) fn draw_relations(frame: &mut Frame, title: &str, graph: &crat
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(pill_title(&format!("Related to {title}"), false, theme_border(false)))
-        // A plain hyphen next to the closing `>` ligatures into an arrow in fonts like Fira
-        // Code, reading as a keyboard arrow; the minus sign (U+2212) looks the same but doesn't.
+        // U+2212 minus instead of a hyphen, which some fonts fuse with `>` into an arrow.
         .title_bottom(hint_strip(&[("enter", "info"), ("o", "open list"), ("space", "follow"), ("backspace", "back"), ("+/\u{2212}", "zoom"), ("m", "copy as Mermaid"), ("q/esc", "close")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -53,9 +52,8 @@ fn resource_card(frame: &mut Frame, area: Rect, title: &str, used: Option<f64>, 
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// The Resources view: usage and requests against what the nodes offer, the
-/// busiest nodes, how the pods are doing and where they are. Long lists are cut to
-/// what fits, with a count of the rest.
+/// The Resources view: usage and requests against capacity, the busiest nodes, and
+/// how the pods are doing and where. Long lists are cut to fit, with a count of the rest.
 pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &Overview, nodes: &[crate::k8s::NodeRow], dimmed: bool) {
     let area = body_area(frame.area(), false);
     frame.render_widget(Clear, area);
@@ -76,7 +74,7 @@ pub(in crate::ui) fn draw_resources_detail_popup(frame: &mut Frame, overview: &O
 
     let halves = Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)]).spacing(1).split(rows[1]);
 
-    // The busiest nodes first, so a big cluster shows what needs attention.
+    // Busiest nodes first.
     let pressure = |n: &crate::k8s::NodeRow| {
         let ratio = |used: Option<i64>, cap: i64| if cap > 0 { used.unwrap_or(0) as f64 / cap as f64 } else { 0.0 };
         ratio(n.cpu_millicores, n.cpu_capacity).max(ratio(n.memory_bytes, n.memory_capacity))

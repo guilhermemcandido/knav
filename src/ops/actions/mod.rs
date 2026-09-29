@@ -1,6 +1,5 @@
-//! Things to do to the selected object: delete, scale, restart, cordon, trigger or
-//! suspend a CronJob, open a shell. Each works on a `Target` read from the manifest,
-//! so it applies to any kind.
+//! Actions on the selected objects: delete, scale, restart, cordon, trigger or suspend
+//! a CronJob, open a shell. Each works on a `Target` read from the manifest.
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,8 +69,7 @@ impl Target {
         Some(format!("{prefix}/{}", self.name))
     }
 
-    /// Every port the object declares (container ports, or a Service's
-    /// ports), in order and without repeats.
+    /// Every port the object declares (container or Service ports), in order, deduplicated.
     pub fn ports(&self) -> Vec<u16> {
         let Some(spec) = self.manifest.get("spec") else { return Vec::new() };
         let containers = spec.get("containers").or_else(|| spec.get("template")?.get("spec")?.get("containers"));

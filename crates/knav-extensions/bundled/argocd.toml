@@ -1,7 +1,3 @@
-# Argo CD — Application sync status, view-only.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
-
 [extension]
 id = "argocd"
 name = "Argo CD"

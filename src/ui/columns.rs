@@ -1,19 +1,14 @@
-//! The Overview's catalog columns and the opened-up column popup, plus hit-testing/scrolling for them.
+//! The Overview's category columns and the opened-up column, with their hit-testing and scrolling.
 
 use super::*;
 use crate::k8s::Health;
 
-/// The narrowest a catalog column gets on Home, borders included. A 1-cell gap separates
-/// columns (see `column_layout`).
+/// The narrowest a column gets, borders included. Columns have a 1-cell gap between them.
 pub(super) const COLUMN_WIDTH: u16 = 28;
 /// The widest a column grows to when the screen has room to spare.
 const MAX_COLUMN_WIDTH: u16 = 46;
-/// An item card's height: a rounded-border top edge, one content row (icon on the
-/// left, name + live count filling the rest, wrapped onto a second row when a name
-/// doesn't fit), and a rounded-border bottom edge. Fixed everywhere rather than
-/// per column, so every category's cards are the same size regardless of what kinds
-/// it happens to hold — a category with only short names looks the same as one with
-/// long ones, and a newly added category can't end up a different shape than the rest.
+/// A card's height: borders plus two content rows, so a long name can wrap. The same
+/// for every category, so all cards look alike.
 pub(super) const ITEM_HEIGHT: u16 = 4;
 
 /// Splits a name over two rows at a capital, e.g. `ClusterRoleBindings` becomes
@@ -31,8 +26,7 @@ pub(super) fn wrap_label(label: &str, room: usize) -> Option<(String, String)> {
     if candidates.is_empty() {
         candidates = vec![room.min(chars.len() - 1)];
     }
-    // The most even split whose first row fits (the second row gets a
-    // leading space to read as a continuation).
+    // The most even split whose first row fits; the second row is indented as a continuation.
     let best = candidates
         .into_iter()
         .filter(|&i| i <= room)
@@ -49,75 +43,55 @@ pub(super) fn shows_health(label: &str) -> bool {
     matches!(label, "Nodes" | "Namespaces" | "Pods" | "Deployments" | "ReplicaSets" | "StatefulSets" | "DaemonSets" | "Jobs" | "CronJobs" | "HPAs" | "Services" | "Endpoints" | "Ingresses" | "PVCs" | "PVs")
 }
 
-/// The opened-up category view draws bigger cards, with a health readout where a kind has one.
+/// Card width in the opened-up category view, which has room for a health readout.
 pub(super) const DETAIL_WIDTH: u16 = 42;
 pub(super) const DETAIL_HEIGHT: u16 = 6;
 
-/// The card size in the opened-up category view: the same for every kind.
 pub(super) fn detail_card(_items: &[(&str, usize)]) -> (u16, u16) {
     (DETAIL_WIDTH, DETAIL_HEIGHT)
 }
 
-/// The height every card in a column takes. Fixed (see `ITEM_HEIGHT`); kept as a
-/// function, taking the same inputs as `wrap_label` needs, so callers don't have to
-/// know that — `column_width` only decides how a name wraps inside a card, not the
-/// card's own size.
+/// The height of every card in a column (see `ITEM_HEIGHT`).
 pub fn item_height(_items: &[(&str, usize)], _column_width: u16) -> u16 {
     ITEM_HEIGHT
 }
 
-/// `item_height` for one Overview column.
 pub fn column_item_height(_overview: &Overview, _col: usize) -> u16 {
     ITEM_HEIGHT
 }
-/// Width of the left/right scroll-affordance gutters flanking the
-/// columns area (see `columns_inner`), just wide enough for a single
-/// arrow glyph.
+/// Width of the scroll arrow gutters beside the columns.
 pub(super) const SCROLL_ARROW_WIDTH: u16 = 1;
 
-/// The columns area is whatever's left below the fixed dashboard strip
-/// callers (keyboard navigation, mouse hit-testing) need this same
-/// rectangle to stay in sync with what's actually rendered.
+/// The area below the dashboard strip that the columns take. Navigation and hit-testing
+/// use it to stay in sync with what is drawn.
 pub fn columns_area(frame_area: Rect, overview: &Overview) -> Rect {
-    // +1 for the same gap `draw_overview` puts between the top strip and
-    // the columns, Resources-to-Events and top-strip-to-columns are now
-    // both a single blank row, not one bigger than the other.
+    // +1 for the blank row between the top strip and the columns.
     let top_h = top_area_height(overview) + 1;
     Rect { x: frame_area.x, y: frame_area.y + top_h, width: frame_area.width, height: frame_area.height.saturating_sub(top_h) }
 }
 
-/// The columns area minus the scroll-arrow gutters. Drawing and hit-testing both
-/// use it so arrows never overlap the boxes.
+/// The columns area minus the arrow gutters, so arrows never overlap the boxes.
 pub(super) fn columns_inner(area: Rect) -> Rect {
     let shrink = SCROLL_ARROW_WIDTH * 2;
     Rect { x: area.x + SCROLL_ARROW_WIDTH, y: area.y, width: area.width.saturating_sub(shrink), height: area.height }
 }
 
 pub fn visible_columns(width: u16, total_columns: usize) -> usize {
-    // Each column takes `COLUMN_WIDTH` plus a 1-cell gap before the next
-    // one (see `column_layout`), so `n` columns actually need
-    // `n * (COLUMN_WIDTH + 1) - 1` cells, not `n * COLUMN_WIDTH`.
+    // Each column takes `COLUMN_WIDTH` plus a 1-cell gap, so `n` columns need
+    // `n * (COLUMN_WIDTH + 1) - 1` cells.
     let cols = ((width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize;
     cols.min(total_columns.max(1))
 }
 
-/// How many item cards fit vertically in one column. All columns share the height.
-/// How many item cards fit vertically in one column. All columns share the height.
-/// Besides the box's own top/bottom border, this reserves one row above the cards
-/// (so they start a short, constant distance down rather than flush against the
-/// border) and one below (for a ▼ when there's more below) — always, whether or not
-/// a given column ends up needing them, so cards start at the same place and an
-/// indicator never has to fight a card for the same row.
+/// How many cards fit in a column. A row is always kept above the cards and one below
+/// for the ▲/▼, so cards start at the same place in every column.
 pub fn visible_items_per_column(columns_area_height: u16, item_height: u16) -> usize {
     (columns_area_height.saturating_sub(2 + 2) / item_height).max(1) as usize
 }
 
-/// The shared column-rect layout, `draw_columns` and `column_hit` must
-/// agree on exactly where each column's box sits, or clicks stop lining
-/// up with what's on screen.
+/// Where each column's box sits. Drawing and `column_hit` share it so clicks line up.
 pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rect]> {
-    // Columns share the width, growing past `COLUMN_WIDTH` up to a cap so the block reaches
-    // toward the edges; anything left over is kept as margin on both sides.
+    // Columns grow past `COLUMN_WIDTH` up to a cap; what's left over becomes margin.
     let n = cols_visible.max(1) as u16;
     let gaps = n - 1;
     let each = (area.width.saturating_sub(gaps) / n).clamp(COLUMN_WIDTH.min(area.width), MAX_COLUMN_WIDTH.max(COLUMN_WIDTH));
@@ -127,7 +101,7 @@ pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rec
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
-/// The strip the visible columns span, which the Resources and Events boxes above line up with.
+/// The strip the visible columns span, which the boxes above line up with.
 pub(super) fn columns_span(area: Rect, total: usize) -> Rect {
     let inner = columns_inner(area);
     if total == 0 {
@@ -144,36 +118,29 @@ pub(super) fn column_len(overview: &Overview, col: usize) -> usize {
     overview.catalog.get(col).map(|(_, items)| items.len()).unwrap_or(0)
 }
 
-/// The area a column-detail popup (see `Overlay::ColumnDetail`) actually
-/// renders into, one place so its own draw pass, the grid column count,
-/// and the visible-row count can't drift apart.
+/// Where the opened-up column is drawn, shared by drawing and the grid maths.
 pub(super) fn column_detail_area(frame_area: Rect) -> Rect {
     centered_rect(85, 80, frame_area)
 }
 
-/// How many item cards fit per row in a column-detail popup.
 pub fn column_detail_cols(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
     ((inner.width + 1) / (detail_card(items).0 + 1)).max(1) as usize
 }
 
-/// How many grid rows of item cards fit vertically in a column-detail popup at
-/// once. Reserves a row above and below for the ▲/▼ indicators, same as
-/// `draw_column_detail_popup` itself and for the same reason (see its comment) —
-/// this and that must agree, or keyboard scrolling and what's on screen drift apart.
+/// How many rows of cards fit in the opened-up column, keeping a row above and below
+/// for the ▲/▼ like the drawing does.
 pub fn column_detail_visible_rows(frame_area: Rect, items: &[(&str, usize)]) -> usize {
     let inner = Block::default().borders(Borders::ALL).inner(column_detail_area(frame_area));
     (inner.height.saturating_sub(2) / detail_card(items).1).max(1) as usize
 }
 
-/// Movement for a column-detail popup's item grid: `move_selection` with one
-/// section, clamping at the edges.
+/// Moves the selection in the opened-up column's grid, clamping at the edges.
 pub fn move_column_detail_selection(items_len: usize, cols: usize, selected: usize, dir: Direction) -> usize {
     move_selection(&[items_len], cols, (0, selected), dir).1
 }
 
-/// Adjusts a scroll offset so `target` lies inside the `visible` window. Used for
-/// the Overview's horizontal and per-column vertical scroll.
+/// A scroll offset adjusted so `target_col` lies inside the visible window.
 pub fn scroll_columns_to_show(col_scroll: usize, cols_visible: usize, target_col: usize) -> usize {
     if target_col < col_scroll {
         target_col
@@ -184,9 +151,8 @@ pub fn scroll_columns_to_show(col_scroll: usize, cols_visible: usize, target_col
     }
 }
 
-/// Which column header or item, or the Resources/Events box, is under a terminal
-/// position. It uses the same layout as drawing. `active_col` and `item_scroll`
-/// must match the last `draw_columns` call.
+/// The column header, card, or Resources/Events box under a terminal position.
+/// `active_col` and `item_scroll` must match the last `draw_columns` call.
 pub fn column_hit(
     frame_area: Rect,
     overview: &Overview,
@@ -206,8 +172,7 @@ pub fn column_hit(
     }
     let events_start = resources_h + 1;
     if rel >= events_start && rel < events_start + events_box_height(overview) {
-        // Clicking Events directly, same as arrowing up into it, remembers whichever
-        // column was active so Down still returns there instead of resetting to the first.
+        // Like arrowing up, clicking Events remembers the active column so Down returns there.
         return Some(OverviewSelection::Events(if active_col == usize::MAX { 0 } else { active_col }));
     }
 
@@ -233,7 +198,7 @@ pub fn column_hit(
     if row < inner.y || row >= inner.y + inner.height {
         return None;
     }
-    // The first row is the ▲ lane (see `visible_items_per_column`), never a card.
+    // The first row is the ▲ lane, never a card.
     if row == inner.y {
         return None;
     }
@@ -243,8 +208,7 @@ pub fn column_hit(
     if item_i < items.len() { Some(OverviewSelection::Item(col_idx, item_i)) } else { None }
 }
 
-/// Draws the columns plus a "◀" / "▶" arrow in the gutters when scrolling that
-/// way would reveal another column.
+/// Draws the columns, with ◀ and ▶ in the gutters when there are more that way.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, col_scroll: usize, item_scroll: usize, dimmed: bool, icons: &mut IconCache) {
     let total = overview.catalog.len();
@@ -277,9 +241,8 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, s
     }
 }
 
-/// One column: a rounded box titled with the category, its border highlighted when
-/// the header is selected, listing the kinds as item cards. `item_scroll` applies
-/// only to the selected column.
+/// One column: a box titled with the category, listing its kinds as cards.
+/// `item_scroll` applies only to the selected column.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_column(
     frame: &mut Frame,
@@ -323,11 +286,8 @@ pub(super) fn draw_column(
 
     let shown: Vec<(usize, &(&str, usize))> = items.iter().enumerate().skip(scroll).take(visible).collect();
 
-    // Cards always start the same short, fixed distance from the top (the row the ▲
-    // lane reserves, see `visible_items_per_column`) instead of drifting up or down
-    // depending on how many cards this particular category happens to have; the ▼
-    // then sits right under the actual last card, in the row that lane's counterpart
-    // below reserves, rather than floating at the box's own border far away from it.
+    // Cards start one row down (the ▲ lane) in every column, and the ▼ sits in the
+    // row right under the last card.
     let items_area = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
     let constraints: Vec<Constraint> = shown.iter().map(|_| Constraint::Length(item_h)).collect();
     let rows = Layout::vertical(constraints).split(items_area);
@@ -336,7 +296,7 @@ pub(super) fn draw_column(
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
         draw_column_item(frame, rows[slot], label, *count, None, title, selected, dimmed, icons);
     }
-    // Same affordance as the columns' own ◀/▶: cards hidden above or below get a ▲/▼.
+    // Cards hidden above or below get a ▲ or ▼.
     if more_above {
         let arrow_area = Rect { y: inner.y, height: 1, ..inner };
         frame.render_widget(Paragraph::new(Line::styled("▲", highlight)).alignment(Alignment::Center), arrow_area);
@@ -348,14 +308,13 @@ pub(super) fn draw_column(
     }
 }
 
-/// Labels here are fixed kind names except discovered CRD groups (raw API groups),
-/// which only appear under "CustomResources" and get the generic CRD icon.
+/// The kind a card's label names. Discovered CRD groups under CustomResources get
+/// the generic CRD icon.
 pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<ResourceKind> {
     ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
-/// One item card: the kind's icon, its name and live count, e.g. `<image> Pods  17`.
-/// Selecting it turns the whole border into the highlight colour.
+/// One card: the kind's icon, name and live count. Selected, its border is highlighted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count: usize, health: Option<Health>, column_title: &str, selected: bool, dimmed: bool, icons: &mut IconCache) {
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
@@ -376,17 +335,16 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
         return;
     }
 
-    // Roomy cards (the opened-up view) get a bigger icon, a gap after it and
-    // one cell of padding on the right. Every card gets a one-cell gap between
-    // the icon and the name so the two don't run together.
+    // Roomy cards (the opened-up view) get a bigger icon and some padding; every card
+    // keeps a cell between the icon and the name.
     let roomy = inner.height >= 4;
     let icon_w = if roomy { 7 } else { 3 }.min(inner.width);
     let icon_gap = 1u16.min(inner.width.saturating_sub(icon_w));
     let parts = Layout::horizontal([Constraint::Length(icon_w), Constraint::Length(icon_gap), Constraint::Min(0), Constraint::Length(u16::from(roomy))]).split(inner);
     let split = [Rect { width: icon_w.saturating_sub(u16::from(roomy) * 2), x: parts[0].x + u16::from(roomy), ..parts[0] }, parts[2]];
 
-    // A vendored image where the terminal can render one, else a small emoji glyph.
-    // Skipped while dimmed, since an emoji can't be muted with ANSI styling.
+    // An image where the terminal can show one, else an emoji. Skipped while dimmed,
+    // since neither can be muted.
     if !dimmed {
         match resolve_icon_kind(label, column_title) {
             Some(kind) => icons.draw(frame, icons.centered_square(split[0]), kind),
@@ -396,8 +354,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, label: &str, count
 
     let count_text = count.to_string();
     let label_width = (split[1].width as usize).saturating_sub(cell_width(&count_text) + 1).max(1);
-    // A name too long for the row wraps onto a second one when the card is
-    // tall enough to have it; otherwise it's cut with an ellipsis.
+    // A long name wraps onto a second row when the card has one, else it is cut.
     let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };
     let mut lines = match wrapped {
         Some((first, second)) => vec![
@@ -446,14 +403,13 @@ pub(super) fn icon_for(label: &str) -> &'static str {
         "Roles" | "ClusterRoles" => "📜",
         "RoleBindings" | "ClusterRoleBindings" => "🔗",
         "CustomResources" => "🧩",
-        // Any other label reaching here is a dynamically discovered CRD
-        // group name, same reasoning as `resolve_icon_kind`'s fallback.
+        // Anything else is a discovered CRD group.
         _ => "🧩",
     }
 }
 
-/// One category column opened into a bigger grid of the same cards, for categories
-/// with many kinds (Custom Resources). Scrolls by grid row.
+/// One category column opened into a bigger grid, for categories with many kinds.
+/// Scrolls by grid row.
 pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[(&str, usize)], health: &std::collections::HashMap<&'static str, Health>, selected: usize, row_scroll: usize, icons: &mut IconCache) {
     let area = column_detail_area(frame.area());
     frame.render_widget(Clear, area);
@@ -473,9 +429,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
     let (card_w, item_h) = detail_card(items);
     let cols = ((inner.width + 1) / (card_w + 1)).max(1) as usize;
     let total_rows = items.len().div_ceil(cols);
-    // One row reserved above the grid and one below, always, for the same reason
-    // `visible_items_per_column` reserves them: rows start the same short, fixed
-    // distance down every time, and a ▲/▼ never has to fight a card for its row.
+    // A row is always kept above and below the grid for the ▲/▼, like the columns.
     let visible_rows = (inner.height.saturating_sub(2) / item_h).max(1) as usize;
     let row_scroll = row_scroll.min(total_rows.saturating_sub(visible_rows));
     let rows_shown = visible_rows.min(total_rows.saturating_sub(row_scroll));
@@ -495,7 +449,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
             draw_column_item(frame, *item_area, label, *count, Some(health.get(label).copied().unwrap_or_default()).filter(|_| shows_health(label) && *count > 0), title, idx == selected, false, icons);
         }
     }
-    // Same affordance as the columns' own ◀/▶: rows hidden above or below get a ▲/▼.
+    // Rows hidden above or below get a ▲ or ▼.
     let arrow_style = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     if row_scroll > 0 {
         let arrow_area = Rect { y: inner.y, height: 1, ..inner };

@@ -1,21 +1,18 @@
-//! The persistent top bar, after k9s: a line of context/cluster/user/version
-//! info, and, on the resource lists, not the main Overview, a line of
+//! The top bar: context, cluster, user and version, and on resource lists a line of
 //! namespace shortcuts (`Namespace: (0)all (1)default ...`).
 
 use super::*;
 
-/// What the header shows, built once per connected session.
 #[derive(Clone)]
 pub struct HeaderInfo {
     pub context: String,
     pub cluster: String,
     pub user: String,
-    /// What knav is allowed to do: `read-and-write` today; a future
-    /// read-only mode would show `read-only`.
+    /// What knav may do: `read-and-write` for now.
     pub role: String,
     /// The namespace queries are narrowed to (`all` when none).
     pub namespace: String,
-    /// What number keys 1-9 select (index 0 is key 1); `0` is always all.
+    /// What number keys 1-9 select (index 0 is key 1).
     pub namespace_slots: Vec<Option<String>>,
     /// What the current list is drilled into (`Deployment/web`), if anything.
     pub scope: String,
@@ -27,17 +24,14 @@ pub struct HeaderInfo {
     pub wide: bool,
 }
 
-/// Rows the header takes at the top of a resource list: the info line
-/// plus the namespace-shortcut line. The Overview only has the first.
+/// Rows the header takes on a resource list: the info line and the namespace line.
 pub const HEADER_HEIGHT: u16 = 2;
 
-/// Below this height the header is dropped, the resource list matters
-/// more than the context on a tiny terminal.
+/// Below this height the header is dropped, since the list matters more.
 const MIN_HEIGHT_FOR_HEADER: u16 = 10;
 
-/// The part of the screen below the header, where the main layer (the
-/// Overview or a resource list) lives. Mouse hit-testing for that layer
-/// must use this, not the full frame area.
+/// The screen below the header, where the Overview or a list goes. Mouse hit-testing
+/// for that layer must use this, not the whole frame.
 pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return area;
@@ -47,7 +41,7 @@ pub fn body_area(area: Rect, shortcuts: bool) -> Rect {
     Rect { x: area.x, y: area.y + height, width: area.width, height: area.height - height - 1 }
 }
 
-/// `left` is the column the lines start at: the left edge of what is drawn below.
+/// `left` is the column the lines start at, the left edge of what is drawn below.
 pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &HeaderInfo, shortcuts_line: bool, namespace_keys_disabled: bool, dimmed: bool) {
     if area.height < MIN_HEIGHT_FOR_HEADER {
         return;
@@ -63,8 +57,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
         ("K8s Version:", info.k8s_version.as_str()),
         ("knav Version:", info.knav_version.as_str()),
     ];
-    // Leave the top-right corner to the `help: ?` indicator; when the
-    // terminal is too narrow for everything, the trailing fields drop.
+    // The top-right corner is the help indicator's; trailing fields drop when narrow.
     let start_x = left.clamp(area.x, (area.x + area.width).saturating_sub(1));
     let available = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(14 + 1);
     let mut spans: Vec<Span> = Vec::new();
@@ -88,21 +81,19 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     if !shortcuts_line {
         return;
     }
-    // Namespace shortcuts: `(0)all` plus each reserved number. The
-    // active one is filled in.
+    // `(0)all` plus each reserved number, the active one filled in.
     let key = if dimmed { dim_style() } else { Style::default().fg(theme().warm) };
     let name = if dimmed { dim_style() } else { Style::default().fg(theme().row) };
     let active = if dimmed { dim_style() } else { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) };
-    // The digits pick something else here (a sort column) or do nothing at all (any
-    // screen but the plain list), so grey the line out to read as unavailable.
+    // Digits do something else here (pick a sort column) or nothing, so grey the line out.
     let (key, name, active) = if namespace_keys_disabled && !dimmed {
         let muted = Style::default().fg(theme().panel_bg);
         (muted, muted, muted)
     } else {
         (key, name, active)
     };
-    // The line starts under "Context:" and grows right; a scope on the right keeps its room and
-    // namespaces that do not fit are cut to their starts (or, last, left out).
+    // The line starts under "Context:". A scope on the right keeps its room; namespaces
+    // that don't fit are shortened, then left out.
     let scope_text = (!info.scope.is_empty()).then(|| format!("Scope: {}", info.scope));
     let scope_room = scope_text.as_ref().map_or(0, |t| cell_width(t) + 3);
     let start_x = start_x.min(area.x + area.width.saturating_sub(1));
@@ -129,7 +120,6 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     let shortcut_area = Rect { x: start_x, y: area.y + 1, width: (area.x + area.width).saturating_sub(start_x), height: 1 };
     frame.render_widget(Paragraph::new(Line::from(shortcuts)), shortcut_area);
 
-    // What the list is drilled into (`Deployment/web`), right-aligned on the same row.
     if let Some(text) = scope_text {
         let width = cell_width(&text) as u16;
         if width <= shortcut_area.width {
@@ -139,9 +129,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     }
 }
 
-/// The namespace shortcuts in `room` cells. When the full names do not fit they are cut to their
-/// starts (`abcdef…`), as long as they still say something; failing that, some are left out (the
-/// active one never is). The flag says some were.
+/// The namespace shortcuts in `room` cells: names shortened to their starts while they
+/// still say something, else some left out (never the active one). The flag says so.
 fn fit_namespaces(all: &[(usize, String)], room: usize, active: &str) -> (Vec<(usize, String)>, bool) {
     let width = |entries: &[(usize, String)]| entries.iter().map(|(n, ns)| cell_width(&format!("({n}){ns}"))).sum::<usize>() + 2 * entries.len().saturating_sub(1);
     let longest = all.iter().map(|(_, ns)| cell_width(ns)).max().unwrap_or(0);
@@ -151,7 +140,7 @@ fn fit_namespaces(all: &[(usize, String)], room: usize, active: &str) -> (Vec<(u
             return (cut, false);
         }
     }
-    // Even the shortest starts do not all fit: keep what does, always the active one.
+    // Even the shortest starts don't all fit: keep what does, always the active one.
     let mut kept: Vec<(usize, String)> = Vec::new();
     for (n, ns) in all {
         let short = (*n, if cell_width(ns) > MIN_NAME { truncate(ns, MIN_NAME) } else { ns.clone() });

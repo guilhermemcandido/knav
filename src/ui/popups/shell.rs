@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Where an embedded shell's screen goes: the body of the page, inside its border.
+/// Where an embedded shell's screen goes: inside the body's border.
 pub fn shell_inner(frame_area: Rect) -> Rect {
     let area = body_area(frame_area, true);
     Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: area.height.saturating_sub(2) }
@@ -16,7 +16,6 @@ fn shell_color(color: vt100::Color) -> Color {
     }
 }
 
-/// An emulated terminal screen over the whole body, cell by cell.
 pub(in crate::ui) fn draw_shell_popup(frame: &mut Frame, title: &str, screen: &vt100::Screen, exited: bool) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
@@ -78,7 +77,6 @@ fn yaml_line(line: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A manifest as scrollable text over the whole body of the screen.
 pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll: usize) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);

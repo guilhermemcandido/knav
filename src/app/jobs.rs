@@ -1,5 +1,5 @@
-//! Work that talks to the cluster runs in the background, so the screen keeps
-//! redrawing and Esc can cancel it. The UI shows it as a small "working" popup.
+//! Cluster work runs in the background, so the screen keeps redrawing and Esc can
+//! cancel it. It shows as a small "Working" popup.
 
 use crate::ops::NoticeTone;
 use std::{sync::Arc, time::{Duration, Instant}};
@@ -39,7 +39,6 @@ impl Job {
         Job { title: title.into(), started: Instant::now(), progress, cancel_note, rx, _task: AbortOnDrop(task) }
     }
 
-    /// The result, once there is one.
     pub(crate) fn poll(&mut self) -> Option<Done> {
         match self.rx.try_recv() {
             Ok(done) => Some(done),
@@ -94,7 +93,7 @@ pub(super) fn start_forward(st: &mut State, context: &str, namespace: &str, reso
     st.mode = Mode::Working { job: Job::spawn(title, Arc::default(), None, work), back };
 }
 
-/// Moves a finished job's result into the screen. `Some` when the session should
+/// Moves a finished job's result onto the screen. `Some` when the session should
 /// reconnect to another context.
 pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
     let Mode::Working { job, .. } = &mut st.mode else { return None };

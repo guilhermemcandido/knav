@@ -3,17 +3,14 @@ use k8s_openapi::api::core::v1::{Event, Node};
 
 use super::*;
 
-/// Kubernetes only defines two event severities, there's no distinct
-/// "Error" type, just `Normal`/`Warning`, so filtering/coloring can only
-/// ever be grounded in these two, not a fabricated third bucket.
+/// Kubernetes only has Normal and Warning events; there is no Error type.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum EventSeverity {
     Normal,
     Warning,
 }
 
-/// Which events the Events browser shows, cycled with a/w/n. Kubernetes only
-/// defines `Normal` and `Warning`.
+/// Which events the Events browser shows, cycled with a/w/n.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum EventFilter {
     #[default]
@@ -32,9 +29,8 @@ impl EventFilter {
     }
 }
 
-/// The events the browser shows: the severity filter, then the `/` text
-/// search, a case-insensitive substring of the reason, object, kind or
-/// message (prose, so substring rather than fuzzy).
+/// The events the browser shows: the severity filter, then a case-insensitive
+/// substring search over reason, object, kind and message.
 pub fn filter_events<'a>(events: &'a [EventEntry], filter: EventFilter, search: &str, sort: Option<crate::sort::SortSpec>) -> Vec<&'a EventEntry> {
     let needle = search.to_lowercase();
     let mut shown: Vec<&EventEntry> = events
@@ -103,8 +99,6 @@ pub fn node_warnings(node: &Node) -> Vec<EventEntry> {
         .collect()
 }
 
-/// Every cluster Event, Normal and Warning, so the panel shows what is happening
-/// and not only what went wrong.
 pub fn event_entry(event: &Event) -> EventEntry {
     let severity = if event.type_.as_deref() == Some("Warning") { EventSeverity::Warning } else { EventSeverity::Normal };
     // For repeated events `series.lastObservedTime` is the real last-seen time;

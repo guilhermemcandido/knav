@@ -1,5 +1,4 @@
-//! A small fuzzy matcher for picking a context by a partial name, used by
-//! `--context` and the cluster picker.
+//! Fuzzy matching: the query's characters in order, not necessarily adjacent.
 
 /// Case-insensitive subsequence match. `None` if it doesn't match, else a score
 /// that rewards word starts and consecutive runs. An empty pattern scores 0.
@@ -30,9 +29,8 @@ pub fn score(pattern: &str, text: &str) -> Option<i64> {
     Some(total)
 }
 
-/// The character positions in `text` that `score` matched `pattern`
-/// against (the same greedy left-to-right walk), for highlighting what
-/// the user typed. `None` when it doesn't match; empty for an empty pattern.
+/// Where `score` matched each character of `pattern`, for highlighting.
+/// `None` when it doesn't match; empty for an empty pattern.
 pub fn positions(pattern: &str, text: &str) -> Option<Vec<usize>> {
     let text_chars: Vec<char> = text.to_lowercase().chars().collect();
     let mut at = 0;

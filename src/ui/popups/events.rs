@@ -2,8 +2,7 @@
 
 use super::*;
 
-/// The full Events browser: every event, uncapped, filterable by severity
-/// (`Normal` and `Warning` are all Kubernetes defines).
+/// The Events browser: every event, filterable by severity.
 pub(in crate::ui) fn draw_events_popup(
     frame: &mut Frame,
     events: &[EventEntry],
@@ -20,7 +19,7 @@ pub(in crate::ui) fn draw_events_popup(
     let filtered = crate::k8s::filter_events(events, filter, search, sort.spec());
 
     const HEADERS: [&str; 6] = ["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"];
-    // MESSAGE is free text: it takes whatever room the other columns leave.
+    // MESSAGE takes whatever room the other columns leave.
     let window = layout_table(
         &HEADERS,
         filtered.iter().map(|e| vec![cell_width("Warning"), cell_width(&e.reason), cell_width(&e.object), cell_width(&e.kind), cell_width(&e.message), cell_width(&e.age)]),
@@ -54,8 +53,7 @@ pub(in crate::ui) fn draw_events_popup(
         ]))
     });
 
-    // `Events (3/11)  (a) all  (w) warnings  (n) normal`, the active
-    // severity highlighted, and `/text` while a search is applied.
+    // The counts and severity filters, the active one highlighted, and the search.
     let active = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
     let idle = if dimmed { dim_style() } else { Style::default().fg(theme().muted) };
     let key_style = |this: EventFilter| if filter == this { active } else { idle };
@@ -82,9 +80,8 @@ pub(in crate::ui) fn draw_events_popup(
     frame.render_stateful_widget(table, area, state);
 }
 
-/// Which row of the Events table is under a terminal position, using the layout
-/// of `draw_events_popup`. `offset` is the table's scroll offset, valid only after
-/// that state has been rendered once.
+/// The Events table row under a terminal position. `offset` is the table's scroll
+/// offset, valid once it has been drawn.
 pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u16) -> Option<usize> {
     let area = centered_rect(94, 88, frame_area);
     let top = area.y + 2; // top border + header row
@@ -96,9 +93,7 @@ pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u
     (index < filtered_len).then_some(index)
 }
 
-/// One event's full detail, a plain wrapped-text popup rather than a
-/// table row, since the point is showing the *un*truncated message a
-/// narrow MESSAGE column would otherwise clip.
+/// One event in full, wrapped, since the browser's MESSAGE column clips it.
 pub(in crate::ui) fn draw_event_detail_popup(frame: &mut Frame, entry: &EventEntry) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);

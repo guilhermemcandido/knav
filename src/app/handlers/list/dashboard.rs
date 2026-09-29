@@ -1,6 +1,5 @@
-//! Keys on an extension dashboard: there's no row selection, just a scroll
-//! position over the whole page (the drawing side clamps it to what
-//! actually fits, see `ui::draw_dashboard`).
+//! Keys on an extension dashboard: no selection, just a scroll position the drawing
+//! clamps to what fits.
 
 use super::*;
 

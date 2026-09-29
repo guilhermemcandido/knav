@@ -1,27 +1,6 @@
-//! The shape of an extension manifest (`extensions/*.toml`), and nothing else: a
-//! manifest can only select from the templates this crate already implements,
-//! never supply code of its own. See `Registry` for how these load.
-//!
-//! Extensions are read-only by design: a manifest can attach a category, icon
-//! and detail view to CRD kinds the cluster already has, but has no mechanism
-//! to patch, annotate, create or delete anything. `category`/`kinds` are wired
-//! up (see `Catalog::extension_sections`); `view` renders in the object's
-//! detail view (see `extensions::view_for` and `k8s::details::details`).
-//! `icon` is still reserved, unused.
-//!
-//! `dashboard` is the same philosophy applied across several kinds at once —
-//! a fixed, closed set of widgets (`count`/`tally`/`sum`/`list`) a manifest
-//! picks from and points at fields, never code of its own (see
-//! `extensions::dashboards::declarative`). It caps out short of anything
-//! that needs a join across kinds (Karpenter's Node↔NodePool, say); those
-//! stay hand-written Rust, bundled with knav rather than user-authored —
-//! unless the join is worth writing as `wasm_dashboard` instead: a compiled
-//! WASM component, sandboxed by the same "no code of its own" philosophy
-//! taken to its limit — real Rust, but with zero imports (see
-//! `wit/dashboard.wit`), so it can only transform the objects it's handed
-//! into lines, never reach a client, a file, or the network. Mutually
-//! exclusive with `dashboard` (one mechanism per extension) and, for now,
-//! external manifests only — see `extensions::dashboards::wasm`.
+//! The shape of an extension manifest. A manifest picks from templates and widgets
+//! implemented here and points them at fields, so it can't run code or change anything.
+//! A WASM dashboard is the one exception: code, but sandboxed with no imports.
 
 use serde::Deserialize;
 
@@ -38,81 +17,60 @@ pub struct ExtensionMeta {
     pub description: String,
     #[serde(rename = "kind", default)]
     pub kinds: Vec<ExtKind>,
-    /// An aggregate dashboard, one category's worth of widgets across
-    /// several of `kinds` at once — see `DashboardWidget`. Optional: most
-    /// extensions are fine with just the category tile Overview already
-    /// gives every kind for free.
+    /// A dashboard of widgets across the extension's kinds. Optional.
     #[serde(rename = "dashboard", default)]
     pub dashboard: Vec<DashboardWidget>,
-    /// A WASM component's filename, resolved against this manifest's own
-    /// directory (see `Manifest::parse`'s validation and
-    /// `extensions::Registry::load`'s path resolution) — the code-carrying
-    /// alternative to `dashboard`'s declarative widgets, for a category-wide
-    /// dashboard that needs real logic (a join across kinds, say) rather
-    /// than one of the four fixed widget shapes.
+    /// A WASM component's filename in the manifest's own directory, for a dashboard
+    /// that needs real logic. Can't be combined with `dashboard`.
     #[serde(default)]
     pub wasm_dashboard: Option<String>,
 }
 
-/// One CRD kind an extension attaches metadata to, matched by `group`+`kind`
-/// against whatever the cluster actually has installed (see `k8s::CrdInfo`).
-/// A kind whose CRD isn't installed simply contributes nothing, no error.
+/// One CRD kind an extension adds, matched by group and kind. A kind whose CRD isn't
+/// installed adds nothing.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ExtKind {
     pub group: String,
     pub kind: String,
     pub category: String,
-    /// Reserved for a future icon override; unused today (falls back to the
-    /// generic custom-resource icon).
+    /// Reserved for an icon override; unused.
     #[serde(default)]
     #[allow(dead_code)]
     pub icon: Option<String>,
-    /// The detail-view content template shown for an object of this kind
-    /// instead of the generic field dump (see `k8s::details::details`).
+    /// What the details show for this kind instead of the generic summary.
     #[serde(default)]
     pub view: Option<ViewTemplate>,
 }
 
 pub use knav_k8s::details::ViewTemplate;
 
-/// One block of an extension's dashboard (see `extensions::dashboards`):
-/// what it covers (`kind`, plus `extra_kinds` to fold more than one kind's
-/// objects into the same widget — Issuer and ClusterIssuer read as one
-/// "Issuers" tally, say) and how (`spec`). Declaration order is render order.
+/// One dashboard widget: the kind it covers, plus `extra_kinds` to fold others into it
+/// (Issuer and ClusterIssuer as one tally). Declaration order is render order.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DashboardWidget {
     pub kind: String,
     #[serde(default)]
     pub extra_kinds: Vec<String>,
-    /// Overrides the heading this widget renders under; defaults to `kind`
-    /// (`extra_kinds` joined in with " / ").
+    /// The widget's heading; defaults to its kinds joined with " / ".
     #[serde(default)]
     pub label: Option<String>,
     #[serde(flatten)]
     pub spec: WidgetSpec,
 }
 
-/// A widget is one fixed shape, not a rendering instruction, the same
-/// philosophy as `ViewTemplate`: the manifest supplies field paths, this
-/// crate supplies the math and the drawing.
+/// A widget's fixed shape. The manifest supplies field paths; the math and drawing are here.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "widget", rename_all = "snake_case")]
 pub enum WidgetSpec {
-    /// Just "N Kind(s)" — for a kind with nothing else worth showing.
+    /// Just "N Kinds".
     Count,
-    /// Buckets every object into True/False/Unknown by:
-    /// - `"ready"`, shorthand for `condition:Ready`
-    /// - `"condition:<Type>"` — `.status.conditions[type=Type].status`
-    /// - `"field:<.dotted.path>"` — a plain boolean/string field read directly
+    /// Buckets objects into True, False and Unknown by `ready`, `condition:<Type>` or
+    /// `field:<.path>`.
     Tally { by: String },
-    /// Sums one or more numeric fields across every object, `[label, path]`
-    /// pairs like `KeyValues` — e.g. a PolicyReport's `.summary.pass`.
+    /// Sums numeric fields across every object, as `[label, path]` pairs.
     Sum { fields: Vec<[String; 2]> },
-    /// One row per object: `columns` are `[label, path]` pairs like
-    /// `KeyValues`. `sort_by`, if given, orders ascending (numeric, an
-    /// RFC3339 timestamp, or lexical — whichever the values actually are).
-    /// A column whose path is also in `date_columns` renders as "in Nd" (or
-    /// "Nd ago"), colour-coded by how soon, instead of the raw timestamp.
+    /// One row per object from `[label, path]` columns, optionally sorted by `sort_by`.
+    /// Paths in `date_columns` show as "in Nd" or "Nd ago", coloured by how soon.
     List {
         #[serde(default)]
         sort_by: Option<String>,
@@ -177,7 +135,7 @@ impl Manifest {
                 return Err(ParseError::Invalid(format!("{}: wasm_dashboard must be a plain filename, not a path (\"{wasm}\")", manifest.extension.id)));
             }
             if !manifest.extension.dashboard.is_empty() {
-                return Err(ParseError::Invalid(format!("{}: wasm_dashboard and dashboard are mutually exclusive — pick one", manifest.extension.id)));
+                return Err(ParseError::Invalid(format!("{}: wasm_dashboard and dashboard are mutually exclusive, pick one", manifest.extension.id)));
             }
             let categories: std::collections::BTreeSet<&str> = manifest.extension.kinds.iter().map(|k| k.category.as_str()).collect();
             if categories.len() != 1 {

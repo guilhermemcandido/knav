@@ -1,8 +1,4 @@
-# KEDA — event-driven autoscaling status (ScaledObjects, ScaledJobs), the
-# natural neighbor of the built-in HPA view. TriggerAuthentication isn't
-# included: it's scaler credentials, not something with a status to show.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
+# TriggerAuthentication is left out: it holds scaler credentials and has no status.
 
 [extension]
 id = "keda"

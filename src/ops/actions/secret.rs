@@ -1,7 +1,6 @@
-//! Reading a Secret's values.
 
-/// A Secret's manifest with each `data` value decoded from base64, for
-/// reading it. A value that isn't UTF-8 text shows its size instead.
+/// A Secret's manifest with each `data` value decoded. Values that aren't UTF-8 show
+/// their size instead.
 pub fn decode_secret(manifest: &serde_yaml::Value) -> serde_yaml::Value {
     use base64::{Engine, engine::general_purpose::STANDARD};
     let mut decoded = manifest.clone();

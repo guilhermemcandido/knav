@@ -9,11 +9,10 @@ use tokio::task::JoinHandle;
 
 use super::*;
 
-/// Type-erased handle to a watched kind's store, so `Catalog` can hold many kinds
-/// in one `Vec` and read counts, rows and manifests without a match per kind.
+/// A watched kind behind one interface, so `Catalog` can hold them all in one list.
 pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
-    /// Whether the first full list has arrived, so what is read is not just partial.
+    /// Whether the first full list has arrived.
     fn ready(&self) -> bool {
         true
     }
@@ -23,28 +22,25 @@ pub trait CatalogKind: Send + Sync {
     }
     fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
-    /// The kind's extra column headers (see `describe`), even with no rows.
+    /// The kind's extra column headers, even with no rows.
     fn headers(&self) -> Vec<&'static str> {
         Vec::new()
     }
-    /// Every object's manifest, in `namespace` (cluster-scoped objects always), for
-    /// the relations view.
+    /// Every object's manifest in `namespace`, plus cluster-scoped ones.
     fn manifests(&self, namespace: Option<&str>) -> Vec<serde_yaml::Value> {
         let _ = namespace;
         (0..self.count()).filter_map(|i| self.spec_at(i)).collect()
     }
-    /// How the kind's objects are doing, for kinds that have a notion of it.
     fn health(&self) -> Option<Health> {
         None
     }
-    /// Whether wide-only columns are wanted (only table-backed kinds have any).
+    /// Whether wide-only columns are wanted. Only table-backed kinds have any.
     fn set_wide(&self, _wide: bool) {}
     /// Narrows what is fetched to one namespace (`None`: all), for kinds that fetch on demand.
     fn set_namespace(&self, _namespace: Option<&str>) {}
 }
 
 pub struct WatchedKind<K: Resource<DynamicType = ()> + Clone + 'static> {
-    /// The sorted objects with their rows, following the watch one change at a time.
     kept: Kept<K, GenericRow>,
 }
 
@@ -108,8 +104,7 @@ where
     }
 }
 
-/// Spawns a live watch for kind `K` and boxes it as a `CatalogKind`,
-/// the one-liner most Catalog entries use.
+/// Starts a live watch for `K` behind a `CatalogKind`.
 pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
@@ -118,8 +113,8 @@ where
     (Box::new(WatchedKind::new(store, feed)), handle)
 }
 
-/// A discovered CRD kind: enough to build an `ApiResource` and list it. Found once
-/// at startup, so a CRD installed later appears after a restart.
+/// A discovered CRD kind, found once at startup: a CRD installed later appears
+/// after a restart.
 #[derive(Clone)]
 pub struct CrdInfo {
     pub group: &'static str,

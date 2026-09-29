@@ -5,9 +5,8 @@ use crossterm::event::KeyCode;
 use crate::k8s::sort::SortSpec;
 use crate::ui;
 
-/// Sort state for a popup table (Events, Containers, the pickers, ...):
-/// the column/direction and whether sort mode (`s`) is on. The main lists
-/// keep theirs in `run` directly.
+/// Sort state for a popup table: the column and direction, and whether sort mode is on.
+/// The main lists keep theirs in `State`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ListSort {
     pub(crate) spec: Option<SortSpec>,
@@ -19,9 +18,8 @@ impl ListSort {
         ui::SortState { column: self.spec.map(|s| s.column), descending: self.spec.is_some_and(|s| s.descending), choosing: self.choosing, cursor: None }
     }
 
-    /// Feeds it a key; `true` if it was a sort key (`s` to enter sort
-    /// mode; then digits, and `s`/Esc/`q` to leave). `typing` means a text
-    /// field has focus, so every key is text.
+    /// Feeds it a key; `true` if it was a sort key (`s` to enter, digits, then `s`, `q`
+    /// or Esc to leave). `typing` means a text field has focus.
     pub(crate) fn handle(&mut self, code: KeyCode, columns: usize, typing: bool) -> bool {
         if typing || columns == 0 {
             return false;

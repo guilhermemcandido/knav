@@ -1,6 +1,5 @@
-//! A shell inside knav: `kubectl exec -it` running in a pseudo-terminal whose
-//! screen is emulated here (vt100) and drawn as part of the interface, so
-//! opening a shell never leaves the app.
+//! A shell inside knav: `kubectl exec -it` in a pseudo-terminal, its screen emulated
+//! (vt100) and drawn in the interface.
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,7 +29,6 @@ impl ShellSession {
         Self::spawn(command, rows, cols).context("couldn't run kubectl (is it on the PATH?)")
     }
 
-    /// Runs any command in a fresh pseudo-terminal.
     pub fn spawn(command: CommandBuilder, rows: u16, cols: u16) -> Result<Self> {
         let (rows, cols) = (rows.max(1), cols.max(1));
         let pair = native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
@@ -70,7 +68,6 @@ impl ShellSession {
         self.exited.load(Ordering::SeqCst)
     }
 
-    /// Makes the pseudo-terminal and the emulated screen `rows` x `cols`.
     pub fn resize(&mut self, rows: u16, cols: u16) {
         let (rows, cols) = (rows.max(1), cols.max(1));
         if (rows, cols) == self.size {
@@ -88,7 +85,6 @@ impl ShellSession {
         self.parser.lock().map(|p| p.screen().application_cursor()).unwrap_or(false)
     }
 
-    /// Reads the current screen.
     pub fn with_screen<R>(&self, read: impl FnOnce(&vt100::Screen) -> R) -> Option<R> {
         self.parser.lock().ok().map(|p| read(p.screen()))
     }

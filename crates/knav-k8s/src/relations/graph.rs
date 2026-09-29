@@ -2,7 +2,6 @@
 
 use super::*;
 
-/// One box of the diagram.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphNode {
     pub kind: String,
@@ -20,9 +19,8 @@ pub struct Graph {
     pub edges: Vec<(usize, usize)>,
 }
 
-/// Lays `groups` out as a flow from left to right, arrows pointing from what provides
-/// to what depends: callers, owners and what the object uses on the left, the object
-/// in the middle, what it owns, selects or what uses it on the right.
+/// Lays `groups` out left to right, arrows from what provides to what depends: owners
+/// and what the object uses on the left, what it owns, selects or is used by on the right.
 pub fn graph(target: &Value, groups: &[Group]) -> Graph {
     let mut g = Graph::default();
     let Some(t) = obj(target) else { return g };
@@ -44,8 +42,7 @@ pub fn graph(target: &Value, groups: &[Group]) -> Graph {
                     previous = at;
                 }
             }
-            // Arrows run from what provides to what depends: a Node, ConfigMap or
-            // Secret points at the pod that uses it.
+            // A Node, ConfigMap or Secret points at the pod that uses it.
             "Uses" => {
                 for e in &group.entries {
                     let at = node(&mut g, e, -1);

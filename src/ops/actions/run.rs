@@ -1,4 +1,4 @@
-//! Running an action on its targets in the background, and building what it creates.
+//! Runs an action on its targets in the background.
 
 use crate::ops::NoticeTone;
 use std::{collections::HashMap, sync::Arc};
@@ -29,14 +29,13 @@ impl Progress {
     }
 }
 
-/// How many requests a batch keeps in flight.
 const CONCURRENCY: usize = 8;
 
-/// What the API server said about a kind, looked up once per batch.
+/// What the API server said about each kind, looked up once per batch.
 type Resolved = HashMap<(String, String), std::result::Result<(ApiResource, Scope), String>>;
 
-/// Runs one action on each target at a time-saving pace, reporting the successes as a
-/// count and the failures by name.
+/// Runs one action on every target, a few at a time, reporting successes as a count
+/// and failures by name.
 pub async fn run_many(client: Client, targets: Vec<Target>, action: Action, progress: Arc<Progress>) -> Outcome {
     use futures::StreamExt;
     use std::sync::atomic::Ordering::Relaxed;
@@ -168,8 +167,8 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
     }
 }
 
-/// The Job a CronJob would create, owned by it, named `<cronjob>-manual-<n>`
-/// (what `kubectl create job --from=cronjob/...` makes).
+/// The Job a CronJob would create, owned by it and named `<cronjob>-manual-<n>`,
+/// like `kubectl create job --from=cronjob/...`.
 pub(super) fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json::Value> {
     let cronjob = serde_json::to_value(&target.manifest)?;
     let template = cronjob.pointer("/spec/jobTemplate").context("the CronJob has no jobTemplate")?;

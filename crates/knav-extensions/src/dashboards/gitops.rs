@@ -1,7 +1,5 @@
-//! GitOps: reconciliation status across Flux's Kustomizations, HelmReleases
-//! and sources, and Argo CD's Applications — the two extensions share this
-//! category (both are GitOps tools), so this dashboard covers whichever of
-//! them is actually installed, plus the events that mention any of them.
+//! GitOps: reconciliation status across Flux and Argo CD, whichever is installed,
+//! plus the events that mention them.
 
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -15,10 +13,8 @@ use super::{Dashboard, DashboardContext};
 
 pub struct GitOps;
 
-/// The Flux kinds shown, in the order their tiles are drawn. `HelmRelease`
-/// here is Flux's own kind (`helm.toolkit.fluxcd.io`) — distinct from knav's
-/// native `HelmReleases` (decoded straight from Helm's own Secrets), which
-/// has no Flux involvement at all and isn't part of this dashboard.
+/// The Flux kinds shown, in tile order. `HelmRelease` is Flux's own kind, not the
+/// Helm releases knav reads from Secrets.
 const FLUX_KINDS: &[(&str, &str, &str)] = &[
     ("kustomize.toolkit.fluxcd.io", "Kustomization", "Kustomization"),
     ("helm.toolkit.fluxcd.io", "HelmRelease", "HelmRelease"),

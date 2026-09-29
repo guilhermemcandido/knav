@@ -1,5 +1,4 @@
-//! Every setting the config screen edits: its name, the values it takes, and
-//! how a change takes effect while knav runs.
+//! Every setting the Settings screen edits: name, values and how a change takes effect.
 
 use anyhow::{Context as _, Result, bail};
 
@@ -60,8 +59,8 @@ pub fn registry() -> Vec<Setting> {
     settings
 }
 
-/// Makes the config take effect: colours, box lines, column widths and the
-/// numeric knobs. Returns what was ignored (bad colours and the like).
+/// Makes the config take effect: colours, box lines, column widths, refresh interval and
+/// numeric settings. Returns what was ignored, like bad colours.
 pub fn apply(config: &Config) -> Vec<String> {
     let (theme, ignored) = theme::build(&config.theme.preset, &config.theme.colors);
     theme::set_theme(theme);
@@ -114,7 +113,6 @@ pub fn describe(setting: &Setting) -> &'static str {
     }
 }
 
-/// The value in effect for `setting`, as text.
 pub fn current(config: &Config, theme: &Theme, setting: &Setting) -> String {
     if let Some(id) = setting.path.strip_prefix("keys.") {
         // The comma key is written `comma` here, since commas separate the keys.
@@ -197,8 +195,8 @@ pub fn typed_value(config: &Config, setting: &Setting, text: &str) -> Result<tom
 mod tests {
     use super::*;
 
-    /// Colours are edited in theme files, not on the screen, but the value
-    /// handling stays for `[theme.colors]` in the config.
+    /// Colours are edited in theme files, not on the screen, but `[theme.colors]` in the
+    /// config still takes them.
     fn colour_setting(path: &str) -> Setting {
         Setting { path: path.to_string(), section: "Colours", label: path.to_string(), kind: Kind::Color, restart: false }
     }

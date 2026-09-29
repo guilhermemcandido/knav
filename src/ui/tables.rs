@@ -1,9 +1,9 @@
-//! The resource list tables (pods, deployments, nodes, generic, CRD picker) and their row helpers.
+//! The resource list tables (pods, deployments, nodes, generic, the CRD picker) and their row helpers.
 
 use super::*;
 
-/// A `Terminated` container isn't always a problem: a Job that ran to completion
-/// has reason "Completed" and gets the blue k9s/kubectl use. Red is for errors.
+/// A container's dot. A container that terminated as "Completed" (a finished Job)
+/// is blue, not red.
 pub(super) fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
     match c.status {
         ContainerStatusKind::Running => ("●", theme().ok),
@@ -14,8 +14,7 @@ pub(super) fn container_dot(c: &ContainerInfo) -> (&'static str, Color) {
     }
 }
 
-/// Compact form: just the colored dots, used for every row except the
-/// one that's hovered/selected.
+/// Just the coloured dots, for every row but the hovered one.
 pub(super) fn containers_cell(containers: &[ContainerInfo], muted: bool) -> Line<'static> {
     let mut spans = Vec::with_capacity(containers.len() * 2);
     for c in containers {
@@ -36,8 +35,7 @@ pub(super) fn container_state_text(c: &ContainerInfo) -> String {
     }
 }
 
-/// A real floating popup, positioned right next to the cursor, "in
-/// front," on top of everything, only while actively hovering.
+/// The floating popup next to the cursor while it hovers a pod's containers.
 pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row: u16, bounds: Rect) {
     let lines: Vec<Line> = pod
         .containers
@@ -69,8 +67,8 @@ pub(super) fn draw_hover_popup(frame: &mut Frame, pod: &PodRow, column: u16, row
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// The table every list shares: its columns, header, bordered title with the search, and the
-/// selection coloured by the state of the selected row.
+/// The table every list shares: columns, header, titled border with the search, and
+/// the selection coloured by the selected row's state.
 fn list_table<'a>(rows: Vec<Row<'a>>, window: &Window, header: Row<'a>, title: Line<'static>, search: Search, selected_tone: crate::k8s::describe::Tone, look: ListLook) -> Table<'a> {
     let dimmed = look.dimmed;
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(look.border()).title(title);
@@ -125,8 +123,8 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
     let vis = visible(table_state, pods.len(), area);
 
     let rows = pods[vis.range()].iter().map(|p| {
-        // The whole row wears its state: red when broken, orange while
-        // starting, grey when finished.
+        // The whole row wears its state: red when broken, orange while starting,
+        // grey when finished.
         let tone = crate::k8s::status_tone(&p.phase);
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
@@ -159,8 +157,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
     render_windowed(frame, area, table, table_state, &vis);
 }
 
-/// The pods table's headers; the wide view adds IP and IMAGES before
-/// CONTAINERS, which stays last.
+/// The pods table's headers. Wide adds IP and IMAGES; CONTAINERS stays last.
 fn pod_headers(wide: bool) -> Vec<&'static str> {
     let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CONTROLLER", "NODE", "QOS", "AGE"];
     if wide {
@@ -170,8 +167,7 @@ fn pod_headers(wide: bool) -> Vec<&'static str> {
     headers
 }
 
-/// The pods table's visible columns, shared by drawing and by hover
-/// hit-testing so they can't disagree about where CONTAINERS is.
+/// The pods table's visible columns, shared by drawing and hover hit-testing.
 fn pod_window(pods: &[std::sync::Arc<PodRow>], table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
     let rows = pods.iter().map(|p| {
         let mut widths = vec![
@@ -219,8 +215,8 @@ pub fn controller_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bo
     columns.get(CONTROLLER - range.start).is_some_and(|c| column >= c.x && column < c.x + c.width)
 }
 
-/// Which pod row is under a terminal position, only over the CONTAINERS column so
-/// the popup fires on the dots. It solves the table's `Layout` to match its widths.
+/// The pod row under a terminal position, only over the CONTAINERS column, so the
+/// popup fires on the dots.
 pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, column: u16, row: u16) -> Option<usize> {
     let table_area = frame_area;
 
@@ -248,8 +244,8 @@ pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hsc
     (index < row_count).then_some(index)
 }
 
-/// Green when every desired replica is ready (`3/3`), yellow when some
-/// aren't (`0/1`, `2/3`), grey when nothing is desired (`0/0`).
+/// Green when every desired replica is ready, yellow when some aren't, grey when none
+/// are desired.
 pub(super) fn ready_color(ready: &str) -> Color {
     let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
     match (parts.next(), parts.next()) {
@@ -259,8 +255,7 @@ pub(super) fn ready_color(ready: &str) -> Color {
     }
 }
 
-/// A pod's READY colour: like a Deployment's, except a pod that ran to
-/// completion (a finished Job's `0/1 Succeeded`) is grey, not "not ready".
+/// A pod's READY colour: like a Deployment's, but a pod that ran to completion is grey.
 pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
     if matches!(phase, "Succeeded" | "Completed") { theme().muted } else { ready_color(ready) }
 }
@@ -328,8 +323,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     render_windowed(frame, area, table, table_state, &vis);
 }
 
-/// A compact usage bar for a table cell: `▓▓▓░░░░░ 34%`, or gray `n/a` when
-/// metrics-server isn't installed.
+/// A compact usage bar like `▓▓▓░░░░░ 34%`, or grey `n/a` without metrics-server.
 pub(super) fn usage_bar(used: Option<i64>, capacity: i64, dimmed: bool) -> Line<'static> {
     const WIDTH: usize = 10;
     let Some(used) = used else {
@@ -360,8 +354,7 @@ pub(super) fn usage_color(ratio: f64, dimmed: bool) -> Color {
     }
 }
 
-/// kubectl's own convention: ",SchedulingDisabled" is appended to STATUS
-/// rather than being a separate column.
+/// STATUS with ",SchedulingDisabled" appended when cordoned, like kubectl.
 fn node_status_text(n: &NodeRow) -> String {
     match (n.ready, n.schedulable) {
         (true, true) => "Ready".to_string(),
@@ -397,7 +390,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     if wide {
         headers.extend(["INTERNAL-IP", "OS-IMAGE", "KERNEL", "RUNTIME"]);
     }
-    // `[▓▓▓▓▓▓▓▓▓▓] 100%`, the usage bars are a fixed width.
+    // The usage bars are a fixed width.
     const BAR_WIDTH: usize = 17;
     let window = layout_list(
         &headers,
@@ -460,8 +453,7 @@ pub(super) fn draw_nodes_table(frame: &mut Frame, area: Rect, nodes: &[NodeRow],
     render_windowed(frame, area, table, table_state, &vis);
 }
 
-/// Whether any row has a namespace. Cluster-scoped kinds show `-` everywhere, so
-/// `draw_generic_table` drops that column when this is false.
+/// Whether any row has a namespace. Without one, the generic table drops the column.
 pub(super) fn any_row_has_namespace(rows: &[std::sync::Arc<GenericRow>]) -> bool {
     rows.iter().any(|r| r.namespace != "-")
 }
@@ -533,9 +525,8 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::syn
     render_windowed(frame, area, table, table_state, &vis);
 }
 
-/// The Custom Resources picker: every discovered CRD kind, sorted by GROUP so
-/// same-group kinds sit together. Enter starts watching the kind; nothing is
-/// live-watched until then.
+/// The Custom Resources picker: every discovered CRD kind, grouped by API group.
+/// Nothing is watched until a kind is opened.
 pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize, CrdInfo)], counts: &[crate::k8s::Count], heading: &str, table_state: &mut TableState, search: Search, sort: SortState, hscroll: &mut usize, look: ListLook) {
     let dimmed = look.dimmed;
     let cell_style = theme_row(dimmed);
@@ -551,7 +542,7 @@ pub(super) fn draw_crd_list_table(frame: &mut Frame, area: Rect, crds: &[(usize,
     let header = header_row(&HEADERS, sort, dimmed, &window);
 
     let rows = crds.iter().zip(counts).map(|((_, c), n)| {
-        // Nothing of a type: dimmed, so the ones with objects stand out.
+        // Empty types are dimmed, so the ones with objects stand out.
         let count_style = match n {
             crate::k8s::Count::Known(0) | crate::k8s::Count::Unknown | crate::k8s::Count::Loading => if dimmed { dim_style() } else { Style::default().fg(theme().muted) },
             crate::k8s::Count::Known(_) => cell_style.add_modifier(Modifier::BOLD),

@@ -1,12 +1,10 @@
-//! The Overview dashboard: top panel gauges, events feed and keyboard selection movement.
+//! The Overview: the Resources and Events boxes, and moving the selection around it.
 
 use super::*;
 
-/// The Events panel is a fixed-size strip: it shows a capped number of entries and a
-/// "+N more" line. The full feed is one Enter away (`Overlay::Events`).
+/// The Events box shows this many entries and a "+N more" line; Enter opens them all.
 pub(super) const MAX_VISIBLE_EVENTS: usize = 5;
-/// The home screen: a fixed dashboard strip (Resources, then Events, each a rounded
-/// box) above horizontally scrollable columns, one per category, listing its kinds.
+/// The home screen: Resources and Events on top, then scrollable category columns.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_overview(
     frame: &mut Frame,
@@ -25,26 +23,21 @@ pub(super) fn draw_overview(
     draw_columns(frame, chunks[2], overview, selection, col_scroll, item_scroll, dimmed, icons);
 }
 
-/// How tall the Resources box is: a rounded border top/bottom (2) plus
-/// either 3 meter lines or the 2-line "unavailable" message.
+/// The Resources box height: borders plus three meters, or the two-line unavailable message.
 pub(super) fn resources_box_height(overview: &Overview) -> u16 {
     2 + if overview.metrics_available { 3 } else { 2 }
 }
 
-/// How tall the Events box is: a rounded border top/bottom (2) plus
-/// `events_content_height`.
 pub(super) fn events_box_height(overview: &Overview) -> u16 {
     2 + events_content_height(overview)
 }
 
-/// How tall the top dashboard strip is: Resources box, a 1-row gap, Events box.
-/// Hit-testing and the columns area use this so they match what is drawn.
+/// The top strip's height: Resources, a blank row, Events. Hit-testing uses it too.
 pub(super) fn top_area_height(overview: &Overview) -> u16 {
     resources_box_height(overview) + 1 + events_box_height(overview)
 }
 
-/// Height of the Events box content: the 2-line empty message, or the header row
-/// plus up to `MAX_VISIBLE_EVENTS` entries and a "+N more" line.
+/// The Events box content height: the empty message, or a header, the entries and "+N more".
 pub(super) fn events_content_height(overview: &Overview) -> u16 {
     if overview.events.is_empty() {
         return 2;
@@ -54,8 +47,7 @@ pub(super) fn events_content_height(overview: &Overview) -> u16 {
     1 + (shown + more) as u16
 }
 
-/// Resources and Events, each a rounded box like the columns. Selecting one
-/// highlights its border; otherwise the Events border shows cluster health.
+/// The Resources and Events boxes. A selected one has its border highlighted.
 pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview, selection: OverviewSelection, dimmed: bool) {
     let resources_h = resources_box_height(overview);
     let chunks = Layout::vertical([Constraint::Length(resources_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
@@ -77,8 +69,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     frame.render_widget(resources_block, chunks[0]);
     draw_metrics_lines(frame, resources_inner, overview, dimmed);
 
-    // Plain styling like the Resources box: only the selection highlight colours the
-    // border. Each event line keeps its own severity colour.
+    // Only selection colours the border; each event line keeps its severity colour.
     let events_border = if dimmed {
         dim_style()
     } else if matches!(selection, OverviewSelection::Events(_)) {
@@ -112,7 +103,7 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
     }
 }
 
-/// Live pod count, read from the catalog tile that Pods' reflector already feeds.
+/// The live pod count, from the Pods tile.
 pub(super) fn workloads_pod_count(overview: &Overview) -> usize {
     overview
         .catalog
@@ -157,9 +148,8 @@ pub(super) fn draw_metrics_lines(frame: &mut Frame, area: Rect, overview: &Overv
     draw_meter(frame, lines[2], "Pods", pod_usage as f64, overview.pod_capacity as f64, |v| format!("{v:.0}"), dimmed);
 }
 
-/// A single-line usage meter: `CPU     ▓▓▓▓▓▓░░░░░░░░░░░░░░░░  71m / 2000m (3%)`.
-/// Hand-built because `Gauge` centres a percentage label that clashes with the
-/// numbers. The bar width adapts to the space available.
+/// A one-line usage meter like `CPU  ▓▓▓▓░░░░  71m / 2000m (3%)`, built by hand since
+/// `Gauge` centres a label that clashes with the numbers.
 pub(super) fn draw_meter(frame: &mut Frame, area: Rect, label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String, dimmed: bool) {
     let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
     let color = usage_color(ratio, dimmed);
@@ -197,8 +187,8 @@ pub(super) fn draw_events_empty(frame: &mut Frame, area: Rect, dimmed: bool) {
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
 
-/// One dashboard line coloured by severity: a not-ready node is red, a Warning
-/// yellow, a Normal event muted green.
+/// One event line coloured by severity: a node warning red, other warnings yellow,
+/// normal events green.
 pub(super) fn draw_event_line(frame: &mut Frame, area: Rect, entry: &EventEntry, dimmed: bool) {
     let color = if dimmed {
         theme().dim
@@ -344,16 +334,14 @@ mod overview_selection_tests {
     fn column_hit_resolves_resources_events_header_and_item_rows() {
         let overview = test_overview(vec![("A", vec![("a1", 0), ("a2", 0)])]);
         let frame_area = Rect { x: 0, y: 0, width: 80, height: 40 };
-        // +1 for the gap `columns_area` now puts between the top strip
-        // and the columns, matching the Resources-to-Events gap.
+        // +1 for the blank row between the top strip and the columns.
         let top_h = top_area_height(&overview) + 1;
         // The columns are centred, so ask the layout where the first one is.
         let x0 = column_layout(columns_inner(columns_area(frame_area, &overview)), 1)[0].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, 0), Some(OverviewSelection::Resources));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, 1, resources_box_height(&overview) + 1), Some(OverviewSelection::Events(0)));
-        // Row 0 of the columns area is the column box's top border (the header);
-        // row 1 is the ▲ lane (blank, nothing to hit, since there's nothing above
-        // yet); rows 2-5 are the first item card (border/content/content/border).
+        // Row 0 is the column's top border (its header), row 1 the empty ▲ lane,
+        // rows 2 to 5 the first card.
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h), Some(OverviewSelection::Header(0)));
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 1), None);
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 0, x0, top_h + 2), Some(OverviewSelection::Item(0, 0)));
@@ -367,19 +355,16 @@ mod overview_selection_tests {
         let top_h = top_area_height(&overview) + 1;
         let layout = column_layout(columns_inner(columns_area(frame_area, &overview)), 2);
         let x0 = layout[0].x + 1;
-        // Column 0 is active with item_scroll 1: its first visible card is
-        // actually item index 1, not 0.
+        // Column 0 is active with item_scroll 1, so its first visible card is item 1.
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, x0, top_h + 2), Some(OverviewSelection::Item(0, 1)));
-        // Column 1 isn't active, so it renders from item 0. The columns area has a 1-cell
-        // left scroll-arrow gutter.
+        // Column 1 isn't active, so it starts at item 0. The area has a 1-cell arrow gutter.
         let col1_x = layout[1].x + 1;
         assert_eq!(column_hit(frame_area, &overview, 0, 0, 1, col1_x, top_h + 2), Some(OverviewSelection::Item(1, 0)));
     }
 
     #[test]
     fn visible_columns_accounts_for_the_inter_column_gap() {
-        // Two columns need 2*COLUMN_WIDTH + 1 cells (one gap between them),
-        // not 2*COLUMN_WIDTH.
+        // Two columns need one gap between them.
         let two_cols_width = COLUMN_WIDTH * 2 + 1;
         assert_eq!(visible_columns(two_cols_width, 5), 2);
         assert_eq!(visible_columns(two_cols_width - 1, 5), 1);

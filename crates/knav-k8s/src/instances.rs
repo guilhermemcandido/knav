@@ -1,6 +1,5 @@
-//! How many objects each resource type has, for the lists of types (custom resources, API
-//! resources), so a type is not opened blind. Each type costs one request for a single item:
-//! the API server reports how many more there would be.
+//! How many objects each resource type has, for the type lists. Each type costs one
+//! request for a single item, since the server reports how many more remain.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -13,7 +12,6 @@ use tokio::{sync::Notify, task::JoinHandle};
 
 use super::ApiInfo;
 
-/// What is known about one type's object count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Count {
     /// Not asked for yet.
@@ -49,8 +47,8 @@ impl Count {
     }
 }
 
-/// The counts found so far, shared with the lists that show them. They are kept per namespace,
-/// so going back to one shows its numbers at once.
+/// The counts found so far, shared with the lists. Kept per namespace, so going
+/// back to one shows its numbers at once.
 #[derive(Clone, Default)]
 pub struct InstanceCounts {
     map: Arc<Mutex<HashMap<(Option<String>, String), (Count, Instant)>>>,
@@ -78,9 +76,8 @@ impl InstanceCounts {
     }
 }
 
-/// Counting on demand: only the types on screen (and one screen more) are asked about, a few at a
-/// time, and each answer is trusted for a minute. Clusters with thousands of custom resource
-/// types are never asked about all at once.
+/// Counts on demand: only the types on screen (and one screen more), a few at a
+/// time, each answer trusted for a minute.
 pub struct Counter {
     scope: Arc<Mutex<Option<String>>>,
     wanted: Arc<Mutex<Vec<String>>>,
@@ -94,11 +91,9 @@ impl Drop for Counter {
     }
 }
 
-/// How many types are asked about at once.
 const CONCURRENCY: usize = 8;
-/// How long a count is trusted before it is asked for again.
 const FRESH: Duration = Duration::from_secs(60);
-/// How often the wanted types are looked at again when nothing changed.
+/// How often the wanted types are checked again when nothing changed.
 const TICK: Duration = Duration::from_secs(5);
 
 impl Counter {
@@ -132,7 +127,7 @@ impl Counter {
                             }
                         }
                     });
-                    // A change of what is wanted or of the namespace drops the round and starts over.
+                    // A new wanted set or namespace drops the round and starts over.
                     tokio::select! {
                         _ = round => {}
                         _ = changed.notified() => {}
@@ -153,7 +148,7 @@ impl Counter {
         }
     }
 
-    /// Counts objects of this namespace only (`None`: all of them); namespaced types only.
+    /// Counts one namespace only (`None`: all), for namespaced types.
     pub fn set_namespace(&self, counts: &InstanceCounts, namespace: Option<&str>) {
         if let Ok(mut scope) = self.scope.lock()
             && scope.as_deref() != namespace

@@ -1,7 +1,5 @@
-//! A readable summary of one object, like the drawer of a desktop client: name,
-//! namespace, labels, status, containers, conditions and events, instead of raw
-//! YAML. It works on the manifest, so it covers every kind; the common kinds
-//! get their own sections.
+//! A readable summary of one object, built from its manifest so it covers every kind.
+//! The common kinds get sections of their own.
 
 mod cluster;
 mod network;
@@ -29,7 +27,7 @@ pub enum Style {
     Chip,
     /// A pill worth a second look.
     WarnChip,
-    /// A `key=value` pill: the key, the `=` and the value each get their own colour.
+    /// A `key=value` pill, each part in its own colour.
     PairChip,
     /// A name that labels a value (a data key, a variable).
     Key,
@@ -63,7 +61,6 @@ fn chunk(text: impl Into<String>, style: Style) -> Chunk {
     Chunk { text: text.into(), style }
 }
 
-/// One line of a section.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
     /// `label   value ...`, the value wrapping under itself.
@@ -99,16 +96,13 @@ fn at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
     path.iter().try_fold(value, |v, key| v.get(*key))
 }
 
-/// As `at`, but for an extension manifest's dotted path (`.status.notAfter`)
-/// instead of a `&[&str]` — the shape `ExtKind.view`'s fields carry.
+/// Like `at`, for an extension's dotted path such as `.status.notAfter`.
 fn at_dotted<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     path.trim_start_matches('.').split('.').try_fold(value, |v, key| v.get(key))
 }
 
-/// A field's value as one line of text: a scalar as itself, a sequence of
-/// scalars comma-joined, anything else left out (an extension's curated
-/// fields are meant to be short; a nested object isn't a "field" to show
-/// this way).
+/// A field's value as one line: a scalar as itself, a list of scalars comma-joined,
+/// nothing for anything nested.
 fn scalar_text(value: &Value) -> Option<String> {
     match value {
         Value::Sequence(items) => {
@@ -123,7 +117,6 @@ fn items<'a>(value: &'a Value, path: &[&str]) -> &'a [Value] {
     at(value, path).and_then(Value::as_sequence).map(Vec::as_slice).unwrap_or(&[])
 }
 
-/// A number or string scalar as text.
 fn scalar(value: &Value) -> Option<String> {
     match value {
         Value::String(s) => Some(s.clone()),
@@ -137,7 +130,6 @@ fn number(value: &Value, path: &[&str]) -> Option<i64> {
     at(value, path).and_then(Value::as_i64)
 }
 
-/// The pairs of a string map, sorted by key.
 fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = value.and_then(Value::as_mapping).map(|m| m.iter().filter_map(|(k, v)| Some((k.as_str()?.to_string(), scalar(v)?))).collect()).unwrap_or_default();
     out.sort();
@@ -148,7 +140,6 @@ fn chips(pairs: &[(String, String)]) -> Vec<Chunk> {
     pairs.iter().map(|(k, v)| if v.is_empty() { chunk(k.clone(), Style::Chip) } else { chunk(format!("{k}={v}"), Style::PairChip) }).collect()
 }
 
-/// The string items of a list.
 fn strings<'a>(value: &'a Value, path: &[&str]) -> Vec<&'a str> {
     items(value, path).iter().filter_map(Value::as_str).collect()
 }
@@ -157,7 +148,6 @@ fn flag(value: &Value, path: &[&str]) -> Option<bool> {
     at(value, path).and_then(Value::as_bool)
 }
 
-/// The load balancer addresses of a Service or Ingress status.
 fn load_balancer_addresses(manifest: &Value) -> Vec<String> {
     items(manifest, &["status", "loadBalancer", "ingress"]).iter().filter_map(|i| text(i, &["ip"]).or_else(|| text(i, &["hostname"])).map(String::from)).collect()
 }
@@ -279,18 +269,14 @@ fn namespace_sections(manifest: &Value) -> Vec<Section> {
     vec![Section { title: "Status".into(), lines: vec![field_styled("Phase", phase, crate::describe::phase_tone(phase).into())] }]
 }
 
-/// An extension's `KeyValues` view: curated `[label, path]` pairs instead of
-/// every field `spec_summary` would otherwise dump. A path that resolves to
-/// nothing (or to something that isn't a scalar or a list of them) is left
-/// out rather than shown blank; an extension with every field missing falls
-/// through to `spec_summary` instead of showing an empty section.
+/// An extension's `KeyValues` view. Paths that resolve to nothing are left out, and
+/// with none left the generic summary is shown instead.
 fn key_values_section(manifest: &Value, fields: &[[String; 2]]) -> Option<Section> {
     let lines: Vec<Line> = fields.iter().filter_map(|[label, path]| Some(field(label, scalar_text(at_dotted(manifest, path)?)?))).collect();
     (!lines.is_empty()).then_some(Section { title: "Summary".into(), lines })
 }
 
-/// An extension's `Health` view: one field, and whether it matches the value
-/// that means "healthy".
+/// An extension's `Health` view: one field, checked against its healthy value.
 fn health_section(manifest: &Value, from: &str, ok: &str) -> Option<Section> {
     let value = scalar_text(at_dotted(manifest, from)?)?;
     let style = if value == ok { Style::Good } else { Style::Bad };
@@ -323,33 +309,25 @@ fn spec_summary(manifest: &Value) -> Vec<Section> {
     sections
 }
 
-/// A view template is a fixed choice, not a rendering instruction: the
-/// manifest supplies a field path (and, for `KeyValues`, a label per field),
-/// this crate supplies how it's drawn.
+/// How an extension's kind is shown in the details. The manifest picks a template
+/// and field paths; how it's drawn is fixed here.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "template", rename_all = "snake_case")]
 pub enum ViewTemplate {
-    /// Reuses the same conditions renderer built-in kinds already have,
-    /// which only ever reads `.status.conditions` — `from` isn't read, it's
-    /// kept so a manifest still states its assumption in writing.
+    /// The conditions renderer every kind already gets. `from` isn't read; it keeps
+    /// the manifest's assumption in writing.
     Timeline {
         #[allow(dead_code)]
         from: String,
     },
     /// A single field compared against the value that means "healthy".
     Health { from: String, ok: String },
-    /// Curated `[label, path]` pairs, in order, shown instead of the generic
-    /// spec/status dump — e.g. `["Not After", ".status.notAfter"]`. A path
-    /// that resolves to nothing is left out, not shown blank.
+    /// `[label, path]` pairs shown in order instead of the generic summary.
     KeyValues { fields: Vec<[String; 2]> },
 }
 
-/// The sections that describe `manifest`, with the events that mention it.
-/// `custom` is an enabled extension's view for this object's kind, if any
-/// (see `extensions::Registry::view_for`) — read only for kinds that fall
-/// through to the generic summary; a built-in kind's own dedicated sections
-/// below always win, an extension can't be declared for one anyway (its
-/// group+kind matches a CRD, never a built-in kind's).
+/// The sections that describe `manifest`, with the events that mention it. `custom`
+/// is an extension's view, used only for kinds without dedicated sections.
 pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool, custom: Option<&ViewTemplate>) -> Vec<Section> {
     let kind = text(manifest, &["kind"]).unwrap_or("");
     if kind == "APIResource" {
@@ -383,9 +361,7 @@ pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool, custom: Op
         _ => match custom {
             Some(ViewTemplate::KeyValues { fields }) => key_values_section(manifest, fields).map(|s| vec![s]).unwrap_or_else(|| spec_summary(manifest)),
             Some(ViewTemplate::Health { from, ok }) => health_section(manifest, from, ok).map(|s| vec![s]).unwrap_or_else(|| spec_summary(manifest)),
-            // Timeline just means "this kind's .status.conditions matters", and
-            // `conditions()` below already renders that for any kind that has
-            // one — nothing extra to add here.
+            // Conditions are rendered below for every kind, so Timeline needs nothing more.
             Some(ViewTemplate::Timeline { .. }) | None => spec_summary(manifest),
         },
     };

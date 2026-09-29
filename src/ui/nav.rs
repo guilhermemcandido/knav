@@ -2,10 +2,8 @@
 
 use super::*;
 
-/// Selection on the Overview: the Resources box, the Events box, a column header,
-/// or an item in a column. Resources and Events sit above the columns: Up from a
-/// header or item lands on Events, remembering that column, so Down from Events
-/// returns to wherever it was left rather than always the first one.
+/// The Overview selection: Resources, Events, a column header or a column's item.
+/// Up into Events remembers the column, so Down returns to it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OverviewSelection {
     Resources,
@@ -21,9 +19,8 @@ pub enum Direction {
     Right,
 }
 
-/// Moves the Overview selection one step. Up/Down move between a column's items,
-/// its header and `Events`; Left/Right move between columns at the same item index
-/// (or land on the header if that column is shorter). Resources and Events only go up/down.
+/// Moves the Overview selection one step. Up and Down move within a column and on to
+/// Events; Left and Right keep the item index, or land on a shorter column's header.
 pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection, dir: Direction) -> OverviewSelection {
     let total = overview.catalog.len();
     match selection {
@@ -87,9 +84,7 @@ pub fn move_overview_selection(overview: &Overview, selection: OverviewSelection
     }
 }
 
-/// Same movement rules as before, for the resource-switcher menu's own
-/// section/tile grid, unrelated to the Overview's column browser, which
-/// doesn't wrap tiles into rows at all anymore.
+/// The next section after `from` that has tiles, for the command menu's grid.
 pub(super) fn next_nonempty_section(lens: &[usize], from: usize) -> Option<usize> {
     (from + 1..lens.len()).find(|&i| lens[i] > 0)
 }

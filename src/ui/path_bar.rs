@@ -1,19 +1,16 @@
-//! The bottom bar showing where you are: the trail of what you drilled through, then
-//! the selected row. It always fits the width: container detail goes first, then
-//! the longest names are shortened in the middle (`local-pa…d9885bc`).
+//! The bottom bar: the trail of what you drilled through, then the selected row. To fit,
+//! container detail goes first, then the longest names are shortened in the middle.
 
 use super::*;
 
-/// The row highlighted in a list, shown at the end of the bar: a pod (with
-/// its containers), a deployment or node (with a short status note), or any
-/// other resource by name.
+/// The selected row, shown at the end of the bar: a pod with its containers, a
+/// deployment or node with a status note, or any other object by name.
 pub struct SelectedItem {
     namespace: Option<String>,
     name: String,
-    /// A short coloured status after the name (`● 1/1`, `● Ready`), dropped
-    /// when space is short.
+    /// A short coloured status after the name, dropped when space is short.
     note: Option<(Color, String)>,
-    /// `(dot colour, container name, state)` per container, pods only.
+    /// Dot colour, name and state per container, pods only.
     containers: Vec<(Color, String, String)>,
 }
 
@@ -64,14 +61,13 @@ impl SelectedItem {
     }
 }
 
-/// Names are shortened to this many characters before anything gets
-/// squeezed harder, and never below `HARD_MIN`.
+/// Names are shortened to this length before anything is squeezed harder, and never
+/// below `HARD_MIN`.
 const MIN_SHORTENED: usize = 8;
 const HARD_MIN: usize = 3;
 
-/// Shortens `text` to at most `max` characters with an ellipsis in the
-/// middle, keeping both ends, the start says what it is, the end is where
-/// generated names differ.
+/// Shortens `text` to `max` characters with an ellipsis in the middle: the start says
+/// what it is, the end is where generated names differ.
 fn middle_ellipsis(text: &str, max: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= max || max < 2 {
@@ -83,8 +79,7 @@ fn middle_ellipsis(text: &str, max: usize) -> String {
     format!("{}…{}", chars[..head].iter().collect::<String>(), chars[chars.len() - tail..].iter().collect::<String>())
 }
 
-/// How much of the containers to show: every name and state, just the
-/// coloured dots, or nothing.
+/// How much of the containers to show: names and states, just dots, or nothing.
 #[derive(Clone, Copy)]
 enum Detail {
     Full,
@@ -138,7 +133,6 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
     Line::from(spans)
 }
 
-/// The bar's line for a terminal `width` cells wide.
 pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, width: u16) -> Line<'static> {
     let width = usize::from(width);
     // Give up container detail before touching any name.
@@ -166,7 +160,7 @@ pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, wi
     }
 }
 
-/// The bar's line drawn on the last row of the screen, over everything.
+/// Draws the bar on the last row, over everything.
 pub(super) fn draw_path_bar(frame: &mut Frame, segments: &[PathSegment], pod: Option<SelectedItem>) {
     let area = frame.area();
     let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
@@ -223,7 +217,7 @@ mod tests {
     fn container_detail_goes_before_names_are_touched() {
         let segments = [seg("Deployment", Some("local-path-provisioner")), seg("ReplicaSet", Some("local-path-provisioner-5d9d9885bc")), seg("Pods", None)];
         let full = path_line(&segments, Some(&pod()), 500).width();
-        // A little narrower than everything: the container text is dropped, the names are intact.
+        // A little narrower: the container text goes, the names stay whole.
         let line = path_line(&segments, Some(&pod()), (full - 10) as u16);
         let t = text(&line);
         assert!(t.contains("local-path-provisioner-5d9d9885bc]"), "{t}");

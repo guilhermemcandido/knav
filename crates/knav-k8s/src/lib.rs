@@ -1,6 +1,5 @@
-//! Everything that talks to the Kubernetes API or shapes what it returns
-//! into rows: one module per concern, re-exported flat so callers keep
-//! writing `k8s::Thing`.
+//! Everything that talks to the Kubernetes API or turns what it returns into rows.
+//! Modules are re-exported flat, so callers write `k8s::Thing`.
 
 pub mod catalog;
 pub mod describe;

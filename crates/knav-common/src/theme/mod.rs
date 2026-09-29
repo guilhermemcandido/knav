@@ -76,12 +76,11 @@ theme_roles! {
 
 static THEME: RwLock<Option<Theme>> = RwLock::new(None);
 
-/// The theme in use.
 pub fn theme() -> Theme {
     THEME.read().ok().and_then(|t| *t).unwrap_or_default()
 }
 
-/// Makes `theme` the one in use, from the next frame on.
+/// Takes effect from the next frame.
 pub fn set_theme(theme: Theme) {
     if let Ok(mut current) = THEME.write() {
         *current = Some(theme);
@@ -265,7 +264,6 @@ fn transparent(name: &str) -> Option<Theme> {
     })
 }
 
-/// A built-in theme or one from the user's themes folder.
 pub fn lookup_theme(name: &str) -> Option<Theme> {
     builtin(name).or_else(|| user_theme(name))
 }
@@ -406,7 +404,7 @@ pub fn build(preset_name: &str, overrides: &BTreeMap<String, String>) -> (Theme,
     (theme, ignored)
 }
 
-/// One theme in the picker, with the colours to show as its swatch.
+/// One theme in the picker, with its swatch colours.
 pub struct ThemeEntry {
     pub name: String,
     pub swatch: Vec<ratatui::style::Color>,

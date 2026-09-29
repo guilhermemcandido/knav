@@ -1,10 +1,8 @@
-//! The breadcrumb path shown above the list.
+//! The breadcrumb path in the bottom bar.
 
 use super::*;
 use crate::app::Step;
 
-/// The path for the path bar, oldest first, e.g. `Node[worker-1]`, `Pod[default/web-1]`,
-/// `Logs[nginx]`. Empty for the plain list and for modes that don't chain back.
 pub(crate) fn segment(kind: &str, value: impl Into<String>) -> ui::PathSegment {
     ui::PathSegment { kind: kind.to_string(), value: Some(value.into()) }
 }
@@ -13,6 +11,8 @@ pub(crate) fn plain_segment(kind: &str) -> ui::PathSegment {
     ui::PathSegment { kind: kind.to_string(), value: None }
 }
 
+/// The open popups' part of the path, oldest first, like `Node[worker-1]`, `Pod[default/web-1]`,
+/// `Logs[nginx]`. Empty for the plain list and modes that don't chain back.
 pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
     match mode {
         Mode::NodeDetail { name, back, .. } => {
@@ -40,9 +40,8 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             if path.last().is_some_and(|s| s.kind == "Container") {
                 path.pop();
             }
-            // `title` is "namespace/pod/container" (see `title_for` and
-            // the Containers Enter handler), just the container name is
-            // enough here, the pod/node segments already came from `back`.
+            // `title` is "namespace/pod/container"; the pod and node segments already
+            // came from `back`, so the container name is enough.
             let container = title.rsplit('/').next().unwrap_or(title);
             path.push(segment("Logs", container));
             path
@@ -84,11 +83,9 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
     }
 }
 
-/// Where you are, for the bottom bar: what you drilled through, then the list, e.g.
-/// `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`.
+/// What you drilled through, then the list, like `Deployment[web]>>ReplicaSet[web-5d9d]>>Pods`.
 pub(crate) fn location(current_kind: ResourceKind, trail: &[Step], scope: Option<&Scope>) -> Vec<ui::PathSegment> {
-    // Every drilled-into level's scope names the thing it's inside; together they are the
-    // path. A detour into another mode (Relations, Details, ...) contributes nothing here.
+    // Each drilled-into level's scope names what it's inside. Detours into other modes add nothing.
     let mut segments: Vec<ui::PathSegment> = trail
         .iter()
         .filter_map(|step| match step {
@@ -105,13 +102,11 @@ pub(crate) fn location(current_kind: ResourceKind, trail: &[Step], scope: Option
     segments
 }
 
-/// The path bar's segments: the list's `location`, then the open
-/// popups.
+/// The path bar's segments: the list's `location`, then the open popups.
 pub(crate) fn full_path(mode: &Mode, location: Vec<ui::PathSegment>) -> Vec<ui::PathSegment> {
     let mut segments = location;
     let path = mode_path(mode);
-    // `Nodes>>Node[worker-1]` says the same thing twice: once a popup names
-    // the specific one (`Node[...]`, `Pod[...]`), it replaces its list.
+    // Once a popup names the object (`Node[...]`), it replaces its list, not repeating it.
     if let (Some(list), Some(first)) = (segments.last(), path.first())
         && first.value.is_some()
         && list.value.is_none()

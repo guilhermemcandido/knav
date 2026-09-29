@@ -18,8 +18,8 @@ pub(crate) fn select_prev(state: &mut TableState, len: usize) {
     state.select(Some(prev));
 }
 
-/// `g`/`G`/Home/End jump to the top or bottom of a table, `Ctrl-f`/`Ctrl-b`
-/// and PageDown/PageUp move a page. False for any other key.
+/// `g`, `G`, Home and End jump to the top or bottom; Ctrl-f, Ctrl-b, PageDown and PageUp
+/// move a page. False for any other key.
 pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, page: usize) -> bool {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let current = state.selected().unwrap_or(0);
@@ -39,8 +39,7 @@ pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, pa
     true
 }
 
-/// Moves a table's selection for a mouse wheel notch; false for any other
-/// mouse event.
+/// Moves a table's selection for a wheel notch; false for any other mouse event.
 pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: usize) -> bool {
     let step: fn(&mut TableState, usize) = match kind {
         MouseEventKind::ScrollDown => select_next,
@@ -53,8 +52,7 @@ pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: us
     true
 }
 
-/// Routes `s` and the digits to whichever popup table has focus; `true`
-/// if the key was a sort key and is used up.
+/// Sends `s` and the digits to the focused popup table; `true` if used as a sort key.
 pub(crate) fn popup_sort_key(mode: &mut Mode, code: KeyCode) -> bool {
     match mode {
         Mode::Events { sort, editing, .. } => sort.handle(code, EVENT_COLUMNS, *editing),

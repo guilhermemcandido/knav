@@ -3,7 +3,7 @@
 /// Below this many items the threads cost more than they save.
 const MIN_PARALLEL: usize = 4000;
 
-/// `items.iter().map(f).collect()`, split across up to 8 threads, order kept.
+/// `items.iter().map(f).collect()` across up to 8 threads, keeping order.
 pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
     if items.len() < MIN_PARALLEL || threads == 1 {
@@ -16,7 +16,7 @@ pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec
     })
 }
 
-/// `items.sort_by(cmp)`, with the pieces sorted on separate threads and merged, for big lists.
+/// `items.sort_by(cmp)` with pieces sorted on separate threads, then merged.
 pub fn par_sort_by<T: Send>(items: &mut Vec<T>, cmp: impl Fn(&T, &T) -> std::cmp::Ordering + Sync) {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
     if items.len() < MIN_PARALLEL * 5 || threads == 1 {
@@ -34,7 +34,6 @@ pub fn par_sort_by<T: Send>(items: &mut Vec<T>, cmp: impl Fn(&T, &T) -> std::cmp
             scope.spawn(|| run.sort_by(&cmp));
         }
     });
-    // Merge neighbouring runs until one is left.
     while runs.len() > 1 {
         let mut next = Vec::with_capacity(runs.len().div_ceil(2));
         let mut pending = runs.into_iter();

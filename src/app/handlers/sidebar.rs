@@ -1,4 +1,4 @@
-//! The resource sidebar: `b` (or `m`) shows or hides it, Shift-Left gives it the keys, clicks open a kind.
+//! The sidebar: `b` or `m` shows or hides it, Shift-Left gives it the keys, clicks open a kind.
 
 use crate::ops::NoticeTone;
 use super::super::sidebar::{self as rows, Entry};

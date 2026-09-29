@@ -164,7 +164,6 @@ fn an_extension_key_values_view_curates_over_the_generic_dump() {
     assert_eq!(label_value(summary, "Not After"), "2026-11-02T00:00:00Z");
     assert_eq!(label_value(summary, "DNS Names"), "example.com, www.example.com");
     assert!(summary.lines.iter().all(|l| !matches!(l, Line::Field(name, _) if name == "Missing")), "a field that resolves to nothing is left out");
-    // secretName wasn't in the curated list, so it shouldn't leak in from spec_summary.
     assert!(sections.iter().all(|s| s.title != "Spec"), "the curated view replaces the generic dump, not alongside it");
 }
 

@@ -3,17 +3,16 @@
 use super::*;
 use crate::k8s::Health;
 
-/// A bar `width` cells wide: green for what is fine, yellow for what needs a
-/// look, red for what is broken, the rest muted.
+/// A bar `width` cells wide: green for fine, yellow for needs a look, red for broken,
+/// the rest muted.
 pub(super) fn health_bar(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
     let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
     let bar = width.max(1);
     if total == 0 {
         return Line::styled("░".repeat(bar), paint(theme().muted));
     }
-    // Each state gets its share of the bar (largest remainders, so the bar is
-    // always full), and never disappears if it exists. The neutral rest is what
-    // is neither ok, warning nor error (finished, nothing wanted).
+    // Each state gets its share by largest remainders, so the bar is always full and a
+    // state that exists never disappears.
     let counts = [health.good, health.warn, health.bad, total.saturating_sub(health.good + health.warn + health.bad)];
     let sum: usize = counts.iter().sum();
     let mut cells = counts.map(|n| n * bar / sum);
@@ -48,8 +47,8 @@ fn compact(n: usize) -> String {
     }
 }
 
-/// `● 14 ok  ● 2 warning  ● 1 error`, only the states that have objects. It gives up
-/// the words, then exact numbers, to fit `width`.
+/// `● 14 ok  ● 2 warning  ● 1 error` for the states that have objects, dropping the
+/// words, then exact numbers, to fit `width`.
 pub(super) fn health_legend(health: Health, total: usize, width: usize, dimmed: bool) -> Line<'static> {
     let paint = |color: Color| if dimmed { dim_style() } else { Style::default().fg(color) };
     if total == 0 {

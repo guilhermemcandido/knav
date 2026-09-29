@@ -1,4 +1,4 @@
-//! What knav does to the cluster and the machine: actions, editing, shells, port-forwards, the clipboard.
+//! What knav does to the cluster and the machine: actions, edits, shells, port-forwards, the clipboard.
 
 pub mod actions;
 pub mod clipboard;

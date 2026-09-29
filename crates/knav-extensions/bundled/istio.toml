@@ -1,10 +1,4 @@
-# Istio — the mesh's config objects (VirtualServices, Gateways,
-# DestinationRules, PeerAuthentications, AuthorizationPolicies), a category
-# and an icon to browse them by, not a status view: none of these carry a
-# `.status.conditions` — they're routing/policy config, not things with a
-# runtime health signal.
-# Bundled with knav, off by default; enable in the Extensions screen (E).
-# Schema: see src/extensions/manifest.rs.
+# These are routing and policy config with no health signal, so there is no status view.
 
 [extension]
 id = "istio"
@@ -36,8 +30,7 @@ group = "security.istio.io"
 kind = "AuthorizationPolicy"
 category = "Istio"
 
-# No health signal to tally (see above), so the dashboard is just an
-# inventory: how much of each config kind is out there.
+# No health to tally, so the dashboard is an inventory of each kind.
 [[extension.dashboard]]
 kind = "VirtualService"
 widget = "count"

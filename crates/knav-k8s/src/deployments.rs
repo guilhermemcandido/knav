@@ -6,13 +6,11 @@ use super::*;
 pub struct DeploymentRow {
     pub namespace: String,
     pub name: String,
-    /// "ready/desired" replicas, e.g. "2/3", kubectl/k9s convention.
+    /// Ready over desired replicas, like "2/3".
     pub ready: String,
     pub up_to_date: i32,
     pub available: i32,
-    /// The images it runs, for the wide view.
     pub images: String,
-    /// The pod label selector, for the wide view.
     pub selector: String,
     pub age: String,
     pub age_secs: i64,

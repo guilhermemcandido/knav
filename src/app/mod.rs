@@ -106,9 +106,8 @@ pub(crate) fn run(
             ResourceKind::ExtensionDashboard(_) => 0,
             _ => generic_rows.len(),
         };
-        // Only the object counts of the types on screen (and one screen further) are fetched,
-        // plus whatever an enabled extension put on the Overview (a small, fixed set, unlike
-        // a whole picker's worth of types, so it's always worth asking for).
+        // Counts are fetched only for the types on screen (and one screen further),
+        // plus the enabled extensions' kinds, a small set the Overview always shows.
         catalog.ensure_helm(&client, &st.config.extensions.enabled);
         let mut wanted_counts = catalog.want_extension_counts(&st.config.extensions.enabled);
         if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
@@ -121,15 +120,13 @@ pub(crate) fn run(
             }
         }
         catalog.want_counts(wanted_counts);
-        // Selection can't outrun the list as rows come and go. The Overview has no
-        // selectable row, so this only matters for lists.
+        // Selection can't outrun the list as rows come and go.
         if st.current_kind != ResourceKind::Overview && row_count > 0 {
             let clamped = st.table_state.selected().unwrap_or(0).min(row_count - 1);
             st.table_state.select(Some(clamped));
         }
 
-        // Logs keep arriving in the background regardless of what key was
-        // last pressed, drain whatever's ready before every redraw.
+        // Logs keep arriving in the background; take whatever is ready before each redraw.
         if let Mode::Logs { lines, rx, .. } = &mut st.mode {
             while let Ok(line) = rx.try_recv() {
                 lines.push(line);
@@ -200,7 +197,7 @@ pub(crate) fn run(
         } else {
             st.chrome.panel = None;
         }
-        // With the sidebar or the info panel open, the border of whichever pane has the keys is lit.
+        // With the sidebar or panel open, the border of the pane with the keys is lit.
         let sidebar_shown = st.sidebar && terminal.size().map(|s| s.width >= ui::SIDEBAR_MIN_WIDTH).unwrap_or(false);
         let beside_others = (st.info_panel && panel_wide) || sidebar_shown;
         st.chrome.content_unfocused = sidebar_shown && st.sidebar_focus && matches!(st.mode, Mode::List);

@@ -1,4 +1,4 @@
-//! The resource sidebar's contents: Home, then each category with its kinds.
+//! The sidebar's rows: Home, then each category with its kinds.
 
 use super::*;
 
@@ -16,10 +16,10 @@ pub(crate) fn folded_by_default() -> HashSet<&'static str> {
     HashSet::from(["CustomResources"])
 }
 
-/// Every visible row, in the order and with the entries of the Home catalog (so the Layout
-/// settings shape both), with its live counts.
+/// Every visible row with its live count, in the Overview's order, so the Layout
+/// settings shape both.
 pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, catalog: &Catalog, overview: &k8s::Overview) -> Vec<Entry> {
-    // A custom resource or an API type opened from a list belongs to that list's row.
+    // A custom resource or API type opened from a list belongs to that list's row.
     let current = match current {
         ResourceKind::CustomResource(index, _) => catalog.crds.get(index).map_or(ResourceKind::CustomResourceList, |c| ResourceKind::CustomResourceGroup(c.group)),
         ResourceKind::Api(..) => ResourceKind::ApiResources,
@@ -46,7 +46,7 @@ pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, cat
     out
 }
 
-/// The row of the list on screen, where the cursor rests when the sidebar has no focus.
+/// The row of the list on screen, where the cursor rests without focus.
 pub(crate) fn current_index(entries: &[Entry]) -> usize {
     entries.iter().position(|e| e.row.current).unwrap_or(0)
 }

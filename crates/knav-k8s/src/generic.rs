@@ -3,8 +3,7 @@ use serde::Serialize;
 
 use super::*;
 
-/// Any object as a generic value tree for the detail view, without `managedFields`
-/// (kubectl-apply bookkeeping, unreadable).
+/// Any object as a value tree for the detail view, without `managedFields`.
 pub fn manifest_value<T: Serialize>(item: &T) -> serde_yaml::Value {
     let mut value = serde_yaml::to_value(item).unwrap_or(serde_yaml::Value::Null);
     if let Some(metadata) = value.get_mut("metadata").and_then(|m| m.as_mapping_mut()) {
@@ -13,28 +12,24 @@ pub fn manifest_value<T: Serialize>(item: &T) -> serde_yaml::Value {
     value
 }
 
-/// A row for kinds without a specialized table: enough to list and identify an
-/// object. Cluster-scoped kinds show `-` as namespace.
+/// A row for kinds without a specialized table. Cluster-scoped kinds show `-`
+/// as namespace.
 #[derive(Clone)]
 pub struct GenericRow {
     pub namespace: String,
     pub name: String,
     pub age: String,
     pub age_secs: i64,
-    /// Kind-specific columns (see `describe`), between NAME and AGE.
+    /// Kind-specific columns, between NAME and AGE.
     pub extras: Vec<crate::describe::Col>,
-    /// A short coloured status for the bottom bar.
     pub status: crate::describe::Note,
     pub uid: String,
-    /// UIDs of this object's owners (`ownerReferences`), what lets a
-    /// Deployment's ReplicaSets, or a ReplicaSet's Pods, be found.
+    /// UIDs of this object's owners, to find a Deployment's ReplicaSets and so on.
     pub owners: Vec<String>,
-    /// `k=v,k=v`, for the wide view.
     pub labels: String,
 }
 
-/// Works for typed structs and `DynamicObject` alike, since `Resource::meta()` only
-/// reads `self`. `k=v,k=v` in key order, `-` when there are none.
+/// Labels as `k=v,k=v` in key order, `-` when there are none.
 pub fn label_text(labels: Option<&std::collections::BTreeMap<String, String>>) -> String {
     match labels.filter(|l| !l.is_empty()) {
         Some(l) => l.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","),

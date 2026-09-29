@@ -1,10 +1,9 @@
 //! Sorting the resource lists by column: which key each column sorts on,
 //! and applying it. Column numbers are 0-based, in table header order.
 
-use crate::{ResourceKind};
+use crate::ResourceKind;
 
 
-/// The column a list is sorted by and which way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SortSpec {
     pub column: usize,
@@ -12,9 +11,8 @@ pub struct SortSpec {
 }
 
 impl SortSpec {
-    /// What pressing a column's number does: sort by it ascending; pressing
-    /// the same column again flips it, ascending <-> descending. A
-    /// different column starts ascending.
+    /// Pressing a column's number: sort by it ascending, or flip it if it is already
+    /// the sort column.
     pub fn pressed(current: Option<SortSpec>, column: usize) -> SortSpec {
         match current {
             Some(s) if s.column == column => SortSpec { column, descending: !s.descending },
@@ -23,8 +21,7 @@ impl SortSpec {
     }
 }
 
-/// One cell's sort value. A column only ever produces one variant, so
-/// comparing across variants never happens.
+/// One cell's sort value. A column only ever produces one variant.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key {
     Num(i64),
@@ -40,9 +37,8 @@ const DEPLOYMENT_COLUMNS: usize = 6;
 const NODE_COLUMNS: usize = 9;
 const CRD_COLUMNS: usize = 4;
 
-/// How many sortable columns the list for `kind` has. `generic_columns` is
-/// the current generic table's width (namespace if any, name, the kind's
-/// own columns, age).
+/// How many sortable columns the list for `kind` has. `generic_columns` is the
+/// generic table's width.
 pub fn column_count(kind: ResourceKind, generic_columns: usize, wide: bool) -> usize {
     match kind {
         ResourceKind::Overview => 0,
@@ -54,7 +50,7 @@ pub fn column_count(kind: ResourceKind, generic_columns: usize, wide: bool) -> u
     }
 }
 
-/// The AGE column of the list for `kind`, if it has one (k9s' `Shift-A`).
+/// The AGE column of the list for `kind`, if it has one (for `A`).
 pub fn age_column(kind: ResourceKind, generic_columns: usize, wide: bool) -> Option<usize> {
     match kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
@@ -116,7 +112,7 @@ pub fn deployment_key(row: &crate::DeploymentRow, column: usize, wide: bool) -> 
 pub fn node_key(row: &crate::NodeRow, column: usize, wide: bool) -> Key {
     match column {
         0 => text(&row.name),
-        // NotReady, then cordoned, then ready, the order you want to see problems in.
+        // NotReady, then cordoned, then ready: problems first.
         1 => Key::Num(match (row.ready, row.schedulable) {
             (false, _) => 0,
             (true, false) => 1,
@@ -137,8 +133,7 @@ pub fn node_key(row: &crate::NodeRow, column: usize, wide: bool) -> Key {
 }
 
 pub fn generic_key(row: &crate::GenericRow, column: usize, has_namespace: bool) -> Key {
-    // Without the namespace column, everything shifts left by one:
-    // namespace, name, the kind's own columns, age.
+    // Without a namespace column, the others shift left by one.
     let column = column + usize::from(!has_namespace);
     match column {
         0 => text(&row.namespace),
@@ -212,7 +207,6 @@ pub fn namespace_key(name: &str, key: Option<usize>, column: usize) -> Key {
     }
 }
 
-/// `containers` in display order for `sort`.
 pub fn sorted_containers(containers: &[crate::ContainerInfo], spec: Option<SortSpec>) -> Vec<crate::ContainerInfo> {
     let mut sorted = containers.to_vec();
     apply(&mut sorted, spec, container_key);

@@ -71,8 +71,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter | KeyCode::Char(' ') => {
                 state.toggle_selected();
             }
-            // Toggles between all open and all closed. `TreeState` can only close all
-            // in one call, so opening walks every identifier.
+            // Toggles all open or all closed. `TreeState` can only close all in one call,
+            // so opening walks every identifier.
             KeyCode::Char('a') => {
                 if *expanded_all {
                     state.close_all();
@@ -85,9 +85,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
                 *expanded_all = !*expanded_all;
             }
-            // Shows the selected leaf's full value, untruncated,
-            // a no-op on a branch node (nothing in `leaf_values`
-            // for it).
+            // The selected leaf's full value; nothing on a branch.
             KeyCode::Char('v') => {
                 if let Some(id) = state.selected().last()
                     && let Some((label, value)) = leaf_values.get(id)

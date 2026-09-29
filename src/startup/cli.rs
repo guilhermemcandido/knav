@@ -1,5 +1,5 @@
-//! Command-line arguments: `knav [-c <name>]` launches the TUI; `version`, `update` and `help`
-//! are the other things there is to do without a cluster.
+//! Command-line arguments: `knav [-c <name>]` launches the TUI; `version`, `update`
+//! and `help` work without a cluster.
 
 use anyhow::{Context as _, Result};
 
@@ -12,8 +12,8 @@ use crate::util::fuzzy;
 pub(crate) const USAGE: &str = "knav [-c|--context [name]]\n\nLaunches the TUI against your current kubeconfig context.\n\nCommands:\n  version               show the version (also -v, --version)\n  update [-y|--yes]     update to the latest release (also self-update)\n  help                  show this help (also -h, --help)\n\nOptions:\n  -c, --context <name>  fuzzy-match a kubeconfig context and connect to it directly\n  -c, --context         (no name) pick a context from a list\n";
 
 pub(crate) enum Cli {
-    /// `--context <name>` (fuzzy-matched against the kubeconfig) skips the cluster picker,
-    /// regardless of `startup.mode`; `--context` with no name always shows the picker.
+    /// `--context <name>` (fuzzy-matched) skips the picker whatever `startup.mode` says;
+    /// a bare `--context` always shows it.
     Launch { context_query: Option<String>, pick: bool },
     Version,
     /// `-y`/`--yes` skips the "update to vX.Y.Z?" confirmation.
@@ -56,9 +56,8 @@ impl Cli {
     }
 }
 
-/// Resolves the context to connect to. A `--context <name>` query always wins (fuzzy, once);
-/// otherwise a bare `--context`, or `startup.mode = "menu"`, shows the picker; otherwise
-/// direct. `Ok(None)` from the picker means the user cancelled, so knav exits.
+/// The context to connect to: a `--context <name>` query first, then the picker for a
+/// bare `--context` or `startup.mode = "menu"`, else direct. `Ok(None)` means cancelled.
 pub(crate) fn resolve_context(context_query: Option<&str>, pick: bool, config: &Config) -> Result<Option<String>> {
     if let Some(query) = context_query {
         let contexts = k8s::list_contexts()?;

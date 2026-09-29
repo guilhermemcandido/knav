@@ -1,5 +1,4 @@
-//! Answering the questions that come before an action: yes/no for the
-//! destructive ones, a number for scale.
+//! Answering the questions before an action: yes or no, or a number for scale.
 
 use crate::ops::NoticeTone;
 use super::super::*;

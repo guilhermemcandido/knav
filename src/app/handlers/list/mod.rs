@@ -1,4 +1,4 @@
-//! Input on the main list (and the overview): sorting, namespaces, drill-down, opening details.
+//! Input on the main list and the Overview: sorting, namespaces, drilling down, details.
 
 use crate::ops::NoticeTone;
 use super::super::*;
@@ -23,9 +23,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let mut open = false;
     let mut to_owner = false;
     match (event, &mut st.mode) {
-        // Ctrl combinations: `Ctrl-z` lists only rows that need a look,
-        // `Ctrl-w` adds the wide columns. Any other Ctrl key does nothing
-        // (rather than acting as its plain letter).
+        // Ctrl-z lists only rows that need a look, Ctrl-w adds the wide columns, and any
+        // other Ctrl key does nothing rather than acting as its letter.
         (Event::Key(key), Mode::List) if key.modifiers.contains(KeyModifiers::CONTROL) => match key.code {
             KeyCode::Char('z') => {
                 st.faults_only = !st.faults_only;
@@ -40,9 +39,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('u') if st.info_panel => st.info_scroll = st.info_scroll.saturating_sub(8),
             _ => {}
         },
-        // Sort mode (`s`): headers show column numbers 0-9 and a digit sorts by that column; the
-        // arrows move a cursor along the headers so any column can be picked, and Enter sorts by it.
-        // The same column again flips ascending, descending, off. It stays on until `s`, Esc or `q`.
+        // Sort mode (`s`): a digit or the header cursor and Enter picks a column. The same
+        // column again flips it, then clears it. It stays on until `s`, Esc or `q`.
         (Event::Key(key), Mode::List)
             if st.sort_choosing && matches!(key.code, KeyCode::Char('0'..='9' | 's' | 'q' | 'h' | 'l') | KeyCode::Esc | KeyCode::Left | KeyCode::Right | KeyCode::Enter) =>
         {
@@ -81,8 +79,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
         }
-        // Number keys pick the active namespace: 0 is all, 1-9 are the
-        // ones reserved with `s`. Reachable from any list.
+        // Number keys pick the namespace: 0 is all, 1-9 the ones reserved with `n`.
         (Event::Key(key), Mode::List) if matches!(key.code, KeyCode::Char('0'..='9')) => {
             if let KeyCode::Char(c) = key.code {
                 let n = c.to_digit(10).unwrap_or(0) as usize;
@@ -107,14 +104,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             key.code
         } {
-            // `q` and Esc undo one step: back out of a drill-down, or return to whatever
-            // mode a jump into this list (Relations' `o`, Details' Enter) left behind,
-            // in the order these actually happened. Once there is nothing left: to the
-            // Overview, always — browsing into a CRD kind's instances (from CustomResources)
-            // or one discovered type's Table view (from API Resources) both push a step
-            // (see the `Enter` arms below), so an empty stack here only ever means this
-            // kind was jumped to directly (an Overview tile, `:kind`), never that its
-            // picker is where "back" belongs. `:q` quits.
+            // `q` and Esc undo one step: out of a drill-down, or back to the mode a jump
+            // left behind. With nothing left, the Overview; pickers push their own step, so
+            // an empty stack means this kind was opened directly. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.back_stack.is_empty() => match st.back_stack.pop() {
                 Some(Step::List(kind, previous_scope, selected)) => {
@@ -136,9 +128,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.table_state.select(Some(0));
                 st.search.clear();
             }
-            // Enter drills into what a row owns or selects: a
-            // Deployment's ReplicaSets, a ReplicaSet's Pods, a
-            // Service's Pods, a CronJob's Jobs, a Namespace's Pods.
+            // Enter drills into what a row owns or selects, like a Deployment's ReplicaSets.
             KeyCode::Enter if st.current_kind.drill_target().is_some() => {
                 let target = st.current_kind.drill_target().expect("guarded above");
                 let selected = st.table_state.selected().unwrap_or(0);
@@ -176,12 +166,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.search.clear();
                 }
             }
-            // ←/→ (or h/l) scroll a table sideways when its columns don't
-            // all fit; the title shows `‹ ›` for what's out of view.
+            // Left and right scroll a table sideways when its columns don't all fit.
             KeyCode::Left => st.hscroll = st.hscroll.saturating_sub(1),
             KeyCode::Right => st.hscroll += 1,
-            // `s` sorts: the column numbers in the header light up and the
-            // next digit picks one.
+            // `s` starts sort mode: header numbers light up and a digit picks one.
             KeyCode::Char('s') if column_count(st.current_kind, *generic_columns, st.wide) > 0 => {
                 st.sort_choosing = true;
                 st.sort_cursor = st.sort.map_or(0, |s| s.column);
@@ -193,8 +181,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.table_state.select(Some(0));
                 }
             }
-            // `n` gives a namespace one of the keys 1-9. On the Namespaces list it acts on
-            // the highlighted row; elsewhere it shows the namespaces to choose from.
+            // `n` gives a namespace a key 1-9: the highlighted row on the Namespaces list,
+            // else a picker of namespaces.
             KeyCode::Char('n') => {
                 if st.current_kind == ResourceKind::Namespaces {
                     if let Some(name) = st.table_state.selected().and_then(|i| generic_rows.get(i)).map(|r| r.name.clone()) {
@@ -220,17 +208,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         open_spec(&mut st.mode, title_for(dep.metadata.namespace.as_deref(), dep.metadata.name.as_deref()), dep.as_ref());
                     }
                 }
-                // Indexes into the filtered `sorted_nodes`, not `generic_rows`, which
-                // re-snapshot unfiltered and would misalign while a search is active.
+                // Indexes the filtered `sorted_nodes`, which match what is shown.
                 ResourceKind::Nodes => {
                     if let Some(node) = st.table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                         open_spec(&mut st.mode, node.metadata.name.clone().unwrap_or_default(), node.as_ref());
                     }
                 }
                 _ => {
-                    // `table_state.selected()` is a position in the
-                    // *filtered* display; `generic_visible` maps it
-                    // back to `spec_at`'s real index.
+                    // The selection is a display position; `generic_visible` maps it to
+                    // `spec_at`'s index.
                     if let Some(display_index) = st.table_state.selected()
                         && let Some(&real_index) = generic_visible.get(display_index)
                         && let Some(row) = generic_rows_full.get(real_index)
@@ -241,16 +227,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
             },
-            // Edit the selected resource in `$EDITOR` (see `edit`),
-            // the same manifest `d` shows, for every kind that has
-            // a selectable row.
+            // Edit the selected object in `$EDITOR`, the same manifest `d` shows.
             KeyCode::Char('e') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     let outcome = edit::edit_resource(cx.terminal, &client, &manifest);
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };
                 }
             }
-            // Actions on the selected object (see `actions`).
             // Forward a port of a pod, service or deployment.
             KeyCode::Char('F') => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)
@@ -260,7 +243,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
                 }
             }
-            // The theme picker, and the settings.
             KeyCode::Char('T') => super::themes::open(st, cx.config),
             KeyCode::Char(',') => super::settings::open(st),
             // History: back, forward, and the view before this one.
@@ -289,7 +271,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
             }
-            // The manifest as plain YAML text.
             KeyCode::Char('y') => {
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
                     && let Some(target) = Target::from_manifest(&manifest)
@@ -300,7 +281,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
                 }
             }
-            // A readable summary of the selected object.
             KeyCode::Char('i') if frame_area.width >= ui::SIDE_PANEL_MIN_WIDTH => {
                 st.info_panel = !st.info_panel;
                 st.info_focus = false;
@@ -315,12 +295,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
                 }
             }
-            // What the selected object relates to.
             KeyCode::Char('R') => {
                 for kind in RELATED_KINDS {
                     catalog.ensure(kind);
                 }
-                // The first time, the kinds are still loading: wait for them in the background, then press R again.
+                // The first time, the kinds are still loading: wait in the background, then press R again.
                 if !catalog.all_ready(&RELATED_KINDS) {
                     let waits: Vec<_> = RELATED_KINDS.iter().filter_map(|k| catalog.get(*k)).map(|k| k.wait_ready()).collect();
                     crate::app::jobs::wait_then_replay(st, "Loading related objects", waits, key);
@@ -331,7 +310,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), zoom: ui::DEFAULT_ZOOM, back: Box::new(back) };
                 }
             }
-            // Copy the row's name (`namespace/name`) to the clipboard.
             KeyCode::Char('Y') => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let name = target.namespace.as_deref().map(|ns| format!("{ns}/{}", target.name)).unwrap_or_else(|| target.name.clone());
@@ -357,14 +335,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     open_pod(st, cx, &target, PodView::Logs { previous: c == 'p' });
                 }
             }
-            // Every pod behind the selected workload (or, on a Pod itself, its
-            // siblings), tailed as one merged stream.
+            // Every pod behind the selected workload (for a Pod, its siblings) as one stream.
             KeyCode::Char('L') if matches!(st.current_kind, ResourceKind::Pods | ResourceKind::Deployments | ResourceKind::ReplicaSets | ResourceKind::StatefulSets | ResourceKind::DaemonSets | ResourceKind::Jobs) => {
                 for kind in RELATED_KINDS {
                     catalog.ensure(kind);
                 }
-                // The first time, the kinds are still loading (the ReplicaSet needs to be
-                // in hand to walk from a Pod up to its Deployment): wait, then press L again.
+                // The first time, the kinds are still loading (a Pod's ReplicaSet leads to its
+                // Deployment): wait, then press L again.
                 if !catalog.all_ready(&RELATED_KINDS) {
                     let waits: Vec<_> = RELATED_KINDS.iter().filter_map(|k| catalog.get(*k)).map(|k| k.wait_ready()).collect();
                     crate::app::jobs::wait_then_replay(st, "Loading the workload's pods", waits, key);
@@ -384,8 +361,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         }
                     }
                     if targets.is_empty() {
-                        // A ReplicaSet scaled to 0, a completed Job, ... there's a manifest but
-                        // no live pods behind it right now; say so instead of doing nothing silently.
+                        // A ReplicaSet at 0 or a completed Job has no live pods: say so.
                         st.mode = Mode::Notice { text: format!("{namespace}/{owner_name} has no running pods right now"), tone: NoticeTone::Info, back: Box::new(Mode::List) };
                     } else {
                         let title = format!("{namespace}/{owner_name} ({} pod{})", pods.len(), if pods.len() == 1 { "" } else { "s" });
@@ -408,8 +384,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
-                // Delete, restart and scale act on every marked row when
-                // there are marks; everything else on the cursor row.
+                // Delete, restart and scale act on every marked row when there are marks.
                 let bulk = matches!(c, 'D' | 'S' | 'r') && !st.marked.is_empty();
                 let targets: Vec<Target> = if bulk {
                     marked_targets(st, cx.d, catalog, client)
@@ -452,9 +427,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     select_next(&mut st.table_state, row_count);
                 }
             }
-            // Open the resource type under the cursor as a list of its own, remembering
-            // this list so q/Esc returns to it (not just to whichever list is hardcoded
-            // as "usually" the one before it).
+            // Open the type under the cursor as its own list, with a step back to this one.
             KeyCode::Enter if st.current_kind == ResourceKind::ApiResources => {
                 let api = st.table_state.selected().and_then(|i| generic_visible.get(i).copied()).and_then(|real| catalog.apis.get(real).map(|a| (real, a.plural)));
                 if let Some((index, plural)) = api {
@@ -496,8 +469,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     };
                 }
             }
-            // Freelens-style node drill-down: what's actually running
-            // on this node, plus its own CPU/Memory/Pods gauges.
+            // A node's drill-down: its gauges and the pods running on it.
             KeyCode::Enter if st.current_kind == ResourceKind::Nodes => {
                 if let Some(node) = st.table_state.selected().and_then(|i| sorted_nodes.get(i)) {
                     let name = node.metadata.name.clone().unwrap_or_default();

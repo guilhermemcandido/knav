@@ -2,8 +2,8 @@
 use anyhow::Result;
 use kube::Client;
 
-/// One kubeconfig context for the cluster picker. `cluster` and `namespace` are
-/// shown too, since similar names can point at very different clusters.
+/// One kubeconfig context for the picker. Cluster and namespace are shown too,
+/// since similar names can point at very different clusters.
 pub struct ContextInfo {
     pub name: String,
     pub cluster: String,
@@ -11,9 +11,7 @@ pub struct ContextInfo {
     pub is_current: bool,
 }
 
-/// Every context in the kubeconfig (`$KUBECONFIG` or `~/.kube/config`,
-/// same resolution `kube` itself uses), the picker's whole candidate
-/// list. Ordering matches the file, same as `kubectl config get-contexts`.
+/// Every context in the kubeconfig, resolved the way `kube` does, in file order.
 pub fn list_contexts() -> Result<Vec<ContextInfo>> {
     let kubeconfig = kube::config::Kubeconfig::read()?;
     let current = kubeconfig.current_context.clone();

@@ -1,16 +1,13 @@
-//! The shared colour palette and small styling helpers every screen uses.
+//! Shared styling helpers every screen uses.
 
 use super::*;
 
-/// The colour everything in a dimmed background layer is muted to: darker than
-/// `DarkGray`, plus `DIM`, so a screen behind a popup reads as out of focus.
+/// What a screen behind a popup is muted to, so it reads as out of focus.
 pub(super) fn dim_style() -> Style {
     Style::default().fg(theme().dim).add_modifier(Modifier::DIM)
 }
 
-/// The table palette, after k9s: pale-teal rows, a lighter blue header,
-/// a solid pale-blue selection bar with dark text, and a slate border.
-/// Every list/table goes through these so they read as one theme.
+/// The plain row style every table uses.
 pub(super) fn theme_row(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(theme().row) }
 }
@@ -19,15 +16,13 @@ pub(super) fn theme_header(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(theme().header) }
 }
 
-/// The selected row, after k9s: a solid pale-blue bar with dark bold text,
-/// laid over the row's own colours (so a selected failing pod is still
-/// findable by the path, not by its tint).
+/// The selected row: a solid bar with dark bold text over the row's own colours.
 pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     if dimmed {
         return dim_style();
     }
-    // The bar wears the state of the row it is on, like k9s: red on a broken
-    // pod, orange on a pending one, grey on a finished one.
+    // The bar wears the row's state: red on a broken pod, orange on a pending one,
+    // grey on a finished one.
     let bg = match tone {
         crate::k8s::describe::Tone::Plain | crate::k8s::describe::Tone::Good => theme().select_bg,
         other => tone_color(other),
@@ -35,14 +30,13 @@ pub(super) fn selection_style(tone: crate::k8s::describe::Tone, dimmed: bool) ->
     Style::default().bg(bg).fg(crate::theme::on(bg)).add_modifier(Modifier::BOLD)
 }
 
-/// Gives marked rows (Space) their own fill, under the cells like the selection bar.
-/// `marked` says, row by row, which are marked and may be empty (no marks).
+/// Gives marked rows (Space) their own fill. `marked` says row by row which are marked.
 pub(super) fn mark_rows<'a>(rows: impl Iterator<Item = Row<'a>>, marked: &[bool], dimmed: bool) -> Vec<Row<'a>> {
     let mark = if dimmed { dim_style() } else { Style::default().bg(theme().marked_bg) };
     rows.enumerate().map(|(i, row)| if marked.get(i).copied().unwrap_or(false) { row.style(mark) } else { row }).collect()
 }
 
-/// The key a marked row is remembered by: `namespace/name` (`-` when cluster-scoped).
+/// The key a marked row is remembered by: `namespace/name`, `-` when cluster-scoped.
 pub fn mark_key(namespace: &str, name: &str) -> String {
     format!("{namespace}/{name}")
 }
@@ -61,7 +55,7 @@ pub fn border_set_named(name: &str) -> ratatui::symbols::border::Set<'static> {
 
 static BORDER: RwLock<Option<ratatui::symbols::border::Set<'static>>> = RwLock::new(None);
 
-/// Picks the box line style once, at startup, from the config.
+/// Sets the box line style from the config.
 pub fn configure_border(name: &str) {
     if let Ok(mut border) = BORDER.write() {
         *border = Some(border_set_named(name));
@@ -81,7 +75,7 @@ pub(super) struct ListLook {
     pub focused: bool,
     /// The sidebar has the keys, so the selection is marked quietly.
     pub unfocused: bool,
-    /// Cells at the right of the top border kept for the sorting, faults and wide badges.
+    /// Cells at the right of the top border kept for the badges.
     pub title_reserve: u16,
 }
 
@@ -103,7 +97,7 @@ pub(super) fn theme_border(dimmed: bool) -> Style {
     if dimmed { dim_style() } else { Style::default().fg(theme().border) }
 }
 
-/// k9s-style table title: the kind as a filled pill, the count in orange.
+/// A table title: the kind as a pill, the count in orange.
 pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bool) -> Line<'static> {
     if dimmed {
         return Line::styled(format!(" {label} ({count}) "), dim_style());
@@ -120,16 +114,14 @@ pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bo
     Line::from(spans)
 }
 
-/// ` search: text▏ ` for the right end of a top border (`▏` is the cursor)
-/// while a search is being typed or applied; nothing when there isn't one.
-/// Every searchable screen shows it the same way.
+/// ` search: text▏ ` for the right of a top border while a search is typed or applied.
 fn search_title(text: &str, editing: bool, dimmed: bool, reserve: u16) -> Option<Line<'static>> {
     if text.is_empty() && !editing {
         return None;
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
     let reserve = usize::from(reserve);
-    // The room kept for the badges is filled with the border's own line, not blanks.
+    // The badges' room is filled with the border line, not blanks.
     let filler = border_set().horizontal_top.repeat(reserve);
     Some(Line::from(vec![Span::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style), Span::styled(filler, theme_border(dimmed))]).right_aligned())
 }
@@ -147,8 +139,7 @@ pub(super) fn with_search_beside<'a>(block: Block<'a>, text: &str, editing: bool
     }
 }
 
-/// Shared namespace/name colouring: namespace in the cyan accent, name bold, `/`
-/// muted. Used wherever a `namespace/name` pair shows up.
+/// A `namespace/name` pair: namespace in the accent colour, name bold, `/` muted.
 pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
     vec![
         Span::styled(namespace.to_string(), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
@@ -157,9 +148,8 @@ pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'sta
     ]
 }
 
-/// Colours a `/`-joined title like the path: namespace in the cyan accent, a
-/// container name in its own accent, the rest bold, joined by muted `/`. A title
-/// without `/` is plain bold.
+/// A `/`-joined title coloured like the path: namespace and container in their
+/// accents, the rest bold. A title without `/` is plain bold.
 pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
     let parts: Vec<&str> = title.split('/').collect();
     if parts.len() < 2 {
@@ -177,15 +167,14 @@ pub(super) fn colored_slash_title(title: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-/// The look of a matched search character: yellow fill, dark bold text,
-/// underlined so it still shows on the selected row's own fill.
+/// A matched search character: yellow fill, dark bold, underlined so it shows on the
+/// selected row too.
 pub(super) fn match_style() -> Style {
     Style::default().bg(theme().highlight).fg(crate::theme::on(theme().highlight)).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
 }
 
-/// `text` with the characters the fuzzy filter `pattern` matched
-/// highlighted; plain `base` when there's no pattern or it doesn't match
-/// this cell. Consecutive matched characters share one span.
+/// `text` with the characters `pattern` fuzzy-matched highlighted, or plain `base`
+/// when nothing matches.
 pub(super) fn highlight_fuzzy(text: &str, pattern: &str, base: Style) -> Line<'static> {
     let Some(positions) = (!pattern.is_empty()).then(|| crate::util::fuzzy::positions(pattern, text)).flatten() else {
         return Line::styled(text.to_string(), base);
@@ -228,9 +217,8 @@ mod highlight_tests {
     }
 }
 
-/// A table header. In sort mode (`s`) every column carries its number,
-/// `(1)NAME`; the sorted column always carries an arrow, `AGE ▲`
-/// (ascending) or `AGE ▼` (descending).
+/// A table header. In sort mode every column shows its number, `(1)NAME`; the sorted
+/// column shows ▲ or ▼.
 pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: &Window) -> Row<'static> {
     let text = theme_header(dimmed);
     let number = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
@@ -238,7 +226,7 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
         let name = names[i];
         let mut spans = Vec::new();
         if sort.choosing && i < 10 {
-            // Columns 0-9 are keys 0-9; later ones are reached with the sort cursor.
+            // Columns 0 to 9 are keys 0 to 9; later ones are reached with the cursor.
             spans.push(Span::styled(format!("({i})"), number));
         }
         let under_cursor = sort.cursor == Some(i) && !dimmed;
@@ -251,8 +239,7 @@ pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: 
     Row::new(cells)
 }
 
-/// The colour a cell's tone gets (see `describe::Tone`); plain cells keep
-/// the row colour, and everything goes dim behind a popup.
+/// A cell's tone as a style. Plain cells keep the row colour; everything dims behind a popup.
 pub(super) fn tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     if dimmed {
         return dim_style();
@@ -260,8 +247,8 @@ pub(super) fn tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Styl
     Style::default().fg(tone_color(tone))
 }
 
-/// The state colours, after k9s: healthy stays the row teal, in-progress
-/// is orange, broken is a soft red, finished is grey.
+/// The state colours: healthy keeps the row colour, in progress orange, broken red,
+/// finished grey.
 pub(super) fn tone_color(tone: crate::k8s::describe::Tone) -> Color {
     use crate::k8s::describe::Tone;
     match tone {
@@ -273,8 +260,8 @@ pub(super) fn tone_color(tone: crate::k8s::describe::Tone) -> Color {
     }
 }
 
-/// The style of a row's ordinary cells: the row teal, or the colour of the
-/// row's state, so a failing pod reads as red from end to end.
+/// A row's ordinary cells: the row colour, or its state's, so a failing pod is red
+/// end to end.
 pub(super) fn row_tone_style(tone: crate::k8s::describe::Tone, dimmed: bool) -> Style {
     tone_style(tone, dimmed)
 }
@@ -339,8 +326,7 @@ mod border_tests {
     }
 }
 
-/// The title text as a pill: every part gets its own text colour, so it reads the same whatever
-/// the border colour.
+/// A title as a pill, each part in its own text colour whatever the border's.
 fn pill_spans(title: &str, dimmed: bool) -> Vec<Span<'static>> {
     if dimmed {
         return vec![Span::styled(format!(" {title} "), dim_style())];
@@ -355,22 +341,21 @@ fn pill_spans(title: &str, dimmed: bool) -> Vec<Span<'static>> {
     spans
 }
 
-/// A popup title as a pill set in from the corner, like the `sorting` and `wide` badges. The gap
-/// before it is drawn with the border line (`border`), so the box's top edge stays unbroken.
+/// A popup title as a pill set in from the corner. The gap before it is drawn with
+/// the border line, so the top edge stays unbroken.
 pub(super) fn pill_title(title: &str, dimmed: bool, border: Style) -> Line<'static> {
     let mut spans = vec![Span::styled(border_set().horizontal_top.repeat(2), border)];
     spans.extend(pill_spans(title, dimmed));
     Line::from(spans)
 }
 
-/// The same pill in the middle of the top edge, for windows that are not about one object.
+/// The same pill in the middle of the top edge, for windows not about one object.
 pub(super) fn pill_title_centered(title: &str, dimmed: bool) -> Line<'static> {
     Line::from(pill_spans(title, dimmed)).centered()
 }
 
-/// A box's own key hints, set in its bottom border: `<key>` bold and coloured so it stands
-/// out from its muted description, e.g. `<o> open list`. Movement (arrows, hjkl) is left out,
-/// since it is assumed everywhere.
+/// A box's own key hints in its bottom border, like `<o> open list`. Movement keys
+/// are left out, since they work everywhere.
 pub(super) fn hint_strip(hints: &[(&str, &str)]) -> Line<'static> {
     let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme().desc);

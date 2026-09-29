@@ -1,6 +1,5 @@
-//! The theme picker: moving through the list previews each theme on the
-//! whole interface; Enter keeps it (saving it to the config), Esc restores
-//! what was there.
+//! The theme picker: moving previews each theme on the whole interface; Enter saves
+//! it, Esc restores what was there.
 
 use crate::ops::NoticeTone;
 use super::super::*;
