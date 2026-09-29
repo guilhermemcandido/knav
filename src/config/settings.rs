@@ -241,7 +241,8 @@ pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>
 pub fn save(file: &Path, path: &str, value: Option<toml_edit::Value>) -> Result<Config> {
     let existing = std::fs::read_to_string(file).unwrap_or_default();
     let updated = edit_document(&existing, path, value)?;
-    let config: Config = toml::from_str(&updated).context("that would make config.toml invalid")?;
+    let mut config: Config = toml::from_str(&updated).context("that would make config.toml invalid")?;
+    config.overview.migrate_legacy_names();
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).ok();
     }

@@ -60,6 +60,28 @@ pub struct OverviewConfig {
     pub hidden: Vec<String>,
 }
 
+/// Names a saved layout may still use from before they were renamed. An
+/// unrecognized name is silently unlisted, which drops it after every listed
+/// category (an old "Custom Resources" put CustomResources after Helm).
+const LEGACY_NAMES: &[(&str, &str)] = &[("Custom Resources", "CustomResources"), ("Helm Releases", "HelmReleases")];
+
+fn current_name(name: &str) -> String {
+    LEGACY_NAMES.iter().find(|(old, _)| *old == name).map_or(name, |(_, new)| new).to_string()
+}
+
+impl OverviewConfig {
+    /// Rewrites legacy category and kind names to their current spelling.
+    pub fn migrate_legacy_names(&mut self) {
+        for name in &mut self.sections {
+            *name = current_name(name);
+        }
+        self.items = std::mem::take(&mut self.items).into_iter().map(|(section, items)| (current_name(&section), items.iter().map(|i| current_name(i)).collect())).collect();
+        for entry in &mut self.hidden {
+            *entry = entry.split('/').map(current_name).collect::<Vec<_>>().join("/");
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct LogsConfig {
@@ -252,8 +274,11 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::default(), Vec::new()),
             Err(e) => return (Config::default(), vec![format!("could not read {}: {e}", path.display())]),
         };
-        match toml::from_str(&contents) {
-            Ok(config) => (config, Vec::new()),
+        match toml::from_str::<Config>(&contents) {
+            Ok(mut config) => {
+                config.overview.migrate_legacy_names();
+                (config, Vec::new())
+            }
             Err(e) => (Config::default(), vec![format!("{} could not be read, so defaults are in use:\n{e}", path.display())]),
         }
     }
@@ -268,5 +293,26 @@ impl Config {
         let set = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty()).map(PathBuf::from);
         let base = set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config"))).unwrap_or_else(std::env::temp_dir);
         base.join("knav")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_layout_saved_before_the_renames_uses_the_current_names() {
+        let mut overview: OverviewConfig = toml::from_str(
+            r#"
+            sections = ["Access Control", "Custom Resources", "Helm"]
+            items = { Helm = ["Helm Releases", "HelmChart"] }
+            hidden = ["Custom Resources", "Helm/Helm Releases"]
+            "#,
+        )
+        .unwrap();
+        overview.migrate_legacy_names();
+        assert_eq!(overview.sections, ["Access Control", "CustomResources", "Helm"]);
+        assert_eq!(overview.items["Helm"], ["HelmReleases", "HelmChart"]);
+        assert_eq!(overview.hidden, ["CustomResources", "Helm/HelmReleases"]);
     }
 }
