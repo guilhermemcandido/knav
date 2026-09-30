@@ -79,7 +79,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Working { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Working { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::EditReview { .. } => Vec::new(),
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),

@@ -34,7 +34,7 @@ use crate::extensions;
 use crate::input::keys;
 use crate::k8s::{self, ResourceKind, catalog::Catalog, metrics, scope::*, sort::*};
 use crate::ops::actions::{self, Action, Target};
-use crate::ops::{NoticeTone, clipboard, edit, portforward, shell};
+use crate::ops::{NoticeTone, clipboard, portforward, shell};
 use crate::ui::{self, icons};
 use crate::util::fuzzy;
 

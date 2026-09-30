@@ -99,6 +99,16 @@ pub struct ScaleView<'a> {
     pub yes: bool,
 }
 
+/// The edit review: what changes, where it is scrolled, the focused button, and why
+/// the last try was refused.
+pub struct EditReviewView<'a> {
+    pub title: &'a str,
+    pub diff: &'a [(crate::ops::edit::DiffKind, String)],
+    pub scroll: usize,
+    pub focus: usize,
+    pub error: Option<&'a str>,
+}
+
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
@@ -131,6 +141,7 @@ pub enum Overlay<'a> {
     Yaml { title: &'a str, text: &'a str, scroll: usize },
     PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
     Scale(ScaleView<'a>),
+    EditReview(EditReviewView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -396,6 +407,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::Working { .. })
                 | Some(Overlay::Backdrop)
                 | Some(Overlay::Scale(..))
+                | Some(Overlay::EditReview(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -607,6 +619,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Confirm { spec, yes } => draw_confirm_popup(frame, spec, yes),
         Overlay::Backdrop => {}
         Overlay::Scale(view) => draw_scale_popup(frame, &view),
+        Overlay::EditReview(view) => draw_edit_review(frame, view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

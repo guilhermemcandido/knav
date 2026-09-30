@@ -229,6 +229,13 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
+            Mode::EditReview { draft, diff, scroll, focus, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let overlay = ui::Overlay::EditReview(ui::EditReviewView { title: &draft.title, diff, scroll: *scroll, focus: *focus, error: draft.error.as_deref() });
+                    paint(frame, None, None, Some(overlay), false);
+                })?;
+            }
             Mode::Scale { targets, input, yes, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

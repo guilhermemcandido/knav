@@ -1,5 +1,5 @@
-//! `e`: edit a resource in `$EDITOR` like `kubectl edit`. A rejected edit reopens
-//! the editor with the reason as a comment header; saving unchanged cancels.
+//! `e`: edit a resource in `$EDITOR` like `kubectl edit`. The app shows the changes
+//! before anything is applied; a rejected edit reopens with the reason on top.
 
 use std::io::stdout;
 use std::process::Command;
@@ -7,7 +7,6 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
-use super::{NoticeTone, Outcome};
 use kube::{
     Client,
     api::{Api, DynamicObject, PostParams},
@@ -15,49 +14,48 @@ use kube::{
     discovery::{Scope, pinned_kind},
 };
 
-/// Runs the edit flow for one manifest. Failures become an `Outcome`, since the
-/// terminal must be restored either way.
-pub fn edit_resource(terminal: &mut ratatui::DefaultTerminal, client: &Client, manifest: &serde_yaml::Value) -> Outcome {
-    let original = match serde_yaml::to_string(manifest) {
-        Ok(y) => y,
-        Err(e) => return Outcome { text: format!("Can't render the manifest: {e}"), tone: NoticeTone::Failed },
-    };
-    let result = edit_loop(terminal, client, &original);
-    match result {
-        Ok(Some(text)) => Outcome { text, tone: NoticeTone::Done },
-        Ok(None) => Outcome { text: "No changes".into(), tone: NoticeTone::Info },
-        Err(e) => Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
-    }
-}
-
-fn edit_loop(terminal: &mut ratatui::DefaultTerminal, client: &Client, original: &str) -> Result<Option<String>> {
+/// Opens `$EDITOR` on `text`, with `error` from a rejected try as a comment header.
+/// `None` when the editor exits non-zero (`:cq` in vi), which means abort.
+pub fn open_editor(terminal: &mut ratatui::DefaultTerminal, text: &str, error: Option<&str>) -> Result<Option<String>> {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
     let file = TempFile(std::env::temp_dir().join(format!("knav-edit-{}-{nanos}.yaml", std::process::id())));
-    let path = file.0.clone();
-    let mut current = original.to_string();
-    let mut header = String::new();
-    let mut last_error = String::new();
-    let outcome = loop {
-        write_private(&path, &format!("{header}{current}")).context("writing the temp file")?;
-        if !run_editor(terminal, &path)? {
-            // A non-zero exit (`:cq` in vi) means abort, so drop the edit quietly.
-            break None;
+    let header = error.map(|e| format!("# Edit failed: {}\n#\n", e.replace('\n', "\n# "))).unwrap_or_default();
+    write_private(&file.0, &format!("{header}{text}")).context("writing the temp file")?;
+    if !run_editor(terminal, &file.0)? {
+        return Ok(None);
+    }
+    let edited = std::fs::read_to_string(&file.0).context("reading the temp file back")?;
+    Ok(Some(strip_comment_header(&edited)))
+}
+
+/// One line of a diff.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DiffKind {
+    Removed,
+    Added,
+    Same,
+    /// Unchanged lines left out between two changes.
+    Gap,
+}
+
+/// What changed from `original` to `edited`, with three lines of context around it.
+pub fn diff(original: &str, edited: &str) -> Vec<(DiffKind, String)> {
+    let text = similar::TextDiff::from_lines(original, edited);
+    let mut lines = Vec::new();
+    for (i, group) in text.grouped_ops(3).iter().enumerate() {
+        if i > 0 {
+            lines.push((DiffKind::Gap, String::new()));
         }
-        let edited = strip_comment_header(&std::fs::read_to_string(&path).context("reading the temp file back")?);
-        if edited.trim() == current.trim() {
-            // Nothing changed, or a rejected edit was saved as-is: give up.
-            break if current.trim() == original.trim() { None } else { bail!("{last_error}\n(cancelled)") };
+        for change in group.iter().flat_map(|op| text.iter_changes(op)) {
+            let kind = match change.tag() {
+                similar::ChangeTag::Delete => DiffKind::Removed,
+                similar::ChangeTag::Insert => DiffKind::Added,
+                similar::ChangeTag::Equal => DiffKind::Same,
+            };
+            lines.push((kind, change.value().trim_end_matches('\n').to_string()));
         }
-        current = edited;
-        match apply(client, original, &current) {
-            Ok(text) => break Some(text),
-            Err(e) => {
-                last_error = format!("{e:#}");
-                header = format!("# Edit failed: {last_error}\n# Save unchanged to cancel.\n#\n");
-            }
-        }
-    };
-    Ok(outcome)
+    }
+    lines
 }
 
 /// The edit buffer on disk, removed however the edit ends.
@@ -107,7 +105,8 @@ fn run_editor(terminal: &mut ratatui::DefaultTerminal, path: &std::path::Path) -
 
 /// Replaces the object with the edited manifest. The kind, name and namespace must
 /// match, since the API can't rename.
-fn apply(client: &Client, original: &str, edited: &str) -> Result<String> {
+pub async fn apply(client: Client, original: String, edited: String) -> Result<String> {
+    let (original, edited) = (original.as_str(), edited.as_str());
     let old: DynamicObject = serde_yaml::from_str(original).context("original manifest")?;
     let new: DynamicObject = serde_yaml::from_str(edited).context("the edited YAML is not a valid manifest")?;
     let types = new.types.clone().context("apiVersion and kind are required")?;
@@ -119,18 +118,14 @@ fn apply(client: &Client, original: &str, edited: &str) -> Result<String> {
         bail!("metadata.name and metadata.namespace can't be changed");
     }
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let gvk = GroupVersionKind::try_from(&types)?;
-            let (resource, caps) = pinned_kind(client, &gvk).await?;
-            let api: Api<DynamicObject> = match (caps.scope, new.metadata.namespace.as_deref()) {
-                (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
-                _ => Api::all_with(client.clone(), &resource),
-            };
-            api.replace(&name, &PostParams::default(), &new).await?;
-            Ok(format!("{}/{name} edited", types.kind.to_lowercase()))
-        })
-    })
+    let gvk = GroupVersionKind::try_from(&types)?;
+    let (resource, caps) = pinned_kind(&client, &gvk).await?;
+    let api: Api<DynamicObject> = match (caps.scope, new.metadata.namespace.as_deref()) {
+        (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
+        _ => Api::all_with(client.clone(), &resource),
+    };
+    api.replace(&name, &PostParams::default(), &new).await?;
+    Ok(format!("{}/{name} edited", types.kind.to_lowercase()))
 }
 
 #[cfg(test)]
@@ -141,5 +136,22 @@ mod tests {
     fn strips_only_the_leading_comment_header() {
         let text = "# Edit failed: nope\n#\napiVersion: v1\n# keep me\nkind: ConfigMap\n";
         assert_eq!(strip_comment_header(text), "apiVersion: v1\n# keep me\nkind: ConfigMap\n");
+    }
+
+    #[test]
+    fn a_diff_shows_the_change_with_context_and_skips_the_rest() {
+        let original: String = (1..=20).map(|i| format!("line{i}\n")).collect();
+        let edited = original.replace("line10\n", "line10 changed\n");
+        let lines = diff(&original, &edited);
+        assert!(lines.contains(&(DiffKind::Removed, "line10".into())));
+        assert!(lines.contains(&(DiffKind::Added, "line10 changed".into())));
+        assert_eq!(lines.iter().filter(|(k, _)| *k == DiffKind::Same).count(), 6, "three lines each side: {lines:?}");
+    }
+
+    #[test]
+    fn two_far_apart_changes_are_split_by_a_gap() {
+        let original: String = (1..=30).map(|i| format!("line{i}\n")).collect();
+        let edited = original.replace("line2\n", "two\n").replace("line28\n", "twenty-eight\n");
+        assert_eq!(diff(&original, &edited).iter().filter(|(k, _)| *k == DiffKind::Gap).count(), 1);
     }
 }

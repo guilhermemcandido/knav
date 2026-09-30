@@ -78,6 +78,11 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
         Mode::ResourcesDetail => vec![plain_segment("Resources")],
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
+        Mode::EditReview { draft, back, .. } => {
+            let mut path = mode_path(back);
+            path.push(segment("Edit", draft.title.clone()));
+            path
+        }
         Mode::Notice { back, .. } | Mode::Working { back, .. } | Mode::Confirm { back, .. } | Mode::OpenUrl { back, .. } | Mode::Scale { back, .. } | Mode::Ports { back, .. } | Mode::Slots { back, .. } | Mode::NamespacePick { back, .. } => mode_path(back),
         Mode::List | Mode::Command { .. } | Mode::Search => Vec::new(),
     }

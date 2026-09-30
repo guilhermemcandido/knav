@@ -231,8 +231,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('e') => {
                 if st.refuse_if_read_only() {
                 } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let outcome = edit::edit_resource(cx.terminal, client, &manifest);
-                    st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };
+                    super::edit::start(st, cx, &manifest, Mode::List);
                 }
             }
             // Forward a port of a pod, service or deployment.

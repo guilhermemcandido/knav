@@ -249,6 +249,78 @@ pub fn scale_buttons(full: Rect, view: &ScaleView) -> DialogButtons {
     scale_dialog(view).layout(full).2
 }
 
+/// The edit review's buttons: key and label.
+const REVIEW_BUTTONS: [(&str, &str); 3] = [("a", "Apply"), ("e", "Edit again"), ("esc", "Cancel")];
+
+fn review_button_text((key, label): (&str, &str)) -> String {
+    format!("  {key}  {label}  ")
+}
+
+/// Where the edit review's buttons are: centred on the last row inside the box.
+pub fn edit_review_buttons(full: Rect) -> [Rect; 3] {
+    let inner = Block::default().borders(Borders::ALL).inner(body_area(full, true));
+    let widths = REVIEW_BUTTONS.map(|b| cell_width(&review_button_text(b)) as u16);
+    let total = widths.iter().sum::<u16>() + BUTTON_GAP * 2;
+    let y = inner.y + inner.height.saturating_sub(1);
+    let mut x = inner.x + inner.width.saturating_sub(total) / 2;
+    widths.map(|w| {
+        let r = Rect { x, y, width: w, height: 1 };
+        x += w + BUTTON_GAP;
+        r
+    })
+}
+
+/// The changes an edit makes, before they are applied: removed lines in red, added in
+/// green, a few unchanged ones around them, and why the last try was refused.
+pub(in crate::ui) fn draw_edit_review(frame: &mut Frame, view: EditReviewView) {
+    use crate::ops::edit::DiffKind;
+    let full = frame.area();
+    let area = body_area(full, true);
+    frame.render_widget(Clear, area);
+    let count = |kind| view.diff.iter().filter(|(k, _)| *k == kind).count();
+    let mut title = pill_title(&format!("Edit {}", view.title), false, theme_border(false));
+    title.push_span(Span::styled(format!(" +{}", count(DiffKind::Added)), Style::default().fg(theme().ok)));
+    title.push_span(Span::styled(format!(" -{}", count(DiffKind::Removed)), Style::default().fg(theme().bad)));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(title)
+        .title_bottom(hint_strip(&[("↑↓", "scroll"), ("←→", "choose"), ("enter", "press")]).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+
+    // The diff runs down to the blank row above the buttons.
+    let mut top = inner.y;
+    if let Some(error) = view.error {
+        let text = Paragraph::new(Line::styled(format!("Refused: {error}"), Style::default().fg(theme().bad))).wrap(Wrap { trim: false });
+        let rows = (text.line_count(inner.width) as u16).min(inner.height / 3);
+        frame.render_widget(text, Rect { y: top, height: rows, ..inner });
+        top += rows + 1;
+    }
+    let bottom = inner.y + inner.height.saturating_sub(2);
+    let muted = Style::default().fg(theme().muted);
+    let lines: Vec<Line> = view
+        .diff
+        .iter()
+        .skip(view.scroll)
+        .take(usize::from(bottom.saturating_sub(top)))
+        .map(|(kind, text)| match kind {
+            DiffKind::Removed => Line::styled(format!("- {text}"), Style::default().fg(theme().bad)),
+            DiffKind::Added => Line::styled(format!("+ {text}"), Style::default().fg(theme().ok)),
+            DiffKind::Same => Line::styled(format!("  {text}"), muted),
+            DiffKind::Gap => Line::styled("  ⋯", muted),
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), Rect { y: top, height: bottom.saturating_sub(top), ..inner });
+
+    for (i, (rect, button)) in edit_review_buttons(full).into_iter().zip(REVIEW_BUTTONS).enumerate() {
+        let fill = if i == 0 { theme().accent } else { theme().select_bg };
+        frame.render_widget(Paragraph::new(Line::from(dialog_button(&review_button_text(button), fill, view.focus == i))), rect.intersection(area));
+    }
+}
+
 /// A background job's box: a spinner, what it is doing, progress when the total is
 /// known, and how to cancel.
 pub(in crate::ui) fn draw_working_popup(frame: &mut Frame, title: &str, elapsed: std::time::Duration, done: usize, total: usize, cancellable: bool) {

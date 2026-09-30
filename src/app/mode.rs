@@ -22,6 +22,15 @@ pub(crate) struct KeyCapture {
     pub problem: Option<String>,
 }
 
+/// An edit in progress: the object as it was, the text as edited, and why the
+/// cluster refused the last try.
+pub(crate) struct EditDraft {
+    pub title: String,
+    pub original: String,
+    pub edited: String,
+    pub error: Option<String>,
+}
+
 pub(crate) enum Mode {
     List,
     /// The `:` command line. `:q` exits, `:pods` and the like switch the view, Esc returns
@@ -57,6 +66,9 @@ pub(crate) enum Mode {
     /// Asks before an action. `yes` is the focused button, which the arrows move and
     /// Enter presses; `y` and `n` work anywhere.
     Confirm { spec: actions::ConfirmSpec, targets: Vec<Target>, action: Action, yes: bool, back: Box<Mode> },
+    /// The changes an edit makes, before they are applied. `focus` is the button:
+    /// 0 Apply, 1 Edit again, 2 Cancel.
+    EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, focus: usize, back: Box<Mode> },
     /// Offers to open a URL in the browser, with buttons like `Confirm`.
     OpenUrl { text: String, url: String, yes: bool, back: Box<Mode> },
     /// The port-forward dialog.
@@ -144,6 +156,7 @@ pub(crate) fn owns_keys(mode: &Mode) -> bool {
             | Mode::Confirm { .. }
             | Mode::Working { .. }
             | Mode::OpenUrl { .. }
+            | Mode::EditReview { .. }
             | Mode::Context { editing: true, .. }
             | Mode::NamespacePick { editing: true, .. }
             | Mode::Events { editing: true, .. }

@@ -2,6 +2,7 @@
 //! right one, which changes the `State` or ends the session.
 
 mod command;
+mod edit;
 mod extensions;
 mod inspect;
 mod list;
@@ -261,6 +262,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::NamespacePick { .. } | Mode::Slots { .. } | Mode::Notice { .. } | Mode::Context { .. } => pickers::handle(event, st, cx),
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Working { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
+        Mode::EditReview { .. } => edit::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
         Mode::Extensions { .. } => extensions::handle(event, st, cx),

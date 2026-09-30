@@ -13,6 +13,8 @@ pub(crate) enum Done {
     /// The context that was checked, or why it can't be reached.
     Connect(Result<String, String>),
     Forward(Result<portforward::Forward, String>),
+    /// An edit was sent: what happened, or why the cluster refused it.
+    Edited(Result<String, String>),
     /// What was being waited for has loaded; press this key again.
     Ready(crossterm::event::KeyEvent),
 }
@@ -79,6 +81,15 @@ pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Tar
     start(st, Job::spawn(title, progress, note, work), Some(back));
 }
 
+/// Sends the reviewed edit in the background, over the review.
+pub(super) fn apply_edit(st: &mut State, client: &kube::Client) {
+    let Mode::EditReview { draft, .. } = &st.mode else { return };
+    let title = format!("Applying the edit to {}", draft.title);
+    let (client, original, edited) = (client.clone(), draft.original.clone(), draft.edited.clone());
+    let work = async move { Done::Edited(crate::ops::edit::apply(client, original, edited).await.map_err(|e| format!("{e:#}"))) };
+    start(st, Job::spawn(title, Arc::default(), None, work), None);
+}
+
 /// Checks in the background that `name` can be reached before the session moves to it.
 pub(super) fn check_context(st: &mut State, name: String) {
     let title = format!("Connecting to {name}");
@@ -137,6 +148,22 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
                 text.push_str(&format!("\nOpen {url} in the browser?"));
                 Mode::OpenUrl { text, url, yes: true, back }
             };
+        }
+        // Refused: back to the review, with why and Edit again ready.
+        Done::Edited(Err(reason)) => {
+            let mut review = *back;
+            if let Mode::EditReview { draft, focus, .. } = &mut review {
+                draft.error = Some(reason);
+                *focus = 1;
+            }
+            st.mode = review;
+        }
+        Done::Edited(Ok(text)) => {
+            let after = match *back {
+                Mode::EditReview { back, .. } => back,
+                other => Box::new(other),
+            };
+            st.mode = Mode::Notice { text, tone: NoticeTone::Done, back: after };
         }
         Done::Ready(key) => {
             st.mode = *back;

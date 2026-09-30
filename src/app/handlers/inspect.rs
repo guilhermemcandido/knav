@@ -8,7 +8,6 @@ use crate::app::derive::Derived;
 /// Handles one input event for these modes; `Some` ends the session.
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { nodes, node_detail_pods, node_detail_rows, .. } = cx.d;
-    let client = cx.client;
     let frame_area = cx.frame_area;
     let mut shell_request: Option<(String, String, String)> = None;
     let read_only = st.read_only();
@@ -171,8 +170,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         editing: false,
                         back: std::mem::replace(back, Box::new(Mode::List)),
                     });
-                    let outcome = edit::edit_resource(cx.terminal, client, &manifest);
-                    st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back };
+                    super::edit::start(st, cx, &manifest, *back);
                 }
             }
             KeyCode::Char('j') | KeyCode::Down => select_next(state, node_detail_rows.len()),
