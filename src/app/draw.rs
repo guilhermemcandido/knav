@@ -33,6 +33,11 @@ pub(super) struct View<'a> {
     /// The theme saved in the config, marked in the theme picker.
     pub config_preset: &'a str,
     pub config: &'a Config,
+    /// For the Permissions menu: the context, what RBAC allows, and whether changes
+    /// are blocked now.
+    pub context: &'a str,
+    pub role: &'a str,
+    pub read_only: bool,
 }
 
 /// Draws one frame and returns the screen area it used, for mapping mouse positions.
@@ -45,7 +50,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config } = view;
+    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -227,6 +232,23 @@ pub(super) fn draw_mode(
                     let spec = crate::ops::actions::open_url_spec(text, url);
                     let overlay = ui::Overlay::Confirm { spec: &spec, yes: *yes };
                     paint(frame, None, None, Some(overlay), false);
+                })?;
+            }
+            Mode::Permissions { tab, cursor, input, error, .. } => {
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let view = ui::PermissionsView {
+                        tab: *tab,
+                        cursor: *cursor,
+                        context,
+                        role,
+                        read_only: *read_only,
+                        everywhere: config.read_only.enabled,
+                        contexts: &config.read_only.contexts,
+                        input: input.as_ref().map(|(at, text)| (*at, text.as_str())),
+                        error: error.as_deref(),
+                    };
+                    paint(frame, None, None, Some(ui::Overlay::Permissions(view)), false);
                 })?;
             }
             Mode::EditReview { draft, diff, scroll, focus, .. } => {

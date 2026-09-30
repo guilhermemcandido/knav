@@ -10,6 +10,7 @@ pub(crate) use list::selected_manifest;
 mod operate;
 mod overview_popups;
 mod details;
+mod permissions;
 mod pickers;
 mod related;
 mod settings;
@@ -263,6 +264,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Events { .. } | Mode::EventDetail { .. } | Mode::ResourcesDetail | Mode::ColumnDetail { .. } => overview_popups::handle(event, st, cx),
         Mode::Confirm { .. } | Mode::Working { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
         Mode::EditReview { .. } => edit::handle(event, st, cx),
+        Mode::Permissions { .. } => permissions::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
         Mode::Extensions { .. } => extensions::handle(event, st, cx),
@@ -309,6 +311,7 @@ fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<boo
         }
         KeyCode::Char('C') => open_context_switcher(&mut st.mode, active_context),
         KeyCode::Char('E') => extensions::open(st),
+        KeyCode::Char('P') => permissions::open(st),
         _ => return Ok(false),
     }
     Ok(true)

@@ -66,18 +66,17 @@ pub(crate) struct Session<'a> {
     pub config: &'a Config,
     pub active_context: &'a str,
     pub header: &'a ui::HeaderInfo,
-    /// Set by `--read-only` or a matching `read_only.contexts` pattern.
+    /// `--read-only` was given.
     pub read_only: bool,
 }
 
-/// The header's role: what RBAC allows, and `read-only` beside it when knav blocks
-/// changes on top (`admin, read-only`).
+/// The header's role: what RBAC allows, or `read-only` while knav blocks changes,
+/// since that is what applies. The real role stays in the Permissions menu.
 fn role_label(role: &str, read_only: bool) -> String {
     match (role, read_only) {
         (_, false) => role.to_string(),
-        ("", true) => "read-only".into(),
         (r, true) if r.starts_with("read-only") || r == "limited" => r.to_string(),
-        (r, true) => format!("{r}, read-only"),
+        (_, true) => "read-only".into(),
     }
 }
 
@@ -85,7 +84,9 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
     let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx } = stores;
     let Session { client, config, active_context, header, read_only } = session;
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
-    st.read_only_locked = read_only;
+    st.read_only_flag = read_only;
+    st.context = active_context.to_string();
+    st.role = header.role.clone();
     if !notes.is_empty() {
         st.mode = Mode::Notice { text: format!("Problems with your settings:\n{}", notes.join("\n")), tone: NoticeTone::Failed, back: Box::new(Mode::List) };
     }
@@ -175,6 +176,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             faults_only: st.faults_only,
             wide: st.wide,
             role: role_label(&header.role, st.read_only()),
+            read_only: st.read_only(),
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };
@@ -250,6 +252,9 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             marked: &st.marked,
             config_preset: &st.config.theme.preset,
             config: &st.config,
+            context: &st.context,
+            role: &st.role,
+            read_only: st.read_only(),
         };
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
@@ -284,11 +289,11 @@ mod role_tests {
     use super::role_label;
 
     #[test]
-    fn read_only_mode_keeps_the_real_role_beside_it() {
+    fn read_only_mode_shows_what_applies() {
         assert_eq!(role_label("admin", false), "admin");
-        assert_eq!(role_label("admin", true), "admin, read-only");
-        assert_eq!(role_label("read-write (team)", true), "read-write (team), read-only");
-        assert_eq!(role_label("read-only", true), "read-only", "no need to say it twice");
+        assert_eq!(role_label("admin", true), "read-only");
+        assert_eq!(role_label("read-write (team)", true), "read-only");
+        assert_eq!(role_label("read-only (team)", true), "read-only (team)", "RBAC already says more");
         assert_eq!(role_label("", true), "read-only");
     }
 }

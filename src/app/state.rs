@@ -125,8 +125,15 @@ pub(super) struct State {
     pub overview_item_scroll: usize,
     /// How far the open extension dashboard is scrolled.
     pub dashboard_scroll: usize,
-    /// Read-only for this whole session, whatever Settings says.
-    pub read_only_locked: bool,
+    /// `--read-only` was given.
+    pub read_only_flag: bool,
+    /// The context this session is on, for `read_only.contexts`.
+    pub context: String,
+    /// What RBAC allows (`admin`, `read-write`, ...), empty when unknown.
+    pub role: String,
+    /// Chosen in the Permissions menu when something else decides otherwise, until
+    /// knav restarts.
+    pub read_only_override: Option<bool>,
 }
 
 /// Whether a click on `id` follows the last one closely enough to be a double click,
@@ -190,13 +197,16 @@ impl State {
             overview_col_scroll: 0,
             overview_item_scroll: 0,
             dashboard_scroll: 0,
-            read_only_locked: false,
+            read_only_flag: false,
+            context: String::new(),
+            role: String::new(),
+            read_only_override: None,
         }
     }
 
     /// Whether changes to the cluster are blocked.
     pub fn read_only(&self) -> bool {
-        self.read_only_locked || self.config.read_only.enabled
+        self.read_only_override.unwrap_or_else(|| self.read_only_flag || self.config.read_only.applies_to(&self.context))
     }
 
     /// Shows why a change was refused, when read-only. Returns whether it was.
@@ -335,9 +345,20 @@ mod tests {
         st.config.read_only.enabled = true;
         assert!(st.refuse_if_read_only());
         assert!(matches!(&st.mode, Mode::Notice { back, .. } if matches!(**back, Mode::List)));
-        let mut locked = state();
-        locked.read_only_locked = true;
-        assert!(locked.read_only(), "--read-only holds whatever Settings says");
+        let mut flagged = state();
+        flagged.read_only_flag = true;
+        assert!(flagged.read_only(), "--read-only holds whatever Settings says");
+    }
+
+    #[test]
+    fn a_context_pattern_applies_as_soon_as_it_is_set() {
+        let mut st = state();
+        st.context = "prod-eu".into();
+        assert!(!st.read_only());
+        st.config.read_only.contexts = vec!["prod*".into()];
+        assert!(st.read_only());
+        st.read_only_override = Some(false);
+        assert!(!st.read_only(), "the Permissions menu wins until knav restarts");
     }
 
     #[test]

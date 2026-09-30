@@ -8,9 +8,11 @@ pub struct HeaderInfo {
     pub context: String,
     pub cluster: String,
     pub user: String,
-    /// What the user may do (`admin`, `read-write`, ...), plus `read-only` when knav
+    /// What the user may do (`admin`, `read-write`, ...), or `read-only` while knav
     /// blocks changes. Empty when unknown.
     pub role: String,
+    /// knav blocks changes, so the role stands out.
+    pub read_only: bool,
     /// The namespace queries are narrowed to (`all` when none).
     pub namespace: String,
     /// What number keys 1-9 select (index 0 is key 1).
@@ -73,7 +75,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
             spans.push(Span::raw("   "));
         }
         spans.push(Span::styled(format!("{name} "), label));
-        spans.push(Span::styled(v.to_string(), value));
+        let warn = *name == "Role:" && info.read_only && !dimmed;
+        spans.push(Span::styled(v.to_string(), if warn { value.fg(theme().warn) } else { value }));
         used += gap + width;
     }
     let line_area = Rect { x: start_x, y: area.y, width: (area.x + area.width).saturating_sub(start_x), height: 1 };

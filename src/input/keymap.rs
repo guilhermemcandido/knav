@@ -56,6 +56,7 @@ bindings! {
     ("home", "Go to Home", ALL, &["H"]),
     ("contexts", "Contexts", ALL, &["C"]),
     ("extensions", "Extensions", ALL, &["E"]),
+    ("permissions", "Permissions", ALL, &["P"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
     ("move_down", "Move down", NAV, &["j", "down"]),

@@ -115,6 +115,81 @@ pub fn context_row_at(frame_area: Rect, items: &[&crate::k8s::ContextInfo], has_
     (index < items.len()).then_some(index)
 }
 
+/// The Permissions menu: this cluster's mode (your role or read-only), and the
+/// contexts that are always read-only.
+pub(in crate::ui) fn draw_permissions(frame: &mut Frame, view: PermissionsView) {
+    let full = frame.area();
+    let muted = Style::default().fg(theme().muted);
+    let strong = Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD);
+    let selected = selection_style(crate::k8s::describe::Tone::Plain, false);
+    let pick = |i: usize| i == view.cursor && view.input.is_none();
+    // A row: the text, a grey note on the right, highlighted under the cursor.
+    let row = |text: Vec<Span<'static>>, note: String, on: bool, width: usize| {
+        let used: usize = text.iter().map(|s| cell_width(&s.content)).sum::<usize>() + cell_width(&note);
+        let mut spans = text;
+        spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+        spans.push(Span::styled(note, muted));
+        let line = Line::from(spans);
+        if on { line.style(selected) } else { line }
+    };
+
+    let width = 74u16.min(full.width.saturating_sub(4));
+    let inner_w = usize::from(width.saturating_sub(4));
+    let mut lines: Vec<Line> = Vec::new();
+    // The tabs, the active one filled.
+    let tab = |label: &str, active: bool| Span::styled(format!(" {label} "), if active { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { muted });
+    lines.push(Line::from(vec![tab("This cluster", view.tab == 0), Span::raw("  "), tab("Read-only contexts", view.tab == 1)]));
+    lines.push(Line::raw(""));
+    let hints: &[(&str, &str)] = if view.tab == 0 {
+        lines.push(Line::from(vec![Span::styled("Context  ", muted), Span::styled(view.context.to_string(), strong)]));
+        lines.push(Line::raw(""));
+        let dot = |on: bool| if on { Span::styled("● ", Style::default().fg(theme().ok)) } else { Span::styled("○ ", muted) };
+        let role = if view.role.is_empty() { "Your role".to_string() } else { format!("Your role ({})", view.role) };
+        lines.push(row(vec![dot(!view.read_only), Span::styled(role, strong)], "what your permissions allow".into(), pick(0), inner_w));
+        lines.push(row(vec![dot(view.read_only), Span::styled("Read-only".to_string(), strong)], "no deletes, edits, scaling or shells".into(), pick(1), inner_w));
+        &[("↑↓", "move"), ("enter", "choose"), ("tab", "switch"), ("esc", "close")]
+    } else {
+        let onoff = |on: bool| Span::styled(if on { "on" } else { "off" }, Style::default().fg(if on { theme().warn } else { theme().muted }).add_modifier(Modifier::BOLD));
+        let mut first = vec![Span::styled("All contexts  ".to_string(), strong)];
+        first.push(onoff(view.everywhere));
+        lines.push(row(first, "every cluster is read-only".into(), pick(0), inner_w));
+        for (i, pattern) in view.contexts.iter().enumerate() {
+            let text = match view.input {
+                Some((Some(at), typed)) if at == i => vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled(format!("{typed}▏"), Style::default().fg(theme().highlight))],
+                _ => vec![Span::raw("  "), Span::raw(pattern.clone())],
+            };
+            let note = if pattern.contains('*') { "pattern" } else if pattern == view.context { "this cluster" } else { "" };
+            lines.push(row(text, note.into(), pick(i + 1), inner_w));
+        }
+        let add = match view.input {
+            Some((None, typed)) => vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled(format!("{typed}▏"), Style::default().fg(theme().highlight))],
+            _ => vec![Span::styled("+ Add a context or pattern".to_string(), Style::default().fg(theme().accent))],
+        };
+        lines.push(row(add, String::new(), pick(view.contexts.len() + 1), inner_w));
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("* matches anything: prod* or *payments*", muted));
+        if view.input.is_some() { &[("enter", "save"), ("esc", "cancel")] } else { &[("enter", "edit"), ("a", "add"), ("d", "delete"), ("tab", "switch"), ("esc", "close")] }
+    };
+    if let Some(error) = view.error {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(truncate(error, inner_w), Style::default().fg(theme().bad)));
+    }
+
+    // Borders, and a blank row above and below the content.
+    let height = (lines.len() as u16 + 4).min(full.height);
+    let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 3, width, height };
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(pill_title("Permissions", false, theme_border(false)))
+        .title_bottom(hint_strip(hints).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(lines), Rect { x: inner.x + 1, y: inner.y + 1, width: inner.width.saturating_sub(2), height: inner.height.saturating_sub(1) });
+}
+
 /// The chip strip on the namespace picker's bottom border: a label, then keys 1 to 9,
 /// three cells wide and one apart.
 const CHIP_LABEL: &str = " assign to key: ";

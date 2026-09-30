@@ -15,6 +15,8 @@ pub enum Kind {
     Color,
     /// Key bindings for an action, typed as `x, ctrl-d`.
     Keys,
+    /// Words typed as `a, b`, like context names and patterns.
+    List,
 }
 
 #[derive(Clone, Debug)]
@@ -56,7 +58,8 @@ pub fn registry() -> Vec<Setting> {
     add("ui.icons", Appearance, "Icons", "Show icons", Kind::Bool, false);
     add("ui.suggestion_icon_percent", Appearance, "Icons", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
     add("startup.mode", Behaviour, "Startup", "Start with", choice(&["direct", "menu"]), true);
-    add("read_only.enabled", Behaviour, "Safety", "Read-only mode", Kind::Bool, false);
+    add("read_only.enabled", Behaviour, "Safety", "Read-only everywhere", Kind::Bool, false);
+    add("read_only.contexts", Behaviour, "Safety", "Read-only contexts", Kind::List, false);
     add("portforward.open_browser", Behaviour, "Port-forwards", "Open browser on port-forward", Kind::Bool, false);
     for binding in crate::input::keymap::BINDINGS {
         add(&format!("keys.{}", binding.id), Keys, "Keys", binding.label, Kind::Keys, false);
@@ -86,9 +89,14 @@ fn lookup<'a>(value: &'a toml::Value, path: &str) -> Option<&'a toml::Value> {
     path.split('.').try_fold(value, |v, key| v.get(key))
 }
 
+/// How an empty list reads.
+pub const NONE: &str = "none";
+
 fn show(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => s.clone(),
+        toml::Value::Array(items) if items.is_empty() => NONE.into(),
+        toml::Value::Array(items) => items.iter().map(show).collect::<Vec<_>>().join(", "),
         other => other.to_string(),
     }
 }
@@ -113,7 +121,8 @@ pub fn describe(setting: &Setting) -> &'static str {
         "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
         "startup.mode" => "direct connects to your current kubeconfig context and opens Home. menu shows a cluster picker first, even with a single context. --context skips both.",
-        "read_only.enabled" => "Block every change to the cluster: delete, edit, scale, restart, cordon and shells. read_only.contexts in the config turns it on for matching contexts only.",
+        "read_only.enabled" => "Block every change on every cluster: delete, edit, scale, restart, cordon and shells.",
+        "read_only.contexts" => "Contexts that are always read-only, by name or pattern, like staging, prod*. * matches anything. P opens the same list.",
         "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
         "api.refresh_seconds" => "How often the API resources list refreshes in the background.",
         _ => "",
@@ -189,6 +198,13 @@ pub fn typed_value(config: &Config, setting: &Setting, text: &str) -> Result<tom
             "false" | "off" | "no" => toml_edit::Value::from(false),
             _ => bail!("{text} is not on or off"),
         },
+        Kind::List => {
+            let mut array = toml_edit::Array::new();
+            for word in text.split(',').map(str::trim).filter(|w| !w.is_empty() && *w != NONE) {
+                array.push(word);
+            }
+            toml_edit::Value::Array(array)
+        }
         Kind::Color => {
             if theme::parse_color(text).is_none() {
                 bail!("'{text}' is not a colour (use #rrggbb, a name like red, or indexed:N)");

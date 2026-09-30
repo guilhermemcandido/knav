@@ -328,7 +328,9 @@ mod tests {
 
     #[test]
     fn read_only_contexts_match_with_wildcards() {
-        let config: ReadOnlyConfig = toml::from_str(r#"contexts = ["prod*", "*-live", "staging"]"#).unwrap();
+        let config: ReadOnlyConfig = toml::from_str(r#"contexts = ["prod*", "*-live", "staging", "*payments*"]"#).unwrap();
+        assert!(config.applies_to("eu-payments-2"), "a * on both sides matches inside");
+        assert!(config.applies_to("payments"));
         assert!(config.applies_to("prod-eu"));
         assert!(config.applies_to("shop-live"));
         assert!(config.applies_to("staging"));

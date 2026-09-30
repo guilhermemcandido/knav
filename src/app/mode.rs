@@ -69,6 +69,9 @@ pub(crate) enum Mode {
     /// The changes an edit makes, before they are applied. `focus` is the button:
     /// 0 Apply, 1 Edit again, 2 Cancel.
     EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, focus: usize, back: Box<Mode> },
+    /// `P`: this cluster's permission mode, and which contexts are always read-only.
+    /// `input` is a context pattern being typed: which one it replaces, and the text.
+    Permissions { tab: usize, cursor: usize, input: Option<(Option<usize>, String)>, error: Option<String>, back: Box<Mode> },
     /// Offers to open a URL in the browser, with buttons like `Confirm`.
     OpenUrl { text: String, url: String, yes: bool, back: Box<Mode> },
     /// The port-forward dialog.
@@ -157,6 +160,7 @@ pub(crate) fn owns_keys(mode: &Mode) -> bool {
             | Mode::Working { .. }
             | Mode::OpenUrl { .. }
             | Mode::EditReview { .. }
+            | Mode::Permissions { .. }
             | Mode::Context { editing: true, .. }
             | Mode::NamespacePick { editing: true, .. }
             | Mode::Events { editing: true, .. }

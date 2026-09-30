@@ -46,6 +46,7 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `y` / `e` / `D` | YAML / edit / delete |
 | `l` / `L` | a pod's logs / a whole workload's |
 | `0`-`9` | switch to a reserved namespace |
+| `P` | permissions: your role or read-only |
 | `b` | sidebar |
 
 ## Config
@@ -55,15 +56,13 @@ Everything is set from the Settings screen (`,`) and saved to
 
 - **General**: wide or faults-only lists on start, log order and timestamps, mouse, refresh rates
 - **Appearance**: theme, box lines, icons (turn them off if your terminal can't draw images)
-- **Behaviour**: start in the current context or a picker, read-only mode, port-forwards
+- **Behaviour**: start in the current context or a picker, read-only, port-forwards
 - **Keys**: rebind any key
 - **Layout**: which sections and tiles Home shows, and in what order
-- **Read-only**: always, or only for contexts that match a pattern:
 
-```toml
-[read_only]
-contexts = ["prod*"]
-```
+**Permissions** (`P`) picks, per cluster, between your role and read-only, which blocks
+every change (delete, edit, scale, shells). Its second tab lists the contexts that are
+always read-only, by name or pattern like `prod*`, or turns it on for all of them.
 
 Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
 

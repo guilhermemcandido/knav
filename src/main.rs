@@ -98,6 +98,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         cluster: info.as_ref().map(|c| c.cluster.clone()).unwrap_or_default(),
         user: info.map(|c| c.user).unwrap_or_default(),
         role: String::new(),
+        read_only: false,
         namespace: "all".to_string(),
         namespace_slots: Vec::new(),
         scope: String::new(),
@@ -120,7 +121,6 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         Ok(Ok(access)) if access != k8s::access::Access::Unknown => access.label(),
         _ => String::new(),
     };
-    let read_only = read_only || config.read_only.applies_to(&active_context);
     let stores = app::Stores { pods: &pod_store, deployments: &dep_store, nodes: &node_store, events: &event_store, node_metrics: &node_metrics_rx };
     let session = app::Session { client, config, active_context: &active_context, header: &header, read_only };
     let result = app::run(&mut terminal, stores, &mut catalog, &registry, session, notes);

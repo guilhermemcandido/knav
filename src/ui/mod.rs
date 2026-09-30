@@ -109,6 +109,22 @@ pub struct EditReviewView<'a> {
     pub error: Option<&'a str>,
 }
 
+/// The Permissions menu (`P`).
+pub struct PermissionsView<'a> {
+    /// 0 for this cluster, 1 for the read-only contexts.
+    pub tab: usize,
+    pub cursor: usize,
+    pub context: &'a str,
+    /// What RBAC allows, empty when unknown.
+    pub role: &'a str,
+    pub read_only: bool,
+    pub everywhere: bool,
+    pub contexts: &'a [String],
+    /// A pattern being typed, and which row it replaces.
+    pub input: Option<(Option<usize>, &'a str)>,
+    pub error: Option<&'a str>,
+}
+
 pub enum Overlay<'a> {
     Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
@@ -142,6 +158,7 @@ pub enum Overlay<'a> {
     PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
     Scale(ScaleView<'a>),
     EditReview(EditReviewView<'a>),
+    Permissions(PermissionsView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -408,6 +425,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::Backdrop)
                 | Some(Overlay::Scale(..))
                 | Some(Overlay::EditReview(..))
+                | Some(Overlay::Permissions(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -620,6 +638,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Backdrop => {}
         Overlay::Scale(view) => draw_scale_popup(frame, &view),
         Overlay::EditReview(view) => draw_edit_review(frame, view),
+        Overlay::Permissions(view) => draw_permissions(frame, view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
