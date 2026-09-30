@@ -165,14 +165,10 @@ impl Counter {
     }
 }
 
-fn percent_encode(text: &str) -> String {
-    text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
-}
-
 async fn fetch_count(client: &Client, api: &ApiInfo, namespace: Option<&str>) -> Count {
     let root = if api.group.is_empty() { format!("/api/{}", api.version) } else { format!("/apis/{}/{}", api.group, api.version) };
     let path = match namespace.filter(|_| api.namespaced) {
-        Some(ns) => format!("{root}/namespaces/{}/{}?limit=1", percent_encode(ns), api.plural),
+        Some(ns) => format!("{root}/namespaces/{}/{}?limit=1", crate::table::percent_encode(ns), api.plural),
         None => format!("{root}/{}?limit=1", api.plural),
     };
     let Ok(request) = http::Request::get(path).header(http::header::ACCEPT, "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1").body(Vec::new()) else { return Count::Unknown };

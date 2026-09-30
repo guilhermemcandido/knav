@@ -52,7 +52,7 @@ fn set_read_only(st: &mut State, want: bool) -> Result<Option<String>> {
     } else {
         "a pattern in Read-only contexts"
     };
-    Ok(Some(format!("Using your role until knav restarts. {why} makes {context} read-only again.")))
+    Ok(Some(format!("Using your role until knav restarts, then {why} makes {context} read-only again")))
 }
 
 pub(super) fn handle(event: Event, st: &mut State, _cx: &mut Cx) -> Result<Option<SessionEnd>> {

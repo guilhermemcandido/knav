@@ -45,7 +45,7 @@ fn decode(secret: &Secret) -> Option<ReleasePayload> {
     serde_json::from_slice(&json).ok()
 }
 
-fn status_tone(status: &str) -> Tone {
+fn release_tone(status: &str) -> Tone {
     match status {
         "deployed" => Tone::Good,
         "failed" => Tone::Bad,
@@ -61,7 +61,7 @@ fn release_row(secret: &Secret) -> GenericRow {
     let namespace = secret.metadata.namespace.clone().unwrap_or_else(|| "-".into());
     let revision = labels.and_then(|l| l.get("version")).cloned().unwrap_or_else(|| "-".into());
     let status = labels.and_then(|l| l.get("status")).cloned().unwrap_or_else(|| "unknown".into());
-    let tone = status_tone(&status);
+    let tone = release_tone(&status);
     let payload = decode(secret).unwrap_or_default();
     let chart = match (&payload.chart.metadata.name, &payload.chart.metadata.version) {
         (Some(n), Some(v)) => format!("{n}-{v}"),
@@ -189,9 +189,9 @@ mod tests {
 
     #[test]
     fn status_decides_the_tone() {
-        assert_eq!(status_tone("deployed"), Tone::Good);
-        assert_eq!(status_tone("failed"), Tone::Bad);
-        assert_eq!(status_tone("superseded"), Tone::Muted);
-        assert_eq!(status_tone("pending-upgrade"), Tone::Warn);
+        assert_eq!(release_tone("deployed"), Tone::Good);
+        assert_eq!(release_tone("failed"), Tone::Bad);
+        assert_eq!(release_tone("superseded"), Tone::Muted);
+        assert_eq!(release_tone("pending-upgrade"), Tone::Warn);
     }
 }

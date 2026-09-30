@@ -274,7 +274,7 @@ pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
 }
 
 /// The state of a `have/want` ready count for colouring a whole row.
-pub(super) fn ready_tone(ready: &str) -> crate::k8s::describe::Tone {
+pub(super) fn ready_row_tone(ready: &str) -> crate::k8s::describe::Tone {
     use crate::k8s::describe::Tone;
     let mut parts = ready.split('/').filter_map(|p| p.parse::<i64>().ok());
     match (parts.next(), parts.next()) {
@@ -312,11 +312,11 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
 
     let rows = deployments[vis.range()].iter().map(|d| {
         // A deployment short of its replicas turns orange (red with none available).
-        let cell_style = row_tone_style(ready_tone(&d.ready), dimmed);
+        let cell_style = row_tone_style(ready_row_tone(&d.ready), dimmed);
         let mut cells = vec![
             Cell::from(highlight_fuzzy(&d.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&d.name, search.text, cell_style)),
-            Cell::from(d.ready.clone()).style(if dimmed || ready_tone(&d.ready) != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
+            Cell::from(d.ready.clone()).style(if dimmed || ready_row_tone(&d.ready) != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(ready_color(&d.ready)) }),
             Cell::from(d.up_to_date.to_string()).style(cell_style),
             Cell::from(d.available.to_string()).style(cell_style),
             Cell::from(d.age.clone()).style(cell_style),
@@ -329,7 +329,7 @@ pub(super) fn draw_deployment_table(frame: &mut Frame, area: Rect, deployments: 
     });
 
     let flags: Vec<bool> = deployments[vis.range()].iter().map(|d| marked.contains(&mark_key(&d.namespace, &d.name))).collect();
-    let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
+    let selected_tone = table_state.selected().and_then(|i| deployments.get(i)).map(|d| ready_row_tone(&d.ready)).unwrap_or(crate::k8s::describe::Tone::Plain);
     let title = table_title("Deployments", deployments.len(), &window, dimmed);
 
     let table = list_table(mark_rows(rows, &flags, dimmed), &window, header, title, search, selected_tone, look);

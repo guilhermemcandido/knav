@@ -279,7 +279,6 @@ pub fn builtin(name: &str) -> Option<Theme> {
     // Names presets had before they were renamed.
     let name = match name {
         "solarized" => "solarized-dark",
-        "k9s" => "steel",
         other => other,
     };
     transparent(name).or_else(|| PALETTES.iter().find(|(n, _)| *n == name).map(|(_, palette)| from_palette(palette)))
@@ -525,10 +524,5 @@ mod tests {
         let (fallback, ignored) = build("nope", &BTreeMap::new());
         assert_eq!(fallback, Theme::default());
         assert_eq!(ignored.len(), 1);
-    }
-
-    #[test]
-    fn the_steel_preset_still_loads_by_its_old_name() {
-        assert_eq!(builtin("k9s"), builtin("steel"));
     }
 }

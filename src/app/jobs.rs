@@ -71,6 +71,12 @@ fn start(st: &mut State, mut job: Job, back: Option<Box<Mode>>) {
 
 /// Runs `action` on `targets` in the background, over `back`.
 pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Target>, action: Action, back: Box<Mode>) {
+    // The keys check first; this catches any path that forgets to.
+    if st.read_only() {
+        st.mode = *back;
+        st.refuse_if_read_only();
+        return;
+    }
     let progress = Arc::new(actions::Progress::default());
     let title = actions::working_title(action, &targets);
     let note = (targets.len() > 1).then_some("Cancelled. What was already done stays done.");
@@ -83,6 +89,9 @@ pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Tar
 
 /// Sends the reviewed edit in the background, over the review.
 pub(super) fn apply_edit(st: &mut State, client: &kube::Client) {
+    if st.refuse_if_read_only() {
+        return;
+    }
     let Mode::EditReview { draft, .. } = &st.mode else { return };
     let title = format!("Applying the edit to {}", draft.title);
     let (client, original, edited) = (client.clone(), draft.original.clone(), draft.edited.clone());
@@ -181,4 +190,23 @@ pub(super) fn wait_then_replay(st: &mut State, title: &str, waits: Vec<futures::
         Done::Ready(key)
     };
     start(st, Job::spawn(title, Arc::default(), None, work), None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::state::State;
+
+    fn target() -> Target {
+        Target::from_manifest(&serde_yaml::from_str("apiVersion: v1\nkind: Pod\nmetadata: {name: web, namespace: default}").unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn actions_are_refused_in_read_only_even_when_called_directly() {
+        let client = kube::Client::try_from(kube::Config::new("http://127.0.0.1:1".parse().unwrap())).unwrap();
+        let mut st = State::new(crate::ui::icons::IconCache::halfblocks(), Default::default(), Default::default());
+        st.read_only_flag = true;
+        run_action(&mut st, &client, vec![target()], Action::Delete, Box::new(Mode::List));
+        assert!(matches!(st.mode, Mode::Notice { .. }), "no job should start");
+    }
 }

@@ -85,6 +85,7 @@ bindings! {
     ("forward", "Port-forward", &[List], &["F"]),
     ("decode", "Decode a secret", &[List], &["x"]),
     ("pod_logs", "Pod logs", &[List], &["l"]),
+    ("workload_logs", "A workload's logs", &[List], &["L"]),
     ("previous_logs", "Previous logs", &[List, Containers], &["p"]),
     ("owner", "Jump to the owner", &[List], &["O"]),
     ("details", "Info about the object", &[List], &["i"]),

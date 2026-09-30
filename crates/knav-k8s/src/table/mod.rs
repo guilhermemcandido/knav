@@ -164,7 +164,7 @@ async fn fetch_page(client: &Client, resource: &ApiResource, namespace: Option<&
     Ok((columns, rows, next, version))
 }
 
-pub(super) fn percent_encode(text: &str) -> String {
+pub(crate) fn percent_encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
@@ -276,7 +276,7 @@ pub(super) fn parse_table(table: &Value) -> anyhow::Result<(Vec<TableColumn>, Ve
     Ok((columns, rows))
 }
 
-fn status_tone(text: &str) -> Tone {
+fn cell_tone(text: &str) -> Tone {
     match text {
         "Ready" | "Active" | "Bound" | "Available" | "Running" | "Healthy" | "Complete" | "Succeeded" | "Established" | "Approved" => Tone::Good,
         "Pending" | "Terminating" | "Progressing" | "Unknown" | "Released" | "Waiting" => Tone::Warn,
@@ -345,10 +345,10 @@ impl CatalogKind for TableKind {
                     .map(|&i| {
                         let column = &data.columns[i];
                         let text = row.cells.get(i).cloned().unwrap_or_default();
-                        Col { header: column.name, tone: if Some(i) == status_column { status_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
+                        Col { header: column.name, tone: if Some(i) == status_column { cell_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
                     })
                     .collect();
-                let status = status_column.and_then(|i| row.cells.get(i)).map(|text| (status_tone(text), text.clone()));
+                let status = status_column.and_then(|i| row.cells.get(i)).map(|text| (cell_tone(text), text.clone()));
                 GenericRow {
                     namespace: row.namespace.clone(),
                     name: row.name.clone(),
@@ -477,10 +477,10 @@ mod tests {
 
     #[test]
     fn status_words_are_coloured() {
-        assert_eq!(status_tone("Ready"), Tone::Good);
-        assert_eq!(status_tone("Pending"), Tone::Warn);
-        assert_eq!(status_tone("Failed"), Tone::Bad);
-        assert_eq!(status_tone("whatever"), Tone::Plain);
+        assert_eq!(cell_tone("Ready"), Tone::Good);
+        assert_eq!(cell_tone("Pending"), Tone::Warn);
+        assert_eq!(cell_tone("Failed"), Tone::Bad);
+        assert_eq!(cell_tone("whatever"), Tone::Plain);
     }
 }
 
