@@ -13,6 +13,8 @@ pub(crate) enum Done {
     /// The context that was checked, or why it can't be reached.
     Connect(Result<String, String>),
     Forward(Result<portforward::Forward, String>),
+    /// One of your commands finished: shown on a screen (`view`) or as a notice.
+    Command { title: String, view: bool, result: Result<String, String> },
     /// A Deployment's revisions were read, or why they couldn't be.
     History(Target, Result<Vec<crate::k8s::rollout::Revision>, String>),
     /// An edit was sent: what happened, or why the cluster refused it.
@@ -87,6 +89,17 @@ pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Tar
         async move { Done::Action(actions::run_many(client, targets, action, progress).await) }
     };
     start(st, Job::spawn(title, progress, note, work), Some(back));
+}
+
+/// Runs one of your commands in the background, then shows its output (`view`) or a
+/// notice that it finished.
+pub(super) fn run_command(st: &mut State, title: String, line: String, view: bool) {
+    let job_title = format!("Running {title}");
+    let work = async move {
+        let result = crate::ops::custom::capture(line).await.map_err(|e| format!("{e:#}"));
+        Done::Command { title, view, result }
+    };
+    start(st, Job::spawn(job_title, Arc::default(), None, work), None);
 }
 
 /// Reads a Deployment's revisions in the background, then shows them.
@@ -172,6 +185,13 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
                 Mode::OpenUrl { text, url, yes: true, back }
             };
         }
+        Done::Command { title, view: true, result: Ok(text) } => st.mode = Mode::Yaml { label: "Output", title, text, scroll: 0, back },
+        Done::Command { title, view: false, result: Ok(text) } => {
+            let last = crate::ops::custom::last_lines(&text, 3);
+            let text = if last.is_empty() { format!("{title} finished") } else { format!("{title} finished\n{last}") };
+            st.mode = Mode::Notice { text, tone: NoticeTone::Done, back };
+        }
+        Done::Command { title, result: Err(reason), .. } => st.mode = Mode::Notice { text: format!("{title} {reason}"), tone: NoticeTone::Failed, back },
         Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, back },
         Done::History(_, Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
         // Refused: back to the review, with why and Edit again ready.

@@ -1,8 +1,9 @@
 //! What knav does to the cluster and the machine: actions, edits, shells, port-forwards,
-//! the clipboard and saved logs.
+//! your own commands, the clipboard and saved logs.
 
 pub mod actions;
 pub mod clipboard;
+pub mod custom;
 pub mod edit;
 pub mod logfile;
 pub mod portforward;

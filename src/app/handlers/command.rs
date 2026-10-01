@@ -7,13 +7,14 @@ use super::Cx;
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let catalog = &mut *cx.catalog;
     let active_context = cx.active_context;
+    let names = command_names(st);
     match (event, &mut st.mode) {
         (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             // Tab completes the highlighted suggestion, or moves on to the next when it is
             // already typed out.
             KeyCode::Tab => {
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names);
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
                     let name = chosen.primary_name();
                     if *input == name {
@@ -26,14 +27,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
-                let len = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories()).len();
+                let len = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names).len();
                 *selected = (*selected + 1).min(len.saturating_sub(1));
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
                 // The highlighted suggestion wins; what was typed is the fallback for an exact
                 // alias that isn't in the visible list.
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories());
+                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names);
                 let typed = || match cmd.as_str() {
                     "q" | "quit" | "exit" => Some(Cmd::Quit),
                     "config" | "settings" | "preferences" | "prefs" | "options" => Some(Cmd::Settings),
@@ -52,6 +53,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         let mut opened = std::mem::replace(&mut **back, Mode::List);
                         std::mem::swap(&mut st.mode, &mut opened);
                         super::themes::open(st, cx.config);
+                    }
+                    Some(Cmd::Custom(index)) => {
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
+                        // It runs on the selected row, so only from a list.
+                        if matches!(st.mode, Mode::List)
+                            && let Some(target) = crate::app::handlers::list::selected_manifest(st, cx.d, catalog, cx.client).as_ref().and_then(crate::ops::actions::Target::from_manifest)
+                        {
+                            super::custom::run(st, cx, index, &target);
+                        }
                     }
                     Some(Cmd::Problems) => {
                         let opened = std::mem::replace(&mut **back, Mode::List);
@@ -107,4 +117,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         _ => {}
     }
     Ok(None)
+}
+
+/// The names of your own commands, for the suggestions.
+fn command_names(st: &State) -> Vec<String> {
+    st.config.commands.iter().map(|c| c.name.clone()).collect()
 }

@@ -239,6 +239,41 @@ impl ReadOnlyConfig {
     }
 }
 
+/// A command of your own, run on the selected object from a key or the `:` line.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CustomCommand {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// The kinds it is for, like `Pod`; every kind when empty.
+    #[serde(default)]
+    pub kinds: Vec<String>,
+    /// A shell command line; `{kind}`, `{name}`, `{namespace}` and `{context}` are filled in.
+    pub run: String,
+    #[serde(default)]
+    pub output: CommandOutput,
+    /// Allowed in read-only mode. knav can't tell whether a command changes anything.
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+impl CustomCommand {
+    pub fn applies_to(&self, kind: &str) -> bool {
+        self.kinds.is_empty() || self.kinds.iter().any(|k| k == "*" || k.eq_ignore_ascii_case(kind))
+    }
+}
+
+/// Where a command's output goes: a scrollable screen, the whole terminal (for
+/// interactive tools), or nowhere but a notice when it finishes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandOutput {
+    #[default]
+    View,
+    Terminal,
+    Background,
+}
+
 /// Contexts whose header is red, to mark where care is needed.
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
@@ -283,6 +318,7 @@ pub struct Config {
     pub extensions: ExtensionsConfig,
     pub read_only: ReadOnlyConfig,
     pub highlight: HighlightConfig,
+    pub commands: Vec<CustomCommand>,
     /// Key bindings by action id, each one key or a list.
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,

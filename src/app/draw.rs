@@ -71,7 +71,7 @@ pub(super) fn draw_mode(
             Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis, dashboard_categories).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
+                    let suggestions: Vec<ui::SuggestionView> = command_suggestions(input, crds, apis, dashboard_categories, &config.commands.iter().map(|c| c.name.clone()).collect::<Vec<_>>()).into_iter().map(|s| ui::SuggestionView { icon: s.icon(), label: s.label }).collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     paint(frame, hovered, None, Some(overlay), false);

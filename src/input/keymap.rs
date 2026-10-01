@@ -354,6 +354,11 @@ impl Keymap {
         Keymap::from_config(&config.keys)
     }
 
+    /// Whether `key` already does something on `screen`.
+    pub fn uses(&self, screen: Screen, key: KeySpec) -> bool {
+        self.tables.get(&screen).is_some_and(|t| t.contains_key(&key))
+    }
+
     /// The key event to hand the handler for `event` on `screen`; `None` to drop it.
     pub fn translate(&self, screen: Screen, event: &KeyEvent) -> Option<KeyEvent> {
         match self.tables.get(&screen).and_then(|t| t.get(&KeySpec::of(event))) {

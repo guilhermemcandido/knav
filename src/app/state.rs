@@ -131,6 +131,8 @@ pub(super) struct State {
     pub context: String,
     /// What RBAC allows (`admin`, `read-write`, ...), empty when unknown.
     pub role: String,
+    /// Your own commands with a key, for the help: the key and the command's name.
+    pub command_hints: Vec<(String, &'static str)>,
     /// Chosen in the Permissions menu when something else decides otherwise, until
     /// knav restarts.
     pub read_only_override: Option<bool>,
@@ -147,6 +149,12 @@ pub(super) fn double_click(last_click: &mut Option<(std::time::Instant, usize)>,
     again
 }
 
+/// The help's entries for your commands. Their names live as long as knav: hints are
+/// `&'static str`, and the config changes rarely.
+fn command_hints(config: &Config) -> Vec<(String, &'static str)> {
+    crate::app::handlers::custom_hints(&config.commands).into_iter().map(|(key, name)| (key, &*Box::leak(name.into_boxed_str()))).collect()
+}
+
 impl State {
     /// `icons` must be detected after raw mode is on, since it queries the terminal,
     /// and before the loop starts reading stdin.
@@ -154,6 +162,7 @@ impl State {
         icons.set_enabled(config.ui.icons);
         let keymap = crate::input::keymap::Keymap::from_app_config(&config).0;
         crate::input::keymap::set_current(&keymap);
+        let command_hints = command_hints(&config);
         State {
             keymap,
             faults_only: config.tables.faults_by_default,
@@ -200,6 +209,7 @@ impl State {
             read_only_flag: false,
             context: String::new(),
             role: String::new(),
+            command_hints,
             read_only_override: None,
         }
     }
@@ -221,6 +231,7 @@ impl State {
 
     /// Takes a changed config into use: colours, box lines, numbers and keys.
     pub fn reload(&mut self, config: Config) {
+        self.command_hints = command_hints(&config);
         self.config = config;
         crate::app::settings::apply(&self.config);
         self.icons.set_enabled(self.config.ui.icons);

@@ -2,6 +2,8 @@
 //! right one, which changes the `State` or ends the session.
 
 mod command;
+mod custom;
+pub(crate) use custom::{hints as custom_hints, problems as custom_problems};
 mod edit;
 mod history;
 mod extensions;

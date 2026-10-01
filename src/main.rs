@@ -44,7 +44,8 @@ fn main() -> Result<()> {
 
     // Problems with the config are kept and shown in the app, since the screen clears when it starts.
     let (config, mut notes) = Config::load_reporting();
-    notes.extend(settings::apply(&config).into_iter().chain(keymap::Keymap::from_app_config(&config).1));
+    let keymap = keymap::Keymap::from_app_config(&config);
+    notes.extend(settings::apply(&config).into_iter().chain(keymap.1).chain(app::custom_problems(&config.commands, &keymap.0)));
     let mut context = resolve_context(context_query.as_deref(), pick, &config)?;
 
     // One runtime per session: dropping it stops every watch and log stream of the

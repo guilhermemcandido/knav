@@ -5,6 +5,7 @@ mod derive;
 pub mod commands;
 mod draw;
 mod handlers;
+pub(crate) use handlers::custom_problems;
 pub(crate) mod jobs;
 mod list_sort;
 mod hints;
@@ -193,7 +194,11 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };
         let path_segments = full_path(&st.mode, location(st.current_kind, &st.back_stack, st.scope.as_ref()));
         let screen = mode::screen_of(&st.mode, st.current_kind).unwrap_or(crate::input::keymap::Screen::Other);
-        let hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().filter(|h| !(st.read_only() && changes_cluster(h))).map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
+        let mut hints_owned: Vec<(String, &'static str)> = hints_for(&st.mode, st.current_kind).into_iter().filter(|h| !(st.read_only() && changes_cluster(h))).map(|(k, d)| (st.keymap.display_hint(screen, k), d)).collect();
+        // Your own commands, on the lists they run on.
+        if matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {
+            hints_owned.extend(st.command_hints.iter().cloned());
+        }
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {

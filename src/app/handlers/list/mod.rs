@@ -22,6 +22,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let row_count = cx.row_count;
     let mut open = false;
     let mut to_owner = false;
+    // Your own commands come first; their keys never clash with built-in ones.
+    if let (Event::Key(key), Mode::List) = (&event, &st.mode)
+        && let Some(index) = super::custom::for_key(st, key)
+    {
+        if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
+            super::custom::run(st, cx, index, &target);
+        }
+        return Ok(None);
+    }
     match (event, &mut st.mode) {
         // Ctrl-z lists only rows that need a look, Ctrl-w adds the wide columns, and any
         // other Ctrl key does nothing rather than acting as its letter.
@@ -286,7 +295,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let title = format!("{}/{}", target.namespace.as_deref().unwrap_or("-"), target.name);
                     let text = serde_yaml::to_string(&manifest).unwrap_or_default();
                     let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
+                    st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, back: Box::new(back) };
                 }
             }
             KeyCode::Char('i') if frame_area.width >= ui::SIDE_PANEL_MIN_WIDTH => {

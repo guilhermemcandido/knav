@@ -54,9 +54,9 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
             path.push(segment("Shell", title.rsplit('/').next().unwrap_or(title)));
             path
         }
-        Mode::Yaml { title, back, .. } => {
+        Mode::Yaml { label, title, back, .. } => {
             let mut path = mode_path(back);
-            path.push(segment("YAML", title.clone()));
+            path.push(segment(label, title.clone()));
             path
         }
         Mode::Details { manifest, back, .. } => {

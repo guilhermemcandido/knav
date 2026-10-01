@@ -52,7 +52,8 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo], dashboard_categories: &[&'sta
 
 /// Autocomplete for the `:` command line: every kind and command, matched on all their
 /// names, best first. An exact alias ranks first; empty input suggests nothing.
-pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str]) -> Vec<Suggestion> {
+/// `custom` is the names of your own commands, in config order.
+pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str], custom: &[String]) -> Vec<Suggestion> {
     let input = input.trim().to_lowercase();
     if input.is_empty() {
         return Vec::new();
@@ -63,11 +64,15 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         .chain(std::iter::once(Cmd::Theme))
         .chain(std::iter::once(Cmd::Settings))
         .chain(std::iter::once(Cmd::Quit))
+        .chain((0..custom.len()).map(Cmd::Custom))
         .chain(menu_sections(crds, dashboard_categories).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
         // Every other resource the server lists, unless a built-in kind has that name.
         .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none()).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
         .filter_map(|cmd| {
-            let names = cmd.names();
+            let names = match cmd {
+                Cmd::Custom(i) => vec![custom[i].to_lowercase()],
+                _ => cmd.names(),
+            };
             let (score, alias) = names
                 .iter()
                 .filter_map(|alias| {
@@ -105,6 +110,7 @@ impl Suggestion {
             Cmd::Context => ui::SuggestionIcon::Named("switch"),
             Cmd::Events => ui::SuggestionIcon::Named("bell"),
             Cmd::Problems => ui::SuggestionIcon::Named("bell"),
+            Cmd::Custom(_) => ui::SuggestionIcon::Named("gear"),
             Cmd::Theme => ui::SuggestionIcon::Named("palette"),
             Cmd::Settings => ui::SuggestionIcon::Named("gear"),
             Cmd::Quit => ui::SuggestionIcon::Named("door"),
@@ -129,6 +135,8 @@ pub(crate) enum Cmd {
     Theme,
     Settings,
     Quit,
+    /// One of your own commands, by its index in the config.
+    Custom(usize),
 }
 
 impl Cmd {
@@ -150,6 +158,8 @@ impl Cmd {
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
             Cmd::Problems => fixed(&["problems", "problem", "issues", "faults"]),
+            // Named from the config, which `command_suggestions` has.
+            Cmd::Custom(_) => Vec::new(),
             Cmd::Settings => fixed(&["config", "settings", "preferences", "prefs", "options"]),
             Cmd::Theme => fixed(&["theme", "themes", "skin", "skins", "colors", "colours"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),
@@ -202,7 +212,7 @@ mod tests {
     use crate::app::Step;
 
     fn top(input: &str) -> Suggestion {
-        command_suggestions(input, &[], &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
+        command_suggestions(input, &[], &[], &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
     }
 
     #[test]
@@ -242,7 +252,7 @@ mod tests {
 
     #[test]
     fn empty_input_suggests_nothing() {
-        assert!(command_suggestions("  ", &[], &[], &[]).is_empty());
+        assert!(command_suggestions("  ", &[], &[], &[], &[]).is_empty());
     }
 
     #[test]

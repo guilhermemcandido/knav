@@ -56,7 +56,9 @@ pub(crate) enum Mode {
     /// A shell running in a container, drawn inside knav (`Ctrl-]` closes it).
     Shell { title: String, session: Box<crate::ops::shell::ShellSession>, back: Box<Mode> },
     /// A manifest as plain YAML text, scrollable (`y`).
-    Yaml { title: String, text: String, scroll: usize, back: Box<Mode> },
+    /// Text to read and scroll: an object's YAML, or a command's output. `label` names
+    /// it in the path line.
+    Yaml { label: &'static str, title: String, text: String, scroll: usize, back: Box<Mode> },
     /// A readable summary of one object.
     Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, hscroll: usize, back: Box<Mode> },
     /// The selected object's relations (owners, what it uses, what uses it, ...).

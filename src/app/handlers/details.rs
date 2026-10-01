@@ -69,7 +69,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         let title = crate::app::mode::object_title(manifest);
         let text = serde_yaml::to_string(manifest).unwrap_or_default();
         let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Yaml { title, text, scroll: 0, back: Box::new(back) };
+        st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, back: Box::new(back) };
     }
     Ok(None)
 }
