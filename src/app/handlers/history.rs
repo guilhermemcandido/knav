@@ -1,5 +1,5 @@
-//! `v` on a Deployment: its revisions, what rolling back to one would change, and
-//! the rollback itself, after a confirm.
+//! `v` on a Deployment, StatefulSet or DaemonSet: its revisions, what rolling back to
+//! one would change, and the rollback itself, after a confirm.
 
 use crate::ops::{NoticeTone, actions};
 use super::super::*;

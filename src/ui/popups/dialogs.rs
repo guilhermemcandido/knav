@@ -267,7 +267,7 @@ fn diff_lines(diff: &[(crate::ops::edit::DiffKind, String)], scroll: usize, rows
         .collect()
 }
 
-/// A Deployment's revisions on top, and below them what rolling back to the selected
+/// A workload's revisions on top, and below them what rolling back to the selected
 /// one would change.
 pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let full = frame.area();
@@ -293,7 +293,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let rows = view.revisions.iter().map(|r| {
         let dot = if r.current { Cell::from("●").style(Style::default().fg(theme().ok)) } else { Cell::from("") };
         let cause = if r.cause.is_empty() { Cell::from("-").style(muted) } else { Cell::from(r.cause.clone()) };
-        Row::new(vec![dot, Cell::from(r.number.to_string()), Cell::from(r.age.clone()), Cell::from(r.pods.to_string()), Cell::from(r.images.clone()), cause])
+        Row::new(vec![dot, Cell::from(r.number.to_string()), Cell::from(r.age.clone()), Cell::from(r.pods.map_or("-".to_string(), |p| p.to_string())), Cell::from(r.images.clone()), cause])
     });
     let table_h = (view.revisions.len() as u16 + 1).min((inner.height / 3).max(4));
     let images_w = view.revisions.iter().map(|r| cell_width(&r.images)).max().unwrap_or(0).clamp(6, usize::from(inner.width / 2)) as u16;

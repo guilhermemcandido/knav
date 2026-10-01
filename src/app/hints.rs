@@ -12,10 +12,10 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
         ResourceKind::Pods => vec![("l", "logs"), ("L", "workload logs"), ("p", "previous logs"), ("S", "shell"), ("X", "debug"), ("F", "forward")],
         ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("v", "history"), ("F", "forward"), ("L", "pod logs")],
-        ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart"), ("L", "pod logs")],
+        ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart"), ("v", "history"), ("L", "pod logs")],
         ResourceKind::Services => vec![("F", "forward")],
         ResourceKind::ReplicaSets => vec![("S", "scale"), ("L", "pod logs")],
-        ResourceKind::DaemonSets => vec![("r", "restart"), ("L", "pod logs")],
+        ResourceKind::DaemonSets => vec![("r", "restart"), ("v", "history"), ("L", "pod logs")],
         ResourceKind::Jobs => vec![("L", "pod logs")],
         ResourceKind::Nodes => vec![("c", "cordon")],
         ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],

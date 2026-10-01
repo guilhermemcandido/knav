@@ -250,10 +250,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     super::ask_debug(st, &manifest, &first);
                 }
             }
-            // A Deployment's revisions, to compare and roll back.
+            // A workload's revisions, to compare and roll back.
             KeyCode::Char('v') => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)
-                    && target.kind == "Deployment"
+                    && k8s::rollout::has_history(&target.kind)
                 {
                     crate::app::jobs::load_history(st, client, target);
                 }

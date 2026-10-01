@@ -119,7 +119,7 @@ pub struct ProblemsView<'a> {
     pub state: &'a mut TableState,
 }
 
-/// A Deployment's rollout history (`v`).
+/// A workload's rollout history (`v`).
 pub struct HistoryView<'a> {
     /// Which Deployment, like `deployment shop/web`.
     pub title: &'a str,

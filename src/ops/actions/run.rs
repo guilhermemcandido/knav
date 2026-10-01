@@ -162,11 +162,11 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
             Ok(format!("{} {label}", if on { "Suspended" } else { "Resumed" }))
         }
         Action::Rollback(revision) => {
-            if target.kind != "Deployment" {
-                bail!("{label} has no rollout history here");
+            if !crate::k8s::rollout::has_history(&target.kind) {
+                bail!("{label} has no rollout history");
             }
-            let namespace = target.namespace.as_deref().context("a Deployment has a namespace")?;
-            crate::k8s::rollout::rollback(client, namespace, name, revision).await
+            let namespace = target.namespace.as_deref().context("a workload has a namespace")?;
+            crate::k8s::rollout::rollback(client, &target.kind, namespace, name, revision).await
         }
         Action::Debug(_) => bail!("a debug container opens a shell, it doesn't run in the background"),
         Action::Trigger => {

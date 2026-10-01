@@ -15,7 +15,7 @@ pub(crate) enum Done {
     Forward(Result<portforward::Forward, String>),
     /// One of your commands finished: shown on a screen (`view`) or as a notice.
     Command { title: String, view: bool, result: Result<String, String> },
-    /// A Deployment's revisions were read, or why they couldn't be.
+    /// A workload's revisions were read, or why they couldn't be.
     History(Target, Result<Vec<crate::k8s::rollout::Revision>, String>),
     /// An edit was sent: what happened, or why the cluster refused it.
     Edited(Result<String, String>),
@@ -102,13 +102,13 @@ pub(super) fn run_command(st: &mut State, title: String, line: String, view: boo
     start(st, Job::spawn(job_title, Arc::default(), None, work), None);
 }
 
-/// Reads a Deployment's revisions in the background, then shows them.
+/// Reads a workload's revisions in the background, then shows them.
 pub(super) fn load_history(st: &mut State, client: &kube::Client, target: Target) {
     let title = format!("Reading the history of {}", target.label());
     let client = client.clone();
     let work = async move {
         let namespace = target.namespace.clone().unwrap_or_default();
-        let result = crate::k8s::rollout::history(&client, &namespace, &target.name).await.map_err(|e| format!("{e:#}"));
+        let result = crate::k8s::rollout::history(&client, &target.kind, &namespace, &target.name).await.map_err(|e| format!("{e:#}"));
         Done::History(target, result)
     };
     start(st, Job::spawn(title, Arc::default(), None, work), None);

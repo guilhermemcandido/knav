@@ -73,7 +73,7 @@ pub(crate) enum Mode {
     EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, focus: usize, back: Box<Mode> },
     /// Everything that needs a look, across kinds; `search` filters it.
     Problems { state: TableState, search: String, editing: bool, back: Box<Mode> },
-    /// A Deployment's revisions, newest first; `scroll` is into the changes below.
+    /// A workload's revisions, newest first; `scroll` is into the changes below.
     History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, back: Box<Mode> },
     /// `P`: this cluster's permission mode, and which contexts are always read-only.
     /// `input` is a context pattern being typed: which one it replaces, and the text.
