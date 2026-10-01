@@ -49,8 +49,8 @@ fn triple_for(os: &str, arch: &str) -> Option<&'static str> {
     match (os, arch) {
         ("macos", "aarch64") => Some("aarch64-apple-darwin"),
         ("macos", "x86_64") => Some("x86_64-apple-darwin"),
-        ("linux", "x86_64") => Some("x86_64-unknown-linux-gnu"),
-        ("linux", "aarch64") => Some("aarch64-unknown-linux-gnu"),
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-musl"),
+        ("linux", "aarch64") => Some("aarch64-unknown-linux-musl"),
         _ => None,
     }
 }
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn a_matching_checksum_passes_and_a_wrong_one_does_not() {
         let bytes = b"the binary";
-        let good = format!("{}  knav-x86_64-unknown-linux-gnu", hex_sha256(bytes));
+        let good = format!("{}  knav-x86_64-unknown-linux-musl", hex_sha256(bytes));
         assert!(verify(bytes, good.as_bytes()).is_ok());
         assert!(verify(bytes, b"0000000000000000000000000000000000000000000000000000000000000000  x").is_err());
     }

@@ -68,10 +68,8 @@ case "$os" in
         # An Intel shell under Rosetta still reports x86_64 on Apple silicon.
         [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ] && arch=arm64
         ;;
-    Linux)
-        os=unknown-linux-gnu
-        ldd --version 2>&1 | grep -qi musl && from_source "No prebuilt binary for musl (Alpine) yet."
-        ;;
+    # Static builds: they run on any distribution, Alpine included.
+    Linux) os=unknown-linux-musl ;;
     *) from_source "No prebuilt binary for $os." ;;
 esac
 case "$arch" in
