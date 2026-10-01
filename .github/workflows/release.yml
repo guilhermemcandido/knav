@@ -3,12 +3,19 @@ name: release
 # Runs when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
 # Builds knav for four targets and attaches each as a .tar.gz to the GitHub
 # Release for that tag, plus a checksums file the install script verifies against.
+# A push to main rebuilds the release of the version in Cargo.toml, if it exists, so
+# `knav update` picks up the new build without a new tag.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
+
+# One at a time per ref, so two quick pushes can't upload over each other.
+concurrency:
+  group: release-${{ github.ref }}
 
 jobs:
   build:
@@ -87,7 +94,27 @@ jobs:
           merge-multiple: true
 
       - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
+
+      - uses: actions/checkout@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: src
+
+      # Replaces the files of the current version's release, when there is one.
+      - name: Rebuild the current release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=v$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            echo "No release for $tag yet; tag it to create one."
+          fi

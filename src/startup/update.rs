@@ -1,4 +1,5 @@
-//! `knav update`: replaces this binary with the latest GitHub release when newer.
+//! `knav update`: replaces this binary with the latest GitHub release when newer, or
+//! with a rebuild of the same version when its checksum differs from this binary's.
 //! Uses `curl` rather than an HTTP client crate for this one command.
 
 use anyhow::{Context as _, Result};
@@ -13,24 +14,28 @@ const REPO: &str = "guilhermemcandido/knav";
 pub(crate) fn run(auto_yes: bool) -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     let latest = latest_tag()?;
-    if version(&latest) == current {
-        println!("knav {current} is up to date.");
-        return Ok(());
-    }
-    println!("knav {current} -> {latest}");
-    if !auto_yes && !confirm(&format!("Update to {latest}? [y/N] "))? {
-        return Ok(());
-    }
-
     let target = target_triple().with_context(|| format!("no prebuilt binary for {}/{}; reinstall with `cargo install --git https://github.com/{REPO}`", std::env::consts::OS, std::env::consts::ARCH))?;
     let exe = running_exe()?;
+    let checksum = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}.sha256"))?;
+    let prompt = if version(&latest) != current {
+        println!("knav {current} -> {latest}");
+        format!("Update to {latest}? [y/N] ")
+    } else if same_build(&exe, &checksum) {
+        println!("knav {current} is up to date.");
+        return Ok(());
+    } else {
+        println!("There is a newer build of knav {current}.");
+        "Update to it? [y/N] ".to_string()
+    };
+    if !auto_yes && !confirm(&prompt)? {
+        return Ok(());
+    }
     refuse_if_package_managed(&exe)?;
 
     let bytes = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}"))?;
-    let checksum = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}.sha256"))?;
     verify(&bytes, &checksum)?;
     replace_running_binary(&exe, &bytes)?;
-    println!("Updated to {latest}. Run it again to use the new version.");
+    println!("Updated. Run it again to use the new version.");
     Ok(())
 }
 
@@ -83,6 +88,11 @@ fn verify(bytes: &[u8], checksum_file: &[u8]) -> Result<()> {
         anyhow::bail!("checksum mismatch (expected {expected}, got {actual}); not installing");
     }
     Ok(())
+}
+
+/// Whether the running binary is the one the release's checksum file describes.
+fn same_build(exe: &std::path::Path, checksum_file: &[u8]) -> bool {
+    std::fs::read(exe).is_ok_and(|bytes| verify(&bytes, checksum_file).is_ok())
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
@@ -160,6 +170,17 @@ mod tests {
         let good = format!("{}  knav-x86_64-unknown-linux-musl", hex_sha256(bytes));
         assert!(verify(bytes, good.as_bytes()).is_ok());
         assert!(verify(bytes, b"0000000000000000000000000000000000000000000000000000000000000000  x").is_err());
+    }
+
+    #[test]
+    fn the_running_binary_matches_only_its_own_checksum() {
+        let exe = std::env::temp_dir().join(format!("knav-same-build-{}", std::process::id()));
+        std::fs::write(&exe, b"build one").unwrap();
+        let own = format!("{}  knav", hex_sha256(b"build one"));
+        let other = format!("{}  knav", hex_sha256(b"build two"));
+        assert!(same_build(&exe, own.as_bytes()));
+        assert!(!same_build(&exe, other.as_bytes()));
+        std::fs::remove_file(exe).unwrap();
     }
 
     #[test]
