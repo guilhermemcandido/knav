@@ -133,7 +133,7 @@ pub struct HistoryView<'a> {
 
 /// The Permissions menu (`P`).
 pub struct PermissionsView<'a> {
-    /// 0 for this cluster, 1 for the read-only contexts.
+    /// 0 for this cluster, 1 for the read-only contexts, 2 for the highlighted ones.
     pub tab: usize,
     pub cursor: usize,
     pub context: &'a str,

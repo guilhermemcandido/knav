@@ -187,6 +187,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             wide: st.wide,
             role: role_label(&header.role, st.read_only()),
             read_only: st.read_only(),
+            highlight: st.config.highlight.applies_to(&st.context),
             ..header.clone()
         };
         let sort_view = ui::SortState { column: st.sort.map(|s| s.column), descending: st.sort.is_some_and(|s| s.descending), choosing: st.sort_choosing, cursor: st.sort_choosing.then_some(st.sort_cursor) };

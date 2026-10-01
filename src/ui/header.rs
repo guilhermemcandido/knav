@@ -13,6 +13,8 @@ pub struct HeaderInfo {
     pub role: String,
     /// knav blocks changes, so the role stands out.
     pub read_only: bool,
+    /// The context is one to be careful in, so its name is shown in red.
+    pub highlight: bool,
     /// The namespace queries are narrowed to (`all` when none).
     pub namespace: String,
     /// What number keys 1-9 select (index 0 is key 1).
@@ -66,7 +68,7 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
     for (name, v) in fields.iter().filter(|(_, v)| !v.is_empty()) {
-        let width = cell_width(name) + 1 + cell_width(v);
+        let width = cell_width(name) + 1 + cell_width(v) + if *name == "Context:" && info.highlight { 2 } else { 0 };
         let gap = if spans.is_empty() { 0 } else { 3 };
         if used + gap + width > available {
             break;
@@ -76,7 +78,16 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
         }
         spans.push(Span::styled(format!("{name} "), label));
         let warn = *name == "Role:" && info.read_only && !dimmed;
-        spans.push(Span::styled(v.to_string(), if warn { value.fg(theme().warn) } else { value }));
+        let careful = *name == "Context:" && info.highlight && !dimmed;
+        let style = if careful {
+            Style::default().bg(theme().bad).fg(crate::theme::on(theme().bad)).add_modifier(Modifier::BOLD)
+        } else if warn {
+            value.fg(theme().warn)
+        } else {
+            value
+        };
+        // A filled red pill gets a space each side so the name doesn't touch its edges.
+        spans.push(Span::styled(if careful { format!(" {v} ") } else { v.to_string() }, style));
         used += gap + width;
     }
     let line_area = Rect { x: start_x, y: area.y, width: (area.x + area.width).saturating_sub(start_x), height: 1 };

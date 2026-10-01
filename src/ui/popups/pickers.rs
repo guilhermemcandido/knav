@@ -138,7 +138,7 @@ pub(in crate::ui) fn draw_permissions(frame: &mut Frame, view: PermissionsView) 
     let mut lines: Vec<Line> = Vec::new();
     // The tabs, the active one filled.
     let tab = |label: &str, active: bool| Span::styled(format!(" {label} "), if active { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { muted });
-    lines.push(Line::from(vec![tab("This cluster", view.tab == 0), Span::raw("  "), tab("Read-only contexts", view.tab == 1)]));
+    lines.push(Line::from(vec![tab("This cluster", view.tab == 0), Span::raw("  "), tab("Read-only contexts", view.tab == 1), Span::raw("  "), tab("Highlighted", view.tab == 2)]));
     lines.push(Line::raw(""));
     let hints: &[(&str, &str)] = if view.tab == 0 {
         lines.push(Line::from(vec![Span::styled("Context  ", muted), Span::styled(view.context.to_string(), strong)]));
@@ -149,23 +149,29 @@ pub(in crate::ui) fn draw_permissions(frame: &mut Frame, view: PermissionsView) 
         lines.push(row(vec![dot(view.read_only), Span::styled("Read-only".to_string(), strong)], "no deletes, edits, scaling or shells".into(), pick(1), inner_w));
         &[("↑↓", "move"), ("enter", "choose"), ("tab", "switch"), ("esc", "close")]
     } else {
-        let onoff = |on: bool| Span::styled(if on { "on" } else { "off" }, Style::default().fg(if on { theme().warn } else { theme().muted }).add_modifier(Modifier::BOLD));
-        let mut first = vec![Span::styled("All contexts  ".to_string(), strong)];
-        first.push(onoff(view.everywhere));
-        lines.push(row(first, "every cluster is read-only".into(), pick(0), inner_w));
+        // The read-only tab leads with a switch for every context; Highlighted says what it does.
+        let first = if view.tab == 1 {
+            let onoff = |on: bool| Span::styled(if on { "on" } else { "off" }, Style::default().fg(if on { theme().warn } else { theme().muted }).add_modifier(Modifier::BOLD));
+            lines.push(row(vec![Span::styled("All contexts  ".to_string(), strong), onoff(view.everywhere)], "every cluster is read-only".into(), pick(0), inner_w));
+            1
+        } else {
+            lines.push(Line::styled("Their header turns red, so you notice where you are.", muted));
+            lines.push(Line::raw(""));
+            0
+        };
         for (i, pattern) in view.contexts.iter().enumerate() {
             let text = match view.input {
                 Some((Some(at), typed)) if at == i => vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled(format!("{typed}▏"), Style::default().fg(theme().highlight))],
                 _ => vec![Span::raw("  "), Span::raw(pattern.clone())],
             };
             let note = if pattern.contains('*') { "pattern" } else if pattern == view.context { "this cluster" } else { "" };
-            lines.push(row(text, note.into(), pick(i + 1), inner_w));
+            lines.push(row(text, note.into(), pick(i + first), inner_w));
         }
         let add = match view.input {
             Some((None, typed)) => vec![Span::styled("> ", Style::default().fg(theme().accent)), Span::styled(format!("{typed}▏"), Style::default().fg(theme().highlight))],
             _ => vec![Span::styled("+ Add a context or pattern".to_string(), Style::default().fg(theme().accent))],
         };
-        lines.push(row(add, String::new(), pick(view.contexts.len() + 1), inner_w));
+        lines.push(row(add, String::new(), pick(view.contexts.len() + first), inner_w));
         lines.push(Line::raw(""));
         lines.push(Line::styled("* matches anything: prod* or *payments*", muted));
         if view.input.is_some() { &[("enter", "save"), ("esc", "cancel")] } else { &[("enter", "edit"), ("a", "add"), ("d", "delete"), ("tab", "switch"), ("esc", "close")] }

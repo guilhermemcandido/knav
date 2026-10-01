@@ -239,6 +239,20 @@ impl ReadOnlyConfig {
     }
 }
 
+/// Contexts whose header is red, to mark where care is needed.
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct HighlightConfig {
+    /// Names or patterns, where `*` matches anything (`prod*`).
+    pub contexts: Vec<String>,
+}
+
+impl HighlightConfig {
+    pub fn applies_to(&self, context: &str) -> bool {
+        self.contexts.iter().any(|pattern| wildcard_match(pattern, context))
+    }
+}
+
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     match pattern.split_once('*') {
         None => pattern == text,
@@ -268,6 +282,7 @@ pub struct Config {
     pub overview: OverviewConfig,
     pub extensions: ExtensionsConfig,
     pub read_only: ReadOnlyConfig,
+    pub highlight: HighlightConfig,
     /// Key bindings by action id, each one key or a list.
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,

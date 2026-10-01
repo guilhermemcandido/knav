@@ -246,7 +246,7 @@ pub(super) fn draw_mode(
                         role,
                         read_only: *read_only,
                         everywhere: config.read_only.enabled,
-                        contexts: &config.read_only.contexts,
+                        contexts: if *tab == 2 { &config.highlight.contexts } else { &config.read_only.contexts },
                         input: input.as_ref().map(|(at, text)| (*at, text.as_str())),
                         error: error.as_deref(),
                     };

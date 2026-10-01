@@ -60,6 +60,7 @@ pub fn registry() -> Vec<Setting> {
     add("startup.mode", Behaviour, "Startup", "Start with", choice(&["direct", "menu"]), true);
     add("read_only.enabled", Behaviour, "Safety", "Read-only everywhere", Kind::Bool, false);
     add("read_only.contexts", Behaviour, "Safety", "Read-only contexts", Kind::List, false);
+    add("highlight.contexts", Behaviour, "Safety", "Highlighted contexts", Kind::List, false);
     add("portforward.open_browser", Behaviour, "Port-forwards", "Open browser on port-forward", Kind::Bool, false);
     for binding in crate::input::keymap::BINDINGS {
         add(&format!("keys.{}", binding.id), Keys, "Keys", binding.label, Kind::Keys, false);
@@ -122,6 +123,7 @@ pub fn describe(setting: &Setting) -> &'static str {
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
         "startup.mode" => "direct connects to your current kubeconfig context and opens Home. menu shows a cluster picker first, even with a single context. --context skips both.",
         "read_only.enabled" => "Block every change on every cluster: delete, edit, scale, restart, cordon and shells.",
+        "highlight.contexts" => "Contexts whose header turns red, by name or pattern like prod*, so you notice where you are. P edits the same list.",
         "read_only.contexts" => "Contexts that are always read-only, by name or pattern, like staging, prod*. * matches anything. P opens the same list.",
         "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
         "api.refresh_seconds" => "How often the API resources list refreshes in the background.",

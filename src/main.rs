@@ -100,6 +100,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         user: info.map(|c| c.user).unwrap_or_default(),
         role: String::new(),
         read_only: false,
+        highlight: false,
         namespace: "all".to_string(),
         namespace_slots: Vec::new(),
         scope: String::new(),
