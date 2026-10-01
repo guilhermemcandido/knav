@@ -1,4 +1,4 @@
-# The README demo. Needs a cluster and a release build:
+# The README demo. Needs a cluster with the knav-demo Deployment and a release build:
 #   cargo build --release && vhs demo/demo.tape
 
 Output demo/demo.gif
@@ -27,11 +27,11 @@ Sleep 500ms
 Enter
 Sleep 2.5s
 
-# Info panel on a pod.
+# Info panel on a pod: usage, status, containers.
 Down 2
 Sleep 500ms
 Type "i"
-Sleep 2.5s
+Sleep 3s
 Type "i"
 Sleep 800ms
 
@@ -41,11 +41,27 @@ Sleep 3s
 Escape
 Sleep 1s
 
-# Search.
-Type "/store"
-Sleep 600ms
+# Everything that needs a look.
+Type "!"
+Sleep 3.5s
+Escape
+Sleep 800ms
+
+# A Deployment's history: what rolling back would change.
+Type ":deploy"
+Sleep 500ms
 Enter
-Sleep 2.5s
+Sleep 1.5s
+Type "/knav-demo"
+Sleep 400ms
+Enter
+Sleep 1s
+Type "v"
+Sleep 1.5s
+Down@700ms 2
+Sleep 3.5s
+Escape
+Sleep 800ms
 
 # Sidebar.
 Type "b"

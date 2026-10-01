@@ -12,6 +12,8 @@ explorer, built in Rust.
 - **Problems** (`!`) lists everything that needs a look across the cluster, with the reason.
 - **CPU and memory** per pod, against its limits.
 - **Rollout history** (`v`) compares the revisions of a Deployment, StatefulSet or DaemonSet and rolls back.
+- **Your own commands** on any key: `kubectl describe`, `stern`, anything with the selected object filled in.
+- **Debug containers** (`X`) for pods without a shell, and logs saved to a file with `w`.
 - **Knows your access**: the header shows your role (admin, read-write, read-only), checked against RBAC.
 - **Built for scale**: stays fast with tens of thousands of objects.
 
@@ -59,8 +61,9 @@ edit is kept.
 ### Permissions (`P`)
 
 Per cluster, work with your own role or switch to read-only, which blocks deletes,
-edits, scaling and shells. A second tab lists the contexts that are always read-only,
-by name or pattern like `prod*`.
+edits, scaling and shells. More tabs list the contexts that are always read-only, and
+the ones whose header turns red so you notice where you are, by name or pattern like
+`prod*`.
 
 ![Permissions](demo/screenshots/permissions.png)
 
@@ -100,6 +103,7 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `0`-`9` | switch to a reserved namespace |
 | `!` | problems across the cluster |
 | `v` | rollout history of a workload |
+| `X` | a debug container in a pod |
 | `P` | permissions: your role or read-only |
 | `b` | sidebar |
 
@@ -113,6 +117,25 @@ Everything is set from the Settings screen (`,`) and saved to
 - **Behaviour**: start in the current context or a picker, read-only, port-forwards
 - **Keys**: rebind any key
 - **Layout**: which sections and tiles Home shows, and in what order
+
+### Your own commands
+
+Add commands to the config and run them on the selected object, from their key or by
+name on the `:` line:
+
+```toml
+[[commands]]
+name = "describe"
+key = "ctrl-k"
+read_only = true          # allowed in read-only mode
+run = "kubectl describe {kind} {name} -n {namespace} --context {context}"
+
+[[commands]]
+name = "tail"
+kinds = ["Deployment"]
+output = "terminal"       # hand over the terminal; "view" shows the output, "background" a notice
+run = "stern {name} -n {namespace} --context {context}"
+```
 
 Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
 
