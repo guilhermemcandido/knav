@@ -75,6 +75,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
     let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
+    let (pod_metrics, _pod_metrics_handle) = metrics::watch_pod_metrics(client.clone());
     // Discovery runs beside the first lists; the loading screen waits for all of them.
     let discovery = tokio::spawn({
         let client = client.clone();
@@ -121,7 +122,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
         Ok(Ok(access)) if access != k8s::access::Access::Unknown => access.label(),
         _ => String::new(),
     };
-    let stores = app::Stores { pods: &pod_store, deployments: &dep_store, nodes: &node_store, events: &event_store, node_metrics: &node_metrics_rx };
+    let stores = app::Stores { pods: &pod_store, deployments: &dep_store, nodes: &node_store, events: &event_store, node_metrics: &node_metrics_rx, pod_metrics: &pod_metrics };
     let session = app::Session { client, config, active_context: &active_context, header: &header, read_only };
     let result = app::run(&mut terminal, stores, &mut catalog, &registry, session, notes);
 

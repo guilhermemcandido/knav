@@ -25,6 +25,10 @@ pub struct PodRow {
     pub images: String,
     pub age: String,
     pub age_secs: i64,
+    /// The summed container limits, `None` when any container has none, since then
+    /// the pod as a whole has no ceiling to compare usage against.
+    pub cpu_limit: Option<i64>,
+    pub memory_limit: Option<i64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -171,7 +175,13 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let qos = status.qos_class.unwrap_or_else(|| "-".into());
     let ip = status.pod_ip.clone().unwrap_or_else(|| "-".into());
     let images = pod.spec.as_ref().map(|s| s.containers.iter().filter_map(|c| c.image.clone()).collect::<Vec<_>>().join(",")).filter(|i| !i.is_empty()).unwrap_or_else(|| "-".into());
-    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs }
+    let limit = |key: &str, parse: fn(&str) -> i64| -> Option<i64> {
+        let specs = &pod.spec.as_ref()?.containers;
+        specs.iter().map(|c| c.resources.as_ref()?.limits.as_ref()?.get(key).map(|q| parse(&q.0))).sum::<Option<i64>>().filter(|_| !specs.is_empty())
+    };
+    let cpu_limit = limit("cpu", crate::metrics::parse_cpu_millicores);
+    let memory_limit = limit("memory", crate::metrics::parse_memory_bytes);
+    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs, cpu_limit, memory_limit }
 }
 
 impl AgeRow for PodRow {

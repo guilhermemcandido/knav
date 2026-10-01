@@ -126,11 +126,11 @@ fn render_windowed(frame: &mut Frame, area: Rect, table: Table, state: &mut Tabl
     frame.render_stateful_widget(table, area, &mut local);
 }
 
-pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], view: ListView) {
+pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<PodRow>], usage: Option<&PodUsageMap>, view: ListView) {
     let ListView { state: table_state, search, sort, hscroll, marked, wide, look } = view;
     let dimmed = look.dimmed;
 
-    let window = pod_window(pods, area.width, hscroll, wide, sort.cursor);
+    let window = pod_window(pods, usage, area.width, hscroll, wide, sort.cursor);
     let header = header_row(&pod_headers(wide), sort, dimmed, &window);
     let vis = visible(table_state, pods.len(), area);
 
@@ -147,6 +147,8 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
             Cell::from(p.ready.clone()).style(ready_style),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
+            usage_cell(cpu_usage(p, usage), cell_style, dimmed),
+            usage_cell(memory_usage(p, usage), cell_style, dimmed),
             Cell::from(p.controlled_by.clone()).style(cell_style),
             Cell::from(p.node.clone()).style(cell_style),
             Cell::from(p.qos.clone()).style(cell_style),
@@ -171,7 +173,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
 
 /// The pods table's headers. Wide adds IP and IMAGES; CONTAINERS stays last.
 fn pod_headers(wide: bool) -> Vec<&'static str> {
-    let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CONTROLLER", "NODE", "QOS", "AGE"];
+    let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CPU", "MEM", "CONTROLLER", "NODE", "QOS", "AGE"];
     if wide {
         headers.extend(["IP", "IMAGES"]);
     }
@@ -180,7 +182,7 @@ fn pod_headers(wide: bool) -> Vec<&'static str> {
 }
 
 /// The pods table's visible columns, shared by drawing and hover hit-testing.
-fn pod_window(pods: &[std::sync::Arc<PodRow>], table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
+fn pod_window(pods: &[std::sync::Arc<PodRow>], usage: Option<&PodUsageMap>, table_width: u16, hscroll: &mut usize, wide: bool, keep: Option<usize>) -> Window {
     let rows = pods.iter().map(|p| {
         let mut widths = vec![
             cell_width(&p.namespace),
@@ -188,6 +190,8 @@ fn pod_window(pods: &[std::sync::Arc<PodRow>], table_width: u16, hscroll: &mut u
             cell_width(&p.ready),
             cell_width(&p.phase),
             p.restarts.to_string().len(),
+            cell_width(&cpu_usage(p, usage).0),
+            cell_width(&memory_usage(p, usage).0),
             cell_width(&p.controlled_by),
             cell_width(&p.node),
             cell_width(&p.qos),
@@ -203,6 +207,50 @@ fn pod_window(pods: &[std::sync::Arc<PodRow>], table_width: u16, hscroll: &mut u
     layout_list(&pod_headers(wide), (pods.as_ptr() as usize, pods.len()), rows, table_width.saturating_sub(2), None, hscroll, keep)
 }
 
+use crate::k8s::metrics::PodUsageMap;
+
+/// How busy a pod is against its limit: unremarkable, close, or at the edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Load {
+    Normal,
+    High,
+    Critical,
+}
+
+/// A usage cell's text, like `256Mi` or `256Mi 85%` with a limit, and how loaded it is.
+/// `-` when metrics-server has nothing for the pod.
+fn usage_text(used: Option<i64>, limit: Option<i64>, format: fn(i64) -> String) -> (String, Load) {
+    let Some(used) = used else { return ("-".into(), Load::Normal) };
+    match limit.filter(|l| *l > 0) {
+        Some(limit) => {
+            let percent = used * 100 / limit;
+            let load = if percent >= 90 { Load::Critical } else if percent >= 70 { Load::High } else { Load::Normal };
+            (format!("{} {percent}%", format(used)), load)
+        }
+        None => (format(used), Load::Normal),
+    }
+}
+
+fn cpu_usage(p: &PodRow, usage: Option<&PodUsageMap>) -> (String, Load) {
+    usage_text(usage.and_then(|u| u.get(&p.namespace, &p.name)).map(|u| u.cpu_millicores), p.cpu_limit, |m| format!("{m}m"))
+}
+
+fn memory_usage(p: &PodRow, usage: Option<&PodUsageMap>) -> (String, Load) {
+    let format = |bytes: i64| if bytes >= 1024 * 1024 { format!("{}Mi", bytes / (1024 * 1024)) } else { format!("{}Ki", bytes / 1024) };
+    usage_text(usage.and_then(|u| u.get(&p.namespace, &p.name)).map(|u| u.memory_bytes), p.memory_limit, format)
+}
+
+/// The row's own style, or orange and red as the pod nears its limit.
+fn usage_cell((text, load): (String, Load), style: Style, dimmed: bool) -> Cell<'static> {
+    let style = match load {
+        _ if dimmed => style,
+        Load::Normal => style,
+        Load::High => style.fg(theme().warn),
+        Load::Critical => style.fg(theme().bad),
+    };
+    Cell::from(text).style(style)
+}
+
 /// Which data row of a bordered table a screen row falls on, given its scroll `offset`.
 pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) -> Option<usize> {
     let first = table_area.y.saturating_add(2);
@@ -215,10 +263,20 @@ pub fn list_row_at(table_area: Rect, offset: usize, row_count: usize, row: u16) 
 }
 
 /// Whether a terminal column is over the pods table's CONTROLLER column.
-pub fn controller_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, column: u16) -> bool {
-    const CONTROLLER: usize = 5;
+/// The pods table as it is laid out on screen, for hit-testing.
+#[derive(Clone, Copy)]
+pub struct PodLayout<'a> {
+    pub pods: &'a [std::sync::Arc<PodRow>],
+    pub usage: Option<&'a PodUsageMap>,
+    pub wide: bool,
+    pub hscroll: usize,
+}
+
+pub fn controller_at(frame_area: Rect, layout: PodLayout, column: u16) -> bool {
+    let PodLayout { pods, usage, wide, hscroll } = layout;
+    const CONTROLLER: usize = 7;
     let inner = Rect { x: frame_area.x.saturating_add(1), y: frame_area.y.saturating_add(2), width: frame_area.width.saturating_sub(2), height: frame_area.height.saturating_sub(3) };
-    let window = pod_window(pods, frame_area.width, &mut { hscroll }, wide, None);
+    let window = pod_window(pods, usage, frame_area.width, &mut { hscroll }, wide, None);
     let range = window.range();
     if !range.contains(&CONTROLLER) {
         return false;
@@ -229,7 +287,8 @@ pub fn controller_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bo
 
 /// The pod row under a terminal position, only over the CONTAINERS column, so the
 /// popup fires on the dots.
-pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hscroll: usize, table_state: &TableState, row_count: usize, at: Position) -> Option<usize> {
+pub fn row_at(frame_area: Rect, layout: PodLayout, table_state: &TableState, row_count: usize, at: Position) -> Option<usize> {
+    let PodLayout { pods, usage, wide, hscroll } = layout;
     let Position { x: column, y: row } = at;
     let table_area = frame_area;
 
@@ -244,7 +303,7 @@ pub fn row_at(frame_area: Rect, pods: &[std::sync::Arc<PodRow>], wide: bool, hsc
         return None;
     }
 
-    let window = pod_window(pods, table_area.width, &mut { hscroll }, wide, None);
+    let window = pod_window(pods, usage, table_area.width, &mut { hscroll }, wide, None);
     let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
     // CONTAINERS is the last column; nothing to hover if it's scrolled away.
     let containers_col = if window.range().end == pod_headers(wide).len() { columns.last()? } else { return None };
@@ -625,5 +684,21 @@ mod generic_table_tests {
     fn namespace_column_shown_when_any_row_has_a_real_namespace() {
         assert!(any_row_has_namespace(&[row("-").into(), row("default").into()]));
         assert!(!any_row_has_namespace(&[]));
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    #[test]
+    fn usage_shows_the_share_of_the_limit_and_warns_near_it() {
+        let mib = |m: i64| m * 1024 * 1024;
+        let format = |b: i64| format!("{}Mi", b / (1024 * 1024));
+        assert_eq!(usage_text(None, Some(mib(100)), format), ("-".into(), Load::Normal));
+        assert_eq!(usage_text(Some(mib(50)), None, format), ("50Mi".into(), Load::Normal));
+        assert_eq!(usage_text(Some(mib(50)), Some(mib(100)), format), ("50Mi 50%".into(), Load::Normal));
+        assert_eq!(usage_text(Some(mib(75)), Some(mib(100)), format).1, Load::High);
+        assert_eq!(usage_text(Some(mib(95)), Some(mib(100)), format).1, Load::Critical);
     }
 }

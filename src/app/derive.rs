@@ -12,6 +12,8 @@ pub(super) struct Derived {
     pub dep_rows: Vec<Arc<k8s::DeploymentRow>>,
     pub nodes: Vec<Arc<Node>>,
     pub usage: Option<metrics::ClusterUsage>,
+    /// Each pod's usage, when metrics-server answered.
+    pub pod_usage: Option<Arc<metrics::PodUsageMap>>,
     pub node_detail_pods: Vec<Arc<Pod>>,
     pub node_detail_rows: Vec<Arc<k8s::PodRow>>,
     pub sorted_nodes: Vec<Arc<Node>>,
@@ -51,6 +53,7 @@ pub(super) struct Sources<'a> {
     pub node_store: &'a Store<Node>,
     pub event_store: &'a Store<k8s_openapi::api::core::v1::Event>,
     pub node_metrics_rx: &'a watch::Receiver<Option<metrics::ClusterUsage>>,
+    pub pod_usage_rx: &'a watch::Receiver<Option<Arc<metrics::PodUsageMap>>>,
     pub client: &'a Client,
     pub registry: &'a crate::extensions::Registry,
     /// Rows for the Port-forwards list (knav's own, not from the cluster).
@@ -58,7 +61,8 @@ pub(super) struct Sources<'a> {
 }
 
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
-    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client, forwards, registry } = *src;
+    let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx, client, forwards, registry } = *src;
+    let pod_usage = pod_usage_rx.borrow().clone();
     let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
@@ -79,7 +83,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         });
         let mut pairs: Vec<k8s::Item<Pod, k8s::PodRow>> = all_pods.iter().zip(keep).filter(|(_, keep)| *keep).map(|(item, _)| item.clone()).collect();
         if current_kind == ResourceKind::Pods {
-            apply(&mut pairs, sort, |(_, row), column| pod_key(row, column, wide));
+            apply(&mut pairs, sort, |(_, row), column| pod_key(row, column, wide, pod_usage.as_deref()));
         }
         let (pods, pod_rows): (Vec<Arc<Pod>>, Vec<Arc<k8s::PodRow>>) = pairs.into_iter().unzip();
         let mut dep_pairs: Vec<k8s::Item<Deployment, k8s::DeploymentRow>> = dep_store
@@ -106,7 +110,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         };
         let node_search = node_detail_search(mode).to_string();
         detail.retain(|(p, _)| meta_matches(&node_search, &p.metadata));
-        apply(&mut detail, node_detail_sort(mode), |(_, row), column| pod_key(row, column, false));
+        apply(&mut detail, node_detail_sort(mode), |(_, row), column| pod_key(row, column, false, pod_usage.as_deref()));
         let (node_detail_pods, node_detail_rows): (Vec<Arc<Pod>>, Vec<Arc<k8s::PodRow>>) = detail.into_iter().unzip();
         // Nodes are filtered here so handlers indexing `sorted_nodes` match the display.
         // Every pod counts toward its node's PODS, whatever the list is narrowed to.
@@ -218,7 +222,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             None
         };
 
-    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts, dashboard }
+    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, pod_usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts, dashboard }
 }
 
 /// How many pods each node runs, counted on several threads for big clusters.
@@ -380,7 +384,7 @@ mod bench {
         let mut pairs: Vec<_> = all.iter().filter(|(p, _)| meta_matches("", &p.metadata)).cloned().collect();
         println!("filter (no search)             {:?}", t.elapsed());
         let t = Instant::now();
-        apply(&mut pairs, Some(SortSpec { column: 3, descending: true }), |(_, r), c| pod_key(r, c, false));
+        apply(&mut pairs, Some(SortSpec { column: 3, descending: true }), |(_, r), c| pod_key(r, c, false, None));
         println!("sort by column                 {:?}", t.elapsed());
         let t = Instant::now();
         let kept_rows = k8s::par_map(&all, |(p, _)| meta_matches("web-9", &p.metadata)).into_iter().filter(|k| *k).count();

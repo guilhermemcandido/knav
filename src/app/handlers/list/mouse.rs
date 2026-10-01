@@ -5,7 +5,7 @@ use super::*;
 /// Handles a mouse event on the list. The flags say a double click asked to open the
 /// row, or to follow a pod's owner.
 pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &mut Cx) -> (bool, bool) {
-    let Derived { pod_rows, overview, .. } = cx.d;
+    let Derived { pod_rows, pod_usage, overview, .. } = cx.d;
     let (frame_area, row_count) = (cx.frame_area, cx.row_count);
     let (mut open, mut to_owner) = (false, false);
         if st.current_kind == ResourceKind::Overview {
@@ -56,19 +56,20 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                     _ => {}
                 }
             }
+            let layout = ui::PodLayout { pods: pod_rows, usage: pod_usage.as_deref(), wide: st.wide, hscroll: st.hscroll };
             match mouse.kind {
                 MouseEventKind::Moved => {
-                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
+                    st.hovered = ui::row_at(table, layout, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
                         .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                 }
                 // A click selects the row; a second click on it soon after opens it.
                 MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                    st.hovered = ui::row_at(table, pod_rows, st.wide, st.hscroll, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
+                    st.hovered = ui::row_at(table, layout, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
                         .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
                     if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                         st.table_state.select(Some(index));
                         // Clicking a pod's CONTROLLER follows it to the owner.
-                        let on_controller = st.current_kind == ResourceKind::Pods && ui::controller_at(table, pod_rows, st.wide, st.hscroll, mouse.column) && pod_rows.get(index).is_some_and(|p| p.controlled_by != "-");
+                        let on_controller = st.current_kind == ResourceKind::Pods && ui::controller_at(table, layout, mouse.column) && pod_rows.get(index).is_some_and(|p| p.controlled_by != "-");
                         if on_controller {
                             st.last_click = None;
                             to_owner = true;

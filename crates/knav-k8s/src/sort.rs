@@ -32,7 +32,7 @@ fn text(s: &str) -> Key {
     Key::Text(s.to_lowercase())
 }
 
-pub const POD_COLUMNS: usize = 10;
+pub const POD_COLUMNS: usize = 12;
 const DEPLOYMENT_COLUMNS: usize = 6;
 const NODE_COLUMNS: usize = 9;
 const CRD_COLUMNS: usize = 4;
@@ -54,7 +54,7 @@ pub fn column_count(kind: ResourceKind, generic_columns: usize, wide: bool) -> u
 pub fn age_column(kind: ResourceKind, generic_columns: usize, wide: bool) -> Option<usize> {
     match kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
-        ResourceKind::Pods => Some(8),
+        ResourceKind::Pods => Some(10),
         ResourceKind::Deployments => Some(5),
         ResourceKind::Nodes => Some(7),
         // Namespace (if any), name, the kind's columns, then AGE, then LABELS when wide.
@@ -80,19 +80,23 @@ fn ready_fraction(ready: &str) -> i64 {
     }
 }
 
-pub fn pod_key(row: &crate::PodRow, column: usize, wide: bool) -> Key {
+/// `usage` gives CPU and MEM; pods without metrics sort below every measured one.
+pub fn pod_key(row: &crate::PodRow, column: usize, wide: bool, usage: Option<&crate::metrics::PodUsageMap>) -> Key {
+    let used = || usage.and_then(|u| u.get(&row.namespace, &row.name));
     match column {
         0 => text(&row.namespace),
         1 => text(&row.name),
         2 => Key::Num(ready_fraction(&row.ready)),
         3 => text(&row.phase),
         4 => Key::Num(i64::from(row.restarts)),
-        5 => text(&row.controlled_by),
-        6 => text(&row.node),
-        7 => text(&row.qos),
-        8 => Key::Num(row.age_secs),
-        9 if wide => text(&row.ip),
-        10 if wide => text(&row.images),
+        5 => Key::Num(used().map_or(-1, |u| u.cpu_millicores)),
+        6 => Key::Num(used().map_or(-1, |u| u.memory_bytes)),
+        7 => text(&row.controlled_by),
+        8 => text(&row.node),
+        9 => text(&row.qos),
+        10 => Key::Num(row.age_secs),
+        11 if wide => text(&row.ip),
+        12 if wide => text(&row.images),
         _ => Key::Num(row.containers.len() as i64),
     }
 }
@@ -301,7 +305,7 @@ mod age_tests {
 
     #[test]
     fn each_list_knows_where_its_age_column_is() {
-        assert_eq!(age_column(ResourceKind::Pods, 0, false), Some(8));
+        assert_eq!(age_column(ResourceKind::Pods, 0, false), Some(10));
         assert_eq!(age_column(ResourceKind::Deployments, 0, false), Some(5));
         assert_eq!(age_column(ResourceKind::Nodes, 0, false), Some(7));
         // Namespace, name, two kind columns, age: index 4; wide adds LABELS after it.

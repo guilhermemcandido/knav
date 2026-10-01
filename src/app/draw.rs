@@ -8,6 +8,7 @@ pub(super) struct View<'a> {
     pub overview: &'a k8s::Overview,
     pub nodes: &'a [std::sync::Arc<Node>],
     pub usage: Option<&'a metrics::ClusterUsage>,
+    pub pod_usage: Option<&'a metrics::PodUsageMap>,
     pub node_detail_rows: &'a [std::sync::Arc<k8s::PodRow>],
     pub node_rows: &'a [k8s::NodeRow],
     pub crds: &'a [k8s::CrdInfo],
@@ -50,7 +51,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
+    let View { rows, overview, nodes, usage, pod_usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -301,6 +302,7 @@ pub(super) fn draw_mode(
                             pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                             info: back_detail_info.as_ref(),
                             pods: node_detail_rows,
+                            pod_usage: *pod_usage,
                             state: nd_state,
                             sort: ui::SortState::default(),
                             search: ui::Search::default(),
@@ -339,6 +341,7 @@ pub(super) fn draw_mode(
                             pod_capacity: back_capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                             info: back_detail_info.as_ref(),
                             pods: node_detail_rows,
+                            pod_usage: *pod_usage,
                             state: nd_state,
                             sort: ui::SortState::default(),
                             search: ui::Search::default(),
@@ -367,6 +370,7 @@ pub(super) fn draw_mode(
                         pod_capacity: capacity.as_ref().map(|c| c.pods).unwrap_or(0),
                         info: detail_info.as_ref(),
                         pods: node_detail_rows,
+                        pod_usage: *pod_usage,
                         state,
                         sort: popup_sort.view(),
                         search: ui::Search { text: nd_search, editing: *nd_editing },

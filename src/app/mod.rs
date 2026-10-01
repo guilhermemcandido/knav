@@ -58,6 +58,7 @@ pub(crate) struct Stores<'a> {
     pub nodes: &'a Store<Node>,
     pub events: &'a Store<k8s_openapi::api::core::v1::Event>,
     pub node_metrics: &'a watch::Receiver<Option<metrics::ClusterUsage>>,
+    pub pod_metrics: &'a metrics::PodMetricsFeed,
 }
 
 /// Which cluster the session is on, and the config it started with.
@@ -81,7 +82,7 @@ fn role_label(role: &str, read_only: bool) -> String {
 }
 
 pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catalog: &mut Catalog, registry: &extensions::Registry, session: Session, notes: Vec<String>) -> Result<SessionEnd> {
-    let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx } = stores;
+    let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx, pod_metrics } = stores;
     let Session { client, config, active_context, header, read_only } = session;
     let mut st = State::new(icons::IconCache::detect(), Favorites::load(active_context), config.clone());
     st.read_only_flag = read_only;
@@ -100,7 +101,11 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         // A forward that kubectl dropped (the pod went away) leaves the list.
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
-        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, client: &client, forwards: &forward_rows, registry };
+        // Pod usage is polled only while some list of pods is on screen.
+        if st.current_kind == ResourceKind::Pods || mode::node_detail_name(&st.mode).is_some() {
+            pod_metrics.want();
+        }
+        let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx: &pod_metrics.rx, client: &client, forwards: &forward_rows, registry };
         let query = derive::Query {
             current_kind: st.current_kind,
             namespace: st.namespace.as_deref(),
@@ -114,7 +119,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();
-        let derive::Derived { pod_rows, dep_rows, nodes, usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, dashboard, .. } = derived;
+        let derive::Derived { pod_rows, dep_rows, nodes, usage, pod_usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, dashboard, .. } = derived;
 
         let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
@@ -158,7 +163,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
 
         let rows_view = || match st.current_kind {
             ResourceKind::Overview => ui::Rows::Overview(overview, st.overview_selection, st.overview_col_scroll, st.overview_item_scroll),
-            ResourceKind::Pods => ui::Rows::Pods(pod_rows),
+            ResourceKind::Pods => ui::Rows::Pods(pod_rows, pod_usage.as_deref()),
             ResourceKind::Deployments => ui::Rows::Deployments(dep_rows),
             ResourceKind::Nodes => ui::Rows::Nodes(node_rows),
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(crd_rows, crd_counts, st.current_kind.label()),
@@ -234,6 +239,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             nodes,
             node_rows,
             usage: usage.as_ref(),
+            pod_usage: pod_usage.as_deref(),
             node_detail_rows,
             crds: &catalog.crds,
             extensions: &registry.loaded,

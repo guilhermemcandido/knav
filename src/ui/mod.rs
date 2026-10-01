@@ -70,7 +70,8 @@ pub use self::style::{border_set, configure_border, mark_key};
 pub enum Rows<'a> {
     /// With the column scroll and the item scroll within the selected column.
     Overview(&'a Overview, OverviewSelection, usize, usize),
-    Pods(&'a [std::sync::Arc<PodRow>]),
+    /// The pods, and their usage when metrics-server answered.
+    Pods(&'a [std::sync::Arc<PodRow>], Option<&'a crate::k8s::metrics::PodUsageMap>),
     Deployments(&'a [std::sync::Arc<DeploymentRow>]),
     /// Nodes have their own columns, with CPU and memory usage in the list.
     Nodes(&'a [NodeRow]),
@@ -189,6 +190,7 @@ pub struct NodeDetailView<'a> {
     /// `None` briefly when the node vanished between frames.
     pub info: Option<&'a crate::k8s::NodeDetailInfo>,
     pub pods: &'a [std::sync::Arc<PodRow>],
+    pub pod_usage: Option<&'a crate::k8s::metrics::PodUsageMap>,
     pub state: &'a mut TableState,
     pub sort: SortState,
     pub search: Search<'a>,
@@ -481,7 +483,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         }
         _ if dimmed => None,
         _ => match &rows {
-            Rows::Pods(pods) => selected_row.and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r)),
+            Rows::Pods(pods, _) => selected_row.and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r)),
             Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(|r| SelectedItem::from_deployment(r)),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
             Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(|r| SelectedItem::from_generic(r)),
@@ -494,7 +496,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         details::draw_side_panel(frame, full_body, chrome);
     }
     let empty_message = match &rows {
-        Rows::Pods([]) => Some("pods"),
+        Rows::Pods([], _) => Some("pods"),
         Rows::Deployments([]) => Some("deployments"),
         Rows::Nodes([]) => Some("nodes"),
         Rows::Generic([], label, _) => Some(*label),
@@ -503,8 +505,8 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
     }
     .map(|label| empty_list_message(label, search.text, header.faults_only));
     match rows {
-        Rows::Pods(pods) => {
-            draw_table(frame, body, pods, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
+        Rows::Pods(pods, usage) => {
+            draw_table(frame, body, pods, usage, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
 
             // Floats near the cursor while it is over a container dot.
             if !dimmed

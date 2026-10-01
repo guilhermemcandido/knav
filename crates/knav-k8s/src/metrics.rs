@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 
 use kube::{
@@ -116,6 +118,72 @@ pub fn watch_node_metrics(client: Client) -> (watch::Receiver<Option<ClusterUsag
     (rx, handle)
 }
 
+/// One pod's usage, summed over its containers.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PodUsage {
+    pub cpu_millicores: i64,
+    pub memory_bytes: i64,
+}
+
+/// Pod usage by namespace, then name, so a lookup needs no allocation.
+#[derive(Default)]
+pub struct PodUsageMap(HashMap<String, HashMap<String, PodUsage>>);
+
+impl PodUsageMap {
+    pub fn get(&self, namespace: &str, name: &str) -> Option<PodUsage> {
+        self.0.get(namespace)?.get(name).copied()
+    }
+}
+
+/// Pod usage, polled only while something asks for it with `want`: listing every
+/// pod's metrics is heavy on a big cluster. `None` means metrics-server is unavailable.
+pub struct PodMetricsFeed {
+    pub rx: watch::Receiver<Option<Arc<PodUsageMap>>>,
+    wanted: Arc<AtomicBool>,
+}
+
+impl PodMetricsFeed {
+    /// Asks for a fresh poll; call it while pods are on screen.
+    pub fn want(&self) {
+        self.wanted.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn watch_pod_metrics(client: Client) -> (PodMetricsFeed, JoinHandle<()>) {
+    let (tx, rx) = watch::channel(None);
+    let wanted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&wanted);
+    let handle = tokio::spawn(async move {
+        let resource = ApiResource::from_gvk(&GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics"));
+        let api: Api<DynamicObject> = Api::all_with(client, &resource);
+        loop {
+            // Wait to be asked, then poll at most every 15s, like `kubectl top`.
+            while !flag.swap(false, Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            let usage = api.list(&ListParams::default()).await.ok().map(|list| Arc::new(pod_usage(&list.items)));
+            let _ = tx.send(usage);
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        }
+    });
+    (PodMetricsFeed { rx, wanted }, handle)
+}
+
+fn pod_usage(items: &[DynamicObject]) -> PodUsageMap {
+    let mut map = PodUsageMap::default();
+    for item in items {
+        let (Some(namespace), Some(name)) = (item.metadata.namespace.clone(), item.metadata.name.clone()) else { continue };
+        let mut usage = PodUsage::default();
+        for container in item.data.get("containers").and_then(|c| c.as_array()).into_iter().flatten() {
+            let quantity = |key: &str| container.get("usage").and_then(|u| u.get(key)).and_then(|v| v.as_str());
+            usage.cpu_millicores += quantity("cpu").map(parse_cpu_millicores).unwrap_or(0);
+            usage.memory_bytes += quantity("memory").map(parse_memory_bytes).unwrap_or(0);
+        }
+        map.0.entry(namespace).or_default().insert(name, usage);
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +217,17 @@ mod tests {
     #[test]
     fn memory_plain_bytes() {
         assert_eq!(parse_memory_bytes("128974848"), 128974848);
+    }
+
+    #[test]
+    fn pod_usage_sums_the_containers() {
+        let item: DynamicObject = serde_json::from_value(serde_json::json!({
+            "apiVersion": "metrics.k8s.io/v1beta1", "kind": "PodMetrics",
+            "metadata": {"name": "web", "namespace": "shop"},
+            "containers": [{"usage": {"cpu": "100m", "memory": "64Mi"}}, {"usage": {"cpu": "50000000n", "memory": "32Mi"}}]
+        })).unwrap();
+        let map = pod_usage(&[item]);
+        assert_eq!(map.get("shop", "web"), Some(PodUsage { cpu_millicores: 150, memory_bytes: 96 * 1024 * 1024 }));
+        assert_eq!(map.get("shop", "other"), None);
     }
 }
