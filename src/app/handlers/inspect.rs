@@ -205,7 +205,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Key(key), Mode::Logs { filter, filter_editing: filter_editing @ true, .. }) => {
             super::edit_line(key.code, filter, filter_editing);
         }
-        (Event::Key(key), Mode::Logs { lines, filter, scroll, follow, timestamp_format, order, filter_editing, back, .. }) => match key.code {
+        (Event::Key(key), Mode::Logs { title, lines, filter, scroll, follow, timestamp_format, order, filter_editing, back, .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
@@ -219,6 +219,18 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('o') => {
                 *order = order.toggled();
                 *follow = true;
+            }
+            // `w` saves the lines shown (the filter and order applied) to a file.
+            KeyCode::Char('w') => {
+                let text = ui::logs_text(lines, filter, *order);
+                let count = text.lines().count();
+                let filtered = if filter.is_empty() { "" } else { " matching the filter" };
+                let (text, tone) = match crate::ops::logfile::save(title, &text) {
+                    Ok(path) => (format!("Saved {count} lines{filtered} to {}", crate::ops::logfile::shown(&path)), NoticeTone::Done),
+                    Err(e) => (format!("{e:#}"), NoticeTone::Failed),
+                };
+                let back = std::mem::replace(&mut st.mode, Mode::List);
+                st.mode = Mode::Notice { text, tone, back: Box::new(back) };
             }
             // `c` copies the lines shown (the filter and order applied) to the clipboard.
             KeyCode::Char('c') => {

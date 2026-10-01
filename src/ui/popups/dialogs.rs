@@ -22,9 +22,10 @@ pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crat
     let text_w = text.lines().map(cell_width).max().unwrap_or(0) as u16;
     let floor = (hint.width() as u16 + 4).max(30);
     let width = (text_w + 2 * PAD + 2).clamp(floor, narrow_dialog_width(full.width)).min(full.width);
-    let inner_w = usize::from(width.saturating_sub(2 * PAD + 2)).max(1);
-    let lines: usize = text.lines().map(|l| cell_width(l).div_ceil(inner_w).max(1)).sum::<usize>().max(1);
-    let height = (lines as u16 + 4 /* borders, a blank line above and below */).min(full.height);
+    let inner_w = width.saturating_sub(2 * PAD + 2).max(1);
+    // Counted as drawn, so a long unbroken word (a path) that wraps still fits.
+    let lines = Paragraph::new(text.to_string()).wrap(Wrap { trim: false }).line_count(inner_w).max(1) as u16;
+    let height = (lines + 4 /* borders, a blank line above and below */).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 2, width, height };
     frame.render_widget(Clear, area);
     let block = Block::default()
