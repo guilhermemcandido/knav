@@ -98,10 +98,8 @@ pub(super) fn storage_sections(manifest: &Value, kind: &str) -> Vec<Section> {
     {
         lines.push(field("Claim", format!("{}/{claim}", text(manifest, &["spec", "claimRef", "namespace"]).unwrap_or("?"))));
     }
-    for (label, key) in [("Volume mode", "volumeMode")] {
-        if let Some(value) = text(manifest, &["spec", key]) {
-            lines.push(field(label, value));
-        }
+    if let Some(value) = text(manifest, &["spec", "volumeMode"]) {
+        lines.push(field("Volume mode", value));
     }
     if kind == "PersistentVolume" {
         let source = ["csi", "nfs", "hostPath", "local", "awsElasticBlockStore", "gcePersistentDisk", "azureDisk", "iscsi", "cephfs"].iter().find(|s| at(manifest, &["spec", s]).is_some());
