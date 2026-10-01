@@ -120,8 +120,10 @@ Everything is set from the Settings screen (`,`) and saved to
 
 ### Your own commands
 
-Add commands to the config and run them on the selected object, from their key or by
-name on the `:` line:
+Add them to `~/.config/knav/config.toml` (there is no Settings screen for these yet),
+then restart knav. Each one runs on the selected object, from its key or by name on the
+`:` line (`:describe`). `{kind}`, `{name}`, `{namespace}` and `{context}` are filled in
+from the selection.
 
 ```toml
 [[commands]]
