@@ -15,6 +15,55 @@ explorer, built in Rust.
 - **Knows your access**: the header shows your role (admin, read-write, read-only), checked against RBAC.
 - **Built for scale**: stays fast with tens of thousands of objects.
 
+## Take a look
+
+### Rollout history (`v`)
+
+Every revision a Deployment still has, with its images and change cause. Pick one to
+see exactly what rolling back to it would change, then roll back with Enter. Here,
+going back to revision 2 drops the debug env vars and the limits added since.
+
+![Rollout history](demo/screenshots/history.png)
+
+### Related objects (`R`)
+
+The objects around the selected one: its controller and owner, the ConfigMaps and
+Secrets it mounts, its node and service account. Move between boxes, open any of
+them, or follow one to see what surrounds it next.
+
+![Related objects](demo/screenshots/relations.png)
+
+### Problems (`!`)
+
+Everything that needs a look, across the cluster, worst first, each with the reason in
+a word and the cluster's own explanation: why a container crashed, why a pod can't be
+scheduled, which rollout is stuck. Enter jumps to it.
+
+![Problems](demo/screenshots/problems.png)
+
+### Info panel (`i`)
+
+What the selected object is doing, beside the list: usage against its requests and
+limits, status, containers with their env and mounts, conditions and recent events.
+
+![Info panel](demo/screenshots/info.png)
+
+### Review before applying an edit (`e`)
+
+Edit in your `$EDITOR`, then see the change before it reaches the cluster: apply it,
+edit again, or cancel. If the cluster refuses it, the reason shows on top and your
+edit is kept.
+
+![Edit review](demo/screenshots/edit.png)
+
+### Permissions (`P`)
+
+Per cluster, work with your own role or switch to read-only, which blocks deletes,
+edits, scaling and shells. A second tab lists the contexts that are always read-only,
+by name or pattern like `prod*`.
+
+![Permissions](demo/screenshots/permissions.png)
+
 ## Install
 
 ```
@@ -64,10 +113,6 @@ Everything is set from the Settings screen (`,`) and saved to
 - **Behaviour**: start in the current context or a picker, read-only, port-forwards
 - **Keys**: rebind any key
 - **Layout**: which sections and tiles Home shows, and in what order
-
-**Permissions** (`P`) picks, per cluster, between your role and read-only, which blocks
-every change (delete, edit, scale, shells). Its second tab lists the contexts that are
-always read-only, by name or pattern like `prod*`, or turns it on for all of them.
 
 Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
 
