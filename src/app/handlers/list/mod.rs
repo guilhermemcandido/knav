@@ -243,6 +243,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     super::edit::start(st, cx, &manifest, Mode::List);
                 }
             }
+            // A debug container beside a pod's first container.
+            KeyCode::Char('X') => {
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client).filter(|m| m.get("kind").and_then(|k| k.as_str()) == Some("Pod")) {
+                    let first = manifest.get("spec").and_then(|s| s.get("containers")).and_then(|c| c.get(0)).and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
+                    super::ask_debug(st, &manifest, &first);
+                }
+            }
             // A Deployment's revisions, to compare and roll back.
             KeyCode::Char('v') => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)

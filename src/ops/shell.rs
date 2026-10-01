@@ -29,6 +29,17 @@ impl ShellSession {
         Self::spawn(command, rows, cols).context("couldn't run kubectl (is it on the PATH?)")
     }
 
+    /// A shell in a new debug container beside `target`, sharing its processes, like
+    /// `kubectl debug`. The container stays in the pod until the pod is replaced.
+    pub fn debug(context: &str, namespace: &str, pod: &str, target: &str, image: &str, rows: u16, cols: u16) -> Result<Self> {
+        let mut command = CommandBuilder::new("kubectl");
+        let image = format!("--image={image}");
+        let target = format!("--target={target}");
+        command.args(["--context", context, "debug", "-it", "-n", namespace, pod, &image, &target, "--profile=general", "--", "sh", "-c", SHELL_PICKER]);
+        command.env("TERM", "xterm-256color");
+        Self::spawn(command, rows, cols).context("couldn't run kubectl (is it on the PATH?)")
+    }
+
     pub fn spawn(command: CommandBuilder, rows: u16, cols: u16) -> Result<Self> {
         let (rows, cols) = (rows.max(1), cols.max(1));
         let pair = native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;

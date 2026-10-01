@@ -88,6 +88,7 @@ bindings! {
     ("pod_logs", "Pod logs", &[List], &["l"]),
     ("workload_logs", "A workload's logs", &[List], &["L"]),
     ("history", "Rollout history", &[List], &["v"]),
+    ("debug", "Debug container", &[List, Containers], &["X"]),
     ("previous_logs", "Previous logs", &[List, Containers], &["p"]),
     ("owner", "Jump to the owner", &[List], &["O"]),
     ("details", "Info about the object", &[List], &["i"]),
@@ -471,9 +472,9 @@ mod tests {
 
     #[test]
     fn a_rebound_action_answers_to_its_new_key_and_the_old_one_goes_quiet() {
-        let (map, problems) = Keymap::from_config(&keys(&[("delete", &["X"])]));
+        let (map, problems) = Keymap::from_config(&keys(&[("delete", &["W"])]));
         assert!(problems.is_empty(), "{problems:?}");
-        assert_eq!(map.translate(List, &press(KeyCode::Char('X'))), Some(press(KeyCode::Char('D'))));
+        assert_eq!(map.translate(List, &press(KeyCode::Char('W'))), Some(press(KeyCode::Char('D'))));
         assert_eq!(map.translate(List, &press(KeyCode::Char('D'))), None, "D no longer deletes");
         // Other screens are untouched.
         assert_eq!(map.translate(Events, &press(KeyCode::Char('D'))), Some(press(KeyCode::Char('D'))));
@@ -526,8 +527,8 @@ mod tests {
 
     #[test]
     fn hints_show_the_keys_in_effect() {
-        let (map, _) = Keymap::from_config(&keys(&[("delete", &["X"]), ("move_down", &["z", "down"])]));
-        assert_eq!(map.display(List, "D"), "X");
+        let (map, _) = Keymap::from_config(&keys(&[("delete", &["W"]), ("move_down", &["z", "down"])]));
+        assert_eq!(map.display(List, "D"), "W");
         assert_eq!(map.display(List, "s"), "s", "untouched");
         assert_eq!(map.display_hint(List, "j/down"), "z/down");
         assert_eq!(map.display(List, "zzz"), "zzz");

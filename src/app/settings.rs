@@ -17,6 +17,8 @@ pub enum Kind {
     Keys,
     /// Words typed as `a, b`, like context names and patterns.
     List,
+    /// Free text, like an image name.
+    Text,
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +63,7 @@ pub fn registry() -> Vec<Setting> {
     add("read_only.enabled", Behaviour, "Safety", "Read-only everywhere", Kind::Bool, false);
     add("read_only.contexts", Behaviour, "Safety", "Read-only contexts", Kind::List, false);
     add("highlight.contexts", Behaviour, "Safety", "Highlighted contexts", Kind::List, false);
+    add("debug.image", Behaviour, "Debugging", "Debug image", Kind::Text, false);
     add("portforward.open_browser", Behaviour, "Port-forwards", "Open browser on port-forward", Kind::Bool, false);
     for binding in crate::input::keymap::BINDINGS {
         add(&format!("keys.{}", binding.id), Keys, "Keys", binding.label, Kind::Keys, false);
@@ -125,6 +128,7 @@ pub fn describe(setting: &Setting) -> &'static str {
         "read_only.enabled" => "Block every change on every cluster: delete, edit, scale, restart, cordon and shells.",
         "highlight.contexts" => "Contexts whose header turns red, by name or pattern like prod*, so you notice where you are. P edits the same list.",
         "read_only.contexts" => "Contexts that are always read-only, by name or pattern, like staging, prod*. * matches anything. P opens the same list.",
+        "debug.image" => "The image X runs beside a container to look around in it, like busybox:1.36 or nicolaka/netshoot.",
         "portforward.open_browser" => "Open the browser as soon as a port-forward starts. When off, knav asks first.",
         "api.refresh_seconds" => "How often the API resources list refreshes in the background.",
         _ => "",
@@ -200,6 +204,12 @@ pub fn typed_value(config: &Config, setting: &Setting, text: &str) -> Result<tom
             "false" | "off" | "no" => toml_edit::Value::from(false),
             _ => bail!("{text} is not on or off"),
         },
+        Kind::Text => {
+            if text.is_empty() {
+                bail!("give some text");
+            }
+            toml_edit::Value::from(text)
+        }
         Kind::List => {
             let mut array = toml_edit::Array::new();
             for word in text.split(',').map(str::trim).filter(|w| !w.is_empty() && *w != NONE) {
@@ -267,8 +277,8 @@ mod tests {
     fn key_settings_are_lists_checked_for_conflicts() {
         let config = Config::default();
         let delete = find("keys.delete");
-        let ok = typed_value(&config, &delete, "X, ctrl-d").unwrap();
-        assert_eq!(ok.to_string().replace(' ', ""), "[\"X\",\"ctrl-d\"]");
+        let ok = typed_value(&config, &delete, "W, ctrl-d").unwrap();
+        assert_eq!(ok.to_string().replace(' ', ""), "[\"W\",\"ctrl-d\"]");
         assert!(typed_value(&config, &delete, "").is_err());
         assert!(typed_value(&config, &delete, "nonsense").is_err());
         let clash = typed_value(&config, &delete, "r").unwrap_err().to_string();

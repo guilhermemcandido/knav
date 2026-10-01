@@ -4,13 +4,13 @@ use super::*;
 
 /// Whether a hint's key changes the cluster, so read-only mode leaves it out.
 pub(crate) fn changes_cluster(hint: &(&str, &str)) -> bool {
-    matches!(*hint, ("e", "edit") | ("D", "delete") | ("S", "shell" | "scale") | ("r", "restart") | ("c", "cordon") | ("t", "trigger") | ("u", "suspend"))
+    matches!(*hint, ("e", "edit") | ("D", "delete") | ("S", "shell" | "scale") | ("r", "restart") | ("c", "cordon") | ("t", "trigger") | ("u", "suspend") | ("X", "debug"))
 }
 
 /// The keys for acting on the selected object, for the kinds each applies to.
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
-        ResourceKind::Pods => vec![("l", "logs"), ("L", "workload logs"), ("p", "previous logs"), ("S", "shell"), ("F", "forward")],
+        ResourceKind::Pods => vec![("l", "logs"), ("L", "workload logs"), ("p", "previous logs"), ("S", "shell"), ("X", "debug"), ("F", "forward")],
         ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("v", "history"), ("F", "forward"), ("L", "pod logs")],
         ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart"), ("L", "pod logs")],
         ResourceKind::Services => vec![("F", "forward")],
@@ -104,7 +104,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         Mode::EventDetail { .. } => vec![("q/esc", "back")],
         Mode::ResourcesDetail => vec![("q/esc", "back")],
         Mode::ColumnDetail { .. } => vec![("←↑↓→/hjkl", "move"), ("enter", "open"), ("q/esc", "back")],
-        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter/l", "logs"), ("p", "previous"), ("S", "shell"), ("s", "sort"), ("q/esc", "back")],
+        Mode::Containers { .. } => vec![("↑↓/jk", "move"), ("enter/l", "logs"), ("p", "previous"), ("S", "shell"), ("X", "debug"), ("s", "sort"), ("q/esc", "back")],
         Mode::Logs { .. } => {
             vec![("↑↓/jk", "scroll"), ("G", "follow"), ("t", "timestamps"), ("o", "order"), ("/", "filter"), ("c", "copy"), ("w", "save"), ("q/esc", "back")]
         }

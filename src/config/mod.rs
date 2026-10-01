@@ -274,6 +274,20 @@ pub enum CommandOutput {
     Background,
 }
 
+/// What debug containers run.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DebugConfig {
+    /// An image with the tools to look around, like busybox or nicolaka/netshoot.
+    pub image: String,
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        DebugConfig { image: "busybox:1.36".into() }
+    }
+}
+
 /// Contexts whose header is red, to mark where care is needed.
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
@@ -319,6 +333,7 @@ pub struct Config {
     pub read_only: ReadOnlyConfig,
     pub highlight: HighlightConfig,
     pub commands: Vec<CustomCommand>,
+    pub debug: DebugConfig,
     /// Key bindings by action id, each one key or a list.
     #[serde(deserialize_with = "one_or_many")]
     pub keys: BTreeMap<String, Vec<String>>,

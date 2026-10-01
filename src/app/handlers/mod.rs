@@ -95,6 +95,39 @@ pub(super) fn open_shell(st: &mut State, cx: &Cx, namespace: &str, pod: &str, co
     };
 }
 
+/// Asks before adding a debug container beside `container` of the pod in `manifest`,
+/// since it stays in the pod.
+pub(super) fn ask_debug(st: &mut State, manifest: &serde_yaml::Value, container: &str) {
+    if st.refuse_if_read_only() {
+        return;
+    }
+    let containers = manifest.get("spec").and_then(|s| s.get("containers")).and_then(|c| c.as_sequence());
+    let index = containers.and_then(|c| c.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(container))).unwrap_or(0);
+    let Some(target) = crate::ops::actions::Target::from_manifest(manifest) else { return };
+    let action = crate::ops::actions::Action::Debug(index);
+    let targets = vec![target];
+    if let Some(spec) = crate::ops::actions::confirm_spec(action, &targets) {
+        let back = std::mem::replace(&mut st.mode, Mode::List);
+        st.mode = Mode::Confirm { spec, targets, action, yes: true, back: Box::new(back) };
+    }
+}
+
+/// Opens a shell in a new debug container beside container `index` of `target`.
+pub(super) fn open_debug(st: &mut State, cx: &Cx, target: &crate::ops::actions::Target, index: usize) {
+    if st.refuse_if_read_only() {
+        return;
+    }
+    let containers = target.manifest.get("spec").and_then(|s| s.get("containers"));
+    let container = containers.and_then(|c| c.get(index)).and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
+    let namespace = target.namespace.clone().unwrap_or_default();
+    let inner = ui::shell_inner(cx.frame_area);
+    let back = std::mem::replace(&mut st.mode, Mode::List);
+    st.mode = match shell::ShellSession::debug(cx.active_context, &namespace, &target.name, &container, &st.config.debug.image, inner.height, inner.width) {
+        Ok(session) => Mode::Shell { title: format!("debug {namespace}/{}/{container}", target.name), session: Box::new(session), back: Box::new(back) },
+        Err(e) => Mode::Notice { text: format!("{e:#}"), tone: NoticeTone::Failed, back: Box::new(back) },
+    };
+}
+
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     // A shell gets every key; only Ctrl-] is ours.
     if matches!(st.mode, Mode::Shell { .. }) {

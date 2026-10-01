@@ -23,6 +23,9 @@ pub enum Action {
     Suspend(bool),
     /// Puts a Deployment back on this revision's pod template.
     Rollback(i64),
+    /// Opens a debug container beside the pod's container at this index. It is
+    /// asked like an action, but opens a shell rather than running in the background.
+    Debug(usize),
 }
 
 impl Target {

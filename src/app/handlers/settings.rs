@@ -40,7 +40,7 @@ fn stepped(setting: &Setting, current: &str, direction: i64, big: bool) -> Optio
             let step = if big { 10 } else { 1 };
             Some((value + direction * step).clamp(*min, *max).to_string())
         }
-        Kind::Color | Kind::Keys | Kind::List => None,
+        Kind::Color | Kind::Keys | Kind::List | Kind::Text => None,
     }
 }
 
@@ -229,7 +229,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             match &s.kind {
                                 Kind::Keys => *capture = Some(KeyCapture::default()),
                                 Kind::List if current == settings::NONE => *editing = Some(String::new()),
-                                Kind::Number { .. } | Kind::Color | Kind::List => *editing = Some(current.clone()),
+                                Kind::Number { .. } | Kind::Color | Kind::List | Kind::Text => *editing = Some(current.clone()),
                                 _ => {
                                     if let Some(next) = stepped(s, &current, 1, false) {
                                         change = Some(Change::Set(s.path.clone(), next));

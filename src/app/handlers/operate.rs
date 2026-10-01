@@ -58,6 +58,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let Event::Key(key) = event else { return Ok(None) };
     match &mut st.mode {
         Mode::Confirm { targets, action, yes, back, .. } => match answer(key.code, yes) {
+            // A debug container opens a shell over the screen the question came from.
+            Some(true) if matches!(action, Action::Debug(_)) => {
+                let (targets, Action::Debug(index)) = (std::mem::take(targets), *action) else { return Ok(None) };
+                st.mode = std::mem::replace(&mut **back, Mode::List);
+                if let Some(target) = targets.first() {
+                    super::open_debug(st, cx, target, index);
+                }
+            }
             Some(true) => {
                 let (targets, action) = (std::mem::take(targets), *action);
                 let mut back = std::mem::replace(back, Box::new(Mode::List));

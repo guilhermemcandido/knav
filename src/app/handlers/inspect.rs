@@ -10,6 +10,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let Derived { nodes, node_detail_pods, node_detail_rows, .. } = cx.d;
     let frame_area = cx.frame_area;
     let mut shell_request: Option<(String, String, String)> = None;
+    // A debug container for (namespace, pod, container), asked about first.
+    let mut debug_request: Option<(String, String, String)> = None;
     let read_only = st.read_only();
     match (event, &mut st.mode) {
         // Every key goes to the shell; Ctrl-] (or any key once it has ended) leaves.
@@ -116,6 +118,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let shown = sorted_containers(containers, sort.spec);
                 if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
                     shell_request = Some((namespace.clone(), pod.clone(), container.name.clone()));
+                }
+            }
+            KeyCode::Char('X') => {
+                let shown = sorted_containers(containers, sort.spec);
+                if let Some(container) = state.selected().and_then(|i| shown.get(i)) {
+                    debug_request = Some((namespace.clone(), pod.clone(), container.name.clone()));
                 }
             }
             // Logs of the selected container; `p` reads the previous run's.
@@ -260,6 +268,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     }
     if let Some((namespace, pod, container)) = shell_request {
         open_shell(st, cx, &namespace, &pod, &container);
+    }
+    if let Some((namespace, name, container)) = debug_request
+        && let Some(found) = cx.d.pods.iter().find(|p| p.metadata.namespace.as_deref() == Some(namespace.as_str()) && p.metadata.name.as_deref() == Some(name.as_str()))
+    {
+        super::ask_debug(st, &k8s::manifest_value(found.as_ref()), &container);
     }
     Ok(None)
 }

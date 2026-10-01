@@ -92,6 +92,7 @@ pub fn working_title(action: Action, targets: &[Target]) -> String {
         Action::Suspend(true) => "Suspending",
         Action::Suspend(false) => "Resuming",
         Action::Rollback(_) => "Rolling back",
+        Action::Debug(_) => "Debugging",
     };
     match targets {
         [one] => format!("{verb} {}", one.label()),
@@ -108,6 +109,7 @@ pub(super) fn action_name(action: Action) -> &'static str {
         Action::Trigger => "Triggered",
         Action::Suspend(_) => "Suspended",
         Action::Rollback(_) => "Rolled back",
+        Action::Debug(_) => "Debugged",
     }
 }
 
@@ -166,6 +168,7 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
             let namespace = target.namespace.as_deref().context("a Deployment has a namespace")?;
             crate::k8s::rollout::rollback(client, namespace, name, revision).await
         }
+        Action::Debug(_) => bail!("a debug container opens a shell, it doesn't run in the background"),
         Action::Trigger => {
             let job = job_from_cronjob(target, k8s_openapi::jiff::Timestamp::now().as_second())?;
             let namespace = target.namespace.as_deref().context("a CronJob has a namespace")?;
