@@ -59,7 +59,7 @@ pub struct OverviewConfig {
 
 /// Names a saved layout may still use from before a rename. An unknown name is
 /// unlisted, which moves its category after every listed one.
-const LEGACY_NAMES: &[(&str, &str)] = &[("Custom Resources", "CustomResources"), ("Helm Releases", "HelmReleases")];
+const LEGACY_NAMES: &[(&str, &str)] = &[("Custom Resources", "CustomResources"), ("Helm Releases", "HelmReleases"), ("cert-manager", "Cert-Manager")];
 
 fn current_name(name: &str) -> String {
     LEGACY_NAMES.iter().find(|(old, _)| *old == name).map_or(name, |(_, new)| new).to_string()

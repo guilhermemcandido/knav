@@ -3,13 +3,13 @@
 
 [extension]
 id = "cert-manager"
-name = "cert-manager"
+name = "Cert-Manager"
 description = "TLS certificates: expiry dates, issuers and pending requests"
 
 [[extension.kind]]
 group = "cert-manager.io"
 kind = "Certificate"
-category = "cert-manager"
+category = "Cert-Manager"
 
   [extension.kind.view]
   template = "key_values"
@@ -25,7 +25,7 @@ category = "cert-manager"
 [[extension.kind]]
 group = "cert-manager.io"
 kind = "CertificateRequest"
-category = "cert-manager"
+category = "Cert-Manager"
 
   [extension.kind.view]
   template = "timeline"
@@ -34,7 +34,7 @@ category = "cert-manager"
 [[extension.kind]]
 group = "cert-manager.io"
 kind = "Issuer"
-category = "cert-manager"
+category = "Cert-Manager"
 
   [extension.kind.view]
   template = "timeline"
@@ -43,7 +43,7 @@ category = "cert-manager"
 [[extension.kind]]
 group = "cert-manager.io"
 kind = "ClusterIssuer"
-category = "cert-manager"
+category = "Cert-Manager"
 
   [extension.kind.view]
   template = "timeline"

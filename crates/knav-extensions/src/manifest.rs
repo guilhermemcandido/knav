@@ -199,12 +199,12 @@ mod tests {
             r#"
             [extension]
             id = "cert-manager"
-            name = "cert-manager"
+            name = "Cert-Manager"
 
             [[extension.kind]]
             group = "cert-manager.io"
             kind = "Certificate"
-            category = "cert-manager"
+            category = "Cert-Manager"
 
             [[extension.dashboard]]
             kind = "Certificate"

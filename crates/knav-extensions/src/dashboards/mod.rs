@@ -197,7 +197,7 @@ mod tests {
         let found = categories(&registry);
         assert!(found.contains(&"Karpenter"), "native");
         assert!(found.contains(&"GitOps"), "native");
-        assert!(found.contains(&"cert-manager"), "declarative, from the bundled manifest");
+        assert!(found.contains(&"Cert-Manager"), "declarative, from the bundled manifest");
         assert!(found.contains(&"Kyverno"), "declarative, from the bundled manifest");
     }
 
