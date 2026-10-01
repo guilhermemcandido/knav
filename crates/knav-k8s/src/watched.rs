@@ -12,14 +12,6 @@ use super::*;
 /// A watched kind behind one interface, so `Catalog` can hold them all in one list.
 pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
-    /// Whether the first full list has arrived.
-    fn ready(&self) -> bool {
-        true
-    }
-    /// Resolves once the first list has arrived.
-    fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
-        Box::pin(std::future::ready(()))
-    }
     fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
     /// The kind's extra column headers, even with no rows.
@@ -60,18 +52,6 @@ where
 {
     fn count(&self) -> usize {
         self.kept.store.len()
-    }
-
-    fn ready(&self) -> bool {
-        use futures::FutureExt;
-        self.kept.store.wait_until_ready().now_or_never().is_some_and(|r| r.is_ok())
-    }
-
-    fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
-        let store = self.kept.store.clone();
-        Box::pin(async move {
-            let _ = store.wait_until_ready().await;
-        })
     }
 
     fn headers(&self) -> Vec<&'static str> {

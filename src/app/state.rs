@@ -81,6 +81,8 @@ pub(super) struct State {
     pub reveal: bool,
     /// A key to handle again on the next turn, after a job it waited for.
     pub replay: Option<crossterm::event::KeyEvent>,
+    /// What was fetched around an object for the replayed key, by `object_key`.
+    pub surroundings: Option<(String, crate::k8s::surroundings::Fetched)>,
     pub current_kind: ResourceKind,
     /// The namespace every namespaced list is narrowed to. Enter on a namespace sets
     /// it, `0` clears it, and it sticks across kinds.
@@ -184,6 +186,7 @@ impl State {
             sidebar_folded: crate::app::sidebar::folded_by_default(),
             reveal: true,
             replay: None,
+            surroundings: None,
             current_kind: ResourceKind::Overview,
             namespace: None,
             scope: None,

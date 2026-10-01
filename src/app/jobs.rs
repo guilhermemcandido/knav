@@ -19,8 +19,8 @@ pub(crate) enum Done {
     History(Target, Result<Vec<crate::k8s::rollout::Revision>, String>),
     /// An edit was sent: what happened, or why the cluster refused it.
     Edited(Result<String, String>),
-    /// What was being waited for has loaded; press this key again.
-    Ready(crossterm::event::KeyEvent),
+    /// The objects around one, keyed by `object_key`; press this key again to use them.
+    Surroundings(String, crate::k8s::surroundings::Fetched, crossterm::event::KeyEvent),
 }
 
 pub(crate) struct Job {
@@ -210,8 +210,9 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
             };
             st.mode = Mode::Notice { text, tone: NoticeTone::Done, back: after };
         }
-        Done::Ready(key) => {
+        Done::Surroundings(object, fetched, key) => {
             st.mode = *back;
+            st.surroundings = Some((object, fetched));
             st.replay = Some(key);
         }
         Done::Forward(Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
@@ -219,13 +220,27 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
     None
 }
 
-/// Waits (up to a limit) for `waits`, then replays `key` on the screen it came from.
-pub(super) fn wait_then_replay(st: &mut State, title: &str, waits: Vec<futures::future::BoxFuture<'static, ()>>, key: crossterm::event::KeyEvent) {
+/// Fetches the objects around `target`, then replays `key`, which finds them in
+/// `take_surroundings`.
+pub(super) fn fetch_surroundings(st: &mut State, client: &kube::Client, title: &str, target: serde_yaml::Value, key: crossterm::event::KeyEvent) {
+    let client = client.clone();
     let work = async move {
-        let _ = tokio::time::timeout(Duration::from_secs(20), futures::future::join_all(waits)).await;
-        Done::Ready(key)
+        let fetched = crate::k8s::surroundings::surroundings(&client, &target).await;
+        Done::Surroundings(object_key(&target), fetched, key)
     };
     start(st, Job::spawn(title, Arc::default(), None, work), None);
+}
+
+/// What was fetched around `target`, if it was fetched for this same object.
+pub(super) fn take_surroundings(st: &mut State, target: &serde_yaml::Value) -> Option<crate::k8s::surroundings::Fetched> {
+    let (object, _) = st.surroundings.as_ref()?;
+    let wanted = object_key(target);
+    (*object == wanted).then(|| st.surroundings.take().map(|(_, fetched)| fetched)).flatten()
+}
+
+fn object_key(manifest: &serde_yaml::Value) -> String {
+    let text = |path: &[&str]| path.iter().try_fold(manifest, |v, k| v.get(*k)).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    format!("{}/{}/{}", text(&["kind"]), text(&["metadata", "namespace"]), text(&["metadata", "name"]))
 }
 
 #[cfg(test)]

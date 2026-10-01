@@ -33,41 +33,15 @@ pub(crate) fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, 
     }
 }
 
-/// The kinds the relations view reads besides Pods and Deployments.
-pub(super) const RELATED_KINDS: [ResourceKind; 15] = [
-    ResourceKind::Nodes,
-    ResourceKind::ReplicaSets,
-    ResourceKind::StatefulSets,
-    ResourceKind::DaemonSets,
-    ResourceKind::Jobs,
-    ResourceKind::CronJobs,
-    ResourceKind::ConfigMaps,
-    ResourceKind::Secrets,
-    ResourceKind::Hpas,
-    ResourceKind::Services,
-    ResourceKind::Ingresses,
-    ResourceKind::Pvcs,
-    ResourceKind::Pvs,
-    ResourceKind::StorageClasses,
-    ResourceKind::ServiceAccounts,
-];
-
-/// The manifests around `target`: its namespace plus cluster-wide objects it may use,
-/// with ConfigMap and Secret payloads dropped.
-pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, catalog: &mut Catalog, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
+/// The manifests around `target`: the Pods and Deployments the session watches, in its
+/// namespace (everywhere for a Node or volume), plus what was fetched for it.
+pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, fetched: Vec<serde_yaml::Value>, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
     use kube::ResourceExt;
-    let kind = target.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-    let namespace = target.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).map(String::from);
-    // A cluster-scoped target (a Node, a PV) can be used from any namespace.
-    let filter = if matches!(kind, "Node" | "PersistentVolume" | "StorageClass") { None } else { namespace.as_deref() };
+    let filter = target.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str());
     let mut all: Vec<serde_yaml::Value> = Vec::new();
     all.extend(pod_store.objects().iter().filter(|p| filter.is_none() || p.namespace().as_deref() == filter).map(|p| k8s::manifest_value(p.as_ref())));
     all.extend(dep_store.objects().iter().filter(|d| filter.is_none() || d.namespace().as_deref() == filter).map(|d| k8s::manifest_value(d.as_ref())));
-    for kind in RELATED_KINDS {
-        if let Some(k) = catalog.get(kind) {
-            all.extend(k.manifests(filter));
-        }
-    }
+    all.extend(fetched);
     all.into_iter().map(k8s::relations::slim).collect()
 }
 

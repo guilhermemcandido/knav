@@ -176,11 +176,6 @@ impl Catalog {
         }
     }
 
-    /// Whether every built-in kind in `kinds` has its objects loaded.
-    pub fn all_ready(&self, kinds: &[ResourceKind]) -> bool {
-        kinds.iter().all(|k| self.get(*k).is_none_or(|f| f.ready()))
-    }
-
     /// Health by kind label for every watched kind that has one, plus the kinds
     /// the caller computes from its own rows.
     pub fn health(&self, extra: impl IntoIterator<Item = (&'static str, crate::Health)>) -> HashMap<&'static str, crate::Health> {

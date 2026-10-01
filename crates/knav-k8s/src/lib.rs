@@ -12,6 +12,7 @@ pub mod rollout;
 pub mod metrics;
 pub mod scope;
 pub mod sort;
+pub mod surroundings;
 mod kind;
 mod pods;
 mod context;

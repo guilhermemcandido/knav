@@ -11,9 +11,19 @@ mod overview;
 mod selection;
 
 pub(crate) use selection::selected_manifest;
-use selection::{PodView, RELATED_KINDS, keep_overview_selection_visible, marked_targets, open_pod, surrounding_manifests};
+use selection::{PodView, keep_overview_selection_visible, marked_targets, open_pod, surrounding_manifests};
 
 /// Handles one input event for these modes; `Some` ends the session.
+/// Says which kinds the diagram couldn't load, over it, so a missing box has a reason.
+fn note_missing(st: &mut State, failed: &[&str]) {
+    if failed.is_empty() {
+        return;
+    }
+    let text = format!("Couldn't load {} (no access, or too slow), so the diagram may leave some out", failed.join(", "));
+    let back = std::mem::replace(&mut st.mode, Mode::List);
+    st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(back) };
+}
+
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { pods, deployments, sorted_nodes, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, .. } = cx.d;
     let catalog = &mut *cx.catalog;
@@ -319,19 +329,19 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
                 }
             }
+            // The objects around it are fetched first, then R comes back here to draw them.
             KeyCode::Char('R') => {
-                for kind in RELATED_KINDS {
-                    catalog.ensure(kind);
-                }
-                // The first time, the kinds are still loading: wait in the background, then press R again.
-                if !catalog.all_ready(&RELATED_KINDS) {
-                    let waits: Vec<_> = RELATED_KINDS.iter().filter_map(|k| catalog.get(*k)).map(|k| k.wait_ready()).collect();
-                    crate::app::jobs::wait_then_replay(st, "Loading related objects", waits, key);
-                } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
-                    let graph = k8s::relations::graph(&manifest, &k8s::relations::relations(&manifest, &all));
-                    let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), zoom: ui::DEFAULT_ZOOM, back: Box::new(back) };
+                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
+                    match crate::app::jobs::take_surroundings(st, &manifest) {
+                        None => crate::app::jobs::fetch_surroundings(st, client, "Loading related objects", manifest, key),
+                        Some(fetched) => {
+                            let all = surrounding_manifests(cx.pod_store, cx.dep_store, fetched.manifests, &manifest);
+                            let graph = k8s::relations::graph(&manifest, &k8s::relations::relations(&manifest, &all));
+                            let back = std::mem::replace(&mut st.mode, Mode::List);
+                            st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), zoom: ui::DEFAULT_ZOOM, back: Box::new(back) };
+                            note_missing(st, &fetched.failed);
+                        }
+                    }
                 }
             }
             KeyCode::Char('Y') => {
@@ -361,17 +371,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             // Every pod behind the selected workload (for a Pod, its siblings) as one stream.
             KeyCode::Char('L') if matches!(st.current_kind, ResourceKind::Pods | ResourceKind::Deployments | ResourceKind::ReplicaSets | ResourceKind::StatefulSets | ResourceKind::DaemonSets | ResourceKind::Jobs) => {
-                for kind in RELATED_KINDS {
-                    catalog.ensure(kind);
-                }
-                // The first time, the kinds are still loading (a Pod's ReplicaSet leads to its
-                // Deployment): wait, then press L again.
-                if !catalog.all_ready(&RELATED_KINDS) {
-                    let waits: Vec<_> = RELATED_KINDS.iter().filter_map(|k| catalog.get(*k)).map(|k| k.wait_ready()).collect();
-                    crate::app::jobs::wait_then_replay(st, "Loading the workload's pods", waits, key);
-                } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
-                    let all = surrounding_manifests(cx.pod_store, cx.dep_store, catalog, &manifest);
-                    let (pods, _owner_kind, owner_name) = k8s::relations::sibling_pods(&manifest, &all);
+                // The owners are fetched first (a Pod's ReplicaSet leads to its Deployment),
+                // then L comes back here.
+                let manifest = selected_manifest(st, cx.d, catalog, client);
+                if let Some(manifest) = &manifest
+                    && let Some(fetched) = crate::app::jobs::take_surroundings(st, manifest)
+                {
+                    let all = surrounding_manifests(cx.pod_store, cx.dep_store, fetched.manifests, manifest);
+                    let (pods, _owner_kind, owner_name) = k8s::relations::sibling_pods(manifest, &all);
                     let namespace = manifest.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
                     let mut targets: Vec<(String, String, String)> = Vec::new();
                     for pod_value in &pods {
@@ -405,6 +412,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             back: Box::new(back),
                         };
                     }
+                } else if let Some(manifest) = manifest {
+                    crate::app::jobs::fetch_surroundings(st, client, "Loading the workload's pods", manifest, key);
                 }
             }
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {

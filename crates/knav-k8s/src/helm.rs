@@ -6,7 +6,6 @@ use std::io::Read;
 use std::sync::Arc;
 
 use base64::Engine;
-use futures::FutureExt;
 use k8s_openapi::api::core::v1::Secret;
 use kube::{Client, ResourceExt, runtime::reflector};
 use serde::Deserialize;
@@ -128,17 +127,6 @@ impl HelmStore {
 impl CatalogKind for HelmStore {
     fn count(&self) -> usize {
         self.releases().len()
-    }
-
-    fn ready(&self) -> bool {
-        self.store.wait_until_ready().now_or_never().is_some_and(|r| r.is_ok())
-    }
-
-    fn wait_ready(&self) -> futures::future::BoxFuture<'static, ()> {
-        let store = self.store.clone();
-        Box::pin(async move {
-            let _ = store.wait_until_ready().await;
-        })
     }
 
     fn rows(&self) -> Vec<Arc<GenericRow>> {

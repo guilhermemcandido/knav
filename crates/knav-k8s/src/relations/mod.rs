@@ -272,6 +272,11 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
     }
     groups
 }
+/// The cluster-scoped objects `target` points at by name: its node, volume or class.
+pub fn cluster_refs(target: &Value) -> Vec<(String, String)> {
+    obj(target).map(|o| uses(&o).into_iter().filter(|(kind, ..)| cluster_scoped(kind)).map(|(kind, _, name, _)| (kind, name)).collect()).unwrap_or_default()
+}
+
 pub fn find_manifest(all: &[Value], kind: &str, namespace: Option<&str>, name: &str) -> Option<Value> {
     Index::new(all).find(kind, namespace, name).map(|o| o.manifest.clone())
 }
