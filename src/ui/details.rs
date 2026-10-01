@@ -3,7 +3,7 @@
 use super::*;
 use crate::k8s::details::{Chunk, Line as DLine, Section, Style as DStyle};
 
-const LABEL_W: usize = 18;
+const LABEL_W: usize = crate::k8s::details::VALUE_COLUMN - 2;
 
 fn style_of(style: DStyle) -> Style {
     match style {

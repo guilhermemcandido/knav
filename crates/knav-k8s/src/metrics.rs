@@ -130,6 +130,10 @@ pub struct PodUsage {
 pub struct PodUsageMap(HashMap<String, HashMap<String, PodUsage>>);
 
 impl PodUsageMap {
+    pub fn insert(&mut self, namespace: &str, name: &str, usage: PodUsage) {
+        self.0.entry(namespace.to_string()).or_default().insert(name.to_string(), usage);
+    }
+
     pub fn get(&self, namespace: &str, name: &str) -> Option<PodUsage> {
         self.0.get(namespace)?.get(name).copied()
     }
@@ -179,7 +183,7 @@ fn pod_usage(items: &[DynamicObject]) -> PodUsageMap {
             usage.cpu_millicores += quantity("cpu").map(parse_cpu_millicores).unwrap_or(0);
             usage.memory_bytes += quantity("memory").map(parse_memory_bytes).unwrap_or(0);
         }
-        map.0.entry(namespace).or_default().insert(name, usage);
+        map.insert(&namespace, &name, usage);
     }
     map
 }

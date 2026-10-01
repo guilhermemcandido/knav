@@ -54,7 +54,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.reveal = !st.reveal;
         if let Mode::Details { manifest, sections, .. } = &mut st.mode {
             let view = cx.catalog.view_for(&cx.config.extensions.enabled, manifest);
-            *sections = k8s::details::details(manifest, &cx.d.overview.events, st.reveal, view);
+            *sections = k8s::details::details(manifest, &cx.d.overview.events, crate::app::live_usage(cx.d.pod_usage.as_deref(), cx.d.usage.as_ref()), st.reveal, view);
         }
     }
     if let Some((kind, namespace, name)) = open {

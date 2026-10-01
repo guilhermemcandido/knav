@@ -298,7 +298,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     st.reveal = true;
                     let view = catalog.view_for(&cx.config.extensions.enabled, &manifest);
-                    let sections = k8s::details::details(&manifest, &cx.d.overview.events, true, view);
+                    let sections = k8s::details::details(&manifest, &cx.d.overview.events, crate::app::live_usage(cx.d.pod_usage.as_deref(), cx.d.usage.as_ref()), true, view);
                     let back = std::mem::replace(&mut st.mode, Mode::List);
                     st.mode = Mode::Details { manifest, sections, scroll: 0, hscroll: 0, back: Box::new(back) };
                 }

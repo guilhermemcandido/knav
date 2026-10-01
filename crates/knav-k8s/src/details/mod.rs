@@ -6,6 +6,9 @@ mod network;
 mod pod;
 mod rbac;
 mod storage;
+mod usage;
+
+pub use self::usage::Usage;
 
 use serde::Deserialize;
 use serde_yaml::Value;
@@ -73,6 +76,9 @@ pub enum Line {
     Pad(usize, Vec<Chunk>),
     Blank,
 }
+
+/// The cell where a field's value starts, after the label column.
+pub const VALUE_COLUMN: usize = 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Section {
@@ -328,7 +334,7 @@ pub enum ViewTemplate {
 
 /// The sections that describe `manifest`, with the events that mention it. `custom`
 /// is an extension's view, used only for kinds without dedicated sections.
-pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool, custom: Option<&ViewTemplate>) -> Vec<Section> {
+pub fn details(manifest: &Value, events: &[EventEntry], usage: Usage, reveal: bool, custom: Option<&ViewTemplate>) -> Vec<Section> {
     let kind = text(manifest, &["kind"]).unwrap_or("");
     if kind == "APIResource" {
         return api_resource_sections(manifest);
@@ -366,6 +372,11 @@ pub fn details(manifest: &Value, events: &[EventEntry], reveal: bool, custom: Op
         },
     };
     sections.extend(specific);
+    // First: the live numbers are what this is opened for most, and a node's
+    // properties run long.
+    if let Some(section) = usage::section(kind, manifest, usage) {
+        sections.insert(0, section);
+    }
     sections.extend(conditions(manifest));
     sections.extend(events_section(manifest, events));
     sections

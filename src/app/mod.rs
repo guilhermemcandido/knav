@@ -71,6 +71,11 @@ pub(crate) struct Session<'a> {
     pub read_only: bool,
 }
 
+/// The usage the info view shows, from what metrics-server last said.
+pub(crate) fn live_usage<'a>(pods: Option<&'a metrics::PodUsageMap>, nodes: Option<&'a metrics::ClusterUsage>) -> k8s::details::Usage<'a> {
+    k8s::details::Usage { pods, nodes }
+}
+
 /// The header's role: what RBAC allows, or `read-only` while knav blocks changes,
 /// since that is what applies. The real role stays in the Permissions menu.
 fn role_label(role: &str, read_only: bool) -> String {
@@ -101,8 +106,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         // A forward that kubectl dropped (the pod went away) leaves the list.
         st.forwards.retain_mut(|f| f.alive());
         let forward_rows: Vec<k8s::GenericRow> = st.forwards.iter().map(|f| f.row()).collect();
-        // Pod usage is polled only while some list of pods is on screen.
-        if st.current_kind == ResourceKind::Pods || mode::node_detail_name(&st.mode).is_some() {
+        // Pod usage is polled only while pods or the info view are on screen.
+        if st.current_kind == ResourceKind::Pods || mode::node_detail_name(&st.mode).is_some() || st.info_panel || matches!(st.mode, Mode::Details { .. } | Mode::Relations { .. }) {
             pod_metrics.want();
         }
         let src = derive::Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx: &pod_metrics.rx, client: &client, forwards: &forward_rows, registry };
@@ -210,7 +215,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
                         st.info_hscroll = 0;
                     }
                     let view = catalog.view_for(&st.config.extensions.enabled, &manifest);
-                    let sections = k8s::details::details(&manifest, &overview.events, st.reveal, view);
+                    let sections = k8s::details::details(&manifest, &overview.events, crate::app::live_usage(pod_usage.as_deref(), usage.as_ref()), st.reveal, view);
                     if let Ok(size) = terminal.size() {
                         let (down, right) = ui::side_panel_max_scroll(&sections, size);
                         st.info_scroll = st.info_scroll.min(down);
