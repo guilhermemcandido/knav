@@ -54,21 +54,31 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     let label = if dimmed { dim_style() } else { Style::default().fg(theme().info_label) };
     let value = if dimmed { dim_style() } else { Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD) };
 
-    let fields = [
+    // EKS and GKE often name the cluster the same as the context: once is enough.
+    let cluster = if info.cluster == info.context { "" } else { info.cluster.as_str() };
+    let mut fields: Vec<(&str, String)> = [
         ("Context:", info.context.as_str()),
-        ("Cluster:", info.cluster.as_str()),
+        ("Cluster:", cluster),
         ("User:", info.user.as_str()),
         ("Role:", info.role.as_str()),
         ("K8s:", info.k8s_version.as_str()),
         ("knav:", info.knav_version.as_str()),
-    ];
+    ]
+    .into_iter()
+    .filter(|(_, v)| !v.is_empty())
+    .map(|(name, v)| (name, v.to_string()))
+    .collect();
     // The top-right corner is the help indicator's; trailing fields drop when narrow.
     let start_x = left.clamp(area.x, (area.x + area.width).saturating_sub(1));
     let available = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(14 + 1);
+    let pill = |name: &str| if name == "Context:" && info.highlight { 2 } else { 0 };
+    let width_of = |(name, v): &(&str, String)| cell_width(name) + 1 + cell_width(v) + pill(name);
+    shorten_names(&mut fields, available, width_of);
     let mut spans: Vec<Span> = Vec::new();
     let mut used = 0;
-    for (name, v) in fields.iter().filter(|(_, v)| !v.is_empty()) {
-        let width = cell_width(name) + 1 + cell_width(v) + if *name == "Context:" && info.highlight { 2 } else { 0 };
+    for field in &fields {
+        let (name, v) = (field.0, field.1.as_str());
+        let width = width_of(field);
         let gap = if spans.is_empty() { 0 } else { 3 };
         if used + gap + width > available {
             break;
@@ -77,8 +87,8 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
             spans.push(Span::raw("   "));
         }
         spans.push(Span::styled(format!("{name} "), label));
-        let warn = *name == "Role:" && info.read_only && !dimmed;
-        let careful = *name == "Context:" && info.highlight && !dimmed;
+        let warn = name == "Role:" && info.read_only && !dimmed;
+        let careful = name == "Context:" && info.highlight && !dimmed;
         let style = if careful {
             Style::default().bg(theme().bad).fg(crate::theme::on(theme().bad)).add_modifier(Modifier::BOLD)
         } else if warn {
@@ -146,6 +156,26 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
 
 /// The namespace shortcuts in `room` cells: names shortened to their starts while they
 /// still say something, else some left out (never the active one). The flag says so.
+/// Shortens the longest of the context, cluster and user names, from the front, until
+/// every field fits in `room` or each is down to a readable length.
+fn shorten_names(fields: &mut [(&str, String)], room: usize, width_of: impl Fn(&(&str, String)) -> usize) {
+    const SHORTEST: usize = 20;
+    loop {
+        let total: usize = fields.iter().map(&width_of).sum::<usize>() + 3 * fields.len().saturating_sub(1);
+        let longest = fields.iter_mut().filter(|(name, v)| matches!(*name, "Context:" | "Cluster:" | "User:") && cell_width(v) > SHORTEST).max_by_key(|(_, v)| cell_width(v));
+        let Some((_, v)) = longest.filter(|_| total > room) else { return };
+        let target = cell_width(v).saturating_sub(total - room).max(SHORTEST);
+        *v = keep_end(v, target);
+    }
+}
+
+/// The end of `text` in `width` cells, after an ellipsis: an ARN keeps its cluster name.
+fn keep_end(text: &str, width: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let keep = width.saturating_sub(1).min(chars.len());
+    format!("…{}", chars[chars.len() - keep..].iter().collect::<String>())
+}
+
 fn fit_namespaces(all: &[(usize, String)], room: usize, active: &str) -> (Vec<(usize, String)>, bool) {
     let width = |entries: &[(usize, String)]| entries.iter().map(|(n, ns)| cell_width(&format!("({n}){ns}"))).sum::<usize>() + 2 * entries.len().saturating_sub(1);
     let longest = all.iter().map(|(_, ns)| cell_width(ns)).max().unwrap_or(0);
@@ -186,6 +216,18 @@ mod tests {
         assert!(fit.iter().map(|(n, ns)| cell_width(&format!("({n}){ns}"))).sum::<usize>() + 4 <= 30);
         let (fit, trimmed) = fit_namespaces(&all, 12, "dahjsdlkjhasd");
         assert!(trimmed && fit.iter().any(|(n, _)| *n == 2), "the active one stays: {fit:?}");
+    }
+
+    #[test]
+    fn long_names_keep_their_ends_until_everything_fits() {
+        let arn = "arn:aws:eks:eu-west-1:123456789012:cluster/payments-production".to_string();
+        let mut fields = vec![("Context:", arn.clone()), ("Cluster:", arn), ("Role:", "admin".to_string())];
+        let width_of = |(name, v): &(&str, String)| cell_width(name) + 1 + cell_width(v);
+        shorten_names(&mut fields, 100, width_of);
+        let total: usize = fields.iter().map(width_of).sum::<usize>() + 6;
+        assert!(total <= 100, "{total}");
+        assert!(fields[0].1.starts_with('…') && fields[0].1.ends_with("cluster/payments-production"));
+        assert_eq!(fields[2].1, "admin");
     }
 
     #[test]
