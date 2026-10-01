@@ -9,6 +9,9 @@ explorer, built in Rust.
 - **Info panel** (`i`) explains the selected object: status, containers, events.
 - **Relations diagram** (`R`) shows what an object depends on and what depends on it.
 - **Extensions** (`E`) add views and dashboards for Flux, Argo CD, cert-manager and more. Read-only.
+- **Problems** (`!`) lists everything that needs a look across the cluster, with the reason.
+- **CPU and memory** per pod, against its limits.
+- **Rollout history** (`v`) compares a Deployment's revisions and rolls back.
 - **Knows your access**: the header shows your role (admin, read-write, read-only), checked against RBAC.
 - **Built for scale**: stays fast with tens of thousands of objects.
 
@@ -46,6 +49,8 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `y` / `e` / `D` | YAML / edit / delete |
 | `l` / `L` | a pod's logs / a whole workload's |
 | `0`-`9` | switch to a reserved namespace |
+| `!` | problems across the cluster |
+| `v` | a Deployment's rollout history |
 | `P` | permissions: your role or read-only |
 | `b` | sidebar |
 

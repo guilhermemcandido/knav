@@ -53,6 +53,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         std::mem::swap(&mut st.mode, &mut opened);
                         super::themes::open(st, cx.config);
                     }
+                    Some(Cmd::Problems) => {
+                        let opened = std::mem::replace(&mut **back, Mode::List);
+                        st.mode = opened;
+                        super::problems::open(st);
+                    }
                     Some(Cmd::Events) => {
                         st.mode = Mode::Events { filter: k8s::EventFilter::All, search: String::new(), editing: false, state: TableState::default().with_selected(0), sort: ListSort::default() };
                     }

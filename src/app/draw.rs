@@ -9,6 +9,7 @@ pub(super) struct View<'a> {
     pub nodes: &'a [std::sync::Arc<Node>],
     pub usage: Option<&'a metrics::ClusterUsage>,
     pub pod_usage: Option<&'a metrics::PodUsageMap>,
+    pub problems: &'a [std::sync::Arc<k8s::problems::Problem>],
     pub node_detail_rows: &'a [std::sync::Arc<k8s::PodRow>],
     pub node_rows: &'a [k8s::NodeRow],
     pub crds: &'a [k8s::CrdInfo],
@@ -51,7 +52,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, pod_usage, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
+    let View { rows, overview, nodes, usage, pod_usage, problems, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -250,6 +251,14 @@ pub(super) fn draw_mode(
                         error: error.as_deref(),
                     };
                     paint(frame, None, None, Some(ui::Overlay::Permissions(view)), false);
+                })?;
+            }
+            Mode::Problems { state, search, editing, .. } => {
+                let shown = crate::app::handlers::problems_matching(problems, search);
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let view = ui::ProblemsView { problems: &shown, total: problems.len(), search, editing: *editing, state };
+                    paint(frame, None, None, Some(ui::Overlay::Problems(view)), *editing);
                 })?;
             }
             Mode::History { target, revisions, cursor, scroll, .. } => {

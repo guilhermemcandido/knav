@@ -69,6 +69,8 @@ pub(crate) enum Mode {
     /// The changes an edit makes, before they are applied. `focus` is the button:
     /// 0 Apply, 1 Edit again, 2 Cancel.
     EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, focus: usize, back: Box<Mode> },
+    /// Everything that needs a look, across kinds; `search` filters it.
+    Problems { state: TableState, search: String, editing: bool, back: Box<Mode> },
     /// A Deployment's revisions, newest first; `scroll` is into the changes below.
     History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, back: Box<Mode> },
     /// `P`: this cluster's permission mode, and which contexts are always read-only.
@@ -163,6 +165,7 @@ pub(crate) fn owns_keys(mode: &Mode) -> bool {
             | Mode::OpenUrl { .. }
             | Mode::EditReview { .. }
             | Mode::Permissions { .. }
+            | Mode::Problems { editing: true, .. }
             | Mode::Context { editing: true, .. }
             | Mode::NamespacePick { editing: true, .. }
             | Mode::Events { editing: true, .. }

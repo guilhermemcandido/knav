@@ -29,6 +29,8 @@ pub(super) struct Derived {
     pub crd_counts: Vec<k8s::Count>,
     /// The open extension dashboard's title and lines, built only while it is open.
     pub dashboard: Option<(String, Vec<ratatui::text::Line<'static>>)>,
+    /// Everything that needs a look, worst first, built only while Problems is open.
+    pub problems: Vec<Arc<k8s::problems::Problem>>,
 }
 
 pub(super) struct Query<'a> {
@@ -213,6 +215,23 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         apply(&mut with_counts, sort, |((_, crd), count), column| crd_key(crd, *count, column));
         let (crd_rows, crd_counts): (Vec<(usize, k8s::CrdInfo)>, Vec<k8s::Count>) = with_counts.into_iter().unzip();
         // Built only while its dashboard is open, since it fetches whole manifests.
+        // Built only while Problems is open: it reads every pod, Deployment, node and
+        // a few more kinds, which it starts watching.
+        let problems = if matches!(mode, Mode::Problems { .. }) {
+            let mut found: Vec<k8s::problems::Problem> = Vec::new();
+            found.extend(all_pods.iter().filter(|(p, _)| in_namespace(&p.metadata)).filter_map(|(p, _)| k8s::problems::pod(p)));
+            found.extend(dep_store.items().iter().filter(|(d, _)| in_namespace(&d.metadata)).filter_map(|(d, _)| k8s::problems::deployment(d)));
+            found.extend(nodes.iter().filter_map(|n| k8s::problems::node(n)));
+            for kind in PROBLEM_KINDS {
+                catalog.ensure(kind);
+                let rows = catalog.resolve(kind, client).map(|k| k.rows()).unwrap_or_default();
+                found.extend(rows.iter().filter(|r| ns_filter.is_none_or(|ns| r.namespace == ns)).filter_map(|r| k8s::problems::row(kind, r)));
+            }
+            k8s::problems::sort(&mut found);
+            found.into_iter().map(Arc::new).collect()
+        } else {
+            Vec::new()
+        };
         let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
             extensions::dashboards::find(category, registry).map(|found| {
                 let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events);
@@ -222,8 +241,11 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             None
         };
 
-    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, pod_usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts, dashboard }
+    Derived { pods, pod_rows, deployments, dep_rows, nodes, usage, pod_usage, node_detail_pods, node_detail_rows, sorted_nodes, node_rows, overview, generic_headers, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, crd_counts, dashboard, problems }
 }
+
+/// The kinds besides pods, Deployments and nodes that Problems looks through.
+const PROBLEM_KINDS: [ResourceKind; 4] = [ResourceKind::StatefulSets, ResourceKind::DaemonSets, ResourceKind::Jobs, ResourceKind::Pvcs];
 
 /// How many pods each node runs, counted on several threads for big clusters.
 fn pods_per_node(pods: &[k8s::Item<Pod, k8s::PodRow>]) -> HashMap<&str, usize> {
@@ -273,7 +295,7 @@ const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
 fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
     let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
     format!(
-        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{forwards:?}",
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{forwards:?}",
         q.current_kind,
         q.namespace,
         q.scope,
@@ -287,6 +309,7 @@ fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
         node_detail_sort(mode),
         if let Mode::ColumnDetail { col, .. } = mode { Some(*col) } else { None },
         matches!(mode, Mode::ResourcesDetail),
+        matches!(mode, Mode::Problems { .. }),
     )
 }
 

@@ -57,6 +57,7 @@ bindings! {
     ("contexts", "Contexts", ALL, &["C"]),
     ("extensions", "Extensions", ALL, &["E"]),
     ("permissions", "Permissions", ALL, &["P"]),
+    ("problems", "Problems", ALL, &["!"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
     ("move_down", "Move down", NAV, &["j", "down"]),

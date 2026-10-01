@@ -79,6 +79,7 @@ pub(crate) fn mode_path(mode: &Mode) -> Vec<ui::PathSegment> {
         Mode::ColumnDetail { .. } => vec![plain_segment("Category")],
         Mode::Context { .. } => vec![plain_segment("Contexts")],
         Mode::Permissions { .. } => vec![plain_segment("Permissions")],
+        Mode::Problems { .. } => vec![plain_segment("Problems")],
         Mode::History { target, back, .. } => {
             let mut path = mode_path(back);
             path.push(segment("History", target.label()));

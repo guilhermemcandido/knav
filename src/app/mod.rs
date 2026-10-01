@@ -119,7 +119,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();
-        let derive::Derived { pod_rows, dep_rows, nodes, usage, pod_usage, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, dashboard, .. } = derived;
+        let derive::Derived { pod_rows, dep_rows, nodes, usage, pod_usage, problems, node_detail_rows, node_rows, overview, generic_headers, generic_rows, crd_rows, crd_counts, dashboard, .. } = derived;
 
         let row_count = match st.current_kind {
             ResourceKind::Overview => overview.events.len(),
@@ -240,6 +240,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             node_rows,
             usage: usage.as_ref(),
             pod_usage: pod_usage.as_deref(),
+            problems,
             node_detail_rows,
             crds: &catalog.crds,
             extensions: &registry.loaded,

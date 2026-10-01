@@ -59,6 +59,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     }
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
+        .chain(std::iter::once(Cmd::Problems))
         .chain(std::iter::once(Cmd::Theme))
         .chain(std::iter::once(Cmd::Settings))
         .chain(std::iter::once(Cmd::Quit))
@@ -103,6 +104,7 @@ impl Suggestion {
             Cmd::Api(index, plural, _) => ui::SuggestionIcon::Kind(ResourceKind::Api(index, plural)),
             Cmd::Context => ui::SuggestionIcon::Named("switch"),
             Cmd::Events => ui::SuggestionIcon::Named("bell"),
+            Cmd::Problems => ui::SuggestionIcon::Named("bell"),
             Cmd::Theme => ui::SuggestionIcon::Named("palette"),
             Cmd::Settings => ui::SuggestionIcon::Named("gear"),
             Cmd::Quit => ui::SuggestionIcon::Named("door"),
@@ -123,6 +125,7 @@ pub(crate) enum Cmd {
     Api(usize, &'static str, &'static str),
     Context,
     Events,
+    Problems,
     Theme,
     Settings,
     Quit,
@@ -146,6 +149,7 @@ impl Cmd {
             }
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
+            Cmd::Problems => fixed(&["problems", "problem", "issues", "faults"]),
             Cmd::Settings => fixed(&["config", "settings", "preferences", "prefs", "options"]),
             Cmd::Theme => fixed(&["theme", "themes", "skin", "skins", "colors", "colours"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),

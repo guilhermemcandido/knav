@@ -72,6 +72,57 @@ pub(in crate::ui) fn draw_events_popup(frame: &mut Frame, view: EventsView, dimm
     frame.render_stateful_widget(table, area, state);
 }
 
+/// Everything that needs a look, worst first, in the Events browser's frame so
+/// `event_row_at` hit-tests it too. Broken rows are red, degraded ones orange.
+pub(in crate::ui) fn draw_problems(frame: &mut Frame, view: ProblemsView) {
+    let ProblemsView { problems, total, search, editing, state } = view;
+    let area = centered_rect(94, 88, frame.area());
+    frame.render_widget(Clear, area);
+    const HEADERS: [&str; 6] = ["", "KIND", "OBJECT", "PROBLEM", "DETAIL", "AGE"];
+    let kind_of = |p: &crate::k8s::problems::Problem| p.kind.label().trim_end_matches('s').to_string();
+    // DETAIL takes whatever room the other columns leave.
+    let window = layout_table(
+        &HEADERS,
+        problems.iter().map(|p| vec![1, cell_width(&kind_of(p)), cell_width(&p.place()), cell_width(&p.reason), cell_width(&p.detail), cell_width(&p.age)]),
+        area.width.saturating_sub(2),
+        Some(4),
+        &mut 0,
+    );
+    let header = header_row(&HEADERS, SortState::default(), false, &window);
+    let plain = theme_row(false);
+    let muted = Style::default().fg(theme().muted);
+    let rows = problems.iter().map(|p| {
+        let color = if p.tone == crate::k8s::describe::Tone::Bad { theme().bad } else { theme().warn };
+        Row::new(window.slice(vec![
+            Cell::from("●").style(Style::default().fg(color)),
+            Cell::from(kind_of(p)).style(muted),
+            Cell::from(Line::from(highlight_matches(&p.place(), search, plain))),
+            Cell::from(Line::from(highlight_matches(&p.reason, search, Style::default().fg(color)))),
+            Cell::from(Line::from(highlight_matches(&p.detail, search, plain))),
+            Cell::from(p.age.clone()).style(muted),
+        ]))
+    });
+    let title = pill_title(&if problems.len() == total { format!("Problems ({total})") } else { format!("Problems ({}/{total})", problems.len()) }, false, theme_border(false));
+    let block = with_search(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(theme_border(false)).title(title), search, editing, false)
+        .title_bottom(hint_strip(&[("↑↓", "move"), ("enter", "open"), ("/", "search"), ("esc", "back")]).right_aligned());
+    if problems.is_empty() {
+        let message = if total == 0 { "Nothing needs a look" } else { "No problem matches" };
+        frame.render_widget(Paragraph::new(Line::styled(message, muted)).alignment(Alignment::Center).block(block), area);
+        return;
+    }
+    let table = Table::new(rows, window.constraints.clone())
+        .column_spacing(COLUMN_GAP)
+        .style(plain)
+        .header(header)
+        .block(block)
+        .highlight_symbol("")
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+    if let Some(selected) = state.selected() {
+        state.select(Some(selected.min(problems.len() - 1)));
+    }
+    frame.render_stateful_widget(table, area, state);
+}
+
 /// The Events table row under a terminal position. `offset` is the table's scroll
 /// offset, valid once it has been drawn.
 pub fn event_row_at(frame_area: Rect, filtered_len: usize, offset: usize, row: u16) -> Option<usize> {

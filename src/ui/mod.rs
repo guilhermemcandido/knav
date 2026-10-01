@@ -110,6 +110,15 @@ pub struct EditReviewView<'a> {
     pub error: Option<&'a str>,
 }
 
+/// Problems (`!`): the matching ones, how many there are in all, and the search.
+pub struct ProblemsView<'a> {
+    pub problems: &'a [&'a crate::k8s::problems::Problem],
+    pub total: usize,
+    pub search: &'a str,
+    pub editing: bool,
+    pub state: &'a mut TableState,
+}
+
 /// A Deployment's rollout history (`v`).
 pub struct HistoryView<'a> {
     /// Which Deployment, like `deployment shop/web`.
@@ -173,6 +182,7 @@ pub enum Overlay<'a> {
     EditReview(EditReviewView<'a>),
     Permissions(PermissionsView<'a>),
     History(HistoryView<'a>),
+    Problems(ProblemsView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -442,6 +452,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::EditReview(..))
                 | Some(Overlay::Permissions(..))
                 | Some(Overlay::History(..))
+                | Some(Overlay::Problems(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -656,6 +667,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::EditReview(view) => draw_edit_review(frame, view),
         Overlay::Permissions(view) => draw_permissions(frame, view),
         Overlay::History(view) => draw_history(frame, view),
+        Overlay::Problems(view) => draw_problems(frame, view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),
