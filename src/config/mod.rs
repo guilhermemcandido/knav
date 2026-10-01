@@ -77,11 +77,19 @@ impl OverviewConfig {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize, Default)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LogsConfig {
     pub timestamp_format: TimestampFormat,
     pub order: LogOrder,
+    /// Where `w` saves a log view; `~` is the home folder.
+    pub save_dir: String,
+}
+
+impl Default for LogsConfig {
+    fn default() -> Self {
+        LogsConfig { timestamp_format: TimestampFormat::default(), order: LogOrder::default(), save_dir: "~/.local/share/knav/logs".into() }
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]

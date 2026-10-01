@@ -50,6 +50,7 @@ pub fn registry() -> Vec<Setting> {
     add("tables.faults_by_default", General, "Tables", "Faults only on start", Kind::Bool, true);
     add("logs.order", General, "Logs", "Log order", choice(&["oldest_first", "newest_first"]), false);
     add("logs.timestamp_format", General, "Logs", "Log timestamps", choice(&["short", "full"]), false);
+    add("logs.save_dir", General, "Logs", "Save logs to", Kind::Text, false);
     add("mouse.wheel_rows", General, "Mouse", "Wheel rows per notch", Kind::Number { min: 1, max: 20 }, false);
     add("mouse.double_click_ms", General, "Mouse", "Double-click time (ms)", Kind::Number { min: 100, max: 1000 }, false);
     add("ui.idle_redraw_ms", General, "Refresh", "Idle redraw (ms)", Kind::Number { min: 50, max: 1000 }, false);
@@ -121,6 +122,7 @@ pub fn describe(setting: &Setting) -> &'static str {
         "tables.wide_by_default" => "Start with the extra columns shown, like kubectl -o wide. Ctrl-w toggles them at any time.",
         "tables.faults_by_default" => "Start with lists showing only rows that need attention. Ctrl-z toggles it at any time.",
         "logs.order" => "oldest_first reads like a file with new lines at the bottom. newest_first puts new lines on top.",
+        "logs.save_dir" => "The folder w saves a log view to, made if missing. ~ is your home folder.",
         "logs.timestamp_format" => "short shows the time only, full shows the whole timestamp. t toggles it in the log view.",
         "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",

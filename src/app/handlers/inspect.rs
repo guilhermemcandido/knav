@@ -233,7 +233,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let text = ui::logs_text(lines, filter, *order);
                 let count = text.lines().count();
                 let filtered = if filter.is_empty() { "" } else { " matching the filter" };
-                let (text, tone) = match crate::ops::logfile::save(title, &text) {
+                let (text, tone) = match crate::ops::logfile::save(&cx.config.logs.save_dir, title, &text) {
                     Ok(path) => (format!("Saved {count} lines{filtered} to {}", crate::ops::logfile::shown(&path)), NoticeTone::Done),
                     Err(e) => (format!("{e:#}"), NoticeTone::Failed),
                 };

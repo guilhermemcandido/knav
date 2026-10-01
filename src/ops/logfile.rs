@@ -4,11 +4,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 
-/// Writes `text` to `~/Downloads` (or the current folder without one), named after
-/// the log's `title` and the time, and returns where it went.
-pub fn save(title: &str, text: &str) -> Result<PathBuf> {
+/// Writes `text` into `dir` (made if missing; `~` is the home folder), named after the
+/// log's `title` and the time, and returns where it went.
+pub fn save(dir: &str, title: &str, text: &str) -> Result<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let dir = home.map(|h| h.join("Downloads")).filter(|d| d.is_dir()).or_else(|| std::env::current_dir().ok()).context("no folder to save the log in")?;
+    let dir = match dir.strip_prefix("~/") {
+        Some(rest) => home.context("no home folder to save the log in")?.join(rest),
+        None => PathBuf::from(dir),
+    };
+    std::fs::create_dir_all(&dir).with_context(|| format!("couldn't make {}", dir.display()))?;
     let path = dir.join(file_name(title, &k8s_openapi::jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string()));
     std::fs::write(&path, text).with_context(|| format!("couldn't write {}", path.display()))?;
     Ok(path)
