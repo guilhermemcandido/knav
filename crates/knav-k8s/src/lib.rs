@@ -7,6 +7,7 @@ pub mod describe;
 pub mod details;
 pub mod relations;
 pub mod report;
+pub mod rollout;
 pub mod metrics;
 pub mod scope;
 pub mod sort;

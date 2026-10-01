@@ -60,7 +60,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         Mode::Confirm { targets, action, yes, back, .. } => match answer(key.code, yes) {
             Some(true) => {
                 let (targets, action) = (std::mem::take(targets), *action);
-                let back = std::mem::replace(back, Box::new(Mode::List));
+                let mut back = std::mem::replace(back, Box::new(Mode::List));
+                // A rollback makes a new revision, so the history it came from is stale.
+                if let Mode::History { back: before, .. } = *back {
+                    back = before;
+                }
                 crate::app::jobs::run_action(st, cx.client, targets, action, back);
             }
             Some(false) => st.mode = std::mem::replace(&mut **back, Mode::List),

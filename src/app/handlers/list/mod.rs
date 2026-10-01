@@ -234,6 +234,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     super::edit::start(st, cx, &manifest, Mode::List);
                 }
             }
+            // A Deployment's revisions, to compare and roll back.
+            KeyCode::Char('v') => {
+                if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)
+                    && target.kind == "Deployment"
+                {
+                    crate::app::jobs::load_history(st, client, target);
+                }
+            }
             // Forward a port of a pod, service or deployment.
             KeyCode::Char('F') => {
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest)

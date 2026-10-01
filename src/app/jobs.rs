@@ -13,6 +13,8 @@ pub(crate) enum Done {
     /// The context that was checked, or why it can't be reached.
     Connect(Result<String, String>),
     Forward(Result<portforward::Forward, String>),
+    /// A Deployment's revisions were read, or why they couldn't be.
+    History(Target, Result<Vec<crate::k8s::rollout::Revision>, String>),
     /// An edit was sent: what happened, or why the cluster refused it.
     Edited(Result<String, String>),
     /// What was being waited for has loaded; press this key again.
@@ -87,6 +89,18 @@ pub(super) fn run_action(st: &mut State, client: &kube::Client, targets: Vec<Tar
     start(st, Job::spawn(title, progress, note, work), Some(back));
 }
 
+/// Reads a Deployment's revisions in the background, then shows them.
+pub(super) fn load_history(st: &mut State, client: &kube::Client, target: Target) {
+    let title = format!("Reading the history of {}", target.label());
+    let client = client.clone();
+    let work = async move {
+        let namespace = target.namespace.clone().unwrap_or_default();
+        let result = crate::k8s::rollout::history(&client, &namespace, &target.name).await.map_err(|e| format!("{e:#}"));
+        Done::History(target, result)
+    };
+    start(st, Job::spawn(title, Arc::default(), None, work), None);
+}
+
 /// Sends the reviewed edit in the background, over the review.
 pub(super) fn apply_edit(st: &mut State, client: &kube::Client) {
     if st.refuse_if_read_only() {
@@ -158,6 +172,8 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
                 Mode::OpenUrl { text, url, yes: true, back }
             };
         }
+        Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, back },
+        Done::History(_, Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
         // Refused: back to the review, with why and Edit again ready.
         Done::Edited(Err(reason)) => {
             let mut review = *back;

@@ -252,6 +252,16 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(ui::Overlay::Permissions(view)), false);
                 })?;
             }
+            Mode::History { target, revisions, cursor, scroll, .. } => {
+                let running = revisions.iter().find(|r| r.current).map(|r| r.template.as_str()).unwrap_or_default();
+                let diff = revisions.get(*cursor).map(|r| crate::ops::edit::diff(running, &r.template)).unwrap_or_default();
+                let title = target.label();
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    let view = ui::HistoryView { title: &title, revisions, cursor: *cursor, diff: &diff, scroll: *scroll, read_only: *read_only };
+                    paint(frame, None, None, Some(ui::Overlay::History(view)), false);
+                })?;
+            }
             Mode::EditReview { draft, diff, scroll, focus, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();

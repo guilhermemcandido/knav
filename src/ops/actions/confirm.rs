@@ -36,6 +36,7 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
         Action::Trigger => ("Run", "Run", false),
         Action::Suspend(true) => ("Suspend", "Suspend", false),
         Action::Suspend(false) => ("Resume", "Resume", false),
+        Action::Rollback(_) => ("Roll back", "Roll back", false),
         _ => return None,
     };
     // Only some actions make sense on many at once.
@@ -44,6 +45,7 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
     }
     let title = match (targets.len(), action) {
         (1, Action::Trigger) => format!("Run {} now?", first.kind),
+        (1, Action::Rollback(revision)) => format!("Roll back to revision {revision}?"),
         (1, _) => format!("{question} {}?", first.kind.to_lowercase()),
         (n, _) => format!("{question} {n} {}?", plural(&first.kind)),
     };
@@ -75,6 +77,7 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
         Action::Trigger => notes.push(("Creates a Job right now from the CronJob's template.".into(), false)),
         Action::Suspend(true) => notes.push(("No new Jobs are created until you resume it.".into(), false)),
         Action::Suspend(false) => notes.push(("Jobs are created on schedule again.".into(), false)),
+        Action::Rollback(revision) => notes.push((format!("Pods are replaced with revision {revision}'s template, one at a time. It shows up as a new revision."), false)),
         _ => {}
     }
     Some(ConfirmSpec { title, verb: verb.to_string(), danger, subjects, notes })

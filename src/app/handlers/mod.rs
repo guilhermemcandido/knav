@@ -3,6 +3,7 @@
 
 mod command;
 mod edit;
+mod history;
 mod extensions;
 mod inspect;
 mod list;
@@ -265,6 +266,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         Mode::Confirm { .. } | Mode::Working { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::OpenUrl { .. } => operate::handle(event, st, cx),
         Mode::EditReview { .. } => edit::handle(event, st, cx),
         Mode::Permissions { .. } => permissions::handle(event, st, cx),
+        Mode::History { .. } => history::handle(event, st, cx),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
         Mode::Extensions { .. } => extensions::handle(event, st, cx),

@@ -91,6 +91,7 @@ pub fn working_title(action: Action, targets: &[Target]) -> String {
         Action::Trigger => "Starting a job from",
         Action::Suspend(true) => "Suspending",
         Action::Suspend(false) => "Resuming",
+        Action::Rollback(_) => "Rolling back",
     };
     match targets {
         [one] => format!("{verb} {}", one.label()),
@@ -106,6 +107,7 @@ pub(super) fn action_name(action: Action) -> &'static str {
         Action::Cordon(_) => "Cordoned",
         Action::Trigger => "Triggered",
         Action::Suspend(_) => "Suspended",
+        Action::Rollback(_) => "Rolled back",
     }
 }
 
@@ -156,6 +158,13 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
         Action::Suspend(on) => {
             api.patch(name, &params, &merge(json!({ "spec": { "suspend": on } }))).await?;
             Ok(format!("{} {label}", if on { "Suspended" } else { "Resumed" }))
+        }
+        Action::Rollback(revision) => {
+            if target.kind != "Deployment" {
+                bail!("{label} has no rollout history here");
+            }
+            let namespace = target.namespace.as_deref().context("a Deployment has a namespace")?;
+            crate::k8s::rollout::rollback(client, namespace, name, revision).await
         }
         Action::Trigger => {
             let job = job_from_cronjob(target, k8s_openapi::jiff::Timestamp::now().as_second())?;

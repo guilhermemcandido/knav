@@ -11,7 +11,7 @@ pub(crate) fn changes_cluster(hint: &(&str, &str)) -> bool {
 fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
     let mut hints = match kind {
         ResourceKind::Pods => vec![("l", "logs"), ("L", "workload logs"), ("p", "previous logs"), ("S", "shell"), ("F", "forward")],
-        ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("F", "forward"), ("L", "pod logs")],
+        ResourceKind::Deployments => vec![("S", "scale"), ("r", "restart"), ("v", "history"), ("F", "forward"), ("L", "pod logs")],
         ResourceKind::StatefulSets => vec![("S", "scale"), ("r", "restart"), ("L", "pod logs")],
         ResourceKind::Services => vec![("F", "forward")],
         ResourceKind::ReplicaSets => vec![("S", "scale"), ("L", "pod logs")],
@@ -79,7 +79,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
             hints.push(("q/esc", "back"));
             hints
         }
-        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Working { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::EditReview { .. } | Mode::Permissions { .. } => Vec::new(),
+        Mode::Command { .. } | Mode::Search | Mode::Notice { .. } | Mode::Working { .. } | Mode::Slots { .. } | Mode::Confirm { .. } | Mode::OpenUrl { .. } | Mode::Scale { .. } | Mode::Ports { .. } | Mode::EditReview { .. } | Mode::Permissions { .. } | Mode::History { .. } => Vec::new(),
         Mode::Shell { .. } => vec![("ctrl-]", "close the shell")],
         Mode::ThemePicker { .. } => vec![("↑↓/jk", "preview"), ("enter", "keep"), ("esc", "cancel")],
         Mode::Settings { editing: Some(_), .. } | Mode::Settings { capture: Some(_), .. } => Vec::new(),

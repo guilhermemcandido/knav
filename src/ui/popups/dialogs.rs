@@ -249,6 +249,73 @@ pub fn scale_buttons(full: Rect, view: &ScaleView) -> DialogButtons {
     scale_dialog(view).layout(full).2
 }
 
+/// Diff lines from `scroll` on, at most `rows`: removed in red, added in green, the
+/// unchanged ones around them grey.
+fn diff_lines(diff: &[(crate::ops::edit::DiffKind, String)], scroll: usize, rows: usize) -> Vec<Line<'static>> {
+    use crate::ops::edit::DiffKind;
+    let muted = Style::default().fg(theme().muted);
+    diff.iter()
+        .skip(scroll)
+        .take(rows)
+        .map(|(kind, text)| match kind {
+            DiffKind::Removed => Line::styled(format!("- {text}"), Style::default().fg(theme().bad)),
+            DiffKind::Added => Line::styled(format!("+ {text}"), Style::default().fg(theme().ok)),
+            DiffKind::Same => Line::styled(format!("  {text}"), muted),
+            DiffKind::Gap => Line::styled("  ⋯", muted),
+        })
+        .collect()
+}
+
+/// A Deployment's revisions on top, and below them what rolling back to the selected
+/// one would change.
+pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
+    let full = frame.area();
+    let area = body_area(full, true);
+    frame.render_widget(Clear, area);
+    let mut hints = vec![("↑↓", "revision"), ("ctrl-d/u", "scroll")];
+    if !view.read_only {
+        hints.push(("enter", "roll back"));
+    }
+    hints.push(("esc", "back"));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border_set())
+        .border_style(theme_border(false))
+        .title(pill_title(&format!("History {}", view.title), false, theme_border(false)))
+        .title_bottom(hint_strip(&hints).right_aligned());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
+
+    let muted = Style::default().fg(theme().muted);
+    let header = Row::new(["", "REVISION", "AGE", "PODS", "IMAGES", "CHANGE CAUSE"].map(|h| Cell::from(h).style(Style::default().fg(theme().header).add_modifier(Modifier::BOLD))));
+    let rows = view.revisions.iter().map(|r| {
+        let dot = if r.current { Cell::from("●").style(Style::default().fg(theme().ok)) } else { Cell::from("") };
+        let cause = if r.cause.is_empty() { Cell::from("-").style(muted) } else { Cell::from(r.cause.clone()) };
+        Row::new(vec![dot, Cell::from(r.number.to_string()), Cell::from(r.age.clone()), Cell::from(r.pods.to_string()), Cell::from(r.images.clone()), cause])
+    });
+    let table_h = (view.revisions.len() as u16 + 1).min((inner.height / 3).max(4));
+    let images_w = view.revisions.iter().map(|r| cell_width(&r.images)).max().unwrap_or(0).clamp(6, usize::from(inner.width / 2)) as u16;
+    let table = Table::new(rows, [Constraint::Length(1), Constraint::Length(8), Constraint::Length(6), Constraint::Length(4), Constraint::Length(images_w), Constraint::Fill(1)])
+        .column_spacing(COLUMN_GAP)
+        .header(header)
+        .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+    let mut state = TableState::default().with_selected(Some(view.cursor));
+    frame.render_stateful_widget(table, Rect { height: table_h, ..inner }, &mut state);
+
+    let Some(selected) = view.revisions.get(view.cursor) else { return };
+    let caption = Rect { y: inner.y + table_h + 1, height: 1, ..inner };
+    let below = Rect { y: caption.y + 2, height: (inner.y + inner.height).saturating_sub(caption.y + 2), ..inner };
+    if selected.current {
+        frame.render_widget(Paragraph::new(Line::styled(format!("Revision {} is the one running.", selected.number), muted)), caption);
+        return;
+    }
+    let strong = Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD);
+    frame.render_widget(Paragraph::new(Line::styled(format!("Rolling back to revision {} changes:", selected.number), strong)), caption);
+    let lines = if view.diff.is_empty() { vec![Line::styled("  Nothing: the pod templates are the same", muted)] } else { diff_lines(view.diff, view.scroll, usize::from(below.height)) };
+    frame.render_widget(Paragraph::new(lines), below);
+}
+
 /// The edit review's buttons: key and label.
 const REVIEW_BUTTONS: [(&str, &str); 3] = [("a", "Apply"), ("e", "Edit again"), ("esc", "Cancel")];
 
@@ -300,19 +367,7 @@ pub(in crate::ui) fn draw_edit_review(frame: &mut Frame, view: EditReviewView) {
         top += rows + 1;
     }
     let bottom = inner.y + inner.height.saturating_sub(2);
-    let muted = Style::default().fg(theme().muted);
-    let lines: Vec<Line> = view
-        .diff
-        .iter()
-        .skip(view.scroll)
-        .take(usize::from(bottom.saturating_sub(top)))
-        .map(|(kind, text)| match kind {
-            DiffKind::Removed => Line::styled(format!("- {text}"), Style::default().fg(theme().bad)),
-            DiffKind::Added => Line::styled(format!("+ {text}"), Style::default().fg(theme().ok)),
-            DiffKind::Same => Line::styled(format!("  {text}"), muted),
-            DiffKind::Gap => Line::styled("  ⋯", muted),
-        })
-        .collect();
+    let lines = diff_lines(view.diff, view.scroll, usize::from(bottom.saturating_sub(top)));
     frame.render_widget(Paragraph::new(lines), Rect { y: top, height: bottom.saturating_sub(top), ..inner });
 
     for (i, (rect, button)) in edit_review_buttons(full).into_iter().zip(REVIEW_BUTTONS).enumerate() {

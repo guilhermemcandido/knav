@@ -110,6 +110,18 @@ pub struct EditReviewView<'a> {
     pub error: Option<&'a str>,
 }
 
+/// A Deployment's rollout history (`v`).
+pub struct HistoryView<'a> {
+    /// Which Deployment, like `deployment shop/web`.
+    pub title: &'a str,
+    pub revisions: &'a [crate::k8s::rollout::Revision],
+    pub cursor: usize,
+    /// From the running revision to the selected one.
+    pub diff: &'a [(crate::ops::edit::DiffKind, String)],
+    pub scroll: usize,
+    pub read_only: bool,
+}
+
 /// The Permissions menu (`P`).
 pub struct PermissionsView<'a> {
     /// 0 for this cluster, 1 for the read-only contexts.
@@ -160,6 +172,7 @@ pub enum Overlay<'a> {
     Scale(ScaleView<'a>),
     EditReview(EditReviewView<'a>),
     Permissions(PermissionsView<'a>),
+    History(HistoryView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -428,6 +441,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::Scale(..))
                 | Some(Overlay::EditReview(..))
                 | Some(Overlay::Permissions(..))
+                | Some(Overlay::History(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -641,6 +655,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Scale(view) => draw_scale_popup(frame, &view),
         Overlay::EditReview(view) => draw_edit_review(frame, view),
         Overlay::Permissions(view) => draw_permissions(frame, view),
+        Overlay::History(view) => draw_history(frame, view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

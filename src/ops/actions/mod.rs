@@ -21,6 +21,8 @@ pub enum Action {
     Trigger,
     /// `true` suspends the CronJob, `false` resumes it.
     Suspend(bool),
+    /// Puts a Deployment back on this revision's pod template.
+    Rollback(i64),
 }
 
 impl Target {
