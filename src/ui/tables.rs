@@ -147,12 +147,12 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
             Cell::from(p.ready.clone()).style(ready_style),
             Cell::from(p.phase.clone()).style(status_style),
             Cell::from(p.restarts.to_string()).style(cell_style),
+            Cell::from(p.age.clone()).style(cell_style),
             usage_cell(cpu_usage(p, usage), cell_style, dimmed),
             usage_cell(memory_usage(p, usage), cell_style, dimmed),
             Cell::from(p.controlled_by.clone()).style(cell_style),
             Cell::from(p.node.clone()).style(cell_style),
             Cell::from(p.qos.clone()).style(cell_style),
-            Cell::from(p.age.clone()).style(cell_style),
         ];
         if wide {
             cells.push(Cell::from(p.ip.clone()).style(cell_style));
@@ -171,9 +171,10 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
     render_windowed(frame, area, table, table_state, &vis);
 }
 
-/// The pods table's headers. Wide adds IP and IMAGES; CONTAINERS stays last.
+/// The pods table's headers. AGE comes early so a narrow screen scrolls the less used
+/// columns away instead. Wide adds IP and IMAGES; CONTAINERS stays last.
 fn pod_headers(wide: bool) -> Vec<&'static str> {
-    let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "CPU", "MEM", "CONTROLLER", "NODE", "QOS", "AGE"];
+    let mut headers = vec!["NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE", "CPU", "MEM", "CONTROLLER", "NODE", "QOS"];
     if wide {
         headers.extend(["IP", "IMAGES"]);
     }
@@ -190,12 +191,12 @@ fn pod_window(pods: &[std::sync::Arc<PodRow>], usage: Option<&PodUsageMap>, tabl
             cell_width(&p.ready),
             cell_width(&p.phase),
             p.restarts.to_string().len(),
+            cell_width(&p.age),
             cell_width(&cpu_usage(p, usage).0),
             cell_width(&memory_usage(p, usage).0),
             cell_width(&p.controlled_by),
             cell_width(&p.node),
             cell_width(&p.qos),
-            cell_width(&p.age),
         ];
         if wide {
             widths.push(cell_width(&p.ip));
@@ -274,7 +275,7 @@ pub struct PodLayout<'a> {
 
 pub fn controller_at(frame_area: Rect, layout: PodLayout, column: u16) -> bool {
     let PodLayout { pods, usage, wide, hscroll } = layout;
-    const CONTROLLER: usize = 7;
+    const CONTROLLER: usize = 8;
     let inner = Rect { x: frame_area.x.saturating_add(1), y: frame_area.y.saturating_add(2), width: frame_area.width.saturating_sub(2), height: frame_area.height.saturating_sub(3) };
     let window = pod_window(pods, usage, frame_area.width, &mut { hscroll }, wide, None);
     let range = window.range();

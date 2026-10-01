@@ -77,19 +77,32 @@ impl Fitted {
         let mut widths = natural;
         // A column is never wider than it needs, nor narrower than its header plus the
         // sort number.
-        let mins: Vec<usize> = headers.iter().zip(&widths).map(|(h, natural)| configured_min(h).max(cell_width(h) + 3).min(*natural)).collect();
+        // The namespace and name say which row is which, so they keep their full width
+        // (up to two fifths of the screen) and the table scrolls the rest instead.
+        let identity = |h: &str| matches!(h, "NAMESPACE" | "NAME");
+        let mins: Vec<usize> = headers
+            .iter()
+            .zip(&widths)
+            .map(|(h, natural)| {
+                let min = configured_min(h).max(cell_width(h) + 3);
+                if identity(h) { min.max(usize::from(available) * 2 / 5) } else { min }.min(*natural)
+            })
+            .collect();
         if let Some(f) = flex {
             widths[f] = mins[f].max(FLEX_MIN.min(widths[f]));
         }
 
         let gaps = usize::from(COLUMN_GAP) * headers.len().saturating_sub(1);
         let available = usize::from(available);
-        // Narrow the widest columns a cell at a time, not below their minimums.
-        while widths.iter().sum::<usize>() + gaps > available {
-            let widest = (0..widths.len()).filter(|i| Some(*i) != flex && widths[*i] > mins[*i]).max_by_key(|i| widths[*i]);
-            match widest {
-                Some(i) => widths[i] -= 1,
-                None => break,
+        // Narrow the widest columns a cell at a time, not below their minimums, the
+        // namespace and name last.
+        for last in [false, true] {
+            while widths.iter().sum::<usize>() + gaps > available {
+                let widest = (0..widths.len()).filter(|i| Some(*i) != flex && widths[*i] > mins[*i] && (last || !identity(headers[*i]))).max_by_key(|i| widths[*i]);
+                match widest {
+                    Some(i) => widths[i] -= 1,
+                    None => break,
+                }
             }
         }
         let scrolls = widths.iter().sum::<usize>() + gaps > available;
@@ -241,6 +254,15 @@ mod tests {
         let l = lengths(&w);
         assert!(l.iter().map(|x| *x as usize).sum::<usize>() + 6 <= 40, "{l:?}");
         assert!(l[0] >= 10);
+    }
+
+    #[test]
+    fn the_namespace_and_name_shrink_only_after_the_rest() {
+        // 40 + 30 + 30 plus gaps is 106, with 80 available: NODE gives up its room.
+        let fit = Fitted::new(&["NAME", "NODE", "STATUS"], vec![vec![40, 30, 20]].into_iter(), 80, None);
+        let l = lengths(&fit.window(0, 80));
+        assert_eq!(l[0], 40, "{l:?}");
+        assert!(l.iter().map(|x| *x as usize).sum::<usize>() + 6 <= 80, "{l:?}");
     }
 
     #[test]

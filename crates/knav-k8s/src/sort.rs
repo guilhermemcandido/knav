@@ -54,7 +54,7 @@ pub fn column_count(kind: ResourceKind, generic_columns: usize, wide: bool) -> u
 pub fn age_column(kind: ResourceKind, generic_columns: usize, wide: bool) -> Option<usize> {
     match kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
-        ResourceKind::Pods => Some(10),
+        ResourceKind::Pods => Some(5),
         ResourceKind::Deployments => Some(5),
         ResourceKind::Nodes => Some(7),
         // Namespace (if any), name, the kind's columns, then AGE, then LABELS when wide.
@@ -89,12 +89,12 @@ pub fn pod_key(row: &crate::PodRow, column: usize, wide: bool, usage: Option<&cr
         2 => Key::Num(ready_fraction(&row.ready)),
         3 => text(&row.phase),
         4 => Key::Num(i64::from(row.restarts)),
-        5 => Key::Num(used().map_or(-1, |u| u.cpu_millicores)),
-        6 => Key::Num(used().map_or(-1, |u| u.memory_bytes)),
-        7 => text(&row.controlled_by),
-        8 => text(&row.node),
-        9 => text(&row.qos),
-        10 => Key::Num(row.age_secs),
+        5 => Key::Num(row.age_secs),
+        6 => Key::Num(used().map_or(-1, |u| u.cpu_millicores)),
+        7 => Key::Num(used().map_or(-1, |u| u.memory_bytes)),
+        8 => text(&row.controlled_by),
+        9 => text(&row.node),
+        10 => text(&row.qos),
         11 if wide => text(&row.ip),
         12 if wide => text(&row.images),
         _ => Key::Num(row.containers.len() as i64),
@@ -305,7 +305,7 @@ mod age_tests {
 
     #[test]
     fn each_list_knows_where_its_age_column_is() {
-        assert_eq!(age_column(ResourceKind::Pods, 0, false), Some(10));
+        assert_eq!(age_column(ResourceKind::Pods, 0, false), Some(5));
         assert_eq!(age_column(ResourceKind::Deployments, 0, false), Some(5));
         assert_eq!(age_column(ResourceKind::Nodes, 0, false), Some(7));
         // Namespace, name, two kind columns, age: index 4; wide adds LABELS after it.
