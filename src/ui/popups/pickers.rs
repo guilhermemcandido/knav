@@ -313,10 +313,18 @@ pub(in crate::ui) fn draw_slots_popup(frame: &mut Frame, namespace: &str, slots:
     }
 }
 
-/// The theme list with a swatch per theme. The screen behind is drawn in the theme
-/// being previewed.
+/// The theme picker's box: wide enough for the list and a preview beside it.
+fn theme_picker_area(frame_area: Rect) -> Rect {
+    centered_rect(90, 86, frame_area)
+}
+
+/// The list's width inside the picker; the preview takes the rest.
+const THEME_LIST_WIDTH: u16 = 46;
+
+/// The theme list with a swatch per theme, and beside it a sample screen drawn in the
+/// theme being previewed.
 pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::theme::ThemeEntry], state: &mut TableState, saved: &str) {
-    let area = centered_rect(64, 86, frame.area());
+    let area = theme_picker_area(frame.area());
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -326,6 +334,7 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::them
         .title_bottom(hint_strip(&[("enter", "keep"), ("esc", "cancel")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let list = Rect { width: THEME_LIST_WIDTH.min(inner.width), ..inner };
     // The swatch skips the background and text colours, which the preview already shows.
     // The selected row is shaded through the row style so its dots keep their colours.
     let selected = state.selected();
@@ -334,7 +343,7 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::them
         .enumerate()
         .map(|(i, entry)| {
             let swatch: Vec<Span> = entry.swatch.iter().skip(2).map(|color| Span::styled("● ", Style::default().fg(*color))).collect();
-            let mark = if entry.name == saved { "✔ in use" } else { "" };
+            let mark = if entry.name == saved { "✔" } else { "" };
             let row = Row::new(vec![
                 Cell::from(Span::styled(entry.name.clone(), Style::default().add_modifier(Modifier::BOLD))),
                 Cell::from(Line::from(swatch)),
@@ -343,18 +352,73 @@ pub(in crate::ui) fn draw_theme_picker(frame: &mut Frame, entries: &[crate::them
             if selected == Some(i) { row.style(selection_style(crate::k8s::describe::Tone::Plain, false)) } else { row }
         })
         .collect();
-    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(16), Constraint::Min(8)])
+    let table = Table::new(rows, [Constraint::Length(20), Constraint::Length(16), Constraint::Min(2)])
         .column_spacing(2)
         .style(theme_row(false));
     if let Some(selected) = state.selected() {
         state.select(Some(selected.min(entries.len().saturating_sub(1))));
     }
-    frame.render_stateful_widget(table, inner, state);
+    frame.render_stateful_widget(table, list, state);
+    let preview = Rect { x: list.right() + 2, width: inner.right().saturating_sub(list.right() + 3), ..inner };
+    if preview.width >= 30 {
+        draw_theme_preview(frame, preview);
+    }
+}
+
+/// A small sample of knav in the current theme: a list with every row state, the
+/// breadcrumbs, a label and a diff.
+fn draw_theme_preview(frame: &mut Frame, area: Rect) {
+    use crate::k8s::describe::Tone;
+    let border = theme_border(false);
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border).title(pill_title("Pods (4)", false, border));
+    let inner = block.inner(area);
+    frame.render_widget(Block::default().style(Style::default().bg(theme().background)), area);
+    frame.render_widget(block, Rect { height: area.height.min(8), ..area });
+    let header = Style::default().fg(theme().header).add_modifier(Modifier::BOLD);
+    let width = usize::from(inner.width);
+    let row = |ns: &str, name: &str, status: &str, style: Style| Line::styled(format!("{:<width$}", format!("{ns:<10}{name:<14}{status}")), style);
+    let lines = vec![
+        Line::styled(format!("{:<10}{:<14}{}", "NAMESPACE", "NAME", "STATUS"), header),
+        row("shop", "web-7d9f", "Running", selection_style(Tone::Plain, false)),
+        row("shop", "worker-2", "Running", Style::default().fg(theme().row)),
+        row("shop", "migrate-1", "Pending", Style::default().fg(theme().warn)),
+        row("shop", "cache-0", "CrashLoopBackOff", Style::default().fg(theme().bad)),
+        row("staging", "cleanup-9", "Completed", Style::default().fg(theme().muted)),
+    ];
+    frame.render_widget(Paragraph::new(lines), Rect { height: inner.height.min(6), ..inner });
+
+    // Below the box: the breadcrumbs, a label pill and a diff, each on its own row.
+    let pill = Style::default().bg(theme().pill_bg);
+    let sep = Span::styled(" › ", Style::default().fg(theme().muted));
+    let current = Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg));
+    let below = vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(" Pods ", pill.fg(theme().namespace).add_modifier(Modifier::BOLD)),
+            sep.clone(),
+            Span::styled(" shop/web-7d9f ", current.add_modifier(Modifier::BOLD)),
+            sep,
+            Span::styled(" ● nginx Running ", pill.fg(theme().ok)),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Labels  ", Style::default().fg(theme().muted)),
+            Span::styled(" app", pill.fg(theme().namespace)),
+            Span::styled("=", pill.fg(theme().muted)),
+            Span::styled("web ", pill.fg(theme().text_strong)),
+        ]),
+        Line::raw(""),
+        Line::styled("- image: nginx:1.25", Style::default().fg(theme().bad)),
+        Line::styled("+ image: nginx:1.26", Style::default().fg(theme().ok)),
+        Line::styled("  replicas: 3", Style::default().fg(theme().muted)),
+    ];
+    let top = area.y + area.height.min(8);
+    frame.render_widget(Paragraph::new(below), Rect { y: top, height: area.bottom().saturating_sub(top), ..area });
 }
 
 /// Which theme row a click lands on.
 pub fn theme_row_at(frame_area: Rect, len: usize, offset: usize, row: u16) -> Option<usize> {
-    let area = centered_rect(64, 86, frame_area);
+    let area = theme_picker_area(frame_area);
     let top = area.y + 1; // top border
     let bottom = area.y + area.height.saturating_sub(1);
     if row < top || row >= bottom {
