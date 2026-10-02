@@ -105,6 +105,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                 shown("G", "bottom", "Bottom"),
                 shown("ctrl-f", "page_down", "Page down"),
                 shown("ctrl-b", "page_up", "Page up"),
+                entry("ctrl-d / ctrl-u", "Half a page, in rollout history"),
                 entry("← →", "Scroll columns"),
                 entry("enter", "Open"),
                 shown("esc", "cancel", "Back / clear marks"),
