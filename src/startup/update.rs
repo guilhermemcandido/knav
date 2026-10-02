@@ -1,5 +1,6 @@
 //! `knav update`: replaces this binary with the latest GitHub release when newer, or
-//! with a rebuild of the same version when its checksum differs from this binary's.
+//! with a rebuild of the same version when its checksum differs from this binary's,
+//! listing the commits in between.
 //! Uses `curl` rather than an HTTP client crate for this one command.
 
 use anyhow::{Context as _, Result};
@@ -8,35 +9,152 @@ use std::io::Write;
 
 use sha2::{Digest, Sha256};
 
-
 const REPO: &str = "guilhermemcandido/knav";
 
+/// The commit this binary was built from, set by build.rs (empty when unknown).
+const COMMIT: &str = env!("KNAV_COMMIT");
+
+/// How many commit subjects "What's new" lists before saying how many more.
+const MAX_CHANGES: usize = 12;
+
+/// Colours for a terminal, nothing when piped or with NO_COLOR set.
+struct Paint(bool);
+
+impl Paint {
+    fn detect() -> Self {
+        use std::io::IsTerminal;
+        Paint(std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
+    }
+
+    fn wrap(&self, code: &str, text: &str) -> String {
+        if self.0 { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
+    }
+
+    fn ok(&self, text: &str) -> String {
+        self.wrap("32", text)
+    }
+
+    fn bold(&self, text: &str) -> String {
+        self.wrap("1", text)
+    }
+
+    fn dim(&self, text: &str) -> String {
+        self.wrap("2", text)
+    }
+
+    fn accent(&self, text: &str) -> String {
+        self.wrap("36", text)
+    }
+
+    /// Replaces the line being drawn, for a step that finished.
+    fn done(&self, text: &str) {
+        let clear = if self.0 { "\r\x1b[2K" } else { "" };
+        println!("{clear}  {} {text}", self.ok("✔"));
+    }
+
+    /// A step in progress, replaced by `done` when it finishes.
+    fn working(&self, text: &str) {
+        if self.0 {
+            print!("  {} {text}", self.dim("…"));
+            let _ = std::io::stdout().flush();
+        }
+    }
+}
+
+/// `0.1.0 · af347e2`, or just the version when the commit is unknown.
+fn build_name(version: &str, commit: &str) -> String {
+    match short(commit) {
+        "" => version.to_string(),
+        sha => format!("{version} · {sha}"),
+    }
+}
+
+fn short(commit: &str) -> &str {
+    commit.get(..7).unwrap_or(commit)
+}
+
 pub(crate) fn run(auto_yes: bool) -> Result<()> {
+    let paint = Paint::detect();
     let current = env!("CARGO_PKG_VERSION");
-    let latest = latest_tag()?;
+    paint.working("Checking for updates");
+    let release = latest_release()?;
+    let latest = release.tag.clone();
     let target = target_triple().with_context(|| format!("no prebuilt binary for {}/{}; reinstall with `cargo install --git https://github.com/{REPO}`", std::env::consts::OS, std::env::consts::ARCH))?;
     let exe = running_exe()?;
     let checksum = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}.sha256"))?;
-    let prompt = if version(&latest) != current {
-        println!("knav {current} -> {latest}");
-        format!("Update to {latest}? [y/N] ")
-    } else if same_build(&exe, &checksum) {
-        println!("knav {current} is up to date.");
+    // Releases before this was added have no commit file.
+    let latest_commit = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-commit")).map(|b| String::from_utf8_lossy(&b).trim().to_string()).unwrap_or_default();
+    let new_version = version(&latest) != current;
+    if paint.0 {
+        print!("\r\x1b[2K");
+    }
+    if !new_version && same_build(&exe, &checksum) {
+        paint.done(&format!("knav {} is up to date", paint.bold(&build_name(current, COMMIT))));
         return Ok(());
-    } else {
-        println!("There is a newer build of knav {current}.");
-        "Update to it? [y/N] ".to_string()
-    };
-    if !auto_yes && !confirm(&prompt)? {
+    }
+
+    println!();
+    println!("  {}  {}", paint.dim("Current"), build_name(current, COMMIT));
+    let note = if new_version { "new version" } else { "newer build" };
+    println!("  {}   {}  {}", paint.dim("Latest"), paint.bold(&build_name(version(&latest), &latest_commit)), paint.accent(note));
+    let changes = changes_between(COMMIT, &latest_commit).unwrap_or_else(|| release_notes(&release.body));
+    if !changes.is_empty() {
+        println!();
+        println!("  {}", paint.bold("What's new"));
+        for line in changes.iter().take(MAX_CHANGES) {
+            println!("    {} {line}", paint.accent("•"));
+        }
+        if changes.len() > MAX_CHANGES {
+            println!("    {}", paint.dim(&format!("and {} more", changes.len() - MAX_CHANGES)));
+        }
+    }
+    println!();
+    if !auto_yes && !confirm(&format!("  Update now? {} ", paint.dim("[y/N]")))? {
         return Ok(());
     }
     refuse_if_package_managed(&exe)?;
 
+    paint.working(&format!("Downloading knav-{target}"));
     let bytes = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}"))?;
+    paint.done(&format!("Downloaded {}", paint.dim(&megabytes(bytes.len()))));
     verify(&bytes, &checksum)?;
+    paint.done("Checksum verified");
     replace_running_binary(&exe, &bytes)?;
-    println!("Updated. Run it again to use the new version.");
+    paint.done(&format!("{} {} {} → {}", paint.ok(&paint.bold("Update installed")), paint.dim("·"), build_name(current, COMMIT), paint.bold(&build_name(version(&latest), &latest_commit))));
+    println!("    {}", paint.dim("Run knav again to use it."));
     Ok(())
+}
+
+fn megabytes(bytes: usize) -> String {
+    format!("{:.1} MB", bytes as f64 / 1_000_000.0)
+}
+
+/// The commit subjects from `from` to `to`, newest first, through GitHub's compare API.
+/// `None` when either commit is unknown or GitHub can't say.
+fn changes_between(from: &str, to: &str) -> Option<Vec<String>> {
+    if from.is_empty() || to.is_empty() || from == to {
+        return None;
+    }
+    let body = download(&format!("https://api.github.com/repos/{REPO}/compare/{from}...{to}")).ok()?;
+    subjects_from_compare(&body)
+}
+
+fn subjects_from_compare(body: &[u8]) -> Option<Vec<String>> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let commits = json.get("commits")?.as_array()?;
+    let mut subjects: Vec<String> = commits.iter().filter_map(|c| c.get("commit")?.get("message")?.as_str()).filter_map(|m| m.lines().next()).map(str::to_string).collect();
+    subjects.reverse();
+    Some(subjects)
+}
+
+/// The bullet lines of a release's notes, for when commits can't be compared.
+fn release_notes(body: &str) -> Vec<String> {
+    body.lines().filter_map(|l| l.trim().strip_prefix("* ").or_else(|| l.trim().strip_prefix("- "))).map(|l| l.split(" by @").next().unwrap_or(l).to_string()).collect()
+}
+
+struct Release {
+    tag: String,
+    body: String,
 }
 
 /// The tag a release is fetched at, without its leading `v` (`v0.2.0` -> `0.2.0`).
@@ -60,10 +178,12 @@ fn triple_for(os: &str, arch: &str) -> Option<&'static str> {
     }
 }
 
-/// The tag GitHub reports as the latest release, e.g. `v0.2.0`.
-fn latest_tag() -> Result<String> {
+/// The release GitHub reports as the latest, e.g. `v0.2.0`, with its notes.
+fn latest_release() -> Result<Release> {
     let body = download(&format!("https://api.github.com/repos/{REPO}/releases/latest"))?;
-    tag_from_release_json(&body)
+    let tag = tag_from_release_json(&body)?;
+    let notes = serde_json::from_slice::<serde_json::Value>(&body).ok().and_then(|j| j.get("body")?.as_str().map(String::from)).unwrap_or_default();
+    Ok(Release { tag, body: notes })
 }
 
 fn tag_from_release_json(body: &[u8]) -> Result<String> {
@@ -160,6 +280,26 @@ mod tests {
     }
 
     #[test]
+    fn what_changed_is_read_newest_first_from_a_compare() {
+        let body = br#"{"status": "ahead", "commits": [
+            {"sha": "a1", "commit": {"message": "Add rollout history\n\nwith details"}},
+            {"sha": "b2", "commit": {"message": "Fix the header"}}]}"#;
+        assert_eq!(subjects_from_compare(body).unwrap(), ["Fix the header", "Add rollout history"]);
+    }
+
+    #[test]
+    fn release_notes_keep_their_bullets_without_authors() {
+        let body = "## What's Changed\n* Add debug containers by @someone in #4\n- Fix scaling\n\n**Full Changelog**: x";
+        assert_eq!(release_notes(body), ["Add debug containers", "Fix scaling"]);
+    }
+
+    #[test]
+    fn a_build_is_named_by_version_and_short_commit() {
+        assert_eq!(build_name("0.1.0", "dd79c24f00aa"), "0.1.0 · dd79c24");
+        assert_eq!(build_name("0.1.0", ""), "0.1.0");
+    }
+
+    #[test]
     fn version_strips_the_leading_v() {
         assert_eq!(version("v0.2.0"), "0.2.0");
     }
@@ -207,7 +347,7 @@ mod live {
     #[test]
     #[ignore]
     fn live_latest_tag_parses() {
-        let tag = latest_tag().unwrap();
+        let tag = latest_release().unwrap().tag;
         println!("latest release: {tag}");
         assert!(tag.starts_with('v'));
     }

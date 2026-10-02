@@ -93,6 +93,10 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # The commit these binaries came from, so `knav update` can list what changed.
+      - name: Record the commit
+        run: echo "$GITHUB_SHA" > dist/knav-commit
+
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
