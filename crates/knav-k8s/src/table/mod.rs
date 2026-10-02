@@ -276,6 +276,20 @@ pub(super) fn parse_table(table: &Value) -> anyhow::Result<(Vec<TableColumn>, Ve
     Ok((columns, rows))
 }
 
+/// The columns a custom resource's state may be in, the most telling first. Flux and
+/// cert-manager say READY, Argo CD HEALTH and SYNC STATUS.
+const STATUS_COLUMNS: [&str; 7] = ["STATUS", "PHASE", "STATE", "HEALTH", "HEALTH STATUS", "SYNC STATUS", "READY"];
+
+/// A row's state from its status column. A `True`/`False` READY reads as words.
+fn status_note(text: &str, ready_column: bool) -> (Tone, String) {
+    match (ready_column, text) {
+        (true, "True") => (Tone::Good, "Ready".into()),
+        (true, "False") => (Tone::Bad, "Not ready".into()),
+        (true, "Unknown") => (Tone::Warn, "Ready unknown".into()),
+        _ => (cell_tone(text), text.to_string()),
+    }
+}
+
 fn cell_tone(text: &str) -> Tone {
     match text {
         "Ready" | "Active" | "Bound" | "Available" | "Running" | "Healthy" | "Complete" | "Succeeded" | "Established" | "Approved" => Tone::Good,
@@ -337,7 +351,8 @@ impl CatalogKind for TableKind {
                 labels: String::new(),
             })];
         }
-        let status_column = data.columns.iter().position(|c| matches!(c.name, "STATUS" | "PHASE" | "STATE"));
+        let status_column = STATUS_COLUMNS.iter().find_map(|name| data.columns.iter().position(|c| c.name == *name));
+        let ready_column = status_column.is_some_and(|i| data.columns[i].name == "READY");
         let mut rows = crate::par_map(&data.rows, |row| {
             Arc::new({
                 let extras = shown
@@ -348,7 +363,7 @@ impl CatalogKind for TableKind {
                         Col { header: column.name, tone: if Some(i) == status_column { cell_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
                     })
                     .collect();
-                let status = status_column.and_then(|i| row.cells.get(i)).map(|text| (cell_tone(text), text.clone()));
+                let status = status_column.and_then(|i| row.cells.get(i)).filter(|t| !t.is_empty()).map(|text| status_note(text, ready_column));
                 GenericRow {
                     namespace: row.namespace.clone(),
                     name: row.name.clone(),
@@ -412,6 +427,14 @@ async fn fetch_object(client: Client, resource: &ApiResource, namespaced: bool, 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_ready_column_reads_as_words() {
+        assert_eq!(super::status_note("True", true), (Tone::Good, "Ready".to_string()));
+        assert_eq!(super::status_note("False", true), (Tone::Bad, "Not ready".to_string()));
+        assert_eq!(super::status_note("Healthy", false).1, "Healthy");
+    }
+
     use super::*;
 
     fn table() -> Value {

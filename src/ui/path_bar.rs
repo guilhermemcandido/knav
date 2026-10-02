@@ -12,6 +12,8 @@ pub struct SelectedItem {
     note: Option<(Color, String)>,
     /// Dot colour, name and state per container, pods only.
     containers: Vec<(Color, String, String)>,
+    /// For a kind with no state: a couple of its columns, like `type ClusterIP`.
+    facts: Vec<(String, String)>,
 }
 
 impl SelectedItem {
@@ -21,11 +23,12 @@ impl SelectedItem {
             name: pod.name.clone(),
             note: None,
             containers: pod.containers.iter().map(|c| (container_dot(c).1, c.name.clone(), container_state_text(c))).collect(),
+            facts: Vec::new(),
         }
     }
 
     pub(super) fn from_deployment(dep: &DeploymentRow) -> Self {
-        SelectedItem { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some((ready_color(&dep.ready), dep.ready.clone())), containers: Vec::new() }
+        SelectedItem { namespace: Some(dep.namespace.clone()), name: dep.name.clone(), note: Some((ready_color(&dep.ready), dep.ready.clone())), containers: Vec::new(), facts: Vec::new() }
     }
 
     pub(super) fn from_node(node: &NodeRow) -> Self {
@@ -34,7 +37,7 @@ impl SelectedItem {
             (true, false) => (theme().warn, "Ready, cordoned"),
             (false, _) => (theme().bad, "NotReady"),
         };
-        SelectedItem { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new() }
+        SelectedItem { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new(), facts: Vec::new() }
     }
 
     pub(super) fn from_generic(row: &GenericRow) -> Self {
@@ -53,13 +56,24 @@ impl SelectedItem {
                 (color, text.clone())
             }),
             containers: Vec::new(),
+            // Without a state, the first couple of its columns say what it is.
+            facts: if row.status.is_some() {
+                Vec::new()
+            } else {
+                row.extras.iter().filter(|c| !matches!(c.text.as_str(), "" | "-" | "<none>")).take(MAX_FACTS).map(|c| (c.header.to_lowercase(), middle_ellipsis(&c.text, FACT_WIDTH))).collect()
+            },
         }
     }
 
     pub(super) fn from_crd(crd: &CrdInfo) -> Self {
-        SelectedItem { namespace: Some(crd.group.to_string()), name: crd.kind.to_string(), note: None, containers: Vec::new() }
+        SelectedItem { namespace: Some(crd.group.to_string()), name: crd.kind.to_string(), note: None, containers: Vec::new(), facts: Vec::new() }
     }
 }
+
+/// How many columns stand in for a state the kind doesn't have.
+const MAX_FACTS: usize = 2;
+/// Long values (paths, checksums) keep their ends within this.
+const FACT_WIDTH: usize = 32;
 
 /// Names are shortened to this length before anything is squeezed harder, and never
 /// below `HARD_MIN`.
@@ -120,12 +134,19 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
             spans.push(Span::styled("/", current));
         }
         spans.push(Span::styled(format!("{} ", cap(name_cap, &pod.name)), current.add_modifier(Modifier::BOLD)));
-        // The status and each container are pills too, in their own colour.
+        // The status and each container are pills too, in their own colour, a level
+        // below the object, so a `›` leads into them.
         if let (Some((color, note)), Detail::Full) = (&pod.note, detail) {
-            spans.push(Span::raw(" "));
+            spans.push(separator());
             spans.push(Span::styled(format!(" ● {note} "), pill.fg(*color)));
         }
-        // Containers are a level below the pod, so a `›` leads into them.
+        if matches!(detail, Detail::Full) {
+            for (i, (label, value)) in pod.facts.iter().enumerate() {
+                spans.push(if i == 0 { separator() } else { Span::raw(" ") });
+                spans.push(Span::styled(format!(" {label} "), pill.fg(theme().muted)));
+                spans.push(Span::styled(format!("{} ", cap(name_cap + 1 + i, value)), pill.fg(theme().text_strong)));
+            }
+        }
         if !matches!(detail, Detail::None) {
             for (i, (color, name, state)) in pod.containers.iter().enumerate() {
                 spans.push(if i == 0 { separator() } else { Span::raw(" ") });
@@ -186,6 +207,7 @@ mod tests {
             name: "local-path-provisioner-5d9d9885bc-f".into(),
             note: None,
             containers: vec![(theme().ok, "local-path-provisioner".into(), "Running".into())],
+            facts: Vec::new(),
         }
     }
 
@@ -195,13 +217,31 @@ mod tests {
 
     #[test]
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
-        let node = SelectedItem { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
+        let node = SelectedItem { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new(), facts: Vec::new() };
         let wide = text(&path_line(&[seg("Nodes", None)], Some(&node), 100));
-        assert!(wide.ends_with("worker-1   ● Ready "), "{wide}");
+        assert!(wide.ends_with("worker-1  ›  ● Ready "), "{wide}");
         let tight = text(&path_line(&[seg("Nodes", None)], Some(&node), 22));
         assert!(tight.ends_with("worker-1 "), "{tight}");
-        let configmap = SelectedItem { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
+        let configmap = SelectedItem { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new(), facts: Vec::new() };
         assert!(text(&path_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt "));
+    }
+
+    #[test]
+    fn a_kind_without_a_state_shows_a_couple_of_its_columns() {
+        use crate::k8s::describe::{Col, Tone};
+        let row = GenericRow {
+            namespace: "shop".into(),
+            name: "web".into(),
+            age: "1d".into(),
+            age_secs: 0,
+            extras: [("TYPE", "ClusterIP"), ("CLUSTER-IP", "10.43.0.7"), ("PORTS", "80/TCP")].map(|(header, text)| Col { header, text: text.into(), tone: Tone::Plain, sort: None }).to_vec(),
+            status: None,
+            uid: String::new(),
+            owners: Vec::new(),
+            labels: String::new(),
+        };
+        let line = text(&path_line(&[seg("Services", None)], Some(&SelectedItem::from_generic(&row)), 200));
+        assert!(line.ends_with(" type ClusterIP   cluster-ip 10.43.0.7 "), "{line}");
     }
 
     #[test]
