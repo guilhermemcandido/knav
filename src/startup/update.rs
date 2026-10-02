@@ -92,12 +92,18 @@ pub(crate) fn run(auto_yes: bool) -> Result<()> {
         paint.done(&format!("knav {} is up to date", paint.bold(&build_name(current, COMMIT))));
         return Ok(());
     }
+    let compared = compare(COMMIT, &latest_commit);
+    // A local build past the release: nothing to update to.
+    if !new_version && compared.as_ref().is_some_and(|c| c.ahead) {
+        paint.done(&format!("knav {} is newer than the latest build ({})", paint.bold(&build_name(current, COMMIT)), short(&latest_commit)));
+        return Ok(());
+    }
 
     println!();
     println!("  {}  {}", paint.dim("Current"), build_name(current, COMMIT));
     let note = if new_version { "new version" } else { "newer build" };
     println!("  {}   {}  {}", paint.dim("Latest"), paint.bold(&build_name(version(&latest), &latest_commit)), paint.accent(note));
-    let changes = changes_between(COMMIT, &latest_commit).unwrap_or_else(|| release_notes(&release.body));
+    let changes = compared.map(|c| c.subjects).unwrap_or_else(|| release_notes(&release.body));
     if !changes.is_empty() {
         println!();
         println!("  {}", paint.bold("What's new"));
@@ -129,22 +135,29 @@ fn megabytes(bytes: usize) -> String {
     format!("{:.1} MB", bytes as f64 / 1_000_000.0)
 }
 
-/// The commit subjects from `from` to `to`, newest first, through GitHub's compare API.
+/// How the running build relates to the release's: the commit subjects in between,
+/// newest first, and whether the running one is ahead.
+struct Compared {
+    subjects: Vec<String>,
+    ahead: bool,
+}
+
 /// `None` when either commit is unknown or GitHub can't say.
-fn changes_between(from: &str, to: &str) -> Option<Vec<String>> {
+fn compare(from: &str, to: &str) -> Option<Compared> {
     if from.is_empty() || to.is_empty() || from == to {
         return None;
     }
     let body = download(&format!("https://api.github.com/repos/{REPO}/compare/{from}...{to}")).ok()?;
-    subjects_from_compare(&body)
+    compared_from_json(&body)
 }
 
-fn subjects_from_compare(body: &[u8]) -> Option<Vec<String>> {
+fn compared_from_json(body: &[u8]) -> Option<Compared> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let ahead = json.get("status").and_then(|s| s.as_str()) == Some("behind");
     let commits = json.get("commits")?.as_array()?;
     let mut subjects: Vec<String> = commits.iter().filter_map(|c| c.get("commit")?.get("message")?.as_str()).filter_map(|m| m.lines().next()).map(str::to_string).collect();
     subjects.reverse();
-    Some(subjects)
+    Some(Compared { subjects, ahead })
 }
 
 /// The bullet lines of a release's notes, for when commits can't be compared.
@@ -284,7 +297,16 @@ mod tests {
         let body = br#"{"status": "ahead", "commits": [
             {"sha": "a1", "commit": {"message": "Add rollout history\n\nwith details"}},
             {"sha": "b2", "commit": {"message": "Fix the header"}}]}"#;
-        assert_eq!(subjects_from_compare(body).unwrap(), ["Fix the header", "Add rollout history"]);
+        let compared = compared_from_json(body).unwrap();
+        assert_eq!(compared.subjects, ["Fix the header", "Add rollout history"]);
+        assert!(!compared.ahead);
+    }
+
+    #[test]
+    fn a_build_past_the_release_is_ahead() {
+        // GitHub compares from this build to the release's: "behind" means the release is.
+        let compared = compared_from_json(br#"{"status": "behind", "commits": []}"#).unwrap();
+        assert!(compared.ahead && compared.subjects.is_empty());
     }
 
     #[test]
