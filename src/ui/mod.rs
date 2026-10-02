@@ -376,6 +376,10 @@ pub enum SuggestionIcon {
 pub struct SuggestionView {
     pub label: String,
     pub icon: SuggestionIcon,
+    /// Drawn under the row above as a tree branch: `Some(true)` for the last one.
+    pub branch: Option<bool>,
+    /// A group shown only to frame the kinds under it: muted, never selected.
+    pub heading: bool,
 }
 
 /// One path segment: a kind ("Node") and its value ("worker-1"), each in its own

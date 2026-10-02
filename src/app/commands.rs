@@ -52,12 +52,25 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo], dashboard_categories: &[&'sta
 
 /// Autocomplete for the `:` command line: every kind and command, matched on all their
 /// names, best first. An exact alias ranks first; empty input suggests nothing.
-/// `custom` is the names of your own commands, in config order.
+/// `custom` is the names of your own commands, in config order. A custom resource
+/// shows under its API group, as a small tree.
 pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str], custom: &[String]) -> Vec<Suggestion> {
     let input = input.trim().to_lowercase();
     if input.is_empty() {
         return Vec::new();
     }
+    let names_of = |cmd: Cmd| match cmd {
+        Cmd::Custom(i) => vec![custom[i].to_lowercase()],
+        Cmd::Crd(i) => {
+            let crd = &crds[i];
+            let mut names = vec![crd.plural.to_lowercase()];
+            if !crd.kind.eq_ignore_ascii_case(&crd.plural) {
+                names.push(crd.kind.to_lowercase());
+            }
+            names
+        }
+        _ => cmd.names(),
+    };
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
         .chain(std::iter::once(Cmd::Problems))
@@ -66,13 +79,11 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         .chain(std::iter::once(Cmd::Quit))
         .chain((0..custom.len()).map(Cmd::Custom))
         .chain(menu_sections(crds, dashboard_categories).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
+        .chain((0..crds.len()).map(Cmd::Crd))
         // Every other resource the server lists, unless a built-in kind has that name.
-        .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none()).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
+        .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none() && !crds.iter().any(|c| c.group == a.group && c.plural == a.plural)).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
         .filter_map(|cmd| {
-            let names = match cmd {
-                Cmd::Custom(i) => vec![custom[i].to_lowercase()],
-                _ => cmd.names(),
-            };
+            let names = names_of(cmd);
             let (score, alias) = names
                 .iter()
                 .filter_map(|alias| {
@@ -86,12 +97,58 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
                 })
                 .max_by_key(|(score, _)| *score)?;
             let primary = names[0].clone();
-            let label = if alias == primary { primary } else { format!("{primary} ({alias})") };
-            Some((score, Suggestion { cmd, label }))
+            let label = if alias == primary { primary.clone() } else { format!("{primary} ({alias})") };
+            Some((score, Suggestion { cmd, label, primary, branch: None, heading: false }))
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(_, suggestion)| suggestion).take(8).collect()
+    let ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(10).collect();
+    as_tree(ranked, crds, &names_of)
+}
+
+/// The group a suggestion belongs to in the tree: a CRD group or one of its kinds.
+fn tree_group(cmd: Cmd, crds: &[k8s::CrdInfo]) -> Option<&'static str> {
+    match cmd {
+        Cmd::Kind(ResourceKind::CustomResourceGroup(group)) => Some(group),
+        Cmd::Crd(i) => crds.get(i).map(|c| c.group),
+        _ => None,
+    }
+}
+
+/// Puts each matched custom resource under its group, in the order the best of them
+/// ranked. A group matched on its own lists its kinds under it.
+fn as_tree(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
+    const KINDS_UNDER_A_GROUP: usize = 6;
+    let mut out: Vec<Suggestion> = Vec::new();
+    let mut placed: Vec<&'static str> = Vec::new();
+    for suggestion in &ranked {
+        let Some(group) = tree_group(suggestion.cmd, crds) else {
+            out.push(suggestion.clone());
+            continue;
+        };
+        if placed.contains(&group) {
+            continue;
+        }
+        placed.push(group);
+        let mut children: Vec<Suggestion> = ranked.iter().filter(|s| matches!(s.cmd, Cmd::Crd(i) if crds[i].group == group)).cloned().collect();
+        // Only there as the parent of a matched kind: a heading the cursor skips.
+        let heading = !children.is_empty() && !ranked.iter().any(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(g)) if g == group));
+        if children.is_empty() {
+            children = (0..crds.len())
+                .filter(|i| crds[*i].group == group)
+                .take(KINDS_UNDER_A_GROUP)
+                .map(|i| {
+                    let primary = names_of(Cmd::Crd(i)).remove(0);
+                    Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, branch: None, heading: false }
+                })
+                .collect();
+        }
+        let label = group.to_string();
+        out.push(Suggestion { cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)), primary: label.clone(), label, branch: None, heading });
+        let last = children.len().saturating_sub(1);
+        out.extend(children.into_iter().enumerate().map(|(n, child)| Suggestion { branch: Some(n == last), ..child }));
+    }
+    out
 }
 
 /// One autocomplete line: what it does, and its label (`namespaces (ns)` when found by alias).
@@ -99,13 +156,27 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
 pub(crate) struct Suggestion {
     pub(crate) cmd: Cmd,
     pub(crate) label: String,
+    /// The name Tab completes to.
+    pub(crate) primary: String,
+    /// Under a group in the tree: `Some(true)` for its last kind.
+    pub(crate) branch: Option<bool>,
+    /// A group shown only as the parent of what matched, which can't be picked.
+    pub(crate) heading: bool,
+}
+
+/// `selected` moved onto a suggestion that can be picked, searching `forward` or back.
+pub(crate) fn pickable(suggestions: &[Suggestion], selected: usize, forward: bool) -> usize {
+    let ok = |i: &usize| suggestions.get(*i).is_some_and(|s| !s.heading);
+    let found = if forward { (selected..suggestions.len()).find(ok) } else { (0..=selected.min(suggestions.len().saturating_sub(1))).rev().find(ok) };
+    found.or_else(|| (0..suggestions.len()).find(ok)).unwrap_or(0)
 }
 
 impl Suggestion {
     /// The kind's icon, or a drawn icon for commands that aren't a resource.
-    pub(crate) fn icon(&self) -> ui::SuggestionIcon {
+    pub(crate) fn icon(&self, crds: &[k8s::CrdInfo]) -> ui::SuggestionIcon {
         match self.cmd {
             Cmd::Kind(kind) => ui::SuggestionIcon::Kind(kind),
+            Cmd::Crd(index) => ui::SuggestionIcon::Kind(ResourceKind::CustomResource(index, crds.get(index).map_or("", |c| c.kind))),
             Cmd::Api(index, plural, _) => ui::SuggestionIcon::Kind(ResourceKind::Api(index, plural)),
             Cmd::Context => ui::SuggestionIcon::Named("switch"),
             Cmd::Events => ui::SuggestionIcon::Named("bell"),
@@ -119,7 +190,7 @@ impl Suggestion {
 
     /// The name Tab completes to: the first of its names.
     pub(crate) fn primary_name(&self) -> String {
-        self.cmd.names().into_iter().next().unwrap_or_default()
+        self.primary.clone()
     }
 }
 
@@ -137,6 +208,8 @@ pub(crate) enum Cmd {
     Quit,
     /// One of your own commands, by its index in the config.
     Custom(usize),
+    /// A custom resource kind, by its index in the catalog's CRDs.
+    Crd(usize),
 }
 
 impl Cmd {
@@ -158,8 +231,8 @@ impl Cmd {
             Cmd::Context => fixed(&["context", "contexts", "ctx"]),
             Cmd::Events => fixed(&["events", "event", "ev"]),
             Cmd::Problems => fixed(&["problems", "problem", "issues", "faults"]),
-            // Named from the config, which `command_suggestions` has.
-            Cmd::Custom(_) => Vec::new(),
+            // Named from the config and the CRDs, which `command_suggestions` has.
+            Cmd::Custom(_) | Cmd::Crd(_) => Vec::new(),
             Cmd::Settings => fixed(&["config", "settings", "preferences", "prefs", "options"]),
             Cmd::Theme => fixed(&["theme", "themes", "skin", "skins", "colors", "colours"]),
             Cmd::Quit => fixed(&["quit", "q", "exit"]),
@@ -413,5 +486,30 @@ mod tests {
             })
             .collect();
         assert_eq!(rendered.join(">>"), "Home>>Node[worker-1]>>Pod[default/web-1]");
+    }
+
+    fn crd(group: &'static str, kind: &'static str, plural: &str) -> k8s::CrdInfo {
+        k8s::CrdInfo { group, kind, plural: plural.into(), version: "v1".into(), namespaced: true }
+    }
+
+    #[test]
+    fn a_custom_kind_is_found_and_shown_under_its_group() {
+        let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
+        let found = command_suggestions("environ", &crds, &[], &[], &[]);
+        let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
+        assert!(found[at].heading, "the group only frames the match");
+        assert_eq!(pickable(&found, at, true), at + 1);
+        assert!(found[at + 1].label.starts_with("environments"));
+        assert_eq!(found[at + 1].branch, Some(true));
+        assert!(matches!(found[at + 1].cmd, Cmd::Crd(0)));
+    }
+
+    #[test]
+    fn a_matched_group_lists_its_kinds() {
+        let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
+        let found = command_suggestions("platform.example", &crds, &[], &[], &[]);
+        let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
+        let kids: Vec<&str> = found[at + 1..].iter().take_while(|s| s.branch.is_some()).map(|s| s.label.as_str()).collect();
+        assert_eq!(kids, ["environments", "teams"]);
     }
 }
