@@ -9,8 +9,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scope {
-    /// Objects whose `ownerReferences` include this UID.
-    Owner { uid: String, kind: String, name: String },
+    /// Objects whose `ownerReferences` include this UID, in the owner's namespace.
+    Owner { uid: String, kind: String, name: String, namespace: Option<String> },
     /// Pods whose labels contain every pair of a Service's selector.
     Selector { labels: BTreeMap<String, String>, namespace: Option<String>, kind: String, name: String },
     /// Pods in this namespace, without making it the active namespace.
@@ -18,6 +18,14 @@ pub enum Scope {
 }
 
 impl Scope {
+    /// The namespace everything in this scope is in, when there is one.
+    pub fn namespace(&self) -> Option<&str> {
+        match self {
+            Scope::Owner { namespace, .. } | Scope::Selector { namespace, .. } => namespace.as_deref(),
+            Scope::Namespace { name } => Some(name),
+        }
+    }
+
     /// The kind and name this list is inside, like `("Deployment", "web")`.
     pub fn parts(&self) -> (&str, &str) {
         match self {
@@ -82,7 +90,7 @@ mod tests {
 
     #[test]
     fn owner_scope_matches_only_that_owners_children() {
-        let scope = Scope::Owner { uid: "abc".into(), kind: "Deployment".into(), name: "web".into() };
+        let scope = Scope::Owner { uid: "abc".into(), kind: "Deployment".into(), name: "web".into(), namespace: None };
         assert!(scope.matches_meta(&meta_owned_by("abc")));
         assert!(!scope.matches_meta(&meta_owned_by("other")));
         assert!(!scope.matches_meta(&ObjectMeta::default()));

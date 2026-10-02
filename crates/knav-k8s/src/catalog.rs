@@ -22,6 +22,29 @@ use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 /// Starts a kind's full watch.
 type StartWatch = Box<dyn Fn(&Client) -> Box<dyn crate::CatalogKind> + Send + Sync>;
 
+/// Starts a kind's watch of one namespace, with its task to stop when it is replaced.
+type StartWatchIn = Box<dyn Fn(&Client, &str) -> (Box<dyn crate::CatalogKind>, tokio::task::JoinHandle<()>) + Send + Sync>;
+
+/// A watch of one kind in one namespace, for a list narrowed to it before the kind's
+/// cluster-wide watch has loaded: a big cluster's other namespaces aren't fetched.
+struct Focused {
+    kind: ResourceKind,
+    namespace: String,
+    watch: Box<dyn crate::CatalogKind>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Focused {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
+}
+
+/// Kinds that live outside namespaces, which a namespace watch would find none of.
+fn cluster_scoped(kind: ResourceKind) -> bool {
+    matches!(kind, ResourceKind::Nodes | ResourceKind::Namespaces | ResourceKind::Pvs | ResourceKind::StorageClasses | ResourceKind::ClusterRoles | ResourceKind::ClusterRoleBindings)
+}
+
 /// One built-in kind: a cheap count from the start, the full live watch only once needed.
 struct Entry {
     kind: ResourceKind,
@@ -29,6 +52,7 @@ struct Entry {
     /// From a metadata-only watch, keeping just the number.
     count: Arc<AtomicUsize>,
     start: StartWatch,
+    start_in: StartWatchIn,
     full: Option<Box<dyn crate::CatalogKind>>,
 }
 
@@ -74,6 +98,7 @@ pub struct Catalog {
     /// Helm releases, from a watch of the release Secrets. Kept apart from `entries`
     /// because it runs only while the Helm extension is on.
     helm: Option<Box<dyn crate::CatalogKind>>,
+    focused: Option<Focused>,
 }
 
 impl Catalog {
@@ -85,11 +110,12 @@ impl Catalog {
                     label: $label,
                     count: crate::watch_count::<$ty>(client.clone()),
                     start: Box::new(|client| crate::watch_kind::<$ty>(client.clone()).0),
+                    start_in: Box::new(|client, namespace| crate::watch_kind_in::<$ty>(client.clone(), Some(namespace))),
                     full: None,
                 }
             };
         }
-        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", count: Arc::default(), start: Box::new(|_| unreachable!("nodes are watched from the start")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))) };
+        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", count: Arc::default(), start: Box::new(|_| unreachable!("nodes are watched from the start")), start_in: Box::new(|_, _| unreachable!("nodes are cluster-scoped")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))) };
         // Namespaces feed the namespace picker, so they are always held in full.
         let mut namespaces = kind!(Namespaces, "Namespaces", Namespace);
         namespaces.full = Some((namespaces.start)(client));
@@ -129,6 +155,7 @@ impl Catalog {
             api_tables: HashMap::new(),
             extensions,
             helm: None,
+            focused: None,
         }
     }
 
@@ -169,6 +196,36 @@ impl Catalog {
         })
     }
 
+    /// Narrows `kind`'s list to `namespace` while its cluster-wide watch isn't loaded:
+    /// a watch of just that namespace stands in, and `get` and `resolve` return it.
+    pub fn focus(&mut self, kind: ResourceKind, namespace: Option<&str>) {
+        let full_loaded = self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_ref()).is_some_and(|f| f.loaded());
+        let Some(namespace) = namespace.filter(|_| !cluster_scoped(kind) && !full_loaded) else {
+            // Once in use, a namespace watch stays until the list moves elsewhere.
+            if self.focused.as_ref().is_some_and(|f| f.kind != kind || namespace != Some(f.namespace.as_str())) {
+                self.focused = None;
+            }
+            return;
+        };
+        if self.focused.as_ref().is_some_and(|f| f.kind == kind && f.namespace == namespace) {
+            return;
+        }
+        let Some(entry) = self.entries.iter().find(|e| e.kind == kind) else { return };
+        let (watch, handle) = (entry.start_in)(&self.client, namespace);
+        self.focused = Some(Focused { kind, namespace: namespace.to_string(), watch, handle });
+    }
+
+    /// The kind's cluster-wide watch, started if needed, never a namespace one: for
+    /// views like Problems that read every namespace.
+    pub fn full(&mut self, kind: ResourceKind) -> Option<&dyn crate::CatalogKind> {
+        self.ensure(kind);
+        self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_deref())
+    }
+
+    fn focused_on(&self, kind: ResourceKind) -> Option<&dyn crate::CatalogKind> {
+        self.focused.as_ref().filter(|f| f.kind == kind).map(|f| f.watch.as_ref())
+    }
+
     pub fn ensure(&mut self, kind: ResourceKind) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.kind == kind)
             && entry.full.is_none()
@@ -204,6 +261,9 @@ impl Catalog {
     pub fn get(&self, kind: ResourceKind) -> Option<&dyn crate::CatalogKind> {
         if kind == ResourceKind::HelmReleases {
             return self.helm.as_deref();
+        }
+        if let Some(focused) = self.focused_on(kind) {
+            return Some(focused);
         }
         self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_deref())
     }
@@ -248,6 +308,7 @@ impl Catalog {
                 }
                 self.api_tables.get(&index).map(|t| t as &dyn crate::CatalogKind)
             }
+            _ if self.focused_on(kind).is_some() => self.focused_on(kind),
             _ => {
                 self.ensure(kind);
                 self.get(kind)

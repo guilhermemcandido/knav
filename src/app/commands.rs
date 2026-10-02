@@ -427,8 +427,8 @@ mod tests {
 
     #[test]
     fn location_names_each_drilled_thing_once_then_the_list() {
-        let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into() };
-        let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into() };
+        let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into(), namespace: Some("shop".into()) };
+        let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into(), namespace: Some("shop".into()) };
         let trail = [Step::List(ResourceKind::Deployments, None, 0), Step::List(ResourceKind::ReplicaSets, Some(deployment.clone()), 1)];
         let render = |segments: Vec<ui::PathSegment>| -> String {
             segments.into_iter().map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind }).collect::<Vec<_>>().join(">>")

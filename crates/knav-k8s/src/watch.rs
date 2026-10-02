@@ -58,13 +58,26 @@ pub fn watch_live<K>(client: Client) -> (reflector::Store<K>, Arc<Feed>, JoinHan
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
 {
+    watch_live_in(client, None)
+}
+
+/// `watch_live` limited to one namespace, through a field selector, so it works for any
+/// kind and a big cluster's other namespaces are never fetched.
+pub fn watch_live_in<K>(client: Client, namespace: Option<&str>) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
     let api: Api<K> = Api::all(client);
+    let config = match namespace {
+        Some(ns) => watcher::Config::default().fields(&format!("metadata.namespace={ns}")),
+        None => watcher::Config::default(),
+    };
     let (reader, writer) = reflector::store();
     let feed = Arc::new(Feed::default());
     let noted = Arc::clone(&feed);
     // After the reflector, so a queued key always finds its object in the store.
     // managedFields are often a third of an object and nothing shows them.
-    let stream = watcher(api, watcher::Config::default()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer).inspect(move |event| {
+    let stream = watcher(api, config).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer).inspect(move |event| {
         if let Ok(event) = event {
             noted.note(event);
         }

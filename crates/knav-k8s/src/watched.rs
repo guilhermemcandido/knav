@@ -103,7 +103,15 @@ pub fn watch_kind<K>(client: Client) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
 {
-    let (store, feed, handle) = super::watch::watch_live::<K>(client);
+    watch_kind_in::<K>(client, None)
+}
+
+/// `watch_kind` for one namespace only.
+pub fn watch_kind_in<K>(client: Client, namespace: Option<&str>) -> (Box<dyn CatalogKind>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
+{
+    let (store, feed, handle) = super::watch::watch_live_in::<K>(client, namespace);
     (Box::new(WatchedKind::new(store, feed)), handle)
 }
 

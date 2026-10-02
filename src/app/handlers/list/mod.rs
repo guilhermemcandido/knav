@@ -146,6 +146,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         uid: d.metadata.uid.clone().unwrap_or_default(),
                         kind: "Deployment".into(),
                         name: d.metadata.name.clone().unwrap_or_default(),
+                        namespace: d.metadata.namespace.clone(),
                     }),
                     ResourceKind::Namespaces => generic_rows.get(selected).map(|r| Scope::Namespace { name: r.name.clone() }),
                     ResourceKind::Services => {
@@ -163,6 +164,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         uid: row.uid.clone(),
                         kind: singular(st.current_kind),
                         name: row.name.clone(),
+                        namespace: (row.namespace != "-").then(|| row.namespace.clone()),
                     }),
                 };
                 if new_scope.is_some() {
