@@ -105,6 +105,8 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
             spans.push(separator());
         }
         match &segment.value {
+            // A cap of 0 hides a trail step's name, leaving its kind.
+            Some(_) if caps.get(i) == Some(&0) => spans.push(Span::styled(format!(" {} ", segment.kind), kind_style)),
             Some(value) => {
                 spans.push(Span::styled(format!(" {} ", segment.kind), kind_style));
                 spans.push(Span::styled(format!("{} ", cap(i, value)), value_style));
@@ -142,24 +144,38 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
 
 pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, width: u16) -> Line<'static> {
     let width = usize::from(width);
-    // Give up container detail before touching any name.
+    let trail = segments.len();
+    let mut caps: Vec<usize> = segments.iter().map(|s| s.value.as_ref().map_or(0, |v| cell_width(v))).collect();
+    caps.push(pod.and_then(|p| p.namespace.as_ref()).map_or(0, |n| cell_width(n)));
+    caps.push(pod.map_or(0, |p| cell_width(&p.name)));
+    let fits = |caps: &[usize], detail| {
+        let line = build(segments, pod, caps, detail);
+        (line.width() <= width).then_some(line)
+    };
+    // What is selected and its containers matter most, so the trail gives way first:
+    // its generated names shorten, then only its kinds stay.
+    loop {
+        if let Some(line) = fits(&caps, Detail::Full) {
+            return line;
+        }
+        match (0..trail).filter(|&i| caps[i] > MIN_SHORTENED).max_by_key(|&i| caps[i]) {
+            Some(i) => caps[i] -= 1,
+            None => break,
+        }
+    }
+    caps[..trail].fill(0);
+    // Then the containers shrink to dots and go, and last the selected name shortens.
     for detail in [Detail::Full, Detail::Dots, Detail::None] {
-        let line = build(segments, pod, &[], detail);
-        if line.width() <= width {
+        if let Some(line) = fits(&caps, detail) {
             return line;
         }
     }
-    // Then shorten the longest value/name a character at a time.
-    let mut texts: Vec<usize> = segments.iter().map(|s| s.value.as_ref().map_or(0, |v| cell_width(v))).collect();
-    texts.push(pod.and_then(|p| p.namespace.as_ref()).map_or(0, |n| cell_width(n)));
-    texts.push(pod.map_or(0, |p| cell_width(&p.name)));
-    let mut caps = texts.clone();
     loop {
         let line = build(segments, pod, &caps, Detail::None);
         if line.width() <= width {
             return line;
         }
-        let widest = |floor: usize| (0..caps.len()).filter(|&i| caps[i] > floor).max_by_key(|&i| caps[i]);
+        let widest = |floor: usize| (trail..caps.len()).filter(|&i| caps[i] > floor).max_by_key(|&i| caps[i]);
         match widest(MIN_SHORTENED).or_else(|| widest(HARD_MIN)) {
             Some(i) => caps[i] -= 1,
             None => return line,
@@ -221,14 +237,13 @@ mod tests {
     }
 
     #[test]
-    fn container_detail_goes_before_names_are_touched() {
+    fn the_trail_gives_way_before_the_containers() {
         let segments = [seg("Deployment", Some("local-path-provisioner")), seg("ReplicaSet", Some("local-path-provisioner-5d9d9885bc")), seg("Pods", None)];
         let full = path_line(&segments, Some(&pod()), 500).width();
-        // A little narrower: the container text goes, the names stay whole.
-        let line = path_line(&segments, Some(&pod()), (full - 10) as u16);
-        let t = text(&line);
-        assert!(t.contains("local-path-provisioner-5d9d9885bc "), "{t}");
-        assert!(!t.contains("Running"), "{t}");
+        // A little narrower: the trail's names shorten, the containers stay.
+        let t = text(&path_line(&segments, Some(&pod()), (full - 10) as u16));
+        assert!(t.contains("local-path-provisioner Running"), "{t}");
+        assert!(t.contains('…'), "{t}");
     }
 
     #[test]
