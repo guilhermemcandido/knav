@@ -1,7 +1,7 @@
 # knav
 
-A fast, mouse-friendly Kubernetes TUI for big clusters. Think k9s with an IDE's
-explorer, built in Rust.
+A high performance, mouse-friendly TUI to explore and debug Kubernetes clusters,
+built in Rust. Think k9s with an IDE's explorer.
 
 ![knav in use](demo/demo.gif)
 
