@@ -21,13 +21,12 @@ use serde_yaml::Value;
 /// A kind that took longer than this is left out rather than holding up the rest.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// A kind that can't be listed (no access, too slow) is left out.
 pub struct Fetched {
     pub manifests: Vec<Value>,
-    /// The kinds that couldn't be listed (no access, or too slow).
-    pub failed: Vec<&'static str>,
 }
 
-type Fetch = BoxFuture<'static, (&'static str, Result<Vec<Value>, ()>)>;
+type Fetch = BoxFuture<'static, Result<Vec<Value>, ()>>;
 
 /// Everything `list` returns, page by page.
 async fn pages<K: Clone, T: Clone>(api: Api<K>, list: impl Fn(Api<K>, ListParams) -> BoxFuture<'static, kube::Result<kube::core::ObjectList<T>>>, to_value: fn(&T) -> Value) -> Result<Vec<Value>, ()> {
@@ -52,28 +51,28 @@ fn api<K: Resource<DynamicType = (), Scope = NamespaceResourceScope>>(client: &C
     }
 }
 
-fn timed(label: &'static str, work: impl std::future::Future<Output = Result<Vec<Value>, ()>> + Send + 'static) -> Fetch {
-    async move { (label, tokio::time::timeout(TIMEOUT, work).await.unwrap_or(Err(()))) }.boxed()
+fn timed(work: impl std::future::Future<Output = Result<Vec<Value>, ()>> + Send + 'static) -> Fetch {
+    async move { tokio::time::timeout(TIMEOUT, work).await.unwrap_or(Err(())) }.boxed()
 }
 
 /// Whole objects of a namespaced kind.
-fn full<K>(client: &Client, namespace: Option<&str>, label: &'static str) -> Fetch
+fn full<K>(client: &Client, namespace: Option<&str>) -> Fetch
 where
     K: Resource<DynamicType = (), Scope = NamespaceResourceScope> + Clone + DeserializeOwned + Serialize + Debug + Send + Sync + 'static,
 {
     let api = api::<K>(client, namespace);
-    timed(label, pages(api, |api, params| async move { api.list(&params).await }.boxed(), |item| crate::manifest_value(item)))
+    timed(pages(api, |api, params| async move { api.list(&params).await }.boxed(), |item| crate::manifest_value(item)))
 }
 
 /// Only the metadata of a namespaced kind: enough to name it and follow its owners.
 /// Some API servers and proxies refuse metadata-only lists, so a full list is the
 /// fallback, with ConfigMap and Secret payloads dropped.
-fn names<K>(client: &Client, namespace: Option<&str>, label: &'static str) -> Fetch
+fn names<K>(client: &Client, namespace: Option<&str>) -> Fetch
 where
     K: Resource<DynamicType = (), Scope = NamespaceResourceScope> + Clone + DeserializeOwned + Serialize + Debug + Send + Sync + 'static,
 {
     let api = api::<K>(client, namespace);
-    timed(label, async move {
+    timed(async move {
         match pages(api.clone(), |api, params| async move { api.list_metadata(&params).await }.boxed(), metadata_value::<K>).await {
             Ok(values) => Ok(values),
             Err(()) => pages(api, |api, params| async move { api.list(&params).await }.boxed(), |item| crate::relations::slim(crate::manifest_value(item))).await,
@@ -94,12 +93,12 @@ fn metadata_value<K: Resource<DynamicType = ()>>(item: &PartialObjectMeta<K>) ->
 }
 
 /// One cluster-scoped object by name, when it exists.
-fn one<K>(client: &Client, name: String, label: &'static str) -> Fetch
+fn one<K>(client: &Client, name: String) -> Fetch
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + Serialize + Debug + Send + Sync + 'static,
 {
     let api: Api<K> = Api::all(client.clone());
-    timed(label, async move { api.get_opt(&name).await.map(|found| found.iter().map(crate::manifest_value).collect()).map_err(|_| ()) })
+    timed(async move { api.get_opt(&name).await.map(|found| found.iter().map(crate::manifest_value).collect()).map_err(|_| ()) })
 }
 
 /// What surrounds `target`, besides Pods and Deployments, which are always watched.
@@ -111,25 +110,25 @@ pub async fn surroundings(client: &Client, target: &Value) -> Fetched {
         Some(ns) => {
             let ns = Some(ns);
             fetches.extend([
-                full::<ReplicaSet>(client, ns, "ReplicaSets"),
-                full::<StatefulSet>(client, ns, "StatefulSets"),
-                full::<DaemonSet>(client, ns, "DaemonSets"),
-                full::<Job>(client, ns, "Jobs"),
-                full::<CronJob>(client, ns, "CronJobs"),
-                full::<HorizontalPodAutoscaler>(client, ns, "HPAs"),
-                full::<Service>(client, ns, "Services"),
-                full::<Ingress>(client, ns, "Ingresses"),
-                full::<PersistentVolumeClaim>(client, ns, "PersistentVolumeClaims"),
-                full::<ServiceAccount>(client, ns, "ServiceAccounts"),
-                names::<ConfigMap>(client, ns, "ConfigMaps"),
-                names::<Secret>(client, ns, "Secrets"),
+                full::<ReplicaSet>(client, ns),
+                full::<StatefulSet>(client, ns),
+                full::<DaemonSet>(client, ns),
+                full::<Job>(client, ns),
+                full::<CronJob>(client, ns),
+                full::<HorizontalPodAutoscaler>(client, ns),
+                full::<Service>(client, ns),
+                full::<Ingress>(client, ns),
+                full::<PersistentVolumeClaim>(client, ns),
+                full::<ServiceAccount>(client, ns),
+                names::<ConfigMap>(client, ns),
+                names::<Secret>(client, ns),
             ]);
             // The few cluster-scoped objects it points at: its node, volume, class.
             for (kind, name) in crate::relations::cluster_refs(target) {
                 match kind.as_str() {
-                    "Node" => fetches.push(one::<Node>(client, name, "Nodes")),
-                    "PersistentVolume" => fetches.push(one::<PersistentVolume>(client, name, "PersistentVolumes")),
-                    "StorageClass" => fetches.push(one::<StorageClass>(client, name, "StorageClasses")),
+                    "Node" => fetches.push(one::<Node>(client, name)),
+                    "PersistentVolume" => fetches.push(one::<PersistentVolume>(client, name)),
+                    "StorageClass" => fetches.push(one::<StorageClass>(client, name)),
                     _ => {}
                 }
             }
@@ -138,29 +137,21 @@ pub async fn surroundings(client: &Client, target: &Value) -> Fetched {
         // pods fold up to their workloads without fetching every template.
         None => {
             fetches.extend([
-                names::<ReplicaSet>(client, None, "ReplicaSets"),
-                names::<StatefulSet>(client, None, "StatefulSets"),
-                names::<DaemonSet>(client, None, "DaemonSets"),
-                names::<Job>(client, None, "Jobs"),
+                names::<ReplicaSet>(client, None),
+                names::<StatefulSet>(client, None),
+                names::<DaemonSet>(client, None),
+                names::<Job>(client, None),
             ]);
             if kind != "Node" {
-                fetches.push(full::<PersistentVolumeClaim>(client, None, "PersistentVolumeClaims"));
-                fetches.push(timed("PersistentVolumes", {
+                fetches.push(full::<PersistentVolumeClaim>(client, None));
+                fetches.push(timed({
                     let api: Api<PersistentVolume> = Api::all(client.clone());
                     async move { api.list(&ListParams::default()).await.map(|l| l.items.iter().map(crate::manifest_value).collect()).map_err(|_| ()) }
                 }));
             }
         }
     }
-    let mut fetched = Fetched { manifests: Vec::new(), failed: Vec::new() };
-    for (label, result) in join_all(fetches).await {
-        match result {
-            Ok(values) => fetched.manifests.extend(values),
-            Err(()) => fetched.failed.push(label),
-        }
-    }
-    fetched.failed.sort_unstable();
-    fetched.failed.dedup();
+    let mut fetched = Fetched { manifests: join_all(fetches).await.into_iter().flatten().flatten().collect() };
     let owners = owner_chain(client, target, &fetched.manifests).await;
     fetched.manifests.extend(owners);
     fetched
