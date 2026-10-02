@@ -73,8 +73,18 @@ fn short(commit: &str) -> &str {
     commit.get(..7).unwrap_or(commit)
 }
 
+/// Runs the update, and on failure says why on a red line, like the steps that worked.
 pub(crate) fn run(auto_yes: bool) -> Result<()> {
     let paint = Paint::detect();
+    if let Err(error) = update(&paint, auto_yes) {
+        let clear = if paint.0 { "\r\x1b[2K" } else { "" };
+        eprintln!("{clear}  {} {error:#}", paint.wrap("31", "✘"));
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn update(paint: &Paint, auto_yes: bool) -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     paint.working("Checking for updates");
     let release = latest_release()?;
