@@ -68,9 +68,9 @@ pub(super) fn draw_header(frame: &mut Frame, area: Rect, left: u16, info: &Heade
     .filter(|(_, v)| !v.is_empty())
     .map(|(name, v)| (name, v.to_string()))
     .collect();
-    // The top-right corner is the help indicator's; trailing fields drop when narrow.
+    // Trailing fields drop when narrow, keeping a cell clear at the right edge.
     let start_x = left.clamp(area.x, (area.x + area.width).saturating_sub(1));
-    let available = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(14 + 1);
+    let available = ((area.x + area.width).saturating_sub(start_x) as usize).saturating_sub(1);
     let pill = |name: &str| if name == "Context:" && info.highlight { 2 } else { 0 };
     let width_of = |(name, v): &(&str, String)| cell_width(name) + 1 + cell_width(v) + pill(name);
     shorten_names(&mut fields, available, width_of);

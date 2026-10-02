@@ -677,23 +677,8 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
     }
 }
 
-/// The help indicator at the top right, and the help itself when `open`.
+/// The help, when `open`. `?` opens it anywhere, so nothing on screen advertises it.
 pub(super) fn draw_hints(frame: &mut Frame, hints: &[(&str, &str)], open: bool, slots: &[Option<String>], shortcuts_line: bool) {
-    let key_style = Style::default().fg(theme().highlight).add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(theme().text_soft);
-    let sep_style = Style::default().fg(theme().muted);
-
-    let indicator = Line::from(vec![
-        Span::styled(if open { "close" } else { "help" }, desc_style),
-        Span::styled(": ", sep_style),
-        Span::styled(crate::input::keymap::keys_now("help").first().map(|k| crate::input::keymap::glyph(k)).unwrap_or_else(|| "?".into()), key_style),
-    ]);
-    let area = frame.area();
-    let indicator_width = (indicator.width() as u16).min(area.width);
-    let indicator_rect = Rect { x: area.x + area.width - indicator_width, y: area.y, width: indicator_width, height: 1 };
-    frame.render_widget(Clear, indicator_rect);
-    frame.render_widget(Paragraph::new(indicator), indicator_rect);
-
     if !open {
         return;
     }
