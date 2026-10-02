@@ -70,13 +70,23 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
         // A pill wider than the room left is cut into padded pieces, one per line, so
         // its background still reads as one pill.
         if chip && used + w > width {
+            // A key=value pill keeps its key coloured on every piece it is cut into.
+            let key_len = if chunk.style == DStyle::PairChip { chunk.text.find('=').map(|i| chunk.text[..i].chars().count()) } else { None };
+            let mut at = 0;
             for (i, piece) in wrap_at(&chunk.text, width.saturating_sub(used + 2).max(1)).into_iter().enumerate() {
                 if i > 0 {
                     lines.push(Line::from(std::mem::replace(&mut spans, vec![Span::raw(" ".repeat(indent))])));
                     used = indent;
                 }
                 used += cell_width(&piece) + 2;
-                spans.push(Span::styled(format!(" {piece} "), style_of(chunk.style)));
+                let pill = style_of(chunk.style);
+                spans.push(Span::styled(" ", pill));
+                match key_len {
+                    Some(key_len) => spans.extend(pair_spans(&piece, at, key_len)),
+                    None => spans.push(Span::styled(piece.clone(), pill)),
+                }
+                spans.push(Span::styled(" ", pill));
+                at += piece.chars().count();
             }
             fresh = false;
             previous_chip = true;
@@ -99,6 +109,25 @@ fn flow(first_prefix: Vec<Span<'static>>, indent: usize, chunks: &[Chunk], width
     }
     lines.push(Line::from(spans));
     lines
+}
+
+/// A piece of a `key=value` pill starting `at` characters in, coloured like a whole
+/// pill: the key, the `=` and the value each in their own colour.
+fn pair_spans(piece: &str, at: usize, key_len: usize) -> Vec<Span<'static>> {
+    let pill = Style::default().bg(theme().pill_bg);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (i, ch) in piece.chars().enumerate() {
+        let fg = match (at + i).cmp(&key_len) {
+            std::cmp::Ordering::Less => theme().namespace,
+            std::cmp::Ordering::Equal => theme().muted,
+            std::cmp::Ordering::Greater => theme().text_strong,
+        };
+        match spans.last_mut() {
+            Some(last) if last.style.fg == Some(fg) => last.content.to_mut().push(ch),
+            _ => spans.push(Span::styled(ch.to_string(), pill.fg(fg))),
+        }
+    }
+    spans
 }
 
 pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'static>> {
@@ -231,6 +260,16 @@ mod flow_tests {
 
     fn pair(key: &str, value: &str) -> Chunk {
         Chunk { text: format!("{key}={value}"), style: DStyle::PairChip }
+    }
+
+    #[test]
+    fn a_wrapped_pair_keeps_its_key_coloured_on_every_line() {
+        let long = format!("{}={}", "team.example.com/owner-reference", "x".repeat(40));
+        let (key, value) = long.split_once('=').unwrap();
+        let lines = flow(vec![Span::raw("Labels ")], 7, &[pair(key, value)], 24);
+        let key_color = theme().namespace;
+        let keyed: String = lines.iter().flat_map(|l| l.spans.iter()).filter(|s| s.style.fg == Some(key_color)).map(|s| s.content.as_ref()).collect();
+        assert_eq!(keyed, key);
     }
 
     #[test]
