@@ -125,9 +125,10 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
             spans.push(Span::raw(" "));
             spans.push(Span::styled(format!(" ● {note} "), pill.fg(*color)));
         }
+        // Containers are a level below the pod, so a `›` leads into them.
         if !matches!(detail, Detail::None) {
-            for (color, name, state) in &pod.containers {
-                spans.push(Span::raw(" "));
+            for (i, (color, name, state)) in pod.containers.iter().enumerate() {
+                spans.push(if i == 0 { separator() } else { Span::raw(" ") });
                 let text = if matches!(detail, Detail::Full) { format!(" ● {name} {state} ") } else { " ● ".to_string() };
                 spans.push(Span::styled(text, pill.fg(*color)));
             }
