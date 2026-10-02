@@ -19,7 +19,7 @@ pub(crate) fn select_prev(state: &mut TableState, len: usize) {
 }
 
 /// `g`, `G`, Home and End jump to the top or bottom; Ctrl-f, Ctrl-b, PageDown and PageUp
-/// move a page. False for any other key.
+/// move a page, Ctrl-d and Ctrl-u half of one. False for any other key.
 pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, page: usize) -> bool {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let current = state.selected().unwrap_or(0);
@@ -30,6 +30,8 @@ pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, pa
         KeyCode::Char('f') if ctrl => (current + page).min(last),
         KeyCode::PageDown => (current + page).min(last),
         KeyCode::Char('b') if ctrl => current.saturating_sub(page),
+        KeyCode::Char('d') if ctrl => (current + (page / 2).max(1)).min(last),
+        KeyCode::Char('u') if ctrl => current.saturating_sub((page / 2).max(1)),
         KeyCode::PageUp => current.saturating_sub(page),
         _ => return false,
     };

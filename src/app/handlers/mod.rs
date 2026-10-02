@@ -251,6 +251,14 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
                     st.info_scroll = st.info_scroll.saturating_sub(page);
                     true
                 }
+                KeyCode::Char('d') if ctrl => {
+                    st.info_scroll += (page / 2).max(1);
+                    true
+                }
+                KeyCode::Char('u') if ctrl => {
+                    st.info_scroll = st.info_scroll.saturating_sub((page / 2).max(1));
+                    true
+                }
                 KeyCode::Char('g') | KeyCode::Home => {
                     st.info_scroll = 0;
                     true

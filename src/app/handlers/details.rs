@@ -25,6 +25,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Char('f') if ctrl => *scroll = (*scroll + page).min(last),
                     KeyCode::PageDown => *scroll = (*scroll + page).min(last),
                     KeyCode::Char('b') if ctrl => *scroll = scroll.saturating_sub(page),
+                KeyCode::Char('d') if ctrl => *scroll = (*scroll + (page / 2).max(1)).min(last),
+                KeyCode::Char('u') if ctrl => *scroll = scroll.saturating_sub((page / 2).max(1)),
                     KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
                     KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(6),
                     KeyCode::Right | KeyCode::Char('l') => *hscroll = (*hscroll + 6).min(widest),

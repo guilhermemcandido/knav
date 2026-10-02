@@ -65,6 +65,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 *scroll = (*scroll + page).min(last);
                 None
             }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                *scroll = (*scroll + (page / 2).max(1)).min(last);
+                None
+            }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                *scroll = scroll.saturating_sub((page / 2).max(1));
+                None
+            }
             KeyCode::PageUp => {
                 *scroll = scroll.saturating_sub(page);
                 None

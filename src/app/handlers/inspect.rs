@@ -38,6 +38,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('f') if ctrl => *scroll = (*scroll + page).min(last),
                 KeyCode::PageDown => *scroll = (*scroll + page).min(last),
                 KeyCode::Char('b') if ctrl => *scroll = scroll.saturating_sub(page),
+                KeyCode::Char('d') if ctrl => *scroll = (*scroll + (page / 2).max(1)).min(last),
+                KeyCode::Char('u') if ctrl => *scroll = scroll.saturating_sub((page / 2).max(1)),
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
                 KeyCode::Char('c') => {
                     let outcome = match clipboard::copy(text) {
@@ -219,6 +221,25 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Char('j') | KeyCode::Down => ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
             KeyCode::Char('k') | KeyCode::Up => ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
+            // A page (PageDown, Ctrl-f) or half of one (Ctrl-d), a line at a time.
+            code @ (KeyCode::PageDown | KeyCode::PageUp | KeyCode::Char('f' | 'b' | 'd' | 'u'))
+                if matches!(code, KeyCode::PageDown | KeyCode::PageUp) || key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                let page = usize::from(frame_area.height.saturating_sub(6)).max(1);
+                let (lines_to_move, down) = match code {
+                    KeyCode::PageDown | KeyCode::Char('f') => (page, true),
+                    KeyCode::PageUp | KeyCode::Char('b') => (page, false),
+                    KeyCode::Char('d') => ((page / 2).max(1), true),
+                    _ => ((page / 2).max(1), false),
+                };
+                for _ in 0..lines_to_move {
+                    if down {
+                        ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll);
+                    } else {
+                        ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll);
+                    }
+                }
+            }
             KeyCode::Char('G') => *follow = true,
             KeyCode::Char('/') => *filter_editing = true,
             KeyCode::Char('t') => {
