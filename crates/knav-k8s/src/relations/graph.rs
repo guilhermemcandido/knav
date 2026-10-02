@@ -37,6 +37,10 @@ pub fn graph(target: &Value, groups: &[Group]) -> Graph {
             "Owned by" => {
                 let mut previous = 0;
                 for e in &group.entries {
+                    // Depth 0 starts again at the object: another owner of its own.
+                    if e.depth == 0 {
+                        previous = 0;
+                    }
                     let at = node(&mut g, e, -(e.depth as i32) - 1);
                     g.edges.push((at, previous));
                     previous = at;

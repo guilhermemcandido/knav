@@ -42,6 +42,9 @@ pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::D
     all.extend(pod_store.objects().iter().filter(|p| filter.is_none() || p.namespace().as_deref() == filter).map(|p| k8s::manifest_value(p.as_ref())));
     all.extend(dep_store.objects().iter().filter(|d| filter.is_none() || d.namespace().as_deref() == filter).map(|d| k8s::manifest_value(d.as_ref())));
     all.extend(fetched);
+    // An owner fetched up the chain may also be a watched Deployment: keep one.
+    let mut seen = std::collections::HashSet::new();
+    all.retain(|v| v.get("metadata").and_then(|m| m.get("uid")).and_then(|u| u.as_str()).is_none_or(|uid| seen.insert(uid.to_string())));
     all.into_iter().map(k8s::relations::slim).collect()
 }
 

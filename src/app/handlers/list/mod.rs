@@ -14,16 +14,6 @@ pub(crate) use selection::selected_manifest;
 use selection::{PodView, keep_overview_selection_visible, marked_targets, open_pod, surrounding_manifests};
 
 /// Handles one input event for these modes; `Some` ends the session.
-/// Says which kinds the diagram couldn't load, over it, so a missing box has a reason.
-fn note_missing(st: &mut State, failed: &[&str]) {
-    if failed.is_empty() {
-        return;
-    }
-    let text = format!("Couldn't load {} (no access, or too slow), so the diagram may leave some out", failed.join(", "));
-    let back = std::mem::replace(&mut st.mode, Mode::List);
-    st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(back) };
-}
-
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { pods, deployments, sorted_nodes, generic_rows_full, generic_visible, generic_columns, generic_rows, crd_rows, .. } = cx.d;
     let catalog = &mut *cx.catalog;
@@ -291,7 +281,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     Some((first.get("kind")?.as_str()?.to_string(), first.get("name")?.as_str()?.to_string()))
                 });
                 match owner {
-                    Some((kind, name)) => match ResourceKind::from_owner_kind(&kind) {
+                    Some((kind, name)) => match catalog.list_for(&kind) {
                         Some(target) => {
                             let namespace = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("namespace")?.as_str().map(String::from));
                             st.jump_to_object(target, namespace.as_deref(), &name);
@@ -339,7 +329,6 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             let graph = k8s::relations::graph(&manifest, &k8s::relations::relations(&manifest, &all));
                             let back = std::mem::replace(&mut st.mode, Mode::List);
                             st.mode = Mode::Relations { target: manifest, all, graph, selected: 0, previous: Vec::new(), zoom: ui::DEFAULT_ZOOM, back: Box::new(back) };
-                            note_missing(st, &fetched.failed);
                         }
                     }
                 }

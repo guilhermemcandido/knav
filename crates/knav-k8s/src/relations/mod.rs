@@ -191,6 +191,7 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
 
     let mut chain = Vec::new();
     let mut current = owners(&t).into_iter().min_by_key(|(_, _, _, controller)| !*controller);
+    let first_uid = current.map(|(_, _, uid, _)| uid);
     let mut namespace = t.namespace;
     for depth in 0..8 {
         let Some((kind, name, uid, _)) = current else { break };
@@ -198,6 +199,10 @@ pub fn relations(target: &Value, manifests: &[Value]) -> Vec<Group> {
         let found = index.by_uid.get(uid).map(|i| &index.all[*i]).or_else(|| index.find(kind, namespace, name));
         namespace = found.and_then(|o| o.namespace).or(namespace);
         current = found.and_then(|o| owners(o).into_iter().min_by_key(|(_, _, _, controller)| !*controller));
+    }
+    // Owners besides the one the chain follows, beside it.
+    for (kind, name, _, _) in owners(&t).into_iter().filter(|(_, _, uid, _)| Some(*uid) != first_uid) {
+        chain.push(entry(kind, t.namespace, name, "owner", 0));
     }
     push("Owned by", chain);
 
@@ -350,6 +355,18 @@ mod tests {
         let owned = group(&groups, "Owned by");
         assert_eq!(names(owned), ["ReplicaSet web-5d9d", "Deployment web"]);
         assert_eq!(owned.entries[1].depth, 1);
+    }
+
+    #[test]
+    fn every_owner_shows_not_just_the_controller() {
+        let secret = v(json!({"kind": "Secret", "metadata": {"name": "tls", "namespace": "shop", "uid": "x1", "ownerReferences": [
+            {"kind": "Certificate", "name": "web-cert", "uid": "c9", "controller": true},
+            {"kind": "Environment", "name": "prod", "uid": "e1"}]}}));
+        let groups = relations(&secret, &world());
+        assert_eq!(names(group(&groups, "Owned by")), ["Certificate web-cert", "Environment prod"]);
+        let g = graph(&secret, &groups);
+        let env = g.nodes.iter().position(|n| n.kind == "Environment").unwrap();
+        assert!(g.edges.contains(&(env, 0)), "a second owner points at the object, not at the first owner");
     }
 
     #[test]

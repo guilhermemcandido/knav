@@ -161,6 +161,14 @@ impl Catalog {
         }
     }
 
+    /// The list an object of `kind` lives in: a built-in one, or a CRD's by its kind.
+    pub fn list_for(&self, kind: &str) -> Option<ResourceKind> {
+        ResourceKind::from_owner_kind(kind).or_else(|| {
+            let index = self.crds.iter().position(|c| c.kind == kind)?;
+            Some(ResourceKind::CustomResource(index, self.crds[index].kind))
+        })
+    }
+
     pub fn ensure(&mut self, kind: ResourceKind) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.kind == kind)
             && entry.full.is_none()

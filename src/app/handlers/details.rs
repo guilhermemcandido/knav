@@ -34,7 +34,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     KeyCode::Enter => {
                         if let Mode::Details { manifest, .. } = &st.mode {
                             let text = |path: &[&str]| path.iter().try_fold(manifest, |v, key| v.get(*key)).and_then(|v| v.as_str()).map(String::from);
-                            if let (Some(kind), Some(name)) = (text(&["kind"]).and_then(|k| ResourceKind::from_owner_kind(&k)), text(&["metadata", "name"])) {
+                            if let (Some(kind), Some(name)) = (text(&["kind"]).and_then(|k| cx.catalog.list_for(&k)), text(&["metadata", "name"])) {
                                 open = Some((kind, text(&["metadata", "namespace"]), name));
                             }
                         }

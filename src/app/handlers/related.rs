@@ -53,7 +53,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 // `o` goes straight to the object's list.
                 KeyCode::Char('o') => {
                     if let Some(node) = graph.nodes.get(*selected)
-                        && let Some(kind) = ResourceKind::from_owner_kind(&node.kind)
+                        && let Some(kind) = cx.catalog.list_for(&node.kind)
                     {
                         open = Some((kind, node.namespace.clone(), node.name.clone()));
                     }

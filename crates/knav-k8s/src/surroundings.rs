@@ -23,7 +23,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct Fetched {
     pub manifests: Vec<Value>,
-    /// The kinds that couldn't be listed (no access, or too slow), for a note.
+    /// The kinds that couldn't be listed (no access, or too slow).
     pub failed: Vec<&'static str>,
 }
 
@@ -66,12 +66,19 @@ where
 }
 
 /// Only the metadata of a namespaced kind: enough to name it and follow its owners.
+/// Some API servers and proxies refuse metadata-only lists, so a full list is the
+/// fallback, with ConfigMap and Secret payloads dropped.
 fn names<K>(client: &Client, namespace: Option<&str>, label: &'static str) -> Fetch
 where
-    K: Resource<DynamicType = (), Scope = NamespaceResourceScope> + Clone + DeserializeOwned + Debug + Send + Sync + 'static,
+    K: Resource<DynamicType = (), Scope = NamespaceResourceScope> + Clone + DeserializeOwned + Serialize + Debug + Send + Sync + 'static,
 {
     let api = api::<K>(client, namespace);
-    timed(label, pages(api, |api, params| async move { api.list_metadata(&params).await }.boxed(), metadata_value::<K>))
+    timed(label, async move {
+        match pages(api.clone(), |api, params| async move { api.list_metadata(&params).await }.boxed(), metadata_value::<K>).await {
+            Ok(values) => Ok(values),
+            Err(()) => pages(api, |api, params| async move { api.list(&params).await }.boxed(), |item| crate::relations::slim(crate::manifest_value(item))).await,
+        }
+    })
 }
 
 fn metadata_value<K: Resource<DynamicType = ()>>(item: &PartialObjectMeta<K>) -> Value {
@@ -154,5 +161,48 @@ pub async fn surroundings(client: &Client, target: &Value) -> Fetched {
     }
     fetched.failed.sort_unstable();
     fetched.failed.dedup();
+    let owners = owner_chain(client, target, &fetched.manifests).await;
+    fetched.manifests.extend(owners);
     fetched
+}
+
+/// The owners above `target` that `have` lacks, of any kind, custom resources
+/// included, fetched one by one up the chain.
+async fn owner_chain(client: &Client, target: &Value, have: &[Value]) -> Vec<Value> {
+    let uid_of = |v: &Value| v.get("metadata").and_then(|m| m.get("uid")).and_then(Value::as_str).map(String::from);
+    let known: std::collections::HashMap<String, &Value> = have.iter().filter_map(|v| Some((uid_of(v)?, v))).collect();
+    let namespace = target.get("metadata").and_then(|m| m.get("namespace")).and_then(Value::as_str).map(String::from);
+    let mut found = Vec::new();
+    let mut current = target.clone();
+    for _ in 0..8 {
+        let refs = current.get("metadata").and_then(|m| m.get("ownerReferences")).and_then(Value::as_sequence).cloned().unwrap_or_default();
+        // The controller when there is one, as the diagram follows.
+        let Some(owner) = refs.iter().find(|r| r.get("controller").and_then(Value::as_bool) == Some(true)).or(refs.first()) else { break };
+        let field = |key: &str| owner.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+        if let Some(existing) = known.get(&field("uid")) {
+            current = (*existing).clone();
+            continue;
+        }
+        let Some(next) = get_owner(client, &field("apiVersion"), &field("kind"), namespace.as_deref(), &field("name")).await else { break };
+        found.push(next.clone());
+        current = next;
+    }
+    found
+}
+
+/// One object by apiVersion, kind and name, through discovery, so it works for CRDs.
+async fn get_owner(client: &Client, api_version: &str, kind: &str, namespace: Option<&str>, name: &str) -> Option<Value> {
+    use kube::api::DynamicObject;
+    use kube::discovery::{Scope, pinned_kind};
+    let (group, version) = api_version.split_once('/').unwrap_or(("", api_version));
+    let gvk = kube::core::GroupVersionKind::gvk(group, version, kind);
+    let work = async {
+        let (resource, caps) = pinned_kind(client, &gvk).await.ok()?;
+        let api: Api<DynamicObject> = match (caps.scope, namespace) {
+            (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
+            _ => Api::all_with(client.clone(), &resource),
+        };
+        api.get_opt(name).await.ok().flatten().map(|object| crate::manifest_value(&object))
+    };
+    tokio::time::timeout(TIMEOUT, work).await.ok().flatten()
 }
