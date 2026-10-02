@@ -88,7 +88,9 @@ pub(crate) fn run(auto_yes: bool) -> Result<()> {
     if paint.0 {
         print!("\r\x1b[2K");
     }
-    if !new_version && same_build(&exe, &checksum) {
+    // The same commit counts too: a local build of it never matches byte for byte.
+    let same_commit = !COMMIT.is_empty() && COMMIT == latest_commit;
+    if !new_version && (same_commit || same_build(&exe, &checksum)) {
         paint.done(&format!("knav {} is up to date", paint.bold(&build_name(current, COMMIT))));
         return Ok(());
     }
