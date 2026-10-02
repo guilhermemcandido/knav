@@ -36,7 +36,7 @@ pub(crate) async fn wait(
     let mut discovery = Some(discovery);
     let mut discovered = false;
     let mut tick = 0;
-    // What has arrived, in the order it did, with how long it took.
+    // What has arrived, with how long it took.
     let mut finished: Vec<(&'static str, Duration)> = Vec::new();
     loop {
         if discovery.as_ref().is_some_and(|d| d.is_finished())
@@ -47,22 +47,20 @@ pub(crate) async fn wait(
             }
             discovered = true;
         }
+        // From the cluster down to its pods, each timed when it arrives.
         let state = [
             ("API types", discovered, discovered.then(|| catalog.apis.len() + catalog.crds.len())),
             ("Nodes", ready(stores.2), Some(stores.2.len())),
-            ("Pods", ready(stores.0), Some(stores.0.len())),
             ("Deployments", ready(stores.1), Some(stores.1.len())),
+            ("Pods", ready(stores.0), Some(stores.0.len())),
         ];
         for (label, done, _) in &state {
             if *done && !finished.iter().any(|(l, _)| l == label) {
                 finished.push((label, started.elapsed()));
             }
         }
-        let count_of = |label: &str| state.iter().find(|(l, ..)| *l == label).and_then(|(_, _, count)| *count);
-        let mut steps: Vec<ui::Step> = finished.iter().map(|(label, took)| ui::Step { label, took: Some(*took), count: count_of(label) }).collect();
-        // Still loading: what has streamed in so far, if anything.
-        steps.extend(state.iter().filter(|(_, done, _)| !done).map(|(label, _, count)| ui::Step { label, took: None, count: count.filter(|n| *n > 0) }));
-        let steps = steps;
+        let took = |label: &str| finished.iter().find(|(l, _)| *l == label).map(|(_, took)| *took);
+        let steps: Vec<ui::Step> = state.iter().map(|(label, _, count)| ui::Step { label, took: took(label), count: count.filter(|n| *n > 0 || took(label).is_some()) }).collect();
         let waiting: Vec<String> = steps.iter().filter(|s| s.took.is_none()).map(|s| s.label.to_lowercase()).collect();
         if started.elapsed() > GIVE_UP || (waiting.is_empty() && started.elapsed() >= MIN_SHOW) {
             return Ok(Boot::Ready);

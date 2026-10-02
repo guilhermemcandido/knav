@@ -19,7 +19,7 @@ pub struct Step {
 pub struct Loading<'a> {
     pub context: &'a str,
     pub version: &'a str,
-    /// What has arrived, in the order it did, then what is still loading.
+    /// What it waits for, from the cluster down to its pods.
     pub steps: &'a [Step],
     /// Counts up while waiting, turning the spinner.
     pub tick: usize,
@@ -134,7 +134,7 @@ mod preview {
     #[ignore]
     fn print_loading_screen() {
         let done = |label, ms, count| Step { label, took: Some(Duration::from_millis(ms)), count: Some(count) };
-        let steps = [done("API types", 310, 214), done("Nodes", 480, 36), Step { label: "Pods", took: None, count: None }, Step { label: "Deployments", took: None, count: None }];
+        let steps = [done("API types", 310, 214), done("Nodes", 480, 36), Step { label: "Deployments", took: None, count: None }, Step { label: "Pods", took: None, count: None }];
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|frame| draw_loading(frame, &Loading { context: "prod-eu-west", version: "v1.31.2-eks", steps: &steps, tick: 4, hint: Some("Still waiting for pods, deployments") })).unwrap();
         let buffer = terminal.backend().buffer();
