@@ -55,13 +55,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
         let row = Rect { x: inner.x, y: rows_top + (n - start) as u16 * row_h, width: inner.width, height: row_h };
         let chosen = n == selected;
-        let style = if chosen {
-            Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD)
-        } else if suggestion.heading {
-            Style::default().fg(theme().muted)
-        } else {
-            Style::default().fg(theme().row)
-        };
+        let style = if chosen { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
         frame.render_widget(Block::default().style(style), row);
         let text_x = if icons.enabled() {
             let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
@@ -77,13 +71,14 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
             row.x + 1
         };
         let text = Rect { x: text_x, y: row.y + row_h / 2, width: row.right().saturating_sub(text_x), height: 1 };
-        let mut spans = Vec::new();
-        if let Some(last) = suggestion.branch {
-            let branch = if chosen { style } else { Style::default().fg(theme().muted) };
-            spans.push(Span::styled(if last { "└─ " } else { "├─ " }, branch));
+        frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
+        // A custom resource's API group at the right end, so it reads which one it is.
+        if let Some(group) = suggestion.group {
+            let group_style = if chosen { style.remove_modifier(Modifier::BOLD) } else { Style::default().fg(theme().muted) };
+            let room = text.width.saturating_sub(cell_width(&suggestion.label) as u16 + 3);
+            let shown = if cell_width(group) as u16 > room { String::new() } else { group.to_string() };
+            frame.render_widget(Paragraph::new(Span::styled(shown, group_style)).right_aligned(), Rect { width: text.width.saturating_sub(1), ..text });
         }
-        spans.push(Span::styled(suggestion.label.clone(), style));
-        frame.render_widget(Paragraph::new(Line::from(spans)), text);
     }
 }
 
@@ -94,7 +89,7 @@ mod tests {
     fn rows(show_icons: bool) -> Vec<String> {
         let mut icons = IconCache::halfblocks();
         icons.set_enabled(show_icons);
-        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), branch: None, heading: false }).collect();
+        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), group: None }).collect();
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 20)).unwrap();
         terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, "", &suggestions, 0, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();

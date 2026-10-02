@@ -15,27 +15,20 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // already typed out.
             KeyCode::Tab => {
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names);
-                let at = pickable(&suggestions, *selected, true);
-                if let Some(chosen) = suggestions.get(at) {
+                if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
                     let name = chosen.primary_name();
                     if *input == name {
-                        *selected = pickable(&suggestions, (at + 1) % suggestions.len(), true);
+                        *selected = (*selected + 1) % suggestions.len();
                     } else {
                         *input = name;
                         *selected = 0;
                     }
                 }
             }
-            // Group headings in the tree are stepped over.
-            KeyCode::Up => {
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names);
-                let at = pickable(&suggestions, *selected, true);
-                *selected = pickable(&suggestions, at.saturating_sub(1), false);
-            }
+            KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names);
-                let at = pickable(&suggestions, *selected, true);
-                *selected = pickable(&suggestions, (at + 1).min(suggestions.len().saturating_sub(1)), true);
+                let len = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &names).len();
+                *selected = (*selected + 1).min(len.saturating_sub(1));
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
@@ -49,7 +42,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     c if is_context_command(c) => Some(Cmd::Context),
                     c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
                 };
-                match suggestions.get(pickable(&suggestions, *selected, true)).map(|s| s.cmd).or_else(typed) {
+                match suggestions.get(*selected).map(|s| s.cmd).or_else(typed) {
                     Some(Cmd::Quit) => return Ok(Some(SessionEnd::Quit)),
                     Some(Cmd::Settings) => {
                         let mut opened = std::mem::replace(&mut **back, Mode::List);

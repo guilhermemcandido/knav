@@ -98,55 +98,37 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
                 .max_by_key(|(score, _)| *score)?;
             let primary = names[0].clone();
             let label = if alias == primary { primary.clone() } else { format!("{primary} ({alias})") };
-            Some((score, Suggestion { cmd, label, primary, branch: None, heading: false }))
+            let group = match cmd {
+                Cmd::Crd(i) => Some(crds[i].group),
+                Cmd::Kind(ResourceKind::CustomResourceGroup(_)) => Some("API group"),
+                _ => None,
+            };
+            Some((score, Suggestion { cmd, label, primary, group }))
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     let ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(10).collect();
-    as_tree(ranked, crds, &names_of)
+    with_group_kinds(ranked, crds, &names_of)
 }
 
-/// The group a suggestion belongs to in the tree: a CRD group or one of its kinds.
-fn tree_group(cmd: Cmd, crds: &[k8s::CrdInfo]) -> Option<&'static str> {
-    match cmd {
-        Cmd::Kind(ResourceKind::CustomResourceGroup(group)) => Some(group),
-        Cmd::Crd(i) => crds.get(i).map(|c| c.group),
-        _ => None,
-    }
-}
-
-/// Puts each matched custom resource under its group, in the order the best of them
-/// ranked. A group matched on its own lists its kinds under it.
-fn as_tree(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
+/// A matched CRD group is followed by its kinds, so typing a group shows what is in it.
+fn with_group_kinds(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
     const KINDS_UNDER_A_GROUP: usize = 6;
     let mut out: Vec<Suggestion> = Vec::new();
-    let mut placed: Vec<&'static str> = Vec::new();
-    for suggestion in &ranked {
-        let Some(group) = tree_group(suggestion.cmd, crds) else {
-            out.push(suggestion.clone());
+    for suggestion in ranked {
+        let Cmd::Kind(ResourceKind::CustomResourceGroup(group)) = suggestion.cmd else {
+            if !out.iter().any(|s| matches!((s.cmd, suggestion.cmd), (Cmd::Crd(a), Cmd::Crd(b)) if a == b)) {
+                out.push(suggestion);
+            }
             continue;
         };
-        if placed.contains(&group) {
-            continue;
+        out.push(suggestion);
+        for i in (0..crds.len()).filter(|i| crds[*i].group == group).take(KINDS_UNDER_A_GROUP) {
+            if !out.iter().any(|s| matches!(s.cmd, Cmd::Crd(j) if j == i)) {
+                let primary = names_of(Cmd::Crd(i)).remove(0);
+                out.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, group: Some(group) });
+            }
         }
-        placed.push(group);
-        let mut children: Vec<Suggestion> = ranked.iter().filter(|s| matches!(s.cmd, Cmd::Crd(i) if crds[i].group == group)).cloned().collect();
-        // Only there as the parent of a matched kind: a heading the cursor skips.
-        let heading = !children.is_empty() && !ranked.iter().any(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(g)) if g == group));
-        if children.is_empty() {
-            children = (0..crds.len())
-                .filter(|i| crds[*i].group == group)
-                .take(KINDS_UNDER_A_GROUP)
-                .map(|i| {
-                    let primary = names_of(Cmd::Crd(i)).remove(0);
-                    Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, branch: None, heading: false }
-                })
-                .collect();
-        }
-        let label = group.to_string();
-        out.push(Suggestion { cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)), primary: label.clone(), label, branch: None, heading });
-        let last = children.len().saturating_sub(1);
-        out.extend(children.into_iter().enumerate().map(|(n, child)| Suggestion { branch: Some(n == last), ..child }));
     }
     out
 }
@@ -158,17 +140,9 @@ pub(crate) struct Suggestion {
     pub(crate) label: String,
     /// The name Tab completes to.
     pub(crate) primary: String,
-    /// Under a group in the tree: `Some(true)` for its last kind.
-    pub(crate) branch: Option<bool>,
-    /// A group shown only as the parent of what matched, which can't be picked.
-    pub(crate) heading: bool,
-}
-
-/// `selected` moved onto a suggestion that can be picked, searching `forward` or back.
-pub(crate) fn pickable(suggestions: &[Suggestion], selected: usize, forward: bool) -> usize {
-    let ok = |i: &usize| suggestions.get(*i).is_some_and(|s| !s.heading);
-    let found = if forward { (selected..suggestions.len()).find(ok) } else { (0..=selected.min(suggestions.len().saturating_sub(1))).rev().find(ok) };
-    found.or_else(|| (0..suggestions.len()).find(ok)).unwrap_or(0)
+    /// The API group a custom resource kind is from, shown beside it ("API group" on
+    /// a group's own row).
+    pub(crate) group: Option<&'static str>,
 }
 
 impl Suggestion {
@@ -493,15 +467,11 @@ mod tests {
     }
 
     #[test]
-    fn a_custom_kind_is_found_and_shown_under_its_group() {
+    fn a_custom_kind_is_found_with_its_group() {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
-        let found = command_suggestions("environ", &crds, &[], &[], &[]);
-        let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
-        assert!(found[at].heading, "the group only frames the match");
-        assert_eq!(pickable(&found, at, true), at + 1);
-        assert!(found[at + 1].label.starts_with("environments"));
-        assert_eq!(found[at + 1].branch, Some(true));
-        assert!(matches!(found[at + 1].cmd, Cmd::Crd(0)));
+        let first = command_suggestions("environ", &crds, &[], &[], &[]).into_iter().next().unwrap();
+        assert!(matches!(first.cmd, Cmd::Crd(0)));
+        assert_eq!(first.group, Some("platform.example.com"));
     }
 
     #[test]
@@ -509,7 +479,7 @@ mod tests {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
         let found = command_suggestions("platform.example", &crds, &[], &[], &[]);
         let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
-        let kids: Vec<&str> = found[at + 1..].iter().take_while(|s| s.branch.is_some()).map(|s| s.label.as_str()).collect();
-        assert_eq!(kids, ["environments", "teams"]);
+        let kinds: Vec<&str> = found[at + 1..].iter().take_while(|s| s.group == Some("platform.example.com")).map(|s| s.label.as_str()).collect();
+        assert_eq!(kinds, ["environments", "teams"]);
     }
 }
