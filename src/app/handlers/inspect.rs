@@ -6,6 +6,9 @@ use super::{Cx, logs_mode, open_shell};
 use crate::app::derive::Derived;
 
 /// Handles one input event for these modes; `Some` ends the session.
+/// Columns a sideways step moves.
+const SIDEWAYS: usize = 6;
+
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let Derived { nodes, node_detail_pods, node_detail_rows, .. } = cx.d;
     let frame_area = cx.frame_area;
@@ -25,8 +28,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 session.send(&bytes);
             }
         }
-        (Event::Key(key), Mode::Yaml { text, scroll, back, .. }) => {
+        (Event::Key(key), Mode::Yaml { text, scroll, hscroll, back, .. }) => {
             let last = text.lines().count().saturating_sub(1);
+            let right_edge = text.lines().map(|l| l.chars().count()).max().unwrap_or(0).saturating_sub(SIDEWAYS);
             let page = usize::from(cx.frame_area.height.saturating_sub(8)).max(1);
             let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
             match key.code {
@@ -38,6 +42,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('f') if ctrl => *scroll = (*scroll + page).min(last),
                 KeyCode::PageDown => *scroll = (*scroll + page).min(last),
                 KeyCode::Char('b') if ctrl => *scroll = scroll.saturating_sub(page),
+                KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(SIDEWAYS),
+                KeyCode::Right | KeyCode::Char('l') => *hscroll = (*hscroll + SIDEWAYS).min(right_edge),
                 KeyCode::Char('d') if ctrl => *scroll = (*scroll + (page / 2).max(1)).min(last),
                 KeyCode::Char('u') if ctrl => *scroll = scroll.saturating_sub((page / 2).max(1)),
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
@@ -52,9 +58,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 _ => {}
             }
         }
-        (Event::Mouse(mouse), Mode::Yaml { text, scroll, .. }) => {
+        (Event::Mouse(mouse), Mode::Yaml { text, scroll, hscroll, .. }) => {
             let last = text.lines().count().saturating_sub(1);
+            let right_edge = text.lines().map(|l| l.chars().count()).max().unwrap_or(0).saturating_sub(SIDEWAYS);
             match mouse.kind {
+                _ if crate::app::nav::sideways(&mouse) == Some(true) => *hscroll = (*hscroll + SIDEWAYS).min(right_edge),
+                _ if crate::app::nav::sideways(&mouse) == Some(false) => *hscroll = hscroll.saturating_sub(SIDEWAYS),
                 MouseEventKind::ScrollDown => *scroll = (*scroll + 3).min(last),
                 MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
                 _ => {}

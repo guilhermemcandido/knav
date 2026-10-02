@@ -27,7 +27,7 @@ pub(super) fn start(st: &mut State, cx: &mut Cx, manifest: &serde_yaml::Value, b
 fn open(st: &mut State, cx: &mut Cx, mut draft: EditDraft, back: Mode, review: Option<(usize, usize)>) {
     let restore = |draft: EditDraft, back: Mode, (scroll, focus): (usize, usize)| {
         let diff = edit::diff(&draft.original, &draft.edited);
-        Mode::EditReview { draft, diff, scroll, focus, back: Box::new(back) }
+        Mode::EditReview { draft, diff, scroll, hscroll: 0, focus, back: Box::new(back) }
     };
     st.mode = match edit::open_editor(cx.terminal, &draft.edited, draft.error.as_deref()) {
         Err(e) => Mode::Notice { text: format!("{e:#}"), tone: NoticeTone::Failed, back: Box::new(back) },
@@ -48,8 +48,9 @@ fn open(st: &mut State, cx: &mut Cx, mut draft: EditDraft, back: Mode, review: O
 const BUTTONS: usize = 3;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
-    let Mode::EditReview { diff, scroll, focus, .. } = &mut st.mode else { return Ok(None) };
+    let Mode::EditReview { diff, scroll, hscroll, focus, .. } = &mut st.mode else { return Ok(None) };
     let last = diff.len().saturating_sub(1);
+    let right_edge = diff.iter().map(|(_, text)| text.chars().count()).max().unwrap_or(0).saturating_sub(6);
     let page = usize::from(cx.frame_area.height.saturating_sub(10)).max(1);
     let pressed = match event {
         Event::Key(key) => match key.code {
@@ -85,11 +86,20 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 *scroll = last;
                 None
             }
-            KeyCode::Left | KeyCode::BackTab | KeyCode::Char('h') => {
+            // The arrows scroll the diff sideways; Tab moves between the buttons.
+            KeyCode::Left | KeyCode::Char('h') => {
+                *hscroll = hscroll.saturating_sub(6);
+                None
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                *hscroll = (*hscroll + 6).min(right_edge);
+                None
+            }
+            KeyCode::BackTab => {
                 *focus = (*focus + BUTTONS - 1) % BUTTONS;
                 None
             }
-            KeyCode::Right | KeyCode::Tab | KeyCode::Char('l') => {
+            KeyCode::Tab => {
                 *focus = (*focus + 1) % BUTTONS;
                 None
             }
@@ -100,6 +110,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             _ => None,
         },
         Event::Mouse(mouse) => match mouse.kind {
+            _ if crate::app::nav::sideways(&mouse) == Some(true) => {
+                *hscroll = (*hscroll + 6).min(right_edge);
+                None
+            }
+            _ if crate::app::nav::sideways(&mouse) == Some(false) => {
+                *hscroll = hscroll.saturating_sub(6);
+                None
+            }
             MouseEventKind::ScrollDown => {
                 *scroll = (*scroll + 3).min(last);
                 None

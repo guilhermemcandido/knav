@@ -35,7 +35,7 @@ pub(crate) fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, 
 
 /// The manifests around `target`: the Pods and Deployments the session watches, in its
 /// namespace (everywhere for a Node or volume), plus what was fetched for it.
-pub(super) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, fetched: Vec<serde_yaml::Value>, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
+pub(in crate::app::handlers) fn surrounding_manifests(pod_store: &k8s::PodKept, dep_store: &k8s::DeploymentKept, fetched: Vec<serde_yaml::Value>, target: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
     use kube::ResourceExt;
     let filter = target.get("metadata").and_then(|m| m.get("namespace")).and_then(|n| n.as_str());
     let mut all: Vec<serde_yaml::Value> = Vec::new();

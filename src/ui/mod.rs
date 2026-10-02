@@ -108,6 +108,8 @@ pub struct EditReviewView<'a> {
     pub title: &'a str,
     pub diff: &'a [(crate::ops::edit::DiffKind, String)],
     pub scroll: usize,
+    /// How far the diff is scrolled sideways.
+    pub hscroll: usize,
     pub focus: usize,
     pub error: Option<&'a str>,
 }
@@ -130,6 +132,7 @@ pub struct HistoryView<'a> {
     /// From the running revision to the selected one.
     pub diff: &'a [(crate::ops::edit::DiffKind, String)],
     pub scroll: usize,
+    pub hscroll: usize,
     /// The arrows scroll the changes, which are highlighted.
     pub on_diff: bool,
     pub read_only: bool,
@@ -180,7 +183,7 @@ pub enum Overlay<'a> {
     Extensions { rows: &'a [ExtensionRow], state: &'a mut TableState, error: Option<&'a str>, filter: &'a str, filter_editing: bool },
     ThemePicker { entries: &'a [crate::theme::ThemeEntry], state: &'a mut TableState, saved: &'a str },
     Shell { title: &'a str, screen: &'a vt100::Screen, exited: bool },
-    Yaml { title: &'a str, text: &'a str, scroll: usize },
+    Yaml { title: &'a str, text: &'a str, scroll: usize, hscroll: usize },
     PortForward { title: &'a str, form: &'a crate::ops::portforward::PortForm },
     Scale(ScaleView<'a>),
     EditReview(EditReviewView<'a>),
@@ -672,7 +675,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Extensions { rows, state, error, filter, filter_editing } => draw_extensions_popup(frame, rows, filter, filter_editing, error, state),
         Overlay::ThemePicker { entries, state, saved } => draw_theme_picker(frame, entries, state, saved),
         Overlay::Shell { title, screen, exited } => draw_shell_popup(frame, title, screen, exited),
-        Overlay::Yaml { title, text, scroll } => draw_yaml_popup(frame, title, text, scroll),
+        Overlay::Yaml { title, text, scroll, hscroll } => draw_yaml_popup(frame, title, text, scroll, hscroll),
         Overlay::PortForward { title, form } => draw_port_forward_popup(frame, title, form),
         Overlay::Confirm { spec, yes } => draw_confirm_popup(frame, spec, yes),
         Overlay::Backdrop => {}

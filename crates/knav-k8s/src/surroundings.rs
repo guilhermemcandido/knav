@@ -101,6 +101,17 @@ where
     timed(async move { api.get_opt(&name).await.map(|found| found.iter().map(crate::manifest_value).collect()).map_err(|_| ()) })
 }
 
+/// One object of the type `api` describes, by name; for a box `R` didn't load.
+pub async fn get_object(client: &Client, api: &crate::ApiInfo, namespace: Option<&str>, name: &str) -> Option<Value> {
+    use kube::api::DynamicObject;
+    let resource = api.resource();
+    let objects: Api<DynamicObject> = match namespace.filter(|_| api.namespaced) {
+        Some(ns) => Api::namespaced_with(client.clone(), ns, &resource),
+        None => Api::all_with(client.clone(), &resource),
+    };
+    tokio::time::timeout(TIMEOUT, objects.get_opt(name)).await.ok()?.ok().flatten().map(|o| crate::manifest_value(&o))
+}
+
 /// What surrounds `target`, besides Pods and Deployments, which are always watched.
 pub async fn surroundings(client: &Client, target: &Value) -> Fetched {
     let kind = target.get("kind").and_then(Value::as_str).unwrap_or("");

@@ -41,6 +41,19 @@ pub(crate) fn jump_select(key: &KeyEvent, state: &mut TableState, len: usize, pa
     true
 }
 
+/// A sideways wheel or trackpad swipe: `Some(true)` to the right, `Some(false)` to the
+/// left. Shift with the vertical wheel counts too, as many terminals send that.
+pub(crate) fn sideways(mouse: &crossterm::event::MouseEvent) -> Option<bool> {
+    let shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
+    match mouse.kind {
+        MouseEventKind::ScrollRight => Some(true),
+        MouseEventKind::ScrollLeft => Some(false),
+        MouseEventKind::ScrollDown if shift => Some(true),
+        MouseEventKind::ScrollUp if shift => Some(false),
+        _ => None,
+    }
+}
+
 /// Moves a table's selection for a wheel notch; false for any other mouse event.
 pub(crate) fn wheel_select(kind: MouseEventKind, state: &mut TableState, len: usize) -> bool {
     let step: fn(&mut TableState, usize) = match kind {

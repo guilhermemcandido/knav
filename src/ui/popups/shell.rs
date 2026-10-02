@@ -77,7 +77,7 @@ fn yaml_line(line: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll: usize) {
+pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str, scroll: usize, hscroll: usize) {
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
     let block = Block::default()
@@ -87,6 +87,6 @@ pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str,
         .title(pill_title(title, false, theme_border(false)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(yaml_line).collect();
+    let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(|l| shift_line(yaml_line(l), hscroll)).collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }

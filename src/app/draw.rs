@@ -222,10 +222,10 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
-            Mode::Yaml { title, text, scroll, .. } => {
+            Mode::Yaml { title, text, scroll, hscroll: yaml_hscroll, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::Yaml { title, text, scroll: *scroll };
+                    let overlay = ui::Overlay::Yaml { title, text, scroll: *scroll, hscroll: *yaml_hscroll };
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }
@@ -262,20 +262,20 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(ui::Overlay::Problems(view)), *editing);
                 })?;
             }
-            Mode::History { target, revisions, cursor, scroll, on_diff, .. } => {
+            Mode::History { target, revisions, cursor, scroll, hscroll: history_hscroll, on_diff, .. } => {
                 let running = revisions.iter().find(|r| r.current).map(|r| r.template.as_str()).unwrap_or_default();
                 let diff = revisions.get(*cursor).map(|r| crate::ops::edit::diff(running, &r.template)).unwrap_or_default();
                 let title = target.label();
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let view = ui::HistoryView { title: &title, revisions, cursor: *cursor, diff: &diff, scroll: *scroll, on_diff: *on_diff, read_only: *read_only };
+                    let view = ui::HistoryView { title: &title, revisions, cursor: *cursor, diff: &diff, scroll: *scroll, hscroll: *history_hscroll, on_diff: *on_diff, read_only: *read_only };
                     paint(frame, None, None, Some(ui::Overlay::History(view)), false);
                 })?;
             }
-            Mode::EditReview { draft, diff, scroll, focus, .. } => {
+            Mode::EditReview { draft, diff, scroll, hscroll: review_hscroll, focus, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let overlay = ui::Overlay::EditReview(ui::EditReviewView { title: &draft.title, diff, scroll: *scroll, focus: *focus, error: draft.error.as_deref() });
+                    let overlay = ui::Overlay::EditReview(ui::EditReviewView { title: &draft.title, diff, scroll: *scroll, hscroll: *review_hscroll, focus: *focus, error: draft.error.as_deref() });
                     paint(frame, None, None, Some(overlay), false);
                 })?;
             }

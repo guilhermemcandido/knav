@@ -252,7 +252,7 @@ pub fn scale_buttons(full: Rect, view: &ScaleView) -> DialogButtons {
 
 /// Diff lines from `scroll` on, at most `rows`: removed in red, added in green, the
 /// unchanged ones around them grey.
-fn diff_lines(diff: &[(crate::ops::edit::DiffKind, String)], scroll: usize, rows: usize) -> Vec<Line<'static>> {
+fn diff_lines(diff: &[(crate::ops::edit::DiffKind, String)], scroll: usize, hscroll: usize, rows: usize) -> Vec<Line<'static>> {
     use crate::ops::edit::DiffKind;
     let muted = Style::default().fg(theme().muted);
     diff.iter()
@@ -264,6 +264,7 @@ fn diff_lines(diff: &[(crate::ops::edit::DiffKind, String)], scroll: usize, rows
             DiffKind::Same => Line::styled(format!("  {text}"), muted),
             DiffKind::Gap => Line::styled("  ⋯", muted),
         })
+        .map(|line| shift_line(line, hscroll))
         .collect()
 }
 
@@ -273,7 +274,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let full = frame.area();
     let area = body_area(full, true);
     frame.render_widget(Clear, area);
-    let mut hints = if view.on_diff { vec![("↑↓", "scroll"), ("g/G", "top/bottom"), ("tab", "revisions")] } else { vec![("↑↓", "revision"), ("tab", "scroll changes")] };
+    let mut hints = if view.on_diff { vec![("↑↓←→", "scroll"), ("g/G", "top/bottom"), ("tab", "revisions")] } else { vec![("↑↓", "revision"), ("tab", "scroll changes")] };
     if !view.read_only {
         hints.push(("enter", "roll back"));
     }
@@ -321,7 +322,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
         caption_line.push(Span::styled(format!("  lines {}-{end} of {}", view.scroll + 1, view.diff.len()), muted));
     }
     frame.render_widget(Paragraph::new(Line::from(caption_line)), caption);
-    let lines = if view.diff.is_empty() { vec![Line::styled("  Nothing: the pod templates are the same", muted)] } else { diff_lines(view.diff, view.scroll, usize::from(below.height)) };
+    let lines = if view.diff.is_empty() { vec![Line::styled("  Nothing: the pod templates are the same", muted)] } else { diff_lines(view.diff, view.scroll, view.hscroll, usize::from(below.height)) };
     frame.render_widget(Paragraph::new(lines), below);
 }
 
@@ -362,7 +363,7 @@ pub(in crate::ui) fn draw_edit_review(frame: &mut Frame, view: EditReviewView) {
         .border_set(border_set())
         .border_style(theme_border(false))
         .title(title)
-        .title_bottom(hint_strip(&[("↑↓", "scroll"), ("←→", "choose"), ("enter", "press")]).right_aligned());
+        .title_bottom(hint_strip(&[("↑↓←→", "scroll"), ("tab", "choose"), ("enter", "press")]).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
@@ -376,7 +377,7 @@ pub(in crate::ui) fn draw_edit_review(frame: &mut Frame, view: EditReviewView) {
         top += rows + 1;
     }
     let bottom = inner.y + inner.height.saturating_sub(2);
-    let lines = diff_lines(view.diff, view.scroll, usize::from(bottom.saturating_sub(top)));
+    let lines = diff_lines(view.diff, view.scroll, view.hscroll, usize::from(bottom.saturating_sub(top)));
     frame.render_widget(Paragraph::new(lines), Rect { y: top, height: bottom.saturating_sub(top), ..inner });
 
     for (i, (rect, button)) in edit_review_buttons(full).into_iter().zip(REVIEW_BUTTONS).enumerate() {

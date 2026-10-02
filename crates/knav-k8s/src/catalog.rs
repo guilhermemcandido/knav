@@ -188,6 +188,11 @@ impl Catalog {
         }
     }
 
+    /// The API type of `kind`, built-in or a CRD, to fetch one object by name.
+    pub fn api_for_kind(&self, kind: &str) -> Option<crate::ApiInfo> {
+        self.apis.iter().find(|a| a.kind == kind).cloned().or_else(|| self.crds.iter().find(|c| c.kind == kind).map(crate::ApiInfo::from))
+    }
+
     /// The list an object of `kind` lives in: a built-in one, or a CRD's by its kind.
     pub fn list_for(&self, kind: &str) -> Option<ResourceKind> {
         ResourceKind::from_owner_kind(kind).or_else(|| {

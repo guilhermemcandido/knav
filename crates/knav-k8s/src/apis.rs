@@ -24,7 +24,7 @@ pub struct ApiInfo {
 }
 
 impl ApiInfo {
-    pub(super) fn resource(&self) -> ApiResource {
+    pub fn resource(&self) -> ApiResource {
         ApiResource {
             group: self.group.to_string(),
             version: self.version.clone(),

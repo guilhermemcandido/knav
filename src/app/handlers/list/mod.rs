@@ -11,7 +11,8 @@ mod overview;
 mod selection;
 
 pub(crate) use selection::selected_manifest;
-use selection::{PodView, keep_overview_selection_visible, marked_targets, open_pod, surrounding_manifests};
+pub(in crate::app::handlers) use selection::surrounding_manifests;
+use selection::{PodView, keep_overview_selection_visible, marked_targets, open_pod};
 
 /// Handles one input event for these modes; `Some` ends the session.
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
@@ -304,7 +305,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let title = format!("{}/{}", target.namespace.as_deref().unwrap_or("-"), target.name);
                     let text = serde_yaml::to_string(&manifest).unwrap_or_default();
                     let back = std::mem::replace(&mut st.mode, Mode::List);
-                    st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, back: Box::new(back) };
+                    st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, hscroll: 0, back: Box::new(back) };
                 }
             }
             KeyCode::Char('i') if frame_area.width >= ui::SIDE_PANEL_MIN_WIDTH => {

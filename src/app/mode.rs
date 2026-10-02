@@ -58,11 +58,11 @@ pub(crate) enum Mode {
     /// A manifest as plain YAML text, scrollable (`y`).
     /// Text to read and scroll: an object's YAML, or a command's output. `label` names
     /// it in the path line.
-    Yaml { label: &'static str, title: String, text: String, scroll: usize, back: Box<Mode> },
+    Yaml { label: &'static str, title: String, text: String, scroll: usize, hscroll: usize, back: Box<Mode> },
     /// A readable summary of one object.
     Details { manifest: serde_yaml::Value, sections: Vec<k8s::details::Section>, scroll: usize, hscroll: usize, back: Box<Mode> },
     /// The selected object's relations (owners, what it uses, what uses it, ...).
-    Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<serde_yaml::Value>, zoom: usize, back: Box<Mode> },
+    Relations { target: serde_yaml::Value, all: Vec<serde_yaml::Value>, graph: k8s::relations::Graph, selected: usize, previous: Vec<(serde_yaml::Value, Vec<serde_yaml::Value>)>, zoom: usize, back: Box<Mode> },
     /// A background job (an action, a connection check, a port-forward) is running.
     Working { job: crate::app::jobs::Job, back: Box<Mode> },
     /// Asks before an action. `yes` is the focused button, which the arrows move and
@@ -70,12 +70,12 @@ pub(crate) enum Mode {
     Confirm { spec: actions::ConfirmSpec, targets: Vec<Target>, action: Action, yes: bool, back: Box<Mode> },
     /// The changes an edit makes, before they are applied. `focus` is the button:
     /// 0 Apply, 1 Edit again, 2 Cancel.
-    EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, focus: usize, back: Box<Mode> },
+    EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, hscroll: usize, focus: usize, back: Box<Mode> },
     /// Everything that needs a look, across kinds; `search` filters it.
     Problems { state: TableState, search: String, editing: bool, back: Box<Mode> },
     /// A workload's revisions, newest first; `scroll` is into the changes below.
     /// `on_diff`: the arrows scroll the changes rather than pick a revision.
-    History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, on_diff: bool, back: Box<Mode> },
+    History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, hscroll: usize, on_diff: bool, back: Box<Mode> },
     /// `P`: this cluster's permission mode, and which contexts are always read-only.
     /// `input` is a context pattern being typed: which one it replaces, and the text.
     Permissions { tab: usize, cursor: usize, input: Option<(Option<usize>, String)>, error: Option<String>, back: Box<Mode> },

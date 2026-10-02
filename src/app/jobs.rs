@@ -181,14 +181,14 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
                 Mode::OpenUrl { text, url, yes: true, back }
             };
         }
-        Done::Command { title, view: true, result: Ok(text) } => st.mode = Mode::Yaml { label: "Output", title, text, scroll: 0, back },
+        Done::Command { title, view: true, result: Ok(text) } => st.mode = Mode::Yaml { label: "Output", title, text, scroll: 0, hscroll: 0, back },
         Done::Command { title, view: false, result: Ok(text) } => {
             let last = crate::ops::custom::last_lines(&text, 3);
             let text = if last.is_empty() { format!("{title} finished") } else { format!("{title} finished\n{last}") };
             st.mode = Mode::Notice { text, tone: NoticeTone::Done, back };
         }
         Done::Command { title, result: Err(reason), .. } => st.mode = Mode::Notice { text: format!("{title} {reason}"), tone: NoticeTone::Failed, back },
-        Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, on_diff: false, back },
+        Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, hscroll: 0, on_diff: false, back },
         Done::History(_, Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
         // Refused: back to the review, with why and Edit again ready.
         Done::Edited(Err(reason)) => {
@@ -227,6 +227,35 @@ pub(super) fn fetch_surroundings(st: &mut State, client: &kube::Client, title: &
     start(st, Job::spawn(title, Arc::default(), None, work), None);
 }
 
+/// Fetches a diagram box's object (unless `known`) and what surrounds it, then replays
+/// `key`, which finds them under the box's `key_of`.
+pub(super) fn fetch_related(st: &mut State, client: &kube::Client, (kind, namespace, name): BoxId, api: Option<crate::k8s::ApiInfo>, known: Option<serde_yaml::Value>, key: crossterm::event::KeyEvent) {
+    let client = client.clone();
+    let title = format!("Loading {kind} {name}");
+    let work = async move {
+        let object = match (known, api) {
+            (Some(object), _) => Some(object),
+            (None, Some(api)) => crate::k8s::surroundings::get_object(&client, &api, namespace.as_deref(), &name).await,
+            (None, None) => None,
+        };
+        let mut fetched = crate::k8s::surroundings::Fetched { manifests: Vec::new() };
+        if let Some(object) = object {
+            fetched = crate::k8s::surroundings::surroundings(&client, &object).await;
+            fetched.manifests.push(object);
+        }
+        Done::Surroundings(key_of(&kind, namespace.as_deref(), &name), fetched, key)
+    };
+    start(st, Job::spawn(title, Arc::default(), None, work), None);
+}
+
+/// A diagram box: kind, namespace and name.
+pub(super) type BoxId = (String, Option<String>, String);
+
+/// How a fetch is matched to the box it was for.
+pub(super) fn key_of(kind: &str, namespace: Option<&str>, name: &str) -> String {
+    format!("{kind}/{}/{name}", namespace.unwrap_or(""))
+}
+
 /// What was fetched around `target`, if it was fetched for this same object.
 pub(super) fn take_surroundings(st: &mut State, target: &serde_yaml::Value) -> Option<crate::k8s::surroundings::Fetched> {
     let (object, _) = st.surroundings.as_ref()?;
@@ -235,8 +264,8 @@ pub(super) fn take_surroundings(st: &mut State, target: &serde_yaml::Value) -> O
 }
 
 fn object_key(manifest: &serde_yaml::Value) -> String {
-    let text = |path: &[&str]| path.iter().try_fold(manifest, |v, k| v.get(*k)).and_then(|v| v.as_str()).unwrap_or("").to_string();
-    format!("{}/{}/{}", text(&["kind"]), text(&["metadata", "namespace"]), text(&["metadata", "name"]))
+    let text = |path: &[&str]| path.iter().try_fold(manifest, |v, k| v.get(*k)).and_then(|v| v.as_str()).map(String::from);
+    key_of(&text(&["kind"]).unwrap_or_default(), text(&["metadata", "namespace"]).as_deref(), &text(&["metadata", "name"]).unwrap_or_default())
 }
 
 #[cfg(test)]

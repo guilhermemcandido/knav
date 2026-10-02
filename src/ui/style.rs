@@ -352,6 +352,29 @@ pub(super) fn pill_title_centered(title: &str, dimmed: bool) -> Line<'static> {
 
 /// A box's own key hints in its bottom border, like `<o> open list`. Movement keys
 /// are left out, since they work everywhere.
+/// `line` with its first `by` characters dropped, styles kept: a view scrolled sideways.
+pub(super) fn shift_line(line: Line<'static>, by: usize) -> Line<'static> {
+    if by == 0 {
+        return line;
+    }
+    let mut left = by;
+    let spans = line
+        .spans
+        .into_iter()
+        .filter_map(|span| {
+            let count = span.content.chars().count();
+            if left >= count {
+                left -= count;
+                return None;
+            }
+            let rest: String = span.content.chars().skip(left).collect();
+            left = 0;
+            Some(Span::styled(rest, span.style))
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans).style(line.style)
+}
+
 pub(super) fn hint_strip(hints: &[(&str, &str)]) -> Line<'static> {
     let key_style = Style::default().fg(theme().key).add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme().desc);

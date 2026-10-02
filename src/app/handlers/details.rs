@@ -45,6 +45,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 }
             }
             Event::Mouse(mouse) => match mouse.kind {
+                _ if crate::app::nav::sideways(&mouse) == Some(true) => *hscroll = (*hscroll + 6).min(widest),
+                _ if crate::app::nav::sideways(&mouse) == Some(false) => *hscroll = hscroll.saturating_sub(6),
                 MouseEventKind::ScrollDown => *scroll = (*scroll + 3).min(last),
                 MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
                 _ => {}
@@ -71,7 +73,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         let title = crate::app::mode::object_title(manifest);
         let text = serde_yaml::to_string(manifest).unwrap_or_default();
         let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, back: Box::new(back) };
+        st.mode = Mode::Yaml { label: "YAML", title, text, scroll: 0, hscroll: 0, back: Box::new(back) };
     }
     Ok(None)
 }

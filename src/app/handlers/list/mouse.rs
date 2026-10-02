@@ -27,6 +27,8 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                         open = state::double_click(&mut st.last_click, id);
                     }
                 }
+                _ if crate::app::nav::sideways(&mouse) == Some(true) => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Right),
+                _ if crate::app::nav::sideways(&mouse) == Some(false) => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Left),
                 MouseEventKind::ScrollDown => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Down),
                 MouseEventKind::ScrollUp => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Up),
                 _ => {}
@@ -39,6 +41,10 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             if st.info_panel {
                 let over_panel = mouse.column >= table.x + table.width;
                 match mouse.kind {
+                    _ if over_panel && crate::app::nav::sideways(&mouse).is_some() => {
+                        st.info_hscroll = if crate::app::nav::sideways(&mouse) == Some(true) { st.info_hscroll + 6 } else { st.info_hscroll.saturating_sub(6) };
+                        return (false, false);
+                    }
                     MouseEventKind::ScrollDown if over_panel => {
                         st.info_scroll += 3;
                         return (false, false);
@@ -78,6 +84,9 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                         }
                     }
                 }
+                // Sideways scrolls the columns, a column at a time.
+                _ if crate::app::nav::sideways(&mouse) == Some(true) => st.hscroll += 1,
+                _ if crate::app::nav::sideways(&mouse) == Some(false) => st.hscroll = st.hscroll.saturating_sub(1),
                 kind => {
                     wheel_select(kind, &mut st.table_state, row_count);
                 }
