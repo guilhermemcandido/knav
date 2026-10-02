@@ -87,6 +87,8 @@ fn main() -> Result<()> {
 
 pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>, read_only: bool) -> Result<SessionEnd> {
     let (client, k8s_version) = k8s::connect_checked(context).await?;
+    // Before any watch starts, so they all list the faster way the server allows.
+    k8s::detect_streaming(&client).await;
     // Everything starts loading now, beside the reachability check and loading screen.
     let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
     let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());

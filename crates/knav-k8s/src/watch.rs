@@ -26,6 +26,42 @@ pub fn changes() -> u64 {
     CHANGES.load(Ordering::Relaxed)
 }
 
+/// Whether the API server streams a watch's first list (Kubernetes 1.27+ with the
+/// WatchList feature), found once per session by `detect_streaming`.
+static STREAMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// How every watch starts: a streamed first list when the server can, else one list
+/// from its cache (`resourceVersion=0`), not a page-by-page read from etcd.
+fn first_list() -> watcher::Config {
+    if STREAMING.load(Ordering::Relaxed) { watcher::Config::default().streaming_lists() } else { watcher::Config::default().any_semantic() }
+}
+
+/// Tries a streamed list of Namespaces, a small kind, and remembers whether it finished.
+/// An older server may ignore the request rather than refuse it, so only the end of the
+/// initial list counts; an error or no end within a few seconds means plain lists.
+/// `KNAV_PLAIN_LISTS=1` skips it, for a cluster that misbehaves with streaming.
+pub async fn detect_streaming(client: &Client) {
+    let plain = std::env::var_os("KNAV_PLAIN_LISTS").is_some();
+    STREAMING.store(!plain && streams(client).await, Ordering::Relaxed);
+}
+
+async fn streams(client: &Client) -> bool {
+    use k8s_openapi::api::core::v1::Namespace;
+    let api: Api<Namespace> = Api::all(client.clone());
+    let mut stream = watcher(api, watcher::Config::default().streaming_lists()).boxed();
+    let finished = async {
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(watcher::Event::InitDone) => return true,
+                Ok(_) => {}
+                Err(_) => return false,
+            }
+        }
+        false
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), finished).await.unwrap_or(false)
+}
+
 /// Watches every `K` in the cluster into an in-memory store, reconnecting with backoff.
 pub fn watch_store<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
 where
@@ -45,7 +81,7 @@ where
     let (reader, writer) = reflector::store();
     let handle = tokio::spawn(async move {
         after.await;
-        let stream = watcher(api, watcher::Config::default()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer);
+        let stream = watcher(api, first_list()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer);
         let mut stream = stream.applied_objects().boxed();
         while stream.next().await.is_some() {
             CHANGES.fetch_add(1, Ordering::Relaxed);
@@ -62,7 +98,7 @@ where
 {
     let api: Api<K> = Api::all(client);
     let (reader, writer) = reflector::store();
-    let stream = watcher(api, watcher::Config::default().fields(field_selector)).default_backoff().reflect(writer);
+    let stream = watcher(api, first_list().fields(field_selector)).default_backoff().reflect(writer);
     let handle = tokio::spawn(async move {
         let mut stream = stream.applied_objects().boxed();
         while stream.next().await.is_some() {
@@ -88,8 +124,8 @@ where
 {
     let api: Api<K> = Api::all(client);
     let config = match namespace {
-        Some(ns) => watcher::Config::default().fields(&format!("metadata.namespace={ns}")),
-        None => watcher::Config::default(),
+        Some(ns) => first_list().fields(&format!("metadata.namespace={ns}")),
+        None => first_list(),
     };
     let (reader, writer) = reflector::store();
     let feed = Arc::new(Feed::default());
@@ -169,3 +205,12 @@ where
     items
 }
 
+#[cfg(test)]
+mod streaming_probe {
+    #[tokio::test]
+    #[ignore = "needs a cluster"]
+    async fn the_current_cluster_says_whether_it_streams() {
+        let client = kube::Client::try_default().await.unwrap();
+        println!("streams lists: {}", super::streams(&client).await);
+    }
+}
