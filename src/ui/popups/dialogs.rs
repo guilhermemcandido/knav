@@ -273,7 +273,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let full = frame.area();
     let area = body_area(full, true);
     frame.render_widget(Clear, area);
-    let mut hints = vec![("↑↓", "revision"), ("ctrl-d/u", "scroll")];
+    let mut hints = if view.on_diff { vec![("↑↓", "scroll"), ("g/G", "top/bottom"), ("tab", "revisions")] } else { vec![("↑↓", "revision"), ("tab", "scroll changes")] };
     if !view.read_only {
         hints.push(("enter", "roll back"));
     }
@@ -301,6 +301,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
         .column_spacing(COLUMN_GAP)
         .header(header)
         .row_highlight_style(selection_style(crate::k8s::describe::Tone::Plain, false));
+    let table = if view.on_diff { table.row_highlight_style(Style::default().bg(theme().pill_bg).fg(theme().text_strong)) } else { table };
     let mut state = TableState::default().with_selected(Some(view.cursor));
     frame.render_stateful_widget(table, Rect { height: table_h, ..inner }, &mut state);
 
@@ -311,8 +312,15 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
         frame.render_widget(Paragraph::new(Line::styled(format!("Revision {} is the one running.", selected.number), muted)), caption);
         return;
     }
-    let strong = Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD);
-    frame.render_widget(Paragraph::new(Line::styled(format!("Rolling back to revision {} changes:", selected.number), strong)), caption);
+    // The caption is lit while the arrows scroll the changes, and says where they are.
+    let strong = Style::default().fg(if view.on_diff { theme().highlight } else { theme().text_strong }).add_modifier(Modifier::BOLD);
+    let mut caption_line = vec![Span::styled(format!("Rolling back to revision {} changes:", selected.number), strong)];
+    let visible = usize::from(below.height);
+    if view.diff.len() > visible {
+        let end = (view.scroll + visible).min(view.diff.len());
+        caption_line.push(Span::styled(format!("  lines {}-{end} of {}", view.scroll + 1, view.diff.len()), muted));
+    }
+    frame.render_widget(Paragraph::new(Line::from(caption_line)), caption);
     let lines = if view.diff.is_empty() { vec![Line::styled("  Nothing: the pod templates are the same", muted)] } else { diff_lines(view.diff, view.scroll, usize::from(below.height)) };
     frame.render_widget(Paragraph::new(lines), below);
 }

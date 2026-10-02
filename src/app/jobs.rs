@@ -192,7 +192,7 @@ pub(super) fn finish(st: &mut State) -> Option<crate::SessionEnd> {
             st.mode = Mode::Notice { text, tone: NoticeTone::Done, back };
         }
         Done::Command { title, result: Err(reason), .. } => st.mode = Mode::Notice { text: format!("{title} {reason}"), tone: NoticeTone::Failed, back },
-        Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, back },
+        Done::History(target, Ok(revisions)) => st.mode = Mode::History { target, revisions, cursor: 0, scroll: 0, on_diff: false, back },
         Done::History(_, Err(reason)) => st.mode = Mode::Notice { text: reason, tone: NoticeTone::Failed, back },
         // Refused: back to the review, with why and Edit again ready.
         Done::Edited(Err(reason)) => {

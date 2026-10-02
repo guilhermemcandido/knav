@@ -128,6 +128,8 @@ pub struct HistoryView<'a> {
     /// From the running revision to the selected one.
     pub diff: &'a [(crate::ops::edit::DiffKind, String)],
     pub scroll: usize,
+    /// The arrows scroll the changes, which are highlighted.
+    pub on_diff: bool,
     pub read_only: bool,
 }
 
