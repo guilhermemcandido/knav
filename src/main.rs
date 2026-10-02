@@ -56,6 +56,25 @@ fn main() -> Result<()> {
         let runtime = tokio::runtime::Runtime::new()?;
         let outcome = runtime.block_on(session(&config, context.as_deref(), std::mem::take(&mut notes), read_only));
         runtime.shutdown_background();
+        // A context that can't be opened (an expired login, say) goes back to the picker
+        // with why, rather than out with a wall of plugin output.
+        let outcome = match outcome {
+            Err(error) if error.downcast_ref::<k8s::Unreachable>().is_some() => {
+                let failed = error.downcast::<k8s::Unreachable>().expect("checked above");
+                let contexts = k8s::list_contexts().unwrap_or_default();
+                match startup::picker::run(&contexts, Some(&failed))? {
+                    Some(name) => {
+                        context = Some(name);
+                        continue;
+                    }
+                    None => {
+                        eprintln!("{}: {}\n{}", failed.context, failed.reason, failed.fix);
+                        return Ok(());
+                    }
+                }
+            }
+            other => other,
+        };
         match outcome? {
             SessionEnd::Quit => return Ok(()),
             SessionEnd::SwitchContext(name) => {
@@ -67,7 +86,7 @@ fn main() -> Result<()> {
 }
 
 pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<String>, read_only: bool) -> Result<SessionEnd> {
-    let client = k8s::connect_to_context(context).await?;
+    let (client, k8s_version) = k8s::connect_checked(context).await?;
     // Everything starts loading now, beside the reachability check and loading screen.
     let (pod_reader, pod_feed, _pod_watch_handle) = k8s::watch_live::<Pod>(client.clone());
     let (dep_reader, dep_feed, _dep_watch_handle) = k8s::watch_live::<Deployment>(client.clone());
@@ -89,7 +108,6 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let registry = extensions::Registry::load(&Config::dir());
     let mut catalog = Catalog::spawn(&client, node_store.clone(), node_feed, registry.index());
 
-    let k8s_version = k8s::ensure_reachable(&client, context).await?;
     let active_context = match context {
         Some(name) => name.to_string(),
         None => k8s::list_contexts().ok().and_then(|c| c.into_iter().find(|c| c.is_current).map(|c| c.name)).unwrap_or_default(),

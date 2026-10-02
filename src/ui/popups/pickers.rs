@@ -43,9 +43,12 @@ fn context_layout(full: Rect, items: &[&crate::k8s::ContextInfo], has_error: boo
     let name_w = items.iter().map(|c| cell_width(&c.name)).max().unwrap_or(0);
     let detail_w = items.iter().map(|c| cell_width(&context_detail(c))).max().unwrap_or(0);
     let widest = (1 + 2 + name_w + if detail_w > 0 { 2 + detail_w } else { 0 }) as u16;
-    let width = (widest + 4).clamp(60, 120).min(full.width.saturating_sub(4).max(20));
-    // Borders, the filter and rule, a blank row under the list, and the error.
-    let chrome = 3 + CONTEXT_TOP + 2 * u16::from(has_error);
+    // An error and its fix need room for a sentence and a command.
+    let least = if has_error { 84 } else { 60 };
+    let width = (widest + 4).clamp(least, 120).min(full.width.saturating_sub(4).max(20));
+    // Borders, the filter and rule, a blank row under the list, and the error with
+    // what to do about it.
+    let chrome = 3 + CONTEXT_TOP + 3 * u16::from(has_error);
     let list_h = (items.len() as u16).clamp(1, (full.height * 2 / 3).saturating_sub(chrome).max(1));
     let height = (list_h + chrome).min(full.height);
     let area = Rect { x: full.x + full.width.saturating_sub(width) / 2, y: full.y + full.height.saturating_sub(height) / 3, width, height };
@@ -99,9 +102,13 @@ pub fn draw_context_picker(frame: &mut Frame, view: ContextView) {
         }
         frame.render_stateful_widget(table, list, state);
     }
+    // The error in red, and on the next line what to do about it.
     if let Some(err) = error {
-        let line = Rect { y: list.y + list.height + 1, height: 1, ..list };
-        frame.render_widget(Paragraph::new(Line::styled(truncate(err, usize::from(line.width)), Style::default().fg(theme().bad))), line);
+        let width = usize::from(list.width);
+        let mut lines = err.lines();
+        let reason = Line::styled(truncate(lines.next().unwrap_or(""), width), Style::default().fg(theme().bad).add_modifier(Modifier::BOLD));
+        let fix = Line::styled(truncate(lines.next().unwrap_or(""), width), Style::default().fg(theme().text_soft));
+        frame.render_widget(Paragraph::new(vec![reason, fix]), Rect { y: list.y + list.height + 1, height: 2, ..list });
     }
 }
 

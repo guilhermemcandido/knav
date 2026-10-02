@@ -130,13 +130,9 @@ pub(super) fn apply_edit(st: &mut State, client: &kube::Client) {
 pub(super) fn check_context(st: &mut State, name: String) {
     let title = format!("Connecting to {name}");
     let work = async move {
-        let check = async {
-            let client = crate::k8s::connect_to_context(Some(&name)).await?;
-            crate::k8s::ensure_reachable(&client, Some(&name)).await
-        };
-        Done::Connect(match check.await {
+        Done::Connect(match crate::k8s::connect_checked(Some(&name)).await {
             Ok(_) => Ok(name),
-            Err(e) => Err(e.to_string().lines().next().unwrap_or("connection failed").to_string()),
+            Err(failed) => Err(format!("{}\n{}", failed.reason, failed.fix)),
         })
     };
     start(st, Job::spawn(title, Arc::default(), None, work), None);

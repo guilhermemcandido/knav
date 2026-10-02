@@ -71,7 +71,7 @@ pub(crate) fn resolve_context(context_query: Option<&str>, pick: bool, config: &
 
     if pick || matches!(config.startup.mode, StartupMode::Menu) {
         let contexts = k8s::list_contexts()?;
-        return match picker::run(&contexts)? {
+        return match picker::run(&contexts, None)? {
             Some(name) => Ok(Some(name)),
             None => std::process::exit(0),
         };

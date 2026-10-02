@@ -11,21 +11,25 @@ use crate::k8s::ContextInfo;
 use crate::ui;
 
 /// Runs the picker and restores the terminal. `Ok(None)` means the user cancelled.
-pub fn run(contexts: &[ContextInfo]) -> Result<Option<String>> {
+/// `failed` is a context that couldn't be opened and why: it starts selected, so Enter
+/// tries it again once the login is fixed.
+pub fn run(contexts: &[ContextInfo], failed: Option<&crate::k8s::Unreachable>) -> Result<Option<String>> {
     let mut terminal = ratatui::init();
-    let result = run_loop(&mut terminal, contexts);
+    let result = run_loop(&mut terminal, contexts, failed);
     ratatui::restore();
     result
 }
 
-fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo]) -> Result<Option<String>> {
+fn run_loop(terminal: &mut ratatui::DefaultTerminal, contexts: &[ContextInfo], failed: Option<&crate::k8s::Unreachable>) -> Result<Option<String>> {
     let mut filter = String::new();
-    let mut state = TableState::default().with_selected(0);
+    let start = failed.and_then(|f| ui::context_matches(contexts, "").iter().position(|c| c.name == f.context)).unwrap_or(0);
+    let mut state = TableState::default().with_selected(start);
+    let error = failed.map(|f| format!("{}: {}\n{}", f.context, f.reason, f.fix));
 
     loop {
         let matches = ui::context_matches(contexts, &filter);
         terminal.draw(|frame| {
-            let view = ui::ContextView { items: &matches, total: contexts.len(), filter: &filter, state: &mut state, error: None, leave: "quit" };
+            let view = ui::ContextView { items: &matches, total: contexts.len(), filter: &filter, state: &mut state, error: error.as_deref(), leave: "quit" };
             ui::draw_context_picker(frame, view);
         })?;
 
