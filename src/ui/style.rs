@@ -106,11 +106,15 @@ pub(super) fn table_title(label: &str, count: usize, window: &Window, dimmed: bo
         Span::styled(format!(" {label} "), Style::default().bg(theme().pill_bg).fg(theme().text_strong).add_modifier(Modifier::BOLD)),
         Span::styled(format!("({count})"), Style::default().fg(theme().warm).add_modifier(Modifier::BOLD)),
     ];
-    // Says that columns are scrolled out of view, and on which side: `‹ more ›`.
+    // `‹ ›` when columns are scrolled out of view on that side, right after the count.
     if window.can_left || window.can_right {
-        let hint = Style::default().fg(theme().muted);
-        let text = format!(" {}more columns{}", if window.can_left { "‹ " } else { "" }, if window.can_right { " ›" } else { "" });
-        spans.push(Span::styled(text, hint));
+        let hint = Style::default().fg(theme().warm);
+        let arrows = match (window.can_left, window.can_right) {
+            (true, true) => " ‹ ›",
+            (true, false) => " ‹",
+            _ => " ›",
+        };
+        spans.push(Span::styled(arrows, hint));
     }
     Line::from(spans)
 }
