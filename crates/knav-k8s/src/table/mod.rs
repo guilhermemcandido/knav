@@ -307,6 +307,10 @@ impl CatalogKind for TableKind {
         self.data.lock().map(|d| d.rows.len()).unwrap_or(0)
     }
 
+    fn loaded(&self) -> bool {
+        self.data.lock().map(|d| d.complete || d.error.is_some()).unwrap_or(true)
+    }
+
     fn set_wide(&self, wide: bool) {
         self.wide.store(wide, Ordering::Relaxed);
     }

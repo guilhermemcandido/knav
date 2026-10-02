@@ -12,6 +12,10 @@ use super::*;
 /// A watched kind behind one interface, so `Catalog` can hold them all in one list.
 pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
+    /// Whether the first list has arrived (or failed), so an empty list really is empty.
+    fn loaded(&self) -> bool {
+        true
+    }
     fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
     /// An object's state from its conditions, when it is at hand. Never waits: a
@@ -57,6 +61,11 @@ where
 {
     fn count(&self) -> usize {
         self.kept.store.len()
+    }
+
+    fn loaded(&self) -> bool {
+        use futures::FutureExt;
+        self.kept.store.wait_until_ready().now_or_never().is_some()
     }
 
     fn headers(&self) -> Vec<&'static str> {

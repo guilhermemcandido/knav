@@ -175,6 +175,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             }
             _ => None,
         };
+        let loaded = catalog.resolve(st.current_kind, &client).is_none_or(|k| k.loaded());
         let rows_view = || match st.current_kind {
             ResourceKind::Overview => ui::Rows::Overview(overview, st.overview_selection, st.overview_col_scroll, st.overview_item_scroll),
             ResourceKind::Pods => ui::Rows::Pods(pod_rows, pod_usage.as_deref()),
@@ -183,9 +184,9 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => ui::Rows::CrdList(crd_rows, crd_counts, st.current_kind.label()),
             ResourceKind::ExtensionDashboard(_) => match dashboard {
                 Some((title, content)) => ui::Rows::Dashboard(title, content, st.dashboard_scroll),
-                None => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers, None),
+                None => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers, None, loaded),
             },
-            _ => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers, custom_state.clone()),
+            _ => ui::Rows::Generic(generic_rows, st.current_kind.label(), generic_headers, custom_state.clone(), loaded),
         };
 
         let header_now = ui::HeaderInfo {

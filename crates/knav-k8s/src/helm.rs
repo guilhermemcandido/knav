@@ -125,6 +125,11 @@ impl HelmStore {
 }
 
 impl CatalogKind for HelmStore {
+    fn loaded(&self) -> bool {
+        use futures::FutureExt;
+        self.store.wait_until_ready().now_or_never().is_some()
+    }
+
     fn count(&self) -> usize {
         self.releases().len()
     }
