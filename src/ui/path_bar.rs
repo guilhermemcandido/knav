@@ -120,17 +120,16 @@ fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], d
             spans.push(Span::styled("/", current));
         }
         spans.push(Span::styled(format!("{} ", cap(name_cap, &pod.name)), current.add_modifier(Modifier::BOLD)));
+        // The status and each container are pills too, in their own colour.
         if let (Some((color, note)), Detail::Full) = (&pod.note, detail) {
-            spans.push(Span::styled(format!(" ● {note}"), Style::default().fg(*color)));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(format!(" ● {note} "), pill.fg(*color)));
         }
-        if !matches!(detail, Detail::None) && !pod.containers.is_empty() {
-            for (i, (color, name, state)) in pod.containers.iter().enumerate() {
-                spans.push(Span::raw(if i == 0 { " " } else if matches!(detail, Detail::Full) { "  " } else { "" }));
-                let style = Style::default().fg(*color);
-                spans.push(Span::styled("●", style));
-                if matches!(detail, Detail::Full) {
-                    spans.push(Span::styled(format!(" {name} {state}"), style));
-                }
+        if !matches!(detail, Detail::None) {
+            for (color, name, state) in &pod.containers {
+                spans.push(Span::raw(" "));
+                let text = if matches!(detail, Detail::Full) { format!(" ● {name} {state} ") } else { " ● ".to_string() };
+                spans.push(Span::styled(text, pill.fg(*color)));
             }
         }
     }
@@ -197,7 +196,7 @@ mod tests {
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
         let node = SelectedItem { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
         let wide = text(&path_line(&[seg("Nodes", None)], Some(&node), 100));
-        assert!(wide.ends_with("worker-1  ● Ready"), "{wide}");
+        assert!(wide.ends_with("worker-1   ● Ready "), "{wide}");
         let tight = text(&path_line(&[seg("Nodes", None)], Some(&node), 22));
         assert!(tight.ends_with("worker-1 "), "{tight}");
         let configmap = SelectedItem { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
