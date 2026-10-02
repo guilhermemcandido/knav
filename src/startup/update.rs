@@ -113,7 +113,12 @@ fn update(paint: &Paint, auto_yes: bool) -> Result<()> {
 
     println!();
     println!("  {}  {}", paint.dim("Current"), build_name(current, COMMIT));
-    let note = if new_version { "new version" } else { "newer build" };
+    // Without a comparison (a commit GitHub doesn't have yet) the order is unknown.
+    let note = match (new_version, &compared) {
+        (true, _) => "new version",
+        (false, Some(_)) => "newer build",
+        (false, None) => "different build",
+    };
     println!("  {}   {}  {}", paint.dim("Latest"), paint.bold(&build_name(version(&latest), &latest_commit)), paint.accent(note));
     let changes = compared.map(|c| c.subjects).unwrap_or_else(|| release_notes(&release.body));
     if !changes.is_empty() {
