@@ -209,11 +209,10 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 .collect(),
             _ => Vec::new(),
         };
-        // Type lists show object counts, counted once one opens. The Overview counts too,
-        // so an extension's category isn't stuck at 0.
-        if matches!(current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources | ResourceKind::Overview) {
-            catalog.count_instances(namespace.as_deref());
-        }
+        // Every count on screen (Home's tiles, the sidebar, the type lists) comes from one
+        // small request per type, refreshed each minute, not a watch per kind. Home stays
+        // cluster-wide like the rest of it.
+        catalog.count_instances(if current_kind == ResourceKind::Overview { None } else { namespace.as_deref() });
         let mut with_counts: Vec<((usize, k8s::CrdInfo), k8s::Count)> = crd_rows.into_iter().map(|row| { let count = catalog.counts.get(row.1.group, &row.1.plural); (row, count) }).collect();
         apply(&mut with_counts, sort, |((_, crd), count), column| crd_key(crd, *count, column));
         let (crd_rows, crd_counts): (Vec<(usize, k8s::CrdInfo)>, Vec<k8s::Count>) = with_counts.into_iter().unzip();

@@ -45,7 +45,7 @@ pub use generic::*;
 pub use helm::HelmStore;
 pub use instances::{Count, Counter, InstanceCounts, count_key};
 pub use parallel::par_map;
-pub use watch::{Feed, changes, note_change, watch_count, watch_live, watch_store, watch_store_selected};
+pub use watch::{Feed, changes, note_change, watch_live, watch_store, watch_store_after, watch_store_selected};
 pub use kept::{AgeRow, Item, Kept};
 pub type PodKept = Kept<k8s_openapi::api::core::v1::Pod, PodRow>;
 pub type DeploymentKept = Kept<k8s_openapi::api::apps::v1::Deployment, DeploymentRow>;

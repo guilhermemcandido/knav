@@ -35,6 +35,25 @@ where
     (store, handle)
 }
 
+/// `watch_store` that starts listing only once `after` resolves, so a big, busy kind
+/// (events) doesn't compete with the lists the first screen waits for.
+pub fn watch_store_after<K>(client: Client, after: impl std::future::Future<Output = ()> + Send + 'static) -> (reflector::Store<K>, JoinHandle<()>)
+where
+    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+{
+    let api: Api<K> = Api::all(client);
+    let (reader, writer) = reflector::store();
+    let handle = tokio::spawn(async move {
+        after.await;
+        let stream = watcher(api, watcher::Config::default()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer);
+        let mut stream = stream.applied_objects().boxed();
+        while stream.next().await.is_some() {
+            CHANGES.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    (reader, handle)
+}
+
 /// Like `watch_store`, for objects matching `field_selector` only, so a kind with
 /// few interesting objects (Helm's release Secrets) isn't downloaded whole.
 pub fn watch_store_selected<K>(client: Client, field_selector: &str) -> (reflector::Store<K>, JoinHandle<()>)
@@ -150,48 +169,3 @@ where
     items
 }
 
-/// How many counting watches may still be on their first list.
-static STARTUP: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
-
-/// How many `K` exist, from a metadata-only watch that keeps only uids. Cheap enough
-/// to run for every kind, and a Secret's contents never arrive.
-pub fn watch_count<K>(client: Client) -> Arc<std::sync::atomic::AtomicUsize>
-where
-    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
-{
-    use kube::core::PartialObjectMeta;
-    use std::collections::HashSet;
-    let api: Api<PartialObjectMeta<K>> = Api::all(client);
-    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let stream = watcher(api, watcher::Config::default()).default_backoff();
-    let seen = Arc::clone(&count);
-    tokio::spawn(async move {
-        // A few first lists at a time, so opening a cluster doesn't send dozens at once.
-        let mut turn = STARTUP.acquire().await.ok();
-        let (mut live, mut listing): (HashSet<String>, HashSet<String>) = Default::default();
-        let uid = |object: &PartialObjectMeta<K>| object.metadata.uid.clone().unwrap_or_else(|| format!("{:?}/{:?}", object.metadata.namespace, object.metadata.name));
-        let mut stream = stream.boxed();
-        while let Some(event) = stream.next().await {
-            if turn.is_some() && !matches!(event, Ok(watcher::Event::Init | watcher::Event::InitApply(_))) {
-                turn = None;
-            }
-            match event {
-                Ok(watcher::Event::Init) => listing.clear(),
-                Ok(watcher::Event::InitApply(object)) => {
-                    listing.insert(uid(&object));
-                }
-                Ok(watcher::Event::InitDone) => std::mem::swap(&mut live, &mut listing),
-                Ok(watcher::Event::Apply(object)) => {
-                    live.insert(uid(&object));
-                }
-                Ok(watcher::Event::Delete(object)) => {
-                    live.remove(&uid(&object));
-                }
-                Err(_) => continue,
-            }
-            seen.store(live.len(), Ordering::Relaxed);
-            CHANGES.fetch_add(1, Ordering::Relaxed);
-        }
-    });
-    count
-}

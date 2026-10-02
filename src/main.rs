@@ -93,7 +93,21 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let (node_store, node_feed, _node_watch_handle) = k8s::watch_live::<Node>(client.clone());
     let pod_store = k8s::PodKept::new(pod_reader, pod_feed, k8s::row_for);
     let dep_store = k8s::DeploymentKept::new(dep_reader, dep_feed, k8s::row_for_deployment);
-    let (event_store, _event_watch_handle) = k8s::watch_store::<k8s_openapi::api::core::v1::Event>(client.clone());
+    // Events are many and busy on a big cluster: they wait for the lists the first screen needs.
+    let first_lists = {
+        let (pods, deployments, nodes) = (pod_store.store.clone(), dep_store.store.clone(), node_store.clone());
+        // Checked the way the loading screen does, a few times a second.
+        async move {
+            use futures::FutureExt;
+            let ready = || {
+                pods.wait_until_ready().now_or_never().is_some() && deployments.wait_until_ready().now_or_never().is_some() && nodes.wait_until_ready().now_or_never().is_some()
+            };
+            while !ready() {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
+    };
+    let (event_store, _event_watch_handle) = k8s::watch_store_after::<k8s_openapi::api::core::v1::Event>(client.clone(), first_lists);
     let (node_metrics_rx, _metrics_handle) = metrics::watch_node_metrics(client.clone());
     let (pod_metrics, _pod_metrics_handle) = metrics::watch_pod_metrics(client.clone());
     // Discovery runs beside the first lists; the loading screen waits for all of them.

@@ -16,7 +16,7 @@ use kube::{Client, runtime::reflector::Store};
 use crate::{ResourceKind};
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::Arc;
 
 
 /// Starts a kind's full watch.
@@ -49,8 +49,8 @@ fn cluster_scoped(kind: ResourceKind) -> bool {
 struct Entry {
     kind: ResourceKind,
     label: &'static str,
-    /// From a metadata-only watch, keeping just the number.
-    count: Arc<AtomicUsize>,
+    /// The API group and plural, which its count is kept under until its list is open.
+    api: (&'static str, &'static str),
     start: StartWatch,
     start_in: StartWatchIn,
     full: Option<Box<dyn crate::CatalogKind>>,
@@ -108,14 +108,14 @@ impl Catalog {
                 Entry {
                     kind: ResourceKind::$variant,
                     label: $label,
-                    count: crate::watch_count::<$ty>(client.clone()),
+                    api: (<$ty as k8s_openapi::Resource>::GROUP, <$ty as k8s_openapi::Resource>::URL_PATH_SEGMENT),
                     start: Box::new(|client| crate::watch_kind::<$ty>(client.clone()).0),
                     start_in: Box::new(|client, namespace| crate::watch_kind_in::<$ty>(client.clone(), Some(namespace))),
                     full: None,
                 }
             };
         }
-        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", count: Arc::default(), start: Box::new(|_| unreachable!("nodes are watched from the start")), start_in: Box::new(|_, _| unreachable!("nodes are cluster-scoped")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))) };
+        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", api: ("", "nodes"), start: Box::new(|_| unreachable!("nodes are watched from the start")), start_in: Box::new(|_, _| unreachable!("nodes are cluster-scoped")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))) };
         // Namespaces feed the namespace picker, so they are always held in full.
         let mut namespaces = kind!(Namespaces, "Namespaces", Namespace);
         namespaces.full = Some((namespaces.start)(client));
@@ -169,6 +169,10 @@ impl Catalog {
 
     /// Starts counting every type's objects (once), following the namespace shown.
     pub fn count_instances(&mut self, namespace: Option<&str>) {
+        // The types come from discovery; counting before it would count nothing.
+        if self.apis.is_empty() {
+            return;
+        }
         let counter = self.counter.get_or_insert_with(|| {
             // CRDs by their storage version first: one served only in an older
             // version is missing from discovery's preferred list.
@@ -258,7 +262,17 @@ impl Catalog {
         if kind == ResourceKind::HelmReleases {
             return self.helm.as_ref().map_or(0, |h| h.count());
         }
-        self.entries.iter().find(|e| e.kind == kind).map(|e| e.full.as_ref().map_or_else(|| e.count.load(Ordering::Relaxed), |f| f.count())).unwrap_or(0)
+        // An open list knows exactly; otherwise a count from one small request.
+        let Some(entry) = self.entries.iter().find(|e| e.kind == kind) else { return 0 };
+        match &entry.full {
+            Some(full) if full.loaded() => full.count(),
+            full => self.counts.get(entry.api.0, entry.api.1).known_or(full.as_ref().map_or(0, |f| f.count())),
+        }
+    }
+
+    /// The count keys of the built-in kinds whose lists aren't open, for `want_counts`.
+    pub fn builtin_count_keys(&self) -> Vec<String> {
+        self.entries.iter().filter(|e| !e.full.as_ref().is_some_and(|f| f.loaded())).map(|e| crate::count_key(e.api.0, e.api.1)).collect()
     }
 
     /// The live watch for a built-in kind. `None` for the Overview, Pods, Deployments

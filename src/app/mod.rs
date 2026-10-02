@@ -140,6 +140,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         // plus the enabled extensions' kinds, a small set the Overview always shows.
         catalog.ensure_helm(&client, &st.config.extensions.enabled);
         let mut wanted_counts = catalog.want_extension_counts(&st.config.extensions.enabled);
+        wanted_counts.extend(catalog.builtin_count_keys());
         if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
             let reach = usize::from(terminal.size().map(|s| s.height).unwrap_or(40)) * 2;
             let from = st.table_state.offset();
