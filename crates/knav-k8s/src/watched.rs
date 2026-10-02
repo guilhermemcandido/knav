@@ -14,6 +14,11 @@ pub trait CatalogKind: Send + Sync {
     fn count(&self) -> usize;
     fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
+    /// An object's state from its conditions, when it is at hand. Never waits: a
+    /// custom resource not fetched yet is fetched in the background.
+    fn state_of(&self, _index: usize) -> crate::describe::Note {
+        None
+    }
     /// The kind's extra column headers, even with no rows.
     fn headers(&self) -> Vec<&'static str> {
         Vec::new()

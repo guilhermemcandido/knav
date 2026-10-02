@@ -75,8 +75,9 @@ pub enum Rows<'a> {
     Deployments(&'a [std::sync::Arc<DeploymentRow>]),
     /// Nodes have their own columns, with CPU and memory usage in the list.
     Nodes(&'a [NodeRow]),
-    /// Any other kind: rows, the kind's label, and its extra headers (for an empty list).
-    Generic(&'a [std::sync::Arc<GenericRow>], &'static str, &'a [&'static str]),
+    /// Any other kind: rows, the kind's label, its extra headers (for an empty list),
+    /// and for a custom resource the selected one's state (`Some`, even when unknown).
+    Generic(&'a [std::sync::Arc<GenericRow>], &'static str, &'a [&'static str], Option<crate::k8s::describe::Note>),
     /// The Custom Resources picker: CRD kinds with their catalog index, object
     /// counts, and the heading.
     CrdList(&'a [(usize, CrdInfo)], &'a [crate::k8s::Count], &'a str),
@@ -515,7 +516,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
             Rows::Pods(pods, _) => selected_row.and_then(|i| pods.get(i)).map(|r| SelectedItem::from_pod(r)),
             Rows::Deployments(deployments) => selected_row.and_then(|i| deployments.get(i)).map(|r| SelectedItem::from_deployment(r)),
             Rows::Nodes(nodes) => selected_row.and_then(|i| nodes.get(i)).map(SelectedItem::from_node),
-            Rows::Generic(rows, _, _) => selected_row.and_then(|i| rows.get(i)).map(|r| SelectedItem::from_generic(r)),
+            Rows::Generic(rows, _, _, custom) => selected_row.and_then(|i| rows.get(i)).map(|r| SelectedItem::from_generic(r, custom.clone())),
             Rows::CrdList(crds, _, _) => selected_row.and_then(|i| crds.get(i)).map(|(_, crd)| SelectedItem::from_crd(crd)),
             Rows::Overview(..) | Rows::Dashboard(..) => None,
         },
@@ -528,7 +529,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         Rows::Pods([], _) => Some("pods"),
         Rows::Deployments([]) => Some("deployments"),
         Rows::Nodes([]) => Some("nodes"),
-        Rows::Generic([], label, _) => Some(*label),
+        Rows::Generic([], label, ..) => Some(*label),
         Rows::CrdList([], _, heading) => Some(*heading),
         _ => None,
     }
@@ -556,7 +557,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
             let selection = if chrome.content_unfocused { OverviewSelection::Header(usize::MAX) } else { selection };
             draw_overview(frame, body, overview, OverviewView { selection, col_scroll, item_scroll, dimmed }, icons);
         }
-        Rows::Generic(rows, label, kind_headers) => {
+        Rows::Generic(rows, label, kind_headers, _) => {
             draw_generic_table(frame, body, rows, label, kind_headers, ListView { state: &mut *table_state, search, sort, hscroll: &mut *hscroll, marked, wide: header.wide, look });
         }
         Rows::CrdList(crds, counts, heading) => {

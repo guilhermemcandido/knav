@@ -40,24 +40,26 @@ impl SelectedItem {
         SelectedItem { namespace: None, name: node.name.clone(), note: Some((color, status.to_string())), containers: Vec::new(), facts: Vec::new() }
     }
 
-    pub(super) fn from_generic(row: &GenericRow) -> Self {
+    /// `custom` is a custom resource's state from its conditions (`Some`, even when not
+    /// known yet): it shows only that, like a node's Ready, never other columns.
+    pub(super) fn from_generic(row: &GenericRow, custom: Option<crate::k8s::describe::Note>) -> Self {
         use crate::k8s::describe::Tone;
+        let color = |tone: &Tone| match tone {
+            Tone::Plain => theme().text_soft,
+            Tone::Good => theme().ok,
+            Tone::Warn => theme().warn,
+            Tone::Bad => theme().bad,
+            Tone::Muted => theme().muted,
+        };
+        let is_custom = custom.is_some();
+        let status = custom.flatten().or_else(|| row.status.clone());
         SelectedItem {
             namespace: (row.namespace != "-").then(|| row.namespace.clone()),
             name: row.name.clone(),
-            note: row.status.as_ref().map(|(tone, text)| {
-                let color = match tone {
-                    Tone::Plain => theme().text_soft,
-                    Tone::Good => theme().ok,
-                    Tone::Warn => theme().warn,
-                    Tone::Bad => theme().bad,
-                    Tone::Muted => theme().muted,
-                };
-                (color, text.clone())
-            }),
+            note: status.as_ref().map(|(tone, text)| (color(tone), text.clone())),
             containers: Vec::new(),
-            // Without a state, the first couple of its columns say what it is.
-            facts: if row.status.is_some() {
+            // A built-in kind without a state shows a couple of its columns instead.
+            facts: if status.is_some() || is_custom {
                 Vec::new()
             } else {
                 row.extras.iter().filter(|c| !matches!(c.text.as_str(), "" | "-" | "<none>")).take(MAX_FACTS).map(|c| (c.header.to_lowercase(), middle_ellipsis(&c.text, FACT_WIDTH))).collect()
@@ -240,7 +242,7 @@ mod tests {
             owners: Vec::new(),
             labels: String::new(),
         };
-        let line = text(&path_line(&[seg("Services", None)], Some(&SelectedItem::from_generic(&row)), 200));
+        let line = text(&path_line(&[seg("Services", None)], Some(&SelectedItem::from_generic(&row, None)), 200));
         assert!(line.ends_with(" type ClusterIP   cluster-ip 10.43.0.7 "), "{line}");
     }
 

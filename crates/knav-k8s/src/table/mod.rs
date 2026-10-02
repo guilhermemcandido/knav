@@ -76,6 +76,8 @@ pub struct TableKind {
     namespaced: bool,
     /// Full objects fetched for the info view and actions, cached.
     objects: Arc<Mutex<HashMap<(String, String), Fetched>>>,
+    /// Objects being fetched for their state, so a redraw doesn't ask again.
+    fetching: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
     /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
     scope: Arc<Mutex<Option<String>>>,
     changed: Arc<tokio::sync::Notify>,
@@ -126,7 +128,7 @@ impl TableKind {
                 }
             })
         };
-        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced, objects: Arc::default(), scope, changed }
+        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced, objects: Arc::default(), fetching: Arc::default(), scope, changed }
     }
 
     fn shows(&self, column: &TableColumn) -> bool {
@@ -383,6 +385,34 @@ impl CatalogKind for TableKind {
         rows
     }
 
+    fn state_of(&self, index: usize) -> crate::describe::Note {
+        let key = {
+            let data = self.data.lock().ok()?;
+            let row = data.rows.get(index)?;
+            (row.namespace.clone(), row.name.clone())
+        };
+        // A stale copy still answers; spec_at refreshes it when the object is opened.
+        if let Some((_, value)) = self.objects.lock().ok().and_then(|o| o.get(&key).cloned()) {
+            return object_state(&value);
+        }
+        let mut fetching = self.fetching.lock().ok()?;
+        if fetching.insert(key.clone()) {
+            let (client, resource, namespaced) = (self.client.clone(), self.resource.clone(), self.namespaced && key.0 != "-");
+            let (objects, fetching) = (Arc::clone(&self.objects), Arc::clone(&self.fetching));
+            tokio::spawn(async move {
+                if let Some(object) = fetch_object(client, &resource, namespaced, &key.0, &key.1).await
+                    && let Ok(mut objects) = objects.lock()
+                {
+                    objects.insert(key.clone(), (std::time::Instant::now(), object));
+                }
+                if let Ok(mut fetching) = fetching.lock() {
+                    fetching.remove(&key);
+                }
+            });
+        }
+        None
+    }
+
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
         let (namespace, name) = {
             let data = self.data.lock().ok()?;
@@ -417,6 +447,32 @@ impl CatalogKind for TableKind {
     }
 }
 
+/// A custom resource's state from its conditions, the way Flux, cert-manager and most
+/// operators report it, else from `status.phase` or `status.state`.
+pub fn object_state(object: &serde_yaml::Value) -> crate::describe::Note {
+    let status = object.get("status")?;
+    let conditions = status.get("conditions").and_then(serde_yaml::Value::as_sequence).cloned().unwrap_or_default();
+    let field = |c: &serde_yaml::Value, key: &str| c.get(key).and_then(serde_yaml::Value::as_str).unwrap_or("").to_string();
+    let condition = |kind: &str| conditions.iter().find(|c| field(c, "type") == kind).map(|c| (field(c, "status"), field(c, "reason")));
+    if condition("Stalled").is_some_and(|(s, _)| s == "True") {
+        return Some((Tone::Bad, "Stalled".into()));
+    }
+    if condition("Reconciling").is_some_and(|(s, _)| s == "True") {
+        return Some((Tone::Warn, "Reconciling".into()));
+    }
+    if let Some((state, reason)) = ["Ready", "Available", "Healthy", "Synced"].iter().find_map(|kind| condition(kind)) {
+        let progressing = ["Progress", "Reconcil", "Pending", "Install", "Upgrad"].iter().any(|word| reason.contains(word));
+        return Some(match state.as_str() {
+            "True" => (Tone::Good, "Ready".into()),
+            "False" if progressing => (Tone::Warn, "Reconciling".into()),
+            "False" => (Tone::Bad, "Not ready".into()),
+            _ => (Tone::Warn, "Reconciling".into()),
+        });
+    }
+    let phase = status.get("phase").or_else(|| status.get("state")).and_then(serde_yaml::Value::as_str)?;
+    Some((cell_tone(phase), phase.to_string()))
+}
+
 /// How long a fetched object is trusted before it is fetched again.
 const STALE_AFTER: Duration = Duration::from_secs(5);
 
@@ -427,6 +483,17 @@ async fn fetch_object(client: Client, resource: &ApiResource, namespaced: bool, 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_custom_resource_reads_its_state_from_conditions() {
+        let state = |yaml: &str| super::object_state(&serde_yaml::from_str(yaml).unwrap()).map(|(_, text)| text);
+        assert_eq!(state("status: {conditions: [{type: Ready, status: 'True'}]}").as_deref(), Some("Ready"));
+        assert_eq!(state("status: {conditions: [{type: Ready, status: 'False', reason: ProgressingWithRetry}]}").as_deref(), Some("Reconciling"));
+        assert_eq!(state("status: {conditions: [{type: Ready, status: 'False', reason: BuildFailed}]}").as_deref(), Some("Not ready"));
+        assert_eq!(state("status: {conditions: [{type: Ready, status: 'True'}, {type: Reconciling, status: 'True'}]}").as_deref(), Some("Reconciling"));
+        assert_eq!(state("status: {phase: Running}").as_deref(), Some("Running"));
+        assert_eq!(state("spec: {replicas: 2}"), None);
+    }
 
     #[test]
     fn a_ready_column_reads_as_words() {
@@ -462,7 +529,7 @@ mod tests {
         let _entered = runtime.enter();
         let handle = runtime.spawn(async {});
         let client = Client::try_from(kube::Config::new("http://localhost:1".parse().unwrap())).unwrap();
-        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true, objects: Arc::default(), scope: Arc::default(), changed: Arc::default() };
+        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true, objects: Arc::default(), fetching: Arc::default(), scope: Arc::default(), changed: Arc::default() };
         (kind, runtime)
     }
 
