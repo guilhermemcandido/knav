@@ -144,15 +144,6 @@ pub(super) fn with_search_beside<'a>(block: Block<'a>, text: &str, editing: bool
     }
 }
 
-/// A `namespace/name` pair: namespace in the accent colour, name bold, `/` muted.
-pub(super) fn namespace_name_spans(namespace: &str, name: &str) -> Vec<Span<'static>> {
-    vec![
-        Span::styled(namespace.to_string(), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
-        Span::styled("/", Style::default().fg(theme().muted)),
-        Span::styled(name.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-    ]
-}
-
 /// A `/`-joined title coloured like the path: namespace and container in their
 /// accents, the rest bold. A title without `/` is plain bold.
 pub(super) fn colored_slash_title(title: &str) -> Line<'static> {

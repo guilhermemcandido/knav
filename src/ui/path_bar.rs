@@ -88,46 +88,50 @@ enum Detail {
 }
 
 fn build(segments: &[PathSegment], pod: Option<&SelectedItem>, caps: &[usize], detail: Detail) -> Line<'static> {
-    let kind_style = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
-    let value_style = Style::default().fg(theme().text_soft);
+    // Each step is a pill like a list's title, so the trail reads at a glance.
+    let pill = Style::default().bg(theme().pill_bg);
+    let kind_style = pill.fg(theme().namespace).add_modifier(Modifier::BOLD);
+    let value_style = pill.fg(theme().text_strong);
     let punct_style = Style::default().fg(theme().muted);
     let cap = |i: usize, text: &str| middle_ellipsis(text, caps.get(i).copied().unwrap_or(usize::MAX));
+    let separator = || Span::styled(" › ", punct_style);
 
     let mut spans = vec![Span::raw(" ")];
     for (i, segment) in segments.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(">>", punct_style));
+            spans.push(separator());
         }
-        spans.push(Span::styled(segment.kind.clone(), kind_style));
-        if let Some(value) = &segment.value {
-            spans.push(Span::styled("[", punct_style));
-            spans.push(Span::styled(cap(i, value), value_style));
-            spans.push(Span::styled("]", punct_style));
+        match &segment.value {
+            Some(value) => {
+                spans.push(Span::styled(format!(" {} ", segment.kind), kind_style));
+                spans.push(Span::styled(format!("{} ", cap(i, value)), value_style));
+            }
+            None => spans.push(Span::styled(format!(" {} ", segment.kind), kind_style)),
         }
     }
     if let Some(pod) = pod {
         let (ns_cap, name_cap) = (segments.len(), segments.len() + 1);
-        spans.push(Span::styled(">>", punct_style));
-        match &pod.namespace {
-            Some(namespace) => spans.extend(namespace_name_spans(&cap(ns_cap, namespace), &cap(name_cap, &pod.name))),
-            None => spans.push(Span::styled(cap(name_cap, &pod.name), Style::default().add_modifier(Modifier::BOLD))),
+        spans.push(separator());
+        // The selected row stands out from the trail: the selection's colours.
+        let current = Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg));
+        spans.push(Span::styled(" ", current));
+        if let Some(namespace) = &pod.namespace {
+            spans.push(Span::styled(cap(ns_cap, namespace), current));
+            spans.push(Span::styled("/", current));
         }
+        spans.push(Span::styled(format!("{} ", cap(name_cap, &pod.name)), current.add_modifier(Modifier::BOLD)));
         if let (Some((color, note)), Detail::Full) = (&pod.note, detail) {
             spans.push(Span::styled(format!(" ● {note}"), Style::default().fg(*color)));
         }
         if !matches!(detail, Detail::None) && !pod.containers.is_empty() {
-            spans.push(Span::raw(" ["));
             for (i, (color, name, state)) in pod.containers.iter().enumerate() {
-                if i > 0 {
-                    spans.push(Span::styled(if matches!(detail, Detail::Full) { " : " } else { " " }, punct_style));
-                }
+                spans.push(Span::raw(if i == 0 { " " } else if matches!(detail, Detail::Full) { "  " } else { "" }));
                 let style = Style::default().fg(*color);
                 spans.push(Span::styled("●", style));
                 if matches!(detail, Detail::Full) {
-                    spans.push(Span::styled(format!(" {name}({state})"), style));
+                    spans.push(Span::styled(format!(" {name} {state}"), style));
                 }
             }
-            spans.push(Span::raw("]"));
         }
     }
     Line::from(spans)
@@ -193,11 +197,11 @@ mod tests {
     fn non_pod_rows_show_by_name_with_a_note_that_goes_first() {
         let node = SelectedItem { namespace: None, name: "worker-1".into(), note: Some((theme().ok, "Ready".into())), containers: Vec::new() };
         let wide = text(&path_line(&[seg("Nodes", None)], Some(&node), 100));
-        assert!(wide.ends_with("worker-1 ● Ready"), "{wide}");
+        assert!(wide.ends_with("worker-1  ● Ready"), "{wide}");
         let tight = text(&path_line(&[seg("Nodes", None)], Some(&node), 22));
-        assert!(tight.ends_with("worker-1"), "{tight}");
+        assert!(tight.ends_with("worker-1 "), "{tight}");
         let configmap = SelectedItem { namespace: Some("default".into()), name: "kube-root-ca.crt".into(), note: None, containers: Vec::new() };
-        assert!(text(&path_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt"));
+        assert!(text(&path_line(&[seg("ConfigMaps", None)], Some(&configmap), 100)).ends_with("default/kube-root-ca.crt "));
     }
 
     #[test]
@@ -210,7 +214,7 @@ mod tests {
     fn a_wide_terminal_shows_everything() {
         let segments = [seg("Deployment", Some("web")), seg("Pods", None)];
         let line = path_line(&segments, Some(&pod()), 300);
-        assert!(text(&line).contains("● local-path-provisioner(Running)"));
+        assert!(text(&line).contains("● local-path-provisioner Running"));
     }
 
     #[test]
@@ -220,8 +224,8 @@ mod tests {
         // A little narrower: the container text goes, the names stay whole.
         let line = path_line(&segments, Some(&pod()), (full - 10) as u16);
         let t = text(&line);
-        assert!(t.contains("local-path-provisioner-5d9d9885bc]"), "{t}");
-        assert!(!t.contains("(Running)"), "{t}");
+        assert!(t.contains("local-path-provisioner-5d9d9885bc "), "{t}");
+        assert!(!t.contains("Running"), "{t}");
     }
 
     #[test]
