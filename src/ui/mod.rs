@@ -52,7 +52,7 @@ use self::health::*;
 pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{DEFAULT_ZOOM, Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor, zoom_in, zoom_out};
 pub use self::header::*;
-pub use self::loading::{Loading, draw_loading};
+pub use self::loading::{Loading, Step, draw_loading};
 use self::help::draw_help;
 pub use self::layout::{configure_columns, set_data_version};
 use self::layout::*;
