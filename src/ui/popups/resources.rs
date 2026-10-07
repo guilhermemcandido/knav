@@ -193,12 +193,11 @@ pub(in crate::ui) fn draw_containers_popup(frame: &mut Frame, title: &str, conta
             ContainerStatusKind::Unknown => "Unknown".into(),
         })
     };
-    let window = layout_table(
+    let window = layout_popup(
         &HEADERS,
         containers.iter().map(|c| vec![1, cell_width(&c.name), cell_width(&state_text_of(c)), c.restarts.to_string().len()]),
         area.width.saturating_sub(2),
         None,
-        &mut 0,
     );
     let header = header_row(&HEADERS, sort, dimmed, &window);
     let cell_style = theme_row(dimmed);

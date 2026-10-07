@@ -39,8 +39,10 @@ pub(in crate::ui) fn draw_node_detail_popup(frame: &mut Frame, view: NodeDetailV
     }
 
     let marked = HashSet::new();
-    let view = ListView { state, search: if dimmed { Search::default() } else { search }, sort: if dimmed { SortState::default() } else { sort }, hscroll: &mut 0, marked: &marked, wide: false, look: ListLook::dimmed(dimmed) };
+    let mut hscroll = popup_hscroll();
+    let view = ListView { state, search: if dimmed { Search::default() } else { search }, sort: if dimmed { SortState::default() } else { sort }, hscroll: &mut hscroll, marked: &marked, wide: false, look: ListLook::dimmed(dimmed) };
     draw_table(frame, chunks[2], pods, pod_usage, view);
+    set_popup_hscroll(hscroll);
 }
 
 /// The node info panel's height, shared by sizing and drawing.

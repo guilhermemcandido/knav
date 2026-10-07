@@ -95,7 +95,7 @@ pub(crate) fn hints_for(mode: &Mode, current_kind: ResourceKind) -> Vec<(&'stati
         // No typing mode: typing filters, arrows, wheel or clicks move.
         Mode::Context { .. } => vec![("type", "filter"), ("↑↓", "move"), ("enter", "connect"), ("esc", "back")],
         Mode::Spec { .. } => {
-            vec![("↑↓/jk", "move"), ("enter", "toggle"), ("v", "value"), ("a", "expand all"), ("q/esc", "back")]
+            vec![("↑↓/jk", "move"), ("←→", "scroll"), ("enter", "toggle"), ("v", "value"), ("a", "expand all"), ("q/esc", "back")]
         }
         Mode::NodeDetail { editing: true, .. } => Vec::new(),
         Mode::NodeDetail { .. } => vec![("↑↓/jk", "move"), ("enter", "containers"), ("d", "spec"), ("e", "edit"), ("s", "sort"), ("/", "search"), ("q/esc", "back")],

@@ -235,7 +235,7 @@ pub(in crate::ui) fn draw_namespace_picker(
     frame.render_widget(Clear, area);
 
     const HEADERS: [&str; 2] = ["NAMESPACE", "KEY"];
-    let window = layout_table(&HEADERS, items.iter().map(|(name, _)| vec![cell_width(name), 1]), area.width.saturating_sub(2), None, &mut 0);
+    let window = layout_popup(&HEADERS, items.iter().map(|(name, _)| vec![cell_width(name), 1]), area.width.saturating_sub(2), None);
     let header = header_row(&HEADERS, sort, false, &window);
     let rows = items.iter().map(|(name, key)| {
         Row::new(window.slice(vec![

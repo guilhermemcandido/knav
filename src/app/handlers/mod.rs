@@ -129,6 +129,24 @@ pub(super) fn open_debug(st: &mut State, cx: &Cx, target: &crate::ops::actions::
 }
 
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
+    let screen = std::mem::discriminant(&st.mode);
+    let end = route(event, st, cx);
+    // A popup table starts at its first column each time the screen changes.
+    if std::mem::discriminant(&st.mode) != screen {
+        ui::set_popup_hscroll(0);
+    }
+    end
+}
+
+/// Whether the screen is a popup table whose columns can be scrolled sideways.
+fn scrolls_sideways(mode: &Mode) -> bool {
+    matches!(
+        mode,
+        Mode::Events { editing: false, .. } | Mode::Problems { editing: false, .. } | Mode::NodeDetail { editing: false, .. } | Mode::NamespacePick { editing: false, .. } | Mode::Containers { .. } | Mode::ResourcesDetail
+    )
+}
+
+fn route(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     // A shell gets every key; only Ctrl-] is ours.
     if matches!(st.mode, Mode::Shell { .. }) {
         return inspect::handle(event, st, cx);
@@ -278,6 +296,20 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     // Outside the list, Ctrl combinations are not their plain letters.
     if matches!(&event, Event::Key(key) if key.modifiers.contains(KeyModifiers::CONTROL)) && !matches!(st.mode, Mode::List | Mode::Settings { capture: Some(_), .. }) {
         return Ok(None);
+    }
+    // The arrows or a sideways swipe move a popup table's columns.
+    if scrolls_sideways(&st.mode) {
+        let step = match &event {
+            Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Right => Some(true),
+            Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Left => Some(false),
+            Event::Mouse(mouse) => crate::app::nav::sideways(mouse),
+            _ => None,
+        };
+        if let Some(right) = step {
+            let now = ui::popup_hscroll();
+            ui::set_popup_hscroll(if right { now + 1 } else { now.saturating_sub(1) });
+            return Ok(None);
+        }
     }
     // `s` and the digits sort a popup's table when one has focus.
     if matches!(&event, Event::Key(key) if popup_sort_key(&mut st.mode, key.code)) {

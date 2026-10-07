@@ -1,10 +1,13 @@
 //! The manifest (`d`) tree popup and the value viewer.
 
+use ratatui::{buffer::Buffer, widgets::StatefulWidget};
+
 use super::*;
 
 /// The manifest tree. `dimmed` applies when it sits behind the value popup; node
-/// colours are fixed per item, so only the border, title and selection mute.
-pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, dimmed: bool) {
+/// colours are fixed per item, so only the border, title and selection mute. `hscroll`
+/// is how far it is scrolled sideways, clamped here to the widest visible line.
+pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<'static, String>], state: &mut TreeState<String>, hscroll: &mut usize, dimmed: bool) {
     // The whole body width, so selecting text with the mouse never takes in what is behind.
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
@@ -12,17 +15,33 @@ pub(super) fn draw_spec_popup(frame: &mut Frame, title: &str, items: &[TreeItem<
     let border_style = if dimmed { dim_style() } else { Style::default() };
     let title_line = pill_title(title, dimmed, border_style);
     let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).title(title_line);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
     let highlight_style = if dimmed { dim_style() } else { Style::default().bg(theme().muted).add_modifier(Modifier::BOLD) };
     let tree = Tree::new(items)
         .expect("pod tree ids are unique per level by construction")
-        .block(block)
         .highlight_style(highlight_style)
         .node_closed_symbol("▸ ")
         .node_open_symbol("▾ ")
         .node_no_children_symbol("  ");
 
-    frame.render_stateful_widget(tree, area, state);
+    // The tree clips at its own width, so it is drawn on a buffer a screenful wider than
+    // what is scrolled past, and the part in view is copied over.
+    let wide = Rect { width: inner.width.saturating_add((*hscroll).min(usize::from(u16::MAX / 2)) as u16).saturating_add(inner.width), ..inner };
+    let mut scratch = Buffer::empty(wide);
+    StatefulWidget::render(tree, wide, &mut scratch, state);
+    let content = (0..wide.height)
+        .filter_map(|dy| (0..wide.width).rev().find(|dx| scratch[(wide.x + dx, wide.y + dy)].symbol().trim() != "").map(|dx| usize::from(dx) + 1))
+        .max()
+        .unwrap_or(0);
+    *hscroll = (*hscroll).min(content.saturating_sub(usize::from(inner.width)));
+    for dy in 0..inner.height {
+        for dx in 0..inner.width {
+            let from = (wide.x + dx + *hscroll as u16, wide.y + dy);
+            frame.buffer_mut()[(inner.x + dx, inner.y + dy)] = scratch[from].clone();
+        }
+    }
 }
 
 /// A leaf's full value (`v`), wrapped, since the tree clips long values.
@@ -92,7 +111,8 @@ pub(super) fn node(id: &str, label: &str, value: &serde_yaml::Value, leaf_values
         scalar => {
             let full_value = scalar_to_string(scalar);
             leaf_values.insert(id.to_string(), (label.to_string(), full_value.clone()));
-            let text = Line::from(vec![Span::styled(format!("{label}: "), Style::default().fg(theme().namespace)), Span::raw(full_value)]);
+            let one_line = full_value.replace('\n', " ⏎ ");
+            let text = Line::from(vec![Span::styled(format!("{label}: "), Style::default().fg(theme().namespace)), Span::raw(one_line)]);
             TreeItem::new_leaf(id.to_string(), text)
         }
     }

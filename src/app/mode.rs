@@ -91,6 +91,8 @@ pub(crate) enum Mode {
         title: String,
         items: Vec<TreeItem<'static, String>>,
         state: TreeState<String>,
+        // How far the tree is scrolled sideways.
+        hscroll: usize,
         // Which way `a` last left the tree, so pressing it again does the opposite.
         expanded_all: bool,
         // Each leaf's full label and value by identifier, for `v`, since the tree clips them.
@@ -259,7 +261,7 @@ pub(crate) fn open_spec_value(mode: &mut Mode, title: String, value: serde_yaml:
     }
     // The current mode becomes `back`, so Esc returns to whatever opened this.
     let back = Box::new(std::mem::replace(mode, Mode::List));
-    *mode = Mode::Spec { title, items, state, expanded_all: false, leaf_values, viewing: None, back };
+    *mode = Mode::Spec { title, items, state, hscroll: 0, expanded_all: false, leaf_values, viewing: None, back };
 }
 
 /// Every identifier path in the tree, depth first, for `a` to expand all:

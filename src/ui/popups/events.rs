@@ -12,12 +12,11 @@ pub(in crate::ui) fn draw_events_popup(frame: &mut Frame, view: EventsView, dimm
 
     const HEADERS: [&str; 6] = ["TYPE", "REASON", "OBJECT", "KIND", "MESSAGE", "AGE"];
     // MESSAGE takes whatever room the other columns leave.
-    let window = layout_table(
+    let window = layout_popup(
         &HEADERS,
         filtered.iter().map(|e| vec![cell_width("Warning"), cell_width(&e.reason), cell_width(&e.object), cell_width(&e.kind), cell_width(&e.message), cell_width(&e.age)]),
         area.width.saturating_sub(2),
         Some(4),
-        &mut 0,
     );
     let header = header_row(&HEADERS, sort, dimmed, &window);
     let cell_style = theme_row(dimmed);
@@ -81,12 +80,11 @@ pub(in crate::ui) fn draw_problems(frame: &mut Frame, view: ProblemsView) {
     const HEADERS: [&str; 6] = ["", "KIND", "OBJECT", "PROBLEM", "DETAIL", "AGE"];
     let kind_of = |p: &crate::k8s::problems::Problem| p.kind.label().trim_end_matches('s').to_string();
     // DETAIL takes whatever room the other columns leave.
-    let window = layout_table(
+    let window = layout_popup(
         &HEADERS,
         problems.iter().map(|p| vec![1, cell_width(&kind_of(p)), cell_width(&p.place()), cell_width(&p.reason), cell_width(&p.detail), cell_width(&p.age)]),
         area.width.saturating_sub(2),
         Some(4),
-        &mut 0,
     );
     let header = header_row(&HEADERS, SortState::default(), false, &window);
     let plain = theme_row(false);

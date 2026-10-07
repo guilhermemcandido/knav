@@ -300,7 +300,7 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, None, true);
                 })?;
             }
-            Mode::Spec { title, items, state, viewing, back, .. } => {
+            Mode::Spec { title, items, state, hscroll, viewing, back, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     // Outside the `if let` below, since the background overlay borrows it.
@@ -333,9 +333,9 @@ pub(super) fn draw_mode(
                     // While a leaf's value is shown, the tree becomes the dimmed background.
                     let (background, overlay) = match viewing {
                         Some((label, value)) => {
-                            (Some(ui::Overlay::Spec { title, items, state }), ui::Overlay::ValueDetail { label, value })
+                            (Some(ui::Overlay::Spec { title, items, state, hscroll }), ui::Overlay::ValueDetail { label, value })
                         }
-                        None => (node_background, ui::Overlay::Spec { title, items, state }),
+                        None => (node_background, ui::Overlay::Spec { title, items, state, hscroll }),
                     };
                     paint(frame, None, background, Some(overlay), false);
                 })?;

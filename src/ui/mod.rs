@@ -54,7 +54,7 @@ pub use self::graph::{DEFAULT_ZOOM, Move, graph_hit, layout as graph_layout, nei
 pub use self::header::*;
 pub use self::loading::{Loading, Step, draw_loading};
 use self::help::draw_help;
-pub use self::layout::{configure_columns, set_data_version};
+pub use self::layout::{configure_columns, popup_hscroll, set_data_version, set_popup_hscroll};
 use self::layout::*;
 pub use self::path_bar::SelectedItem;
 use self::path_bar::*;
@@ -155,7 +155,7 @@ pub struct PermissionsView<'a> {
 }
 
 pub enum Overlay<'a> {
-    Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String> },
+    Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String>, hscroll: &'a mut usize },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs(LogsView<'a>),
     NodeDetail(NodeDetailView<'a>),
@@ -655,7 +655,7 @@ fn paint_theme_base(frame: &mut Frame) {
 /// overlays that can be backgrounds.
 pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
-        Overlay::Spec { title, items, state } => draw_spec_popup(frame, title, items, state, dimmed),
+        Overlay::Spec { title, items, state, hscroll } => draw_spec_popup(frame, title, items, state, hscroll, dimmed),
         Overlay::Containers { title, containers, state, sort } => draw_containers_popup(frame, title, containers, state, sort, dimmed),
         Overlay::Logs(view) => draw_logs_popup(frame, view),
         Overlay::NodeDetail(view) => draw_node_detail_popup(frame, view, dimmed),

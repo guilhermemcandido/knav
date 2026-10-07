@@ -171,6 +171,26 @@ pub(super) fn layout_table(
     window
 }
 
+/// How far the open popup's table is scrolled sideways, in columns. Popups share it,
+/// and the app resets it whenever the screen changes.
+static POPUP_HSCROLL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn popup_hscroll() -> usize {
+    POPUP_HSCROLL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_popup_hscroll(columns: usize) {
+    POPUP_HSCROLL.store(columns, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `layout_table` for a popup, scrolled by the shared sideways position.
+pub(super) fn layout_popup(headers: &[&str], rows: impl Iterator<Item = Vec<usize>>, available: u16, flex: Option<usize>) -> Window {
+    let mut hscroll = popup_hscroll();
+    let window = layout_table(headers, rows, available, flex, &mut hscroll);
+    set_popup_hscroll(hscroll);
+    window
+}
+
 /// `layout_table` for the main lists, scanning every row's widths only once per data
 /// change rather than every frame.
 pub(super) fn layout_list(

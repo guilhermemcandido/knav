@@ -73,7 +73,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => *viewing = None,
             _ => {}
         },
-        (Event::Key(key), Mode::Spec { items, state, expanded_all, leaf_values, viewing, back, .. }) => match key.code {
+        (Event::Key(key), Mode::Spec { items, state, hscroll, expanded_all, leaf_values, viewing, back, .. }) => match key.code {
             KeyCode::Char('q') | KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             KeyCode::Char('j') | KeyCode::Down => {
                 state.key_down();
@@ -84,6 +84,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter | KeyCode::Char(' ') => {
                 state.toggle_selected();
             }
+            // The tree is drawn clipped; the draw keeps this within the widest line.
+            KeyCode::Left | KeyCode::Char('h') => *hscroll = hscroll.saturating_sub(SIDEWAYS),
+            KeyCode::Right | KeyCode::Char('l') => *hscroll += SIDEWAYS,
             // Toggles all open or all closed. `TreeState` can only close all in one call,
             // so opening walks every identifier.
             KeyCode::Char('a') => {
@@ -108,7 +111,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             _ => {}
         },
-        (Event::Mouse(mouse), Mode::Spec { state, .. }) => match mouse.kind {
+        (Event::Mouse(mouse), Mode::Spec { state, hscroll, .. }) => match mouse.kind {
+            _ if crate::app::nav::sideways(&mouse) == Some(true) => *hscroll += SIDEWAYS,
+            _ if crate::app::nav::sideways(&mouse) == Some(false) => *hscroll = hscroll.saturating_sub(SIDEWAYS),
             MouseEventKind::Down(_) => ui::click_tree(state, mouse.column, mouse.row),
             MouseEventKind::ScrollDown => {
                 state.scroll_down(1);
