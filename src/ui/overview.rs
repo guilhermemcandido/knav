@@ -106,8 +106,9 @@ pub(super) fn draw_top_panel(frame: &mut Frame, area: Rect, overview: &Overview,
 
 /// The live pod count, from the Pods tile.
 pub(super) fn workloads_pod_count(overview: &Overview) -> usize {
-    overview
-        .catalog
+    // Home may be showing only favorites, so read the full list.
+    let categories = if overview.all.is_empty() { &overview.catalog } else { &overview.all };
+    categories
         .iter()
         .find(|(section, _)| *section == "Workloads")
         .and_then(|(_, tiles)| tiles.iter().find(|(label, _)| *label == "Pods"))
