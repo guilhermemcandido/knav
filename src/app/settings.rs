@@ -60,6 +60,8 @@ pub fn registry() -> Vec<Setting> {
     add("ui.border", Appearance, "Boxes", "Box lines", choice(&["rounded", "thick", "double"]), false);
     add("ui.icons", Appearance, "Icons", "Show icons", Kind::Bool, false);
     add("ui.suggestion_icon_percent", Appearance, "Icons", "Command icon size (%)", Kind::Number { min: 30, max: 100 }, false);
+    add("home.default_view", General, "Home", "Open Home on", choice(&["auto", "favorites", "all"]), false);
+    add("home.favorites", General, "Home", "Favorites", Kind::List, false);
     add("startup.mode", Behaviour, "Startup", "Start with", choice(&["direct", "menu"]), true);
     add("read_only.enabled", Behaviour, "Safety", "Read-only everywhere", Kind::Bool, false);
     add("read_only.contexts", Behaviour, "Safety", "Read-only contexts", Kind::List, false);
@@ -126,6 +128,8 @@ pub fn describe(setting: &Setting) -> &'static str {
         "logs.timestamp_format" => "short shows the time only, full shows the whole timestamp. t toggles it in the log view.",
         "mouse.wheel_rows" => "How many rows one notch of the mouse wheel moves.",
         "mouse.double_click_ms" => "Two clicks on the same row or tile within this time count as a double-click and open it.",
+        "home.default_view" => "What Home shows when knav starts. auto opens the favorites once you have some, favorites and all always open that view. f switches it for the session.",
+        "home.favorites" => "The kinds pinned to Home, in order, like Pods, Deployments, apps.example.com. * pins or unpins the selected kind. A kind the cluster lacks stays here and shows grey.",
         "startup.mode" => "direct connects to your current kubeconfig context and opens Home. menu shows a cluster picker first, even with a single context. --context skips both.",
         "read_only.enabled" => "Block every change on every cluster: delete, edit, scale, restart, cordon and shells.",
         "highlight.contexts" => "Contexts whose header turns red, by name or pattern like prod*, so you notice where you are. P edits the same list.",

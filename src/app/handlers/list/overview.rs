@@ -26,8 +26,9 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             }
             // `f` switches Home between the pinned kinds and every category; `*` pins the tile.
             KeyCode::Char('f') => {
-                st.pinned.toggle_view();
-                ui::show_toast(if st.pinned.show_all { "Home: all kinds" } else { "Home: favorites" }.into(), true);
+                let all = crate::config::pinned::home(&st.config.home, st.home_all).is_some();
+                st.home_all = Some(all);
+                ui::show_toast(if all { "Home: all kinds" } else { "Home: favorites" }.into(), true);
                 // The cards are different ones now.
                 st.overview_selection = ui::OverviewSelection::Resources;
             }
@@ -50,7 +51,8 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                 {
                     let back = c == '[';
                     let at = col * 3 + item;
-                    if st.pinned.nudge(label, back) {
+                    if let Some(moved) = crate::config::pinned::nudged(&st.config.home.favorites, label, back) {
+                        save_favorites(st, moved);
                         let to = if back { at - 1 } else { at + 1 };
                         st.overview_selection = ui::OverviewSelection::Item(to / 3, to % 3);
                     }
@@ -80,14 +82,17 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                         && *label == k8s::ADD_FAVORITE
                     {
                         // Pinning happens on the full Home, where `*` marks a kind.
-                        st.pinned.toggle_view();
+                        st.home_all = Some(true);
                         st.overview_selection = ui::OverviewSelection::Resources;
                         ui::show_toast("Press * on a kind to pin it, f to come back".into(), true);
                     } else if let Some((_, items)) = overview.catalog.get(col)
                         && let Some((label, _)) = items.get(item)
-                        && let Some(kind) = catalog.kind_for_tile_label(label)
                     {
-                        st.switch_kind(kind);
+                        if overview.absent.iter().any(|a| a == label) {
+                            ui::show_toast(format!("{label} is not in this cluster"), false);
+                        } else if let Some(kind) = catalog.kind_for_tile_label(label) {
+                            st.switch_kind(kind);
+                        }
                     }
                 }
             },
@@ -98,6 +103,26 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
 
 /// Pins or unpins a kind's tile, and says which.
 pub(super) fn pin_toast(st: &mut State, label: &str) {
-    let note = if st.pinned.toggle(label) { format!("Pinned {label} to Home") } else { format!("Unpinned {label}") };
-    ui::show_toast(note, true);
+    let (labels, pinned) = crate::config::pinned::toggled(&st.config.home.favorites, label);
+    if save_favorites(st, labels) {
+        ui::show_toast(if pinned { format!("Pinned {label} to Home") } else { format!("Unpinned {label}") }, true);
+    }
+}
+
+/// Writes the favorites to `config.toml`, which keeps them for the next start.
+fn save_favorites(st: &mut State, labels: Vec<String>) -> bool {
+    let mut array = toml_edit::Array::new();
+    for label in &labels {
+        array.push(label.as_str());
+    }
+    match crate::config::edit::save(&crate::config::Config::path(), "home.favorites", Some(toml_edit::Value::Array(array))) {
+        Ok(saved) => {
+            st.config.home = saved.home;
+            true
+        }
+        Err(e) => {
+            ui::show_toast(format!("Could not save the favorites: {e}"), false);
+            false
+        }
+    }
 }

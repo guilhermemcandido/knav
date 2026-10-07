@@ -161,7 +161,17 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         overview.pinned = pinned.to_vec();
         if let Some(pins) = home_pins {
             // Pinned kinds in their order, three to a column, then the card that adds more.
-            let mut tiles: Vec<(&'static str, usize)> = pins.iter().filter_map(|pin| overview.all.iter().flat_map(|(_, items)| items).find(|(label, _)| label == pin).copied()).collect();
+            let mut tiles: Vec<(&'static str, usize)> = Vec::new();
+            for pin in pins {
+                match overview.all.iter().flat_map(|(_, items)| items).find(|(label, _)| label == pin) {
+                    Some(tile) => tiles.push(*tile),
+                    // Kept so a kind this cluster lacks is still there on the next one.
+                    None => {
+                        tiles.push((intern(pin), 0));
+                        overview.absent.push(pin.clone());
+                    }
+                }
+            }
             tiles.push((k8s::ADD_FAVORITE, 0));
             overview.catalog = tiles.chunks(3).map(|column| ("", column.to_vec())).collect();
             overview.favorites = true;
@@ -352,6 +362,18 @@ impl Cache {
     pub(super) fn derived(&self) -> &Derived {
         &self.derived
     }
+}
+
+/// A label as a `&'static str`, leaked once however often it is asked for.
+fn intern(label: &str) -> &'static str {
+    static LABELS: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let mut labels = LABELS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(known) = labels.iter().find(|l| **l == label) {
+        return known;
+    }
+    let leaked: &'static str = Box::leak(label.to_string().into_boxed_str());
+    labels.push(leaked);
+    leaked
 }
 
 #[cfg(test)]

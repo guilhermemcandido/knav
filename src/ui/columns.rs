@@ -267,7 +267,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, bare: overview.favorites }, selection, dimmed, icons);
+        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, absent: &overview.absent, bare: overview.favorites }, selection, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -289,6 +289,8 @@ pub(super) struct Column<'a> {
     pub item_scroll: usize,
     /// Labels to star.
     pub pinned: &'a [String],
+    /// Favorites the cluster lacks, drawn grey.
+    pub absent: &'a [String],
     /// Part of the Favorites box, so it draws no box of its own.
     pub bare: bool,
 }
@@ -301,12 +303,14 @@ pub(super) struct Card<'a> {
     pub column_title: &'a str,
     pub selected: bool,
     pub pinned: bool,
+    /// Not in this cluster: grey, with no count.
+    pub absent: bool,
 }
 
 /// One column: a box titled with the category, listing its kinds as cards.
 /// `item_scroll` applies only to the selected column.
 pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selection: OverviewSelection, dimmed: bool, icons: &mut IconCache) {
-    let Column { index: col_idx, title, items, item_scroll, pinned, bare } = column;
+    let Column { index: col_idx, title, items, item_scroll, pinned, absent, bare } = column;
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
@@ -348,7 +352,7 @@ pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selecti
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label) }, dimmed, icons);
+        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label), absent: absent.iter().any(|a| a == label) }, dimmed, icons);
     }
     // Cards hidden above or below get a ▲ or ▼.
     if more_above {
@@ -370,11 +374,15 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 
 /// One card: the kind's icon, name and live count. Selected, its border is highlighted.
 pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
-    let Card { label, count, health, column_title, selected, pinned } = card;
+    let Card { label, count, health, column_title, selected, pinned, absent } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
         (muted, muted, muted)
+    } else if absent {
+        // Grey, but readable; the selection still shows on its border.
+        let grey = Style::default().fg(theme().muted);
+        (if selected { highlight } else { grey }, grey, grey)
     } else if selected {
         (highlight, highlight, Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD))
     } else {
@@ -398,7 +406,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
     // keeps a cell between the icon and the name. Without icons, one cell of margin.
     let roomy = inner.height >= 4;
     let adding = label == crate::k8s::ADD_FAVORITE;
-    let show_icon = icons.enabled() && !adding;
+    let show_icon = icons.enabled() && !adding && !absent;
     let icon_w = match (show_icon, roomy) {
         (false, _) => 1,
         (true, true) => 7,
@@ -419,7 +427,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
         }
     }
 
-    let count_text = if adding { String::new() } else { count.to_string() };
+    let count_text = if adding { String::new() } else if absent { "-".to_string() } else { count.to_string() };
     let label_width = (split[1].width as usize).saturating_sub(cell_width(&count_text) + 1).max(1);
     // A long name wraps onto a second row when the card has one, else it is cut.
     let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };
@@ -514,7 +522,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
             let health = (shows_health(label) && *count > 0).then(|| health.get(label).copied().unwrap_or_default());
-            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false }, false, icons);
+            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false, absent: false }, false, icons);
         }
     }
     // Rows hidden above or below get a ▲ or ▼.
@@ -627,7 +635,7 @@ mod icon_tests {
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, height)).unwrap();
         terminal
             .draw(|frame| {
-                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false };
+                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false, absent: false };
                 draw_column_item(frame, frame.area(), card, false, &mut icons);
             })
             .unwrap();

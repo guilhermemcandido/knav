@@ -261,6 +261,7 @@ mod events_popup_tests {
             all: vec![],
             pinned: vec![],
             favorites: false,
+            absent: vec![],
             health: Default::default(),
             report: None,
         };

@@ -226,6 +226,7 @@ mod overview_selection_tests {
             all: catalog.clone(),
             pinned: vec![],
             favorites: false,
+            absent: vec![],
             catalog,
             health: Default::default(),
             report: None,

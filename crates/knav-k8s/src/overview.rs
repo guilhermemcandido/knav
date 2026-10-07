@@ -24,6 +24,8 @@ pub struct Overview {
     pub pinned: Vec<String>,
     /// `catalog` is the Favorites box: its pinned kinds, three to a column, then the add card.
     pub favorites: bool,
+    /// Favorites this cluster doesn't have, such as a CRD it lacks.
+    pub absent: Vec<String>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
     /// Requests, phases and busiest namespaces, computed while the Resources view is open.
@@ -106,6 +108,7 @@ pub fn overview(
         all: catalog.clone(),
         pinned: Vec::new(),
         favorites: false,
+        absent: Vec::new(),
         catalog,
         health,
         report,

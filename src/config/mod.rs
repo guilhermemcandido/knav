@@ -319,6 +319,22 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
 }
 
 /// The ids of the extensions turned on.
+/// Home: the kinds pinned as favorites, and which view it opens in.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct HomeConfig {
+    /// Tile labels in order, kept even when a cluster lacks the kind.
+    pub favorites: Vec<String>,
+    /// `auto` (favorites once there are some), `favorites` or `all`.
+    pub default_view: String,
+}
+
+impl Default for HomeConfig {
+    fn default() -> Self {
+        HomeConfig { favorites: Vec::new(), default_view: "auto".into() }
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct ExtensionsConfig {
@@ -338,6 +354,7 @@ pub struct Config {
     pub mouse: MouseConfig,
     pub api: ApiConfig,
     pub overview: OverviewConfig,
+    pub home: HomeConfig,
     pub extensions: ExtensionsConfig,
     pub read_only: ReadOnlyConfig,
     pub highlight: HighlightConfig,
