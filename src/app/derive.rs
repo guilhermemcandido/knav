@@ -160,19 +160,12 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let mut overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
         overview.pinned = pinned.to_vec();
         if let Some(pins) = home_pins {
-            // The categories as they are, holding only the pinned kinds.
-            let kept: Vec<(&'static str, Vec<(&'static str, usize)>)> = overview
-                .all
-                .iter()
-                .filter_map(|(title, items)| {
-                    let items: Vec<_> = items.iter().filter(|(label, _)| pins.iter().any(|p| p == label)).copied().collect();
-                    (!items.is_empty()).then_some((*title, items))
-                })
-                .collect();
-            if !kept.is_empty() {
-                overview.catalog = kept;
-                overview.pinned.clear();
-            }
+            // Pinned kinds in their order, three to a column, then the card that adds more.
+            let mut tiles: Vec<(&'static str, usize)> = pins.iter().filter_map(|pin| overview.all.iter().flat_map(|(_, items)| items).find(|(label, _)| label == pin).copied()).collect();
+            tiles.push((k8s::ADD_FAVORITE, 0));
+            overview.catalog = tiles.chunks(3).map(|column| ("", column.to_vec())).collect();
+            overview.favorites = true;
+            overview.pinned.clear();
         }
         // Only for the kind on screen; `resolve` starts a CRD's watch on first open.
         // `generic_visible` maps a display row back to the index `spec_at` needs.

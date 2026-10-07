@@ -4,6 +4,9 @@ use k8s_openapi::api::core::v1::{Event, Node};
 
 use super::*;
 
+/// The Favorites box's last card, which leads to pinning more kinds.
+pub const ADD_FAVORITE: &str = "+ Add favorite";
+
 /// What the Overview shows: usage, the kind catalog and the newest-first events.
 pub struct Overview {
     pub events: Vec<EventEntry>,
@@ -19,6 +22,8 @@ pub struct Overview {
     pub all: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     /// Pinned kinds' labels, starred on Home while it shows every category.
     pub pinned: Vec<String>,
+    /// `catalog` is the Favorites box: its pinned kinds, three to a column, then the add card.
+    pub favorites: bool,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
     /// Requests, phases and busiest namespaces, computed while the Resources view is open.
@@ -100,6 +105,7 @@ pub fn overview(
         metrics_available: usage.is_some(),
         all: catalog.clone(),
         pinned: Vec::new(),
+        favorites: false,
         catalog,
         health,
         report,

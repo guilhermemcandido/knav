@@ -24,19 +24,32 @@ impl PinnedKinds {
 
     fn parse(text: &str) -> Self {
         let mut pinned = PinnedKinds::default();
+        let mut view = None;
         for line in text.lines() {
             match line.split_once('\t') {
                 Some(("kind", label)) if !pinned.labels.iter().any(|l| l == label) => pinned.labels.push(label.to_string()),
-                Some(("view", "all")) => pinned.show_all = true,
+                Some(("view", which)) => view = Some(which == "all"),
                 _ => {}
             }
         }
+        // With no choice saved, Home shows every kind until something is pinned.
+        pinned.show_all = view.unwrap_or(pinned.labels.is_empty());
         pinned
     }
 
     /// The labels Home shows instead of the categories, if it is showing favorites.
     pub(crate) fn home(&self) -> Option<&[String]> {
-        (!self.show_all && !self.labels.is_empty()).then_some(self.labels.as_slice())
+        (!self.show_all).then_some(self.labels.as_slice())
+    }
+
+    /// Moves a pinned kind one place earlier (`back`) or later. True when it moved.
+    pub(crate) fn nudge(&mut self, label: &str, back: bool) -> bool {
+        let Some(at) = self.labels.iter().position(|l| l == label) else { return false };
+        let to = if back { at.checked_sub(1) } else { Some(at + 1).filter(|i| *i < self.labels.len()) };
+        let Some(to) = to else { return false };
+        self.labels.swap(at, to);
+        self.save();
+        true
     }
 
     pub(crate) fn contains(&self, label: &str) -> bool {
@@ -64,9 +77,7 @@ impl PinnedKinds {
     fn save(&self) {
         let path = Self::path();
         let mut out: Vec<String> = self.labels.iter().map(|l| format!("kind\t{l}")).collect();
-        if self.show_all {
-            out.push("view\tall".into());
-        }
+        out.push(format!("view\t{}", if self.show_all { "all" } else { "favorites" }));
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -84,7 +95,7 @@ mod tests {
     #[test]
     fn home_shows_favorites_only_when_there_are_some() {
         let mut pinned = PinnedKinds::default();
-        assert_eq!(pinned.home(), None);
+        assert_eq!(pinned.home(), Some(&[][..]));
         pinned.labels.push("Pods".into());
         assert_eq!(pinned.home(), Some(&["Pods".to_string()][..]));
         pinned.show_all = true;
@@ -96,5 +107,16 @@ mod tests {
         let pinned = PinnedKinds::parse("kind\tPods\nkind\tPods\nkind\tNodes\nview\tall\n");
         assert_eq!(pinned.labels, ["Pods", "Nodes"]);
         assert!(pinned.show_all);
+        assert!(PinnedKinds::parse("").show_all, "nothing pinned yet: every kind");
+        assert!(!PinnedKinds::parse("kind\tPods\n").show_all);
+    }
+
+    #[test]
+    fn nudging_swaps_neighbours_and_stops_at_the_ends() {
+        let mut pinned = PinnedKinds { labels: vec!["A".into(), "B".into(), "C".into()], show_all: false };
+        assert!(!pinned.nudge("A", true));
+        assert!(pinned.nudge("A", false));
+        assert_eq!(pinned.labels, ["B", "A", "C"]);
+        assert!(!pinned.nudge("C", false));
     }
 }

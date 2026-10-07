@@ -224,6 +224,7 @@ mod overview_selection_tests {
             metrics_available: false,
             all: catalog.clone(),
             pinned: vec![],
+            favorites: false,
             catalog,
             health: Default::default(),
             report: None,

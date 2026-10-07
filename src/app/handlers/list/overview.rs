@@ -27,14 +27,33 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             // `f` switches Home between the pinned kinds and every category; `*` pins the tile.
             KeyCode::Char('f') => {
                 st.pinned.toggle_view();
-                let note = if st.pinned.show_all { "Home: all kinds" } else if st.pinned.labels.is_empty() { "Home: all kinds (pin some with *)" } else { "Home: favorites" };
-                ui::show_toast(note.into(), true);
+                ui::show_toast(if st.pinned.show_all { "Home: all kinds" } else { "Home: favorites" }.into(), true);
+                // The cards are different ones now.
+                st.overview_selection = ui::OverviewSelection::Resources;
             }
             KeyCode::Char('*') => {
                 if let ui::OverviewSelection::Item(col, item) = st.overview_selection
                     && let Some((label, _)) = overview.catalog.get(col).and_then(|(_, items)| items.get(item))
                 {
                     pin_toast(st, label);
+                    if overview.favorites {
+                        // That card is gone, so the selection would point past the end.
+                        st.overview_selection = ui::OverviewSelection::Resources;
+                    }
+                }
+            }
+            // `[` and `]` move the selected favorite earlier or later.
+            KeyCode::Char(c @ ('[' | ']')) if overview.favorites => {
+                if let ui::OverviewSelection::Item(col, item) = st.overview_selection
+                    && let Some((label, _)) = overview.catalog.get(col).and_then(|(_, items)| items.get(item))
+                    && *label != k8s::ADD_FAVORITE
+                {
+                    let back = c == '[';
+                    let at = col * 3 + item;
+                    if st.pinned.nudge(label, back) {
+                        let to = if back { at - 1 } else { at + 1 };
+                        st.overview_selection = ui::OverviewSelection::Item(to / 3, to % 3);
+                    }
                 }
             }
             KeyCode::Char('T') => crate::app::handlers::themes::open(st, cx.config),
@@ -58,6 +77,14 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                 ui::OverviewSelection::Item(col, item) => {
                     if let Some((_, items)) = overview.catalog.get(col)
                         && let Some((label, _)) = items.get(item)
+                        && *label == k8s::ADD_FAVORITE
+                    {
+                        // Pinning happens on the full Home, where `*` marks a kind.
+                        st.pinned.toggle_view();
+                        st.overview_selection = ui::OverviewSelection::Resources;
+                        ui::show_toast("Press * on a kind to pin it, f to come back".into(), true);
+                    } else if let Some((_, items)) = overview.catalog.get(col)
+                        && let Some((label, _)) = items.get(item)
                         && let Some(kind) = catalog.kind_for_tile_label(label)
                     {
                         st.switch_kind(kind);
@@ -71,10 +98,6 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
 
 /// Pins or unpins a kind's tile, and says which.
 pub(super) fn pin_toast(st: &mut State, label: &str) {
-    // Pinning from the full view keeps it; `f` switches to the favorites.
-    if st.pinned.home().is_none() && !st.pinned.show_all {
-        st.pinned.toggle_view();
-    }
     let note = if st.pinned.toggle(label) { format!("Pinned {label} to Home") } else { format!("Unpinned {label}") };
     ui::show_toast(note, true);
 }

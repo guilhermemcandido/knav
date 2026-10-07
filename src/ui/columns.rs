@@ -101,6 +101,15 @@ pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rec
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
+/// Where the `shown` visible columns go. Favorites keeps the places of a full Home and
+/// fills them from the left, so its box lines up with the boxes above it.
+pub(super) fn column_areas(inner: Rect, shown: usize, total: usize, favorites: bool) -> Vec<Rect> {
+    if !favorites {
+        return column_layout(inner, shown).to_vec();
+    }
+    column_layout(inner, visible_columns(inner.width, total.max(4))).iter().take(shown).copied().collect()
+}
+
 /// The strip the visible columns span, which the boxes above line up with.
 pub(super) fn columns_span(area: Rect, total: usize) -> Rect {
     let inner = columns_inner(area);
@@ -187,7 +196,7 @@ pub fn column_hit(
     }
     let cols_visible = visible_columns(area.width, total);
     let col_scroll = col_scroll.min(total - cols_visible);
-    let areas = column_layout(area, cols_visible);
+    let areas = column_areas(area, cols_visible, total, overview.favorites);
     let col_i = areas.iter().position(|r| column >= r.x && column < r.x + r.width)?;
     let col_area = areas[col_i];
     let col_idx = col_scroll + col_i;
@@ -219,7 +228,13 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
     let inner = columns_inner(area);
     let cols_visible = visible_columns(inner.width, total);
     let col_scroll = col_scroll.min(total - cols_visible);
-    let areas = column_layout(inner, cols_visible);
+    let areas = column_areas(inner, cols_visible, total, overview.favorites);
+    if overview.favorites {
+        let span = columns_span(area, total);
+        let border = if dimmed { dim_style() } else { Style::default() };
+        let title = Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) });
+        frame.render_widget(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border).title(title), Rect { x: span.x, width: span.width, ..inner });
+    }
     let active_col = match selection {
         OverviewSelection::Header(c) | OverviewSelection::Item(c, _) => c,
         OverviewSelection::Resources | OverviewSelection::Events(_) => usize::MAX,
@@ -228,7 +243,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned }, selection, dimmed, icons);
+        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, bare: overview.favorites }, selection, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -250,6 +265,8 @@ pub(super) struct Column<'a> {
     pub item_scroll: usize,
     /// Labels to star.
     pub pinned: &'a [String],
+    /// Part of the Favorites box, so it draws no box of its own.
+    pub bare: bool,
 }
 
 /// What one card shows.
@@ -265,7 +282,7 @@ pub(super) struct Card<'a> {
 /// One column: a box titled with the category, listing its kinds as cards.
 /// `item_scroll` applies only to the selected column.
 pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selection: OverviewSelection, dimmed: bool, icons: &mut IconCache) {
-    let Column { index: col_idx, title, items, item_scroll, pinned } = column;
+    let Column { index: col_idx, title, items, item_scroll, pinned, bare } = column;
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
@@ -289,7 +306,9 @@ pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selecti
         .border_style(border_style)
         .title(Line::styled(format!(" {title} "), title_style));
     let inner = outer.inner(area);
-    frame.render_widget(outer, area);
+    if !bare {
+        frame.render_widget(outer, area);
+    }
 
     if items.is_empty() || inner.height < item_h {
         return;
@@ -354,7 +373,8 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
     // Roomy cards (the opened-up view) get a bigger icon and some padding; every card
     // keeps a cell between the icon and the name. Without icons, one cell of margin.
     let roomy = inner.height >= 4;
-    let show_icon = icons.enabled();
+    let adding = label == crate::k8s::ADD_FAVORITE;
+    let show_icon = icons.enabled() && !adding;
     let icon_w = match (show_icon, roomy) {
         (false, _) => 1,
         (true, true) => 7,
@@ -375,7 +395,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
         }
     }
 
-    let count_text = count.to_string();
+    let count_text = if adding { String::new() } else { count.to_string() };
     let label_width = (split[1].width as usize).saturating_sub(cell_width(&count_text) + 1).max(1);
     // A long name wraps onto a second row when the card has one, else it is cut.
     let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };
