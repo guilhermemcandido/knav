@@ -223,6 +223,7 @@ mod overview_selection_tests {
             pod_capacity: 0,
             metrics_available: false,
             all: catalog.clone(),
+            pinned: vec![],
             catalog,
             health: Default::default(),
             report: None,

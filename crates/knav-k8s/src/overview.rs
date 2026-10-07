@@ -17,6 +17,8 @@ pub struct Overview {
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     /// Every category, whatever Home shows in `catalog`; the sidebar lists these.
     pub all: Vec<(&'static str, Vec<(&'static str, usize)>)>,
+    /// Pinned kinds' labels, starred on Home while it shows every category.
+    pub pinned: Vec<String>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
     /// Requests, phases and busiest namespaces, computed while the Resources view is open.
@@ -97,6 +99,7 @@ pub fn overview(
         pod_capacity: node_allocatable_sum(nodes, "pods", |s| s.parse().unwrap_or(0)),
         metrics_available: usage.is_some(),
         all: catalog.clone(),
+        pinned: Vec::new(),
         catalog,
         health,
         report,

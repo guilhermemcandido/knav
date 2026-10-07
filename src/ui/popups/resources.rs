@@ -259,6 +259,7 @@ mod events_popup_tests {
             metrics_available: false,
             catalog: vec![("Workloads", vec![("Pods", 17), ("Deployments", 4)])],
             all: vec![],
+            pinned: vec![],
             health: Default::default(),
             report: None,
         };
