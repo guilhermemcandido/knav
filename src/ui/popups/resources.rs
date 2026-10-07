@@ -258,6 +258,7 @@ mod events_popup_tests {
             pod_capacity: 0,
             metrics_available: false,
             catalog: vec![("Workloads", vec![("Pods", 17), ("Deployments", 4)])],
+            all: vec![],
             health: Default::default(),
             report: None,
         };

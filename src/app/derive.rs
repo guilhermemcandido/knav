@@ -45,6 +45,8 @@ pub(super) struct Query<'a> {
     pub wide: bool,
     /// The Overview's category order and hidden entries.
     pub layout: &'a crate::config::OverviewConfig,
+    /// The kinds Home shows in one Favorites column instead of the categories.
+    pub home_pins: Option<&'a [String]>,
     /// Ids of the enabled extensions.
     pub extensions_enabled: &'a [String],
 }
@@ -65,7 +67,7 @@ pub(super) struct Sources<'a> {
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx, client, forwards, registry } = *src;
     let pod_usage = pod_usage_rx.borrow().clone();
-    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, extensions_enabled } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // The Overview stays cluster-wide even with a namespace set. `search` is cleared
@@ -153,7 +155,13 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             Default::default()
         };
         let report = matches!(mode, Mode::ResourcesDetail).then(|| k8s::report::report(&pod_store.objects()));
-        let overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
+        let mut overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
+        if let Some(pins) = home_pins {
+            let tiles: Vec<(&'static str, usize)> = pins.iter().filter_map(|pin| overview.all.iter().flat_map(|(_, items)| items).find(|(label, _)| label == pin).copied()).collect();
+            if !tiles.is_empty() {
+                overview.catalog = vec![("Favorites", tiles)];
+            }
+        }
         // Only for the kind on screen; `resolve` starts a CRD's watch on first open.
         // `generic_visible` maps a display row back to the index `spec_at` needs.
     // A list narrowed to one namespace (the filter, or inside a namespaced owner) only
@@ -296,7 +304,7 @@ const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
 fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
     let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
     format!(
-        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{forwards:?}",
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{forwards:?}",
         q.current_kind,
         q.namespace,
         q.scope,
@@ -311,6 +319,7 @@ fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
         if let Mode::ColumnDetail { col, .. } = mode { Some(*col) } else { None },
         matches!(mode, Mode::ResourcesDetail),
         matches!(mode, Mode::Problems { .. }),
+        q.home_pins,
     )
 }
 

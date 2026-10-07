@@ -121,6 +121,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             faults: st.faults_only,
             wide: st.wide,
             layout: &st.config.overview,
+            home_pins: st.pinned.home(),
             extensions_enabled: &st.config.extensions.enabled,
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);

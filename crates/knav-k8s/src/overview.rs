@@ -15,6 +15,8 @@ pub struct Overview {
     pub metrics_available: bool,
     /// Each section's title with its kinds and counts, built by the caller.
     pub catalog: Vec<(&'static str, Vec<(&'static str, usize)>)>,
+    /// Every category, whatever Home shows in `catalog`; the sidebar lists these.
+    pub all: Vec<(&'static str, Vec<(&'static str, usize)>)>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
     /// Requests, phases and busiest namespaces, computed while the Resources view is open.
@@ -94,6 +96,7 @@ pub fn overview(
         memory_capacity_bytes: node_allocatable_sum(nodes, "memory", crate::metrics::parse_memory_bytes),
         pod_capacity: node_allocatable_sum(nodes, "pods", |s| s.parse().unwrap_or(0)),
         metrics_available: usage.is_some(),
+        all: catalog.clone(),
         catalog,
         health,
         report,

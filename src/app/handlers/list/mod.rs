@@ -186,6 +186,13 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.sort_choosing = true;
                 st.sort_cursor = st.sort.map_or(0, |s| s.column);
             }
+            // `*` pins this kind to Home's favorites, or unpins it.
+            KeyCode::Char('*') => {
+                let label = st.current_kind.label();
+                if cx.d.overview.all.iter().any(|(_, items)| items.iter().any(|(l, _)| *l == label)) {
+                    overview::pin_toast(st, label);
+                }
+            }
             // `A` sorts by age; again flips the direction, then clears it.
             KeyCode::Char('A') => {
                 if let Some(column) = age_column(st.current_kind, *generic_columns, st.wide) {

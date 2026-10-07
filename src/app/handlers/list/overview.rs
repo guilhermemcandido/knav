@@ -24,6 +24,19 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             KeyCode::Char('l') | KeyCode::Right => {
                 st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Right);
             }
+            // `f` switches Home between the pinned kinds and every category; `*` pins the tile.
+            KeyCode::Char('f') => {
+                st.pinned.toggle_view();
+                let note = if st.pinned.show_all { "Home: all kinds" } else if st.pinned.labels.is_empty() { "Home: all kinds (pin some with *)" } else { "Home: favorites" };
+                ui::show_toast(note.into(), true);
+            }
+            KeyCode::Char('*') => {
+                if let ui::OverviewSelection::Item(col, item) = st.overview_selection
+                    && let Some((label, _)) = overview.catalog.get(col).and_then(|(_, items)| items.get(item))
+                {
+                    pin_toast(st, label);
+                }
+            }
             KeyCode::Char('T') => crate::app::handlers::themes::open(st, cx.config),
             KeyCode::Char(',') => crate::app::handlers::settings::open(st),
             KeyCode::Enter => match st.overview_selection {
@@ -54,4 +67,14 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             _ => {}
         }
         keep_overview_selection_visible(st, overview, frame_area);
+}
+
+/// Pins or unpins a kind's tile, and says which.
+pub(super) fn pin_toast(st: &mut State, label: &str) {
+    // Pinning from the full view keeps it; `f` switches to the favorites.
+    if st.pinned.home().is_none() && !st.pinned.show_all {
+        st.pinned.toggle_view();
+    }
+    let note = if st.pinned.toggle(label) { format!("Pinned {label} to Home") } else { format!("Unpinned {label}") };
+    ui::show_toast(note, true);
 }

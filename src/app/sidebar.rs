@@ -26,7 +26,7 @@ pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, cat
         other => other,
     };
     let mut out = vec![Entry { row: ui::SidebarRow { label: "Home".into(), heading: false, collapsed: false, count: None, current: current == ResourceKind::Overview }, kind: Some(ResourceKind::Overview), section: "" }];
-    for (title, items) in &overview.catalog {
+    for (title, items) in &overview.all {
         let collapsed = folded.contains(title);
         let mut kinds: Vec<(&'static str, Option<usize>, ResourceKind)> = items.iter().filter_map(|(label, count)| catalog.kind_for_tile_label(label).map(|kind| (*label, Some(*count), kind))).collect();
         // Port-forwards are knav's own, so the catalog has no tile for them.

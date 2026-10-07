@@ -100,6 +100,8 @@ pub(super) struct State {
     /// How many columns the list is scrolled right when they don't all fit.
     pub hscroll: usize,
     pub favorites: Favorites,
+    /// The kinds pinned to Home.
+    pub pinned: crate::config::pinned::PinnedKinds,
     /// The active `/` filter, empty for everything. Cleared when the kind changes.
     pub search: String,
     /// Whether the help (`?`) is open.
@@ -196,6 +198,7 @@ impl State {
             sort_cursor: 0,
             hscroll: 0,
             favorites,
+            pinned: crate::config::pinned::PinnedKinds::load(),
             search: String::new(),
             show_hints_panel: false,
             icons,

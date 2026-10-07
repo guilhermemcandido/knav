@@ -1,6 +1,7 @@
 //! The `config.toml` file and its defaults.
 
 pub mod favorites;
+pub mod pinned;
 pub mod edit;
 pub mod tunables;
 

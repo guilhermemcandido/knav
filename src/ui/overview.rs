@@ -222,6 +222,7 @@ mod overview_selection_tests {
             memory_capacity_bytes: 0,
             pod_capacity: 0,
             metrics_available: false,
+            all: catalog.clone(),
             catalog,
             health: Default::default(),
             report: None,
