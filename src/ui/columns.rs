@@ -305,6 +305,8 @@ pub(super) struct Card<'a> {
     pub pinned: bool,
     /// Not in this cluster: grey, with no count.
     pub absent: bool,
+    /// A Favorites card: the name and count are centered, with room around them.
+    pub big: bool,
 }
 
 /// One column: a box titled with the category, listing its kinds as cards.
@@ -352,7 +354,7 @@ pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selecti
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label), absent: absent.iter().any(|a| a == label) }, dimmed, icons);
+        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label), absent: absent.iter().any(|a| a == label), big: bare }, dimmed, icons);
     }
     // Cards hidden above or below get a ▲ or ▼.
     if more_above {
@@ -374,7 +376,7 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 
 /// One card: the kind's icon, name and live count. Selected, its border is highlighted.
 pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
-    let Card { label, count, health, column_title, selected, pinned, absent } = card;
+    let Card { label, count, health, column_title, selected, pinned, absent, big } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
@@ -427,7 +429,18 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
         }
     }
 
-    let count_text = if adding { String::new() } else if absent { "-".to_string() } else { count.to_string() };
+    let mut count_text = if adding { String::new() } else if absent { "-".to_string() } else { count.to_string() };
+    if big && !adding && inner.height >= 3 {
+        // Name over count, centered in the card.
+        let name_style = text_style.add_modifier(Modifier::BOLD);
+        let count_style = count_style.add_modifier(Modifier::BOLD);
+        let mut lines: Vec<Line> = vec![Line::raw(""); usize::from(inner.height.saturating_sub(2) / 2)];
+        let room = usize::from(split[1].width);
+        lines.push(Line::styled(truncate(label, room), name_style));
+        lines.push(Line::styled(std::mem::take(&mut count_text), count_style));
+        frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), split[1]);
+        return;
+    }
     let label_width = (split[1].width as usize).saturating_sub(cell_width(&count_text) + 1).max(1);
     // A long name wraps onto a second row when the card has one, else it is cut.
     let wrapped = if inner.height >= 2 { wrap_label(label, label_width) } else { None };
@@ -522,7 +535,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
             let health = (shows_health(label) && *count > 0).then(|| health.get(label).copied().unwrap_or_default());
-            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false, absent: false }, false, icons);
+            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false, absent: false, big: false }, false, icons);
         }
     }
     // Rows hidden above or below get a ▲ or ▼.
@@ -635,7 +648,7 @@ mod icon_tests {
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, height)).unwrap();
         terminal
             .draw(|frame| {
-                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false, absent: false };
+                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false, absent: false, big: false };
                 draw_column_item(frame, frame.area(), card, false, &mut icons);
             })
             .unwrap();
