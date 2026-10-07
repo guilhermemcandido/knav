@@ -56,9 +56,6 @@ pub fn item_height(_items: &[(&str, usize)], _column_width: u16) -> u16 {
     ITEM_HEIGHT
 }
 
-pub fn column_item_height(_overview: &Overview, _col: usize) -> u16 {
-    ITEM_HEIGHT
-}
 /// Width of the scroll arrow gutters beside the columns.
 pub(super) const SCROLL_ARROW_WIDTH: u16 = 1;
 
@@ -106,13 +103,36 @@ pub(super) fn home_columns(overview: &Overview) -> usize {
     overview.all.len().max(overview.catalog.len())
 }
 
+/// The Favorites box's columns: at most four, sharing the width of a full Home equally.
+fn favorites_layout(inner: Rect, overview: &Overview) -> Vec<Rect> {
+    let full = column_layout(inner, visible_columns(inner.width, home_columns(overview)));
+    let (Some(first), Some(last)) = (full.first(), full.last()) else { return Vec::new() };
+    let width = last.x + last.width - first.x;
+    let n = (((width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize).min(4);
+    let each = width.saturating_sub(n as u16 - 1) / n as u16;
+    (0..n).map(|i| Rect { x: first.x + i as u16 * (each + 1), width: each, ..inner }).collect()
+}
+
+/// How many columns show at once in `area` (the columns area).
+pub fn shown_columns(area: Rect, overview: &Overview) -> usize {
+    let inner = columns_inner(area);
+    let total = overview.catalog.len();
+    if overview.favorites { favorites_layout(inner, overview).len().min(total) } else { visible_columns(inner.width, total) }
+}
+
 /// Where the `shown` visible columns go. Favorites keeps the places of a full Home and
 /// fills them from the left, so its box lines up with the boxes above it.
 pub(super) fn column_areas(inner: Rect, shown: usize, overview: &Overview) -> Vec<Rect> {
     if !overview.favorites {
         return column_layout(inner, shown).to_vec();
     }
-    column_layout(inner, visible_columns(inner.width, home_columns(overview))).iter().take(shown).copied().collect()
+    favorites_layout(inner, overview).into_iter().take(shown).collect()
+}
+
+/// A card's height in a column area `area_height` tall. Favorites share the height
+/// three ways, so its cards fill the box.
+pub fn card_height(overview: &Overview, area_height: u16) -> u16 {
+    if overview.favorites { (area_height.saturating_sub(4) / 3).max(ITEM_HEIGHT) } else { ITEM_HEIGHT }
 }
 
 /// The strip the visible columns span, which the boxes above line up with.
@@ -198,7 +218,7 @@ pub fn column_hit(
     if total == 0 {
         return None;
     }
-    let cols_visible = visible_columns(area.width, total);
+    let cols_visible = shown_columns(columns_area(frame_area, overview), overview);
     let col_scroll = col_scroll.min(total - cols_visible);
     let areas = column_areas(area, cols_visible, overview);
     let col_i = areas.iter().position(|r| column >= r.x && column < r.x + r.width)?;
@@ -218,7 +238,7 @@ pub fn column_hit(
     }
     let scroll = if col_idx == active_col { item_scroll } else { 0 };
     let (_, items) = &overview.catalog[col_idx];
-    let item_i = ((row - inner.y - 1) / item_height(items, COLUMN_WIDTH)) as usize + scroll;
+    let item_i = ((row - inner.y - 1) / card_height(overview, col_area.height)) as usize + scroll;
     if item_i < items.len() { Some(OverviewSelection::Item(col_idx, item_i)) } else { None }
 }
 
@@ -230,7 +250,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         return;
     }
     let inner = columns_inner(area);
-    let cols_visible = visible_columns(inner.width, total);
+    let cols_visible = shown_columns(area, overview);
     let col_scroll = col_scroll.min(total - cols_visible);
     let areas = column_areas(inner, cols_visible, overview);
     if overview.favorites {
@@ -298,7 +318,7 @@ pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selecti
         (Style::default(), Style::default().add_modifier(Modifier::BOLD))
     };
 
-    let item_h = item_height(items, COLUMN_WIDTH);
+    let item_h = if bare { (area.height.saturating_sub(4) / 3).max(ITEM_HEIGHT) } else { item_height(items, COLUMN_WIDTH) };
     let visible = if items.is_empty() { 0 } else { visible_items_per_column(area.height, item_h) };
     let scroll = item_scroll.min(items.len().saturating_sub(visible));
     let more_above = !dimmed && scroll > 0;

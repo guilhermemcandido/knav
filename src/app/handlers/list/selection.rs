@@ -7,13 +7,13 @@ use super::*;
 pub(super) fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Overview, frame_area: Rect) {
     let columns_area = ui::columns_area(ui::beside_sidebar(frame_area, false, &st.chrome), overview);
     if let ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) = st.overview_selection {
-        let cols_visible = ui::visible_columns(columns_area.width, overview.catalog.len());
+        let cols_visible = ui::shown_columns(columns_area, overview);
         st.overview_col_scroll = ui::scroll_columns_to_show(st.overview_col_scroll, cols_visible, c);
         let target_item = match st.overview_selection {
             ui::OverviewSelection::Item(_, i) => i,
             _ => 0,
         };
-        let items_visible = ui::visible_items_per_column(columns_area.height, ui::column_item_height(overview, c));
+        let items_visible = ui::visible_items_per_column(columns_area.height, ui::card_height(overview, columns_area.height));
         st.overview_item_scroll = ui::scroll_columns_to_show(st.overview_item_scroll, items_visible, target_item);
     }
 }
