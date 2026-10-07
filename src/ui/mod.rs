@@ -507,7 +507,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
     // Header lines align with the boxes' content as it sits without the sidebar,
     // so opening it doesn't push them aside.
     let header_left = 1 + match &rows {
-        Rows::Overview(overview, ..) => columns_span(body_area(full, false), overview.catalog.len()).x,
+        Rows::Overview(overview, ..) => columns_span(body_area(full, false), columns::home_columns(overview)).x,
         _ => body_area(full, true).x,
     };
     // Digits only switch namespace on the plain list, so the line reads as

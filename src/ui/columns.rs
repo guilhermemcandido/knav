@@ -101,13 +101,18 @@ pub(super) fn column_layout(area: Rect, cols_visible: usize) -> std::rc::Rc<[Rec
     Layout::horizontal(constraints).spacing(1).split(area)
 }
 
+/// How many columns the full Home has, which sets the places the columns can take.
+pub(super) fn home_columns(overview: &Overview) -> usize {
+    overview.all.len().max(overview.catalog.len())
+}
+
 /// Where the `shown` visible columns go. Favorites keeps the places of a full Home and
 /// fills them from the left, so its box lines up with the boxes above it.
-pub(super) fn column_areas(inner: Rect, shown: usize, total: usize, favorites: bool) -> Vec<Rect> {
-    if !favorites {
+pub(super) fn column_areas(inner: Rect, shown: usize, overview: &Overview) -> Vec<Rect> {
+    if !overview.favorites {
         return column_layout(inner, shown).to_vec();
     }
-    column_layout(inner, visible_columns(inner.width, total.max(4))).iter().take(shown).copied().collect()
+    column_layout(inner, visible_columns(inner.width, home_columns(overview))).iter().take(shown).copied().collect()
 }
 
 /// The strip the visible columns span, which the boxes above line up with.
@@ -116,8 +121,7 @@ pub(super) fn columns_span(area: Rect, total: usize) -> Rect {
     if total == 0 {
         return area;
     }
-    // Home keeps its usual width however few categories it shows.
-    let layout = column_layout(inner, visible_columns(inner.width, total.max(4)));
+    let layout = column_layout(inner, visible_columns(inner.width, total));
     match (layout.first(), layout.last()) {
         (Some(first), Some(last)) => Rect { x: first.x, width: last.x + last.width - first.x, ..area },
         _ => area,
@@ -196,7 +200,7 @@ pub fn column_hit(
     }
     let cols_visible = visible_columns(area.width, total);
     let col_scroll = col_scroll.min(total - cols_visible);
-    let areas = column_areas(area, cols_visible, total, overview.favorites);
+    let areas = column_areas(area, cols_visible, overview);
     let col_i = areas.iter().position(|r| column >= r.x && column < r.x + r.width)?;
     let col_area = areas[col_i];
     let col_idx = col_scroll + col_i;
@@ -228,9 +232,9 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
     let inner = columns_inner(area);
     let cols_visible = visible_columns(inner.width, total);
     let col_scroll = col_scroll.min(total - cols_visible);
-    let areas = column_areas(inner, cols_visible, total, overview.favorites);
+    let areas = column_areas(inner, cols_visible, overview);
     if overview.favorites {
-        let span = columns_span(area, total);
+        let span = columns_span(area, home_columns(overview));
         let border = if dimmed { dim_style() } else { Style::default() };
         let title = Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) });
         frame.render_widget(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border).title(title), Rect { x: span.x, width: span.width, ..inner });

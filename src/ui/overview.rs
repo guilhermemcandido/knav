@@ -19,7 +19,7 @@ pub(super) fn draw_overview(frame: &mut Frame, area: Rect, overview: &Overview, 
     let OverviewView { selection, dimmed, .. } = view;
     let top_h = top_area_height(overview);
     let chunks = Layout::vertical([Constraint::Length(top_h), Constraint::Length(1), Constraint::Min(0)]).split(area);
-    let span = Rect { y: chunks[0].y, height: chunks[0].height, ..columns_span(area, overview.catalog.len()) };
+    let span = Rect { y: chunks[0].y, height: chunks[0].height, ..columns_span(area, super::columns::home_columns(overview)) };
     draw_top_panel(frame, span, overview, selection, dimmed);
     draw_columns(frame, chunks[2], overview, view, icons);
 }
