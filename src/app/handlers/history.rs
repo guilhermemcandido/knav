@@ -10,12 +10,11 @@ const SIDEWAYS: usize = 6;
 
 pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     let read_only = st.read_only();
-    let Mode::History { target, revisions, cursor, scroll, hscroll, on_diff, back } = &mut st.mode else { return Ok(None) };
+    let Mode::History { target, revisions, cursor, scroll, hscroll, on_diff, previous, back } = &mut st.mode else { return Ok(None) };
     let last = revisions.len().saturating_sub(1);
     let page = usize::from(cx.frame_area.height / 2).max(1);
     // The changes' length, to stop scrolling at their end.
-    let running = revisions.iter().find(|r| r.current).map(|r| r.template.as_str()).unwrap_or_default();
-    let diff = revisions.get(*cursor).map(|r| crate::ops::edit::diff(running, &r.template)).unwrap_or_default();
+    let (diff, _) = changes(revisions, *cursor, *previous);
     let bottom = diff.len().saturating_sub(1);
     // Far enough sideways that the longest line's end still shows.
     let right_edge = diff.iter().map(|(_, text)| text.chars().count()).max().unwrap_or(0).saturating_sub(SIDEWAYS);
@@ -26,6 +25,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Esc | KeyCode::Char('q') => st.mode = std::mem::replace(&mut **back, Mode::List),
                 // Tab, or the arrow toward a pane, moves between the revisions and the changes.
                 KeyCode::Tab | KeyCode::BackTab => *on_diff = !*on_diff,
+                // Switches between what a rollback changes and what the revision changed.
+                KeyCode::Char('v') => {
+                    *previous = !*previous;
+                    (*scroll, *hscroll) = (0, 0);
+                }
                 // On the changes, the arrows scroll sideways; past the left edge they go back.
                 KeyCode::Right | KeyCode::Char('l') if *on_diff => *hscroll = (*hscroll + SIDEWAYS).min(right_edge),
                 KeyCode::Left | KeyCode::Char('h') if *on_diff && *hscroll > 0 => *hscroll = hscroll.saturating_sub(SIDEWAYS),
@@ -77,4 +81,17 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         _ => {}
     }
     Ok(None)
+}
+
+/// The changes shown for revision `cursor`, and whether they are from the revision
+/// before it. The running revision always shows those, since a rollback to it changes
+/// nothing; the others show what a rollback would change unless `previous` is set.
+pub(crate) fn changes(revisions: &[k8s::rollout::Revision], cursor: usize, previous: bool) -> (Vec<(crate::ops::edit::DiffKind, String)>, bool) {
+    let Some(selected) = revisions.get(cursor) else { return (Vec::new(), false) };
+    if previous || selected.current {
+        let diff = revisions.get(cursor + 1).map(|older| crate::ops::edit::diff(&older.template, &selected.template)).unwrap_or_default();
+        return (diff, true);
+    }
+    let running = revisions.iter().find(|r| r.current).map(|r| r.template.as_str()).unwrap_or_default();
+    (crate::ops::edit::diff(running, &selected.template), false)
 }

@@ -274,7 +274,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let full = frame.area();
     let area = body_area(full, true);
     frame.render_widget(Clear, area);
-    let mut hints = if view.on_diff { vec![("↑↓←→", "scroll"), ("g/G", "top/bottom"), ("tab", "revisions")] } else { vec![("↑↓", "revision"), ("tab", "scroll changes")] };
+    let mut hints = if view.on_diff { vec![("↑↓←→", "scroll"), ("g/G", "top/bottom"), ("tab", "revisions"), ("v", "compare")] } else { vec![("↑↓", "revision"), ("tab", "scroll changes"), ("v", "compare")] };
     if !view.read_only {
         hints.push(("enter", "roll back"));
     }
@@ -309,13 +309,14 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
     let Some(selected) = view.revisions.get(view.cursor) else { return };
     let caption = Rect { y: inner.y + table_h + 1, height: 1, ..inner };
     let below = Rect { y: caption.y + 2, height: (inner.y + inner.height).saturating_sub(caption.y + 2), ..inner };
-    if selected.current {
-        frame.render_widget(Paragraph::new(Line::styled(format!("Revision {} is the one running.", selected.number), muted)), caption);
-        return;
-    }
     // The caption is lit while the arrows scroll the changes, and says where they are.
     let strong = Style::default().fg(if view.on_diff { theme().highlight } else { theme().text_strong }).add_modifier(Modifier::BOLD);
-    let mut caption_line = vec![Span::styled(format!("Rolling back to revision {} changes:", selected.number), strong)];
+    let heading = match (view.from_previous, selected.current) {
+        (true, true) => format!("Revision {} is running; it changed from the one before:", selected.number),
+        (true, false) => format!("Revision {} changed from the one before:", selected.number),
+        (false, _) => format!("Rolling back to revision {} changes:", selected.number),
+    };
+    let mut caption_line = vec![Span::styled(heading, strong)];
     let visible = usize::from(below.height);
     if view.diff.len() > visible {
         let end = (view.scroll + visible).min(view.diff.len());

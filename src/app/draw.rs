@@ -59,7 +59,8 @@ pub(super) fn draw_mode(
     // Every mode draws the same base screen, with its own overlay on top.
     let mut paint = |frame: &mut ratatui::Frame, hover: Option<ui::Hover>, background: Option<ui::Overlay>, overlay: Option<ui::Overlay>, editing: bool| {
         let screen = ui::Screen { rows: rows_view(), table_state: &mut *table_state, hints, show_hints_panel, path: Some(path), header: header_now, search: ui::Search { text: search, editing }, sort: sort_view, hscroll: &mut *hscroll, marked, chrome };
-        ui::draw(frame, screen, ui::Layers { hover, background, overlay }, icons)
+        ui::draw(frame, screen, ui::Layers { hover, background, overlay }, icons);
+        ui::after_frame(frame);
     };
         match mode {
             Mode::List => {
@@ -262,13 +263,12 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(ui::Overlay::Problems(view)), *editing);
                 })?;
             }
-            Mode::History { target, revisions, cursor, scroll, hscroll: history_hscroll, on_diff, .. } => {
-                let running = revisions.iter().find(|r| r.current).map(|r| r.template.as_str()).unwrap_or_default();
-                let diff = revisions.get(*cursor).map(|r| crate::ops::edit::diff(running, &r.template)).unwrap_or_default();
+            Mode::History { target, revisions, cursor, scroll, hscroll: history_hscroll, on_diff, previous, .. } => {
+                let (diff, from_previous) = super::handlers::history_changes(revisions, *cursor, *previous);
                 let title = target.label();
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let view = ui::HistoryView { title: &title, revisions, cursor: *cursor, diff: &diff, scroll: *scroll, hscroll: *history_hscroll, on_diff: *on_diff, read_only: *read_only };
+                    let view = ui::HistoryView { title: &title, revisions, cursor: *cursor, diff: &diff, scroll: *scroll, hscroll: *history_hscroll, on_diff: *on_diff, from_previous, read_only: *read_only };
                     paint(frame, None, None, Some(ui::Overlay::History(view)), false);
                 })?;
             }

@@ -6,6 +6,7 @@ mod custom;
 pub(crate) use custom::{hints as custom_hints, problems as custom_problems};
 mod edit;
 mod history;
+pub(crate) use history::changes as history_changes;
 mod extensions;
 mod inspect;
 mod list;
@@ -129,6 +130,12 @@ pub(super) fn open_debug(st: &mut State, cx: &Cx, target: &crate::ops::actions::
 }
 
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
+    if let Event::Mouse(mouse) = &event
+        && !matches!(st.mode, Mode::Shell { .. })
+        && select_with_mouse(mouse)
+    {
+        return Ok(None);
+    }
     let screen = std::mem::discriminant(&st.mode);
     let end = route(event, st, cx);
     // A popup table starts at its first column each time the screen changes.
@@ -138,11 +145,36 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     end
 }
 
+/// Dragging with the left button selects what is on screen and copies it on release.
+/// True when the event was part of a drag, so nothing else should act on it.
+fn select_with_mouse(mouse: &crossterm::event::MouseEvent) -> bool {
+    use crossterm::event::MouseButton::Left;
+    match mouse.kind {
+        MouseEventKind::Down(Left) => {
+            ui::selection_start(mouse.column, mouse.row);
+            false
+        }
+        MouseEventKind::Drag(Left) => ui::selection_drag(mouse.column, mouse.row),
+        MouseEventKind::Up(Left) => match ui::selection_finish() {
+            Some(text) => {
+                let lines = text.lines().count();
+                match crate::ops::clipboard::copy(&text) {
+                    Ok(_) => ui::show_toast(if lines > 1 { format!("Copied {lines} lines") } else { "Copied".to_string() }, true),
+                    Err(e) => ui::show_toast(format!("Copy failed: {e}"), false),
+                }
+                true
+            }
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 /// Whether the screen is a popup table whose columns can be scrolled sideways.
 fn scrolls_sideways(mode: &Mode) -> bool {
     matches!(
         mode,
-        Mode::Events { editing: false, .. } | Mode::Problems { editing: false, .. } | Mode::NodeDetail { editing: false, .. } | Mode::NamespacePick { editing: false, .. } | Mode::Containers { .. } | Mode::ResourcesDetail
+        Mode::Events { editing: false, .. } | Mode::Problems { editing: false, .. } | Mode::NodeDetail { editing: false, .. } | Mode::NamespacePick { editing: false, .. } | Mode::Containers { .. } | Mode::ResourcesDetail | Mode::Context { .. }
     )
 }
 

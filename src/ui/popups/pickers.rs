@@ -86,11 +86,14 @@ pub fn draw_context_picker(frame: &mut Frame, view: ContextView) {
     } else {
         let detail_w = items.iter().map(|c| cell_width(&context_detail(c))).max().unwrap_or(0) as u16;
         let name_room = usize::from(list.width.saturating_sub(3 + if detail_w > 0 { detail_w + 2 } else { 0 }));
+        // Long names scroll sideways with the arrows.
+        let shift = popup_hscroll().min(items.iter().map(|c| cell_width(&c.name)).max().unwrap_or(0).saturating_sub(name_room));
+        set_popup_hscroll(shift);
         let rows = items.iter().map(|c| {
             let dot = if c.is_current { Span::styled("●", Style::default().fg(theme().ok)) } else { Span::raw(" ") };
             Row::new(vec![
                 Cell::from(Line::from(dot)),
-                Cell::from(highlight_fuzzy(&truncate(&c.name, name_room), filter, Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD))),
+                Cell::from(highlight_fuzzy(&truncate(&c.name.chars().skip(shift).collect::<String>(), name_room), filter, Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD))),
                 Cell::from(Line::styled(context_detail(c), muted).right_aligned()),
             ])
         });

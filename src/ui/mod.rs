@@ -35,11 +35,13 @@ mod nav;
 mod overview;
 mod popups;
 mod sidebar;
+mod selection;
 mod spec;
 mod tables;
 mod style;
 
 pub use self::columns::*;
+pub use self::selection::{after_frame, selection_drag, selection_finish, selection_start, show_toast};
 use self::dashboard::draw_dashboard;
 pub use self::nav::*;
 pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, sidebar_area, sidebar_row_at};
@@ -129,12 +131,14 @@ pub struct HistoryView<'a> {
     pub title: &'a str,
     pub revisions: &'a [crate::k8s::rollout::Revision],
     pub cursor: usize,
-    /// From the running revision to the selected one.
+    /// From the running revision to the selected one, or from the one before it.
     pub diff: &'a [(crate::ops::edit::DiffKind, String)],
     pub scroll: usize,
     pub hscroll: usize,
     /// The arrows scroll the changes, which are highlighted.
     pub on_diff: bool,
+    /// The changes are from the revision before, not a rollback's.
+    pub from_previous: bool,
     pub read_only: bool,
 }
 

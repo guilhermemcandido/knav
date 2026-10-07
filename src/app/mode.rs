@@ -74,8 +74,9 @@ pub(crate) enum Mode {
     /// Everything that needs a look, across kinds; `search` filters it.
     Problems { state: TableState, search: String, editing: bool, back: Box<Mode> },
     /// A workload's revisions, newest first; `scroll` is into the changes below.
-    /// `on_diff`: the arrows scroll the changes rather than pick a revision.
-    History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, hscroll: usize, on_diff: bool, back: Box<Mode> },
+    /// `on_diff`: the arrows scroll the changes rather than pick a revision. `previous`:
+    /// show what the revision changed from the one before, not what a rollback changes.
+    History { target: Target, revisions: Vec<k8s::rollout::Revision>, cursor: usize, scroll: usize, hscroll: usize, on_diff: bool, previous: bool, back: Box<Mode> },
     /// `P`: this cluster's permission mode, and which contexts are always read-only.
     /// `input` is a context pattern being typed: which one it replaces, and the text.
     Permissions { tab: usize, cursor: usize, input: Option<(Option<usize>, String)>, error: Option<String>, back: Box<Mode> },
