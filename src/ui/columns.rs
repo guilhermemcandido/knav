@@ -374,8 +374,63 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
     ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
+/// A Favorites card: a filled tile with the icon on the left, the name over a large
+/// count, and a border only while it is selected. The add card is an empty outline.
+fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
+    let Card { label, count, column_title, selected, absent, .. } = card;
+    // A row between tiles keeps neighbours apart.
+    let area = Rect { height: area.height.saturating_sub(1).max(1), ..area };
+    let adding = label == crate::k8s::ADD_FAVORITE;
+    let accent = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
+    let grey = Style::default().fg(theme().muted);
+    let (name_style, count_style) = match (dimmed, absent) {
+        (true, _) => (dim_style(), dim_style()),
+        (_, true) => (grey.add_modifier(Modifier::BOLD), grey),
+        _ => (Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD), accent),
+    };
+    let border = if dimmed { dim_style() } else if selected { accent } else { grey };
+    let filled = !adding && !absent && !dimmed;
+    let tile = if filled { Style::default().bg(theme().pill_bg) } else { Style::default() };
+    // Only the selected tile, the empty slot and a missing kind get an outline.
+    let borders = if selected || adding || absent { Borders::ALL } else { Borders::NONE };
+    let block = Block::default().borders(borders).border_set(border_set()).border_style(border).style(tile);
+    // The same padding with or without the outline, so the text stays put.
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 || inner.width < 4 {
+        return;
+    }
+    let inner = Rect { x: inner.x + 2, width: inner.width.saturating_sub(4), ..inner };
+
+    if adding {
+        let lines = vec![Line::styled("+", grey.add_modifier(Modifier::BOLD)), Line::styled("Add favorite", grey)];
+        let top = inner.y + inner.height.saturating_sub(2) / 2;
+        frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), Rect { y: top, height: 2.min(inner.height), ..inner });
+        return;
+    }
+
+    let show_icon = icons.enabled() && !dimmed && !absent;
+    let icon_w = if show_icon { 7.min(inner.width / 2) } else { 0 };
+    let text = Rect { x: inner.x + icon_w + u16::from(show_icon) * 2, width: inner.width.saturating_sub(icon_w + u16::from(show_icon) * 2), ..inner };
+    if show_icon {
+        let icon = Rect { width: icon_w, ..inner };
+        match resolve_icon_kind(label, column_title) {
+            Some(kind) => icons.draw(frame, icons.centered_square(icon), kind),
+            None => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), icon),
+        }
+    }
+    let room = usize::from(text.width);
+    let count_text = if absent { "not in this cluster".to_string() } else { super::loading::group_digits(count) };
+    let lines = vec![Line::styled(truncate(label, room), name_style), Line::styled(truncate(&count_text, room), count_style)];
+    let top = text.y + text.height.saturating_sub(2) / 2;
+    frame.render_widget(Paragraph::new(lines), Rect { y: top, height: 2.min(text.height), ..text });
+}
+
 /// One card: the kind's icon, name and live count. Selected, its border is highlighted.
 pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
+    if card.big {
+        return draw_favorite_card(frame, area, card, dimmed, icons);
+    }
     let Card { label, count, health, column_title, selected, pinned, absent, big } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {

@@ -76,7 +76,7 @@ pub fn draw_loading(frame: &mut Frame, loading: &Loading) {
 }
 
 /// `12345` as `12,345`.
-fn group_digits(n: usize) -> String {
+pub(super) fn group_digits(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, ch) in digits.chars().enumerate() {
