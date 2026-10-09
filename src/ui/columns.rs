@@ -374,35 +374,10 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
     ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
-/// An outline along the very edge of a filled tile, made of half blocks so it sits flush
-/// with the fill instead of in the middle of the edge cells like box lines.
-fn flush_outline(frame: &mut Frame, area: Rect, line: Color, fill: Color) {
-    if area.width < 2 || area.height < 2 {
-        return;
-    }
-    let style = Style::default().fg(line).bg(fill);
-    let (right, bottom) = (area.x + area.width - 1, area.y + area.height - 1);
-    let buf = frame.buffer_mut();
-    for x in area.x + 1..right {
-        buf[(x, area.y)].set_symbol("▀").set_style(style);
-        buf[(x, bottom)].set_symbol("▄").set_style(style);
-    }
-    for y in area.y + 1..bottom {
-        buf[(area.x, y)].set_symbol("▌").set_style(style);
-        buf[(right, y)].set_symbol("▐").set_style(style);
-    }
-    buf[(area.x, area.y)].set_symbol("▛").set_style(style);
-    buf[(right, area.y)].set_symbol("▜").set_style(style);
-    buf[(area.x, bottom)].set_symbol("▙").set_style(style);
-    buf[(right, bottom)].set_symbol("▟").set_style(style);
-}
-
 /// A Favorites card: a filled tile with the icon on the left, the name over a large
 /// count, and a border only while it is selected. The add card is an empty outline.
 fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
     let Card { label, count, column_title, selected, absent, .. } = card;
-    // A row between tiles keeps neighbours apart.
-    let area = Rect { height: area.height.saturating_sub(1).max(1), ..area };
     let adding = label == crate::k8s::ADD_FAVORITE;
     let accent = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let grey = Style::default().fg(theme().muted);
@@ -415,13 +390,14 @@ fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, i
     let filled = !adding && !absent && !dimmed;
     let tile = if filled { Style::default().bg(theme().pill_bg) } else { Style::default() };
     // Only the selected tile, the empty slot and a missing kind get an outline.
-    let borders = if adding || absent { Borders::ALL } else { Borders::NONE };
-    let block = Block::default().borders(borders).border_set(border_set()).border_style(border).style(tile);
-    // The same padding with or without the outline, so the text stays put.
+    // Every tile is a fill inset by a cell; the outline goes in the margin around it, so
+    // selecting one changes nothing else.
+    let outlined = selected || adding || absent;
+    let block = Block::default().borders(if outlined { Borders::ALL } else { Borders::NONE }).border_set(border_set()).border_style(border);
     let inner = Block::default().borders(Borders::ALL).inner(area);
     frame.render_widget(block, area);
-    if selected && filled {
-        flush_outline(frame, area, accent.fg.unwrap_or_default(), theme().pill_bg);
+    if filled {
+        frame.render_widget(Block::default().style(tile), inner);
     }
     if inner.height == 0 || inner.width < 4 {
         return;
