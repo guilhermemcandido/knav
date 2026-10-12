@@ -107,10 +107,11 @@ pub(super) fn home_columns(overview: &Overview) -> usize {
 fn favorites_layout(inner: Rect, overview: &Overview) -> Vec<Rect> {
     let full = column_layout(inner, visible_columns(inner.width, home_columns(overview)));
     let (Some(first), Some(last)) = (full.first(), full.last()) else { return Vec::new() };
-    let width = last.x + last.width - first.x;
+    // The tiles sit a little in from the box's own lines.
+    let (x, width) = (first.x + 2, (last.x + last.width - first.x).saturating_sub(4));
     let n = (((width + 1) / (COLUMN_WIDTH + 1)).max(1) as usize).min(4);
     let each = width.saturating_sub(n as u16 - 1) / n as u16;
-    (0..n).map(|i| Rect { x: first.x + i as u16 * (each + 1), width: each, ..inner }).collect()
+    (0..n).map(|i| Rect { x: x + i as u16 * (each + 1), width: each, ..inner }).collect()
 }
 
 /// How many columns show at once in `area` (the columns area).
