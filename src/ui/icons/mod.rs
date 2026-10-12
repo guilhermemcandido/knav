@@ -124,6 +124,12 @@ impl IconCache {
 
     /// A roughly square part of `area` given the font's aspect ratio, so icons don't
     /// squash.
+    /// How many cells wide a square icon is when it is `rows` cells tall.
+    pub fn square_width(&self, rows: u16) -> u16 {
+        let font = self.picker.font_size();
+        if font.width == 0 { rows * 2 } else { ((f32::from(rows) * font.height as f32) / font.width as f32).round() as u16 }
+    }
+
     pub fn centered_square(&self, area: Rect) -> Rect {
         let font = self.picker.font_size();
         if font.width == 0 || area.height == 0 {

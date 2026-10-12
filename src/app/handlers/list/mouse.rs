@@ -17,6 +17,11 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                 MouseEventKind::Down(_) => {
                     if let Some(hit) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                         st.overview_selection = hit;
+                        // Pressing a favorite may start dragging it to another place.
+                        st.drag_favorite = match hit {
+                            ui::OverviewSelection::Item(c, i) if overview.favorites => overview.catalog.get(c).and_then(|(_, items)| items.get(i)).map(|(l, _)| *l).filter(|l| *l != k8s::ADD_FAVORITE).map(String::from),
+                            _ => None,
+                        };
                         // A second click on the same tile soon after opens it.
                         let id = match hit {
                             ui::OverviewSelection::Resources => 0,
@@ -25,6 +30,23 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                             ui::OverviewSelection::Item(c, i) => 11 + c * 100 + i,
                         };
                         open = state::double_click(&mut st.last_click, id);
+                    }
+                }
+                // The outline follows the pointer while a favorite is dragged; letting go drops it there.
+                MouseEventKind::Drag(_) if st.drag_favorite.is_some() => {
+                    if let Some(hit @ ui::OverviewSelection::Item(..)) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
+                        st.overview_selection = hit;
+                    }
+                }
+                MouseEventKind::Up(_) if st.drag_favorite.is_some() => {
+                    if let Some(label) = st.drag_favorite.take()
+                        && let ui::OverviewSelection::Item(c, i) = st.overview_selection
+                        && let Some(moved) = crate::config::pinned::moved(&st.config.home.favorites, &label, c * 3 + i)
+                    {
+                        super::overview::save_favorites(st, moved);
+                        // The card sits where it was dropped.
+                        let at = st.config.home.favorites.iter().position(|l| *l == label).unwrap_or(0);
+                        st.overview_selection = ui::OverviewSelection::Item(at / 3, at % 3);
                     }
                 }
                 _ if crate::app::nav::sideways(&mouse) == Some(true) => st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Right),

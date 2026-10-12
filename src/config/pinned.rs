@@ -24,6 +24,20 @@ pub(crate) fn toggled(labels: &[String], label: &str) -> (Vec<String>, bool) {
     }
 }
 
+/// `labels` with `label` taken out and put at place `to`, the others shifting over;
+/// `None` when it is already there or not pinned.
+pub(crate) fn moved(labels: &[String], label: &str, to: usize) -> Option<Vec<String>> {
+    let at = labels.iter().position(|l| l == label)?;
+    let to = to.min(labels.len() - 1);
+    if at == to {
+        return None;
+    }
+    let mut out = labels.to_vec();
+    let item = out.remove(at);
+    out.insert(to, item);
+    Some(out)
+}
+
 /// `labels` with `label` one place earlier (`back`) or later; `None` at the ends.
 pub(crate) fn nudged(labels: &[String], label: &str, back: bool) -> Option<Vec<String>> {
     let at = labels.iter().position(|l| l == label)?;
@@ -60,6 +74,15 @@ mod tests {
         let (once, pinned) = toggled(&labels(&["A"]), "B");
         assert_eq!((once.clone(), pinned), (labels(&["A", "B"]), true));
         assert_eq!(toggled(&once, "A"), (labels(&["B"]), false));
+    }
+
+    #[test]
+    fn moving_shifts_the_ones_in_between() {
+        let all = labels(&["A", "B", "C", "D"]);
+        assert_eq!(moved(&all, "A", 2), Some(labels(&["B", "C", "A", "D"])));
+        assert_eq!(moved(&all, "D", 0), Some(labels(&["D", "A", "B", "C"])));
+        assert_eq!(moved(&all, "B", 1), None);
+        assert_eq!(moved(&all, "A", 9), Some(labels(&["B", "C", "D", "A"])));
     }
 
     #[test]

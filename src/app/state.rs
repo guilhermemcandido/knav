@@ -102,6 +102,8 @@ pub(super) struct State {
     pub favorites: Favorites,
     /// What `f` chose this session: every kind (`true`) or the favorites.
     pub home_all: Option<bool>,
+    /// The favorite being dragged to a new place on Home.
+    pub drag_favorite: Option<String>,
     /// The active `/` filter, empty for everything. Cleared when the kind changes.
     pub search: String,
     /// Whether the help (`?`) is open.
@@ -199,6 +201,7 @@ impl State {
             hscroll: 0,
             favorites,
             home_all: None,
+            drag_favorite: None,
             search: String::new(),
             show_hints_panel: false,
             icons,

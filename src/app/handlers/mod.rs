@@ -132,6 +132,7 @@ pub(super) fn open_debug(st: &mut State, cx: &Cx, target: &crate::ops::actions::
 pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>> {
     if let Event::Mouse(mouse) = &event
         && !matches!(st.mode, Mode::Shell { .. })
+        && st.drag_favorite.is_none()
         && select_with_mouse(mouse)
     {
         return Ok(None);

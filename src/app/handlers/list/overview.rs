@@ -110,7 +110,7 @@ pub(super) fn pin_toast(st: &mut State, label: &str) {
 }
 
 /// Writes the favorites to `config.toml`, which keeps them for the next start.
-fn save_favorites(st: &mut State, labels: Vec<String>) -> bool {
+pub(super) fn save_favorites(st: &mut State, labels: Vec<String>) -> bool {
     let mut array = toml_edit::Array::new();
     for label in &labels {
         array.push(label.as_str());

@@ -412,13 +412,15 @@ fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, i
     }
 
     let show_icon = icons.enabled() && !dimmed && !absent;
-    let icon_w = if show_icon { 7.min(inner.width / 2) } else { 0 };
+    // A square icon about as tall as the text block, centered in the tile.
+    let icon_rows = inner.height.saturating_sub(2).clamp(2, 6).min(inner.height);
+    let icon_w = if show_icon { icons.square_width(icon_rows).min(inner.width / 3).max(2) } else { 0 };
     let text = Rect { x: inner.x + icon_w + u16::from(show_icon) * 2, width: inner.width.saturating_sub(icon_w + u16::from(show_icon) * 2), ..inner };
     if show_icon {
-        let icon = Rect { width: icon_w, ..inner };
+        let icon = Rect { y: inner.y + (inner.height - icon_rows) / 2, width: icon_w, height: icon_rows, ..inner };
         match resolve_icon_kind(label, column_title) {
-            Some(kind) => icons.draw(frame, icons.centered_square(icon), kind),
-            None => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), icon),
+            Some(kind) => icons.draw(frame, icon, kind),
+            None => frame.render_widget(Paragraph::new(icon_for(label)).alignment(Alignment::Center), Rect { y: icon.y + icon.height / 2, height: 1, ..icon }),
         }
     }
     let room = usize::from(text.width);
