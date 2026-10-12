@@ -53,13 +53,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             _ => {}
         },
         (Event::Key(key), Mode::ColumnDetail { col, selected, row_scroll }) => {
-            let items_len = overview.catalog.get(*col).map(|(_, items)| items.len()).unwrap_or(0);
-            let cols = ui::column_detail_cols(frame_area, overview.catalog.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]));
+            let column_items = overview.column(*col).map(|(_, items)| items).unwrap_or_default();
+            let items_len = column_items.len();
+            let cols = ui::column_detail_cols(frame_area, &column_items);
             // Scroll is recomputed inside each branch, since Enter and Esc replace `mode`.
             macro_rules! move_and_rescroll {
                 ($dir:expr) => {{
                     *selected = ui::move_column_detail_selection(items_len, cols, *selected, $dir);
-                    let visible_rows = ui::column_detail_visible_rows(frame_area, overview.catalog.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]));
+                    let visible_rows = ui::column_detail_visible_rows(frame_area, &column_items);
                     let selected_row = if cols > 0 { *selected / cols } else { 0 };
                     *row_scroll = ui::scroll_columns_to_show(*row_scroll, visible_rows, selected_row);
                 }};
@@ -71,8 +72,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('h') | KeyCode::Left => move_and_rescroll!(ui::Direction::Left),
                 KeyCode::Char('l') | KeyCode::Right => move_and_rescroll!(ui::Direction::Right),
                 KeyCode::Enter => {
-                    if let Some((_, items)) = overview.catalog.get(*col)
-                        && let Some((label, _)) = items.get(*selected)
+                    if let Some((label, _)) = column_items.get(*selected)
                         && let Some(kind) = catalog.kind_for_tile_label(label)
                     {
                         st.switch_kind(kind);

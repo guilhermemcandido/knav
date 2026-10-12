@@ -34,6 +34,18 @@ pub struct Overview {
     pub report: Option<crate::report::Report>,
 }
 
+impl Overview {
+    /// What opening column `col` up shows: its title and kinds. The Favorites box opens
+    /// as one grid of every favorite, whichever of its columns is selected.
+    pub fn column(&self, col: usize) -> Option<(&'static str, Vec<(&'static str, usize)>)> {
+        if self.favorites {
+            let items: Vec<_> = self.catalog.iter().flat_map(|(_, items)| items.iter().copied()).filter(|(label, _)| *label != ADD_FAVORITE).collect();
+            return Some(("Favorites", items));
+        }
+        self.catalog.get(col).map(|(title, items)| (*title, items.clone()))
+    }
+}
+
 /// How many of a kind's objects are healthy, need attention or are broken.
 /// Objects with a neutral state (finished, nothing wanted) count in none.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

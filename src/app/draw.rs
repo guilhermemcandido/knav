@@ -428,7 +428,7 @@ pub(super) fn draw_mode(
             Mode::ColumnDetail { col, selected, row_scroll } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    if let Some((title, items)) = overview.catalog.get(*col) {
+                    if let Some((title, items)) = &overview.column(*col) {
                         let overlay = ui::Overlay::ColumnDetail { title, items, health: &overview.health, selected: *selected, row_scroll: *row_scroll };
                         paint(frame, None, None, Some(overlay), false);
                     } else {

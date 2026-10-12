@@ -255,13 +255,15 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
     let areas = column_areas(inner, cols_visible, overview);
     if overview.favorites {
         let span = columns_span(area, home_columns(overview));
-        let border = if dimmed { dim_style() } else { Style::default() };
+        // Selected like any other category: its box and title light up.
+        let lit = !dimmed && matches!(selection, OverviewSelection::Header(_));
+        let border = if dimmed { dim_style() } else if lit { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) } else { Style::default() };
         let title = match &overview.dragging {
             Some(label) if !dimmed => Line::from(vec![
                 Span::styled(" Favorites ", Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled(format!(" moving {label} "), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
             ]),
-            _ => Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) }),
+            _ => Line::styled(" Favorites ", if dimmed { dim_style() } else if lit { border } else { Style::default().add_modifier(Modifier::BOLD) }),
         };
         frame.render_widget(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border).title(title), Rect { x: span.x, width: span.width, ..inner });
     }

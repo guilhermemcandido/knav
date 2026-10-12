@@ -151,7 +151,11 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // Only the opened-up category view shows it, so only work it out then.
         let health = if let Mode::ColumnDetail { col, .. } = mode {
             // Health needs the objects, so start watching this category's kinds.
-            for (label, _) in catalog_sections.get(*col).map(|(_, items)| items.as_slice()).unwrap_or(&[]) {
+            let wanted: Vec<&'static str> = match home_pins {
+                Some(pins) => catalog_sections.iter().flat_map(|(_, items)| items).map(|(label, _)| *label).filter(|label| pins.iter().any(|p| p == label)).collect(),
+                None => catalog_sections.get(*col).map(|(_, items)| items.iter().map(|(label, _)| *label).collect()).unwrap_or_default(),
+            };
+            for label in wanted {
                 catalog.ensure_label(label);
             }
             catalog.health([("Pods", k8s::pods_health(&pod_rows)), ("Deployments", k8s::deployments_health(&dep_rows)), ("Nodes", node_health)])
