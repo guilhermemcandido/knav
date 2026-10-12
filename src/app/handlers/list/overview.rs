@@ -6,6 +6,35 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
     let overview = &cx.d.overview;
     let (catalog, frame_area, client) = (&mut *cx.catalog, cx.frame_area, cx.client);
         match key.code {
+            // While a favorite is picked up, the arrows carry it and enter, space or esc put it down.
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Esc if st.drag_favorite.is_some() => st.drag_favorite = None,
+            KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Char('h' | 'j' | 'k' | 'l') if st.drag_favorite.is_some() => {
+                if let Some(label) = st.drag_favorite.clone()
+                    && let Some(at) = st.config.home.favorites.iter().position(|l| *l == label)
+                {
+                    // Columns hold three, so sideways is three places and vertical one.
+                    let to = match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => at.saturating_sub(3),
+                        KeyCode::Right | KeyCode::Char('l') => at + 3,
+                        KeyCode::Up | KeyCode::Char('k') => at.saturating_sub(1),
+                        _ => at + 1,
+                    };
+                    if let Some(moved) = crate::config::pinned::moved(&st.config.home.favorites, &label, to) {
+                        save_favorites(st, moved);
+                        let now = st.config.home.favorites.iter().position(|l| *l == label).unwrap_or(at);
+                        st.overview_selection = ui::OverviewSelection::Item(now / 3, now % 3);
+                    }
+                }
+            }
+            // Space picks the selected favorite up to move it.
+            KeyCode::Char(' ') if overview.favorites => {
+                if let ui::OverviewSelection::Item(col, item) = st.overview_selection
+                    && let Some((label, _)) = overview.catalog.get(col).and_then(|(_, items)| items.get(item))
+                    && *label != k8s::ADD_FAVORITE
+                {
+                    st.drag_favorite = Some((*label).to_string());
+                }
+            }
             KeyCode::Char('n') => {
                 let names: Vec<String> =
                     catalog.resolve(ResourceKind::Namespaces, client).map(|k| k.rows()).unwrap_or_default().into_iter().map(|r| r.name.clone()).collect();

@@ -58,6 +58,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
                     shown("T", "themes", "Themes"),
                     entry("f", "Home: favorites or all kinds"),
                     entry("*", "Pin a kind to Home"),
+                    entry("space", "Pick up a favorite to move it; arrows carry it, enter drops it"),
                     entry("[ ]", "Move a favorite earlier or later"),
                     shown(",", "settings", "Settings"),
                     shown("P", "permissions", "Permissions"),

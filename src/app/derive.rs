@@ -49,6 +49,8 @@ pub(super) struct Query<'a> {
     pub home_pins: Option<&'a [String]>,
     /// Every pinned kind, to star on Home.
     pub pinned: &'a [String],
+    /// The favorite being moved.
+    pub dragging: Option<&'a str>,
     /// Ids of the enabled extensions.
     pub extensions_enabled: &'a [String],
 }
@@ -69,7 +71,7 @@ pub(super) struct Sources<'a> {
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx, client, forwards, registry } = *src;
     let pod_usage = pod_usage_rx.borrow().clone();
-    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, pinned, extensions_enabled } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, pinned, dragging, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // The Overview stays cluster-wide even with a namespace set. `search` is cleared
@@ -175,6 +177,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             tiles.push((k8s::ADD_FAVORITE, 0));
             overview.catalog = tiles.chunks(3).map(|column| ("", column.to_vec())).collect();
             overview.favorites = true;
+            overview.dragging = dragging.map(String::from);
             overview.pinned.clear();
         }
         // Only for the kind on screen; `resolve` starts a CRD's watch on first open.
@@ -319,7 +322,7 @@ const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
 fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
     let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
     format!(
-        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}|{forwards:?}",
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}|{forwards:?}",
         q.current_kind,
         q.namespace,
         q.scope,
@@ -336,6 +339,7 @@ fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
         matches!(mode, Mode::Problems { .. }),
         q.home_pins,
         q.pinned,
+        q.dragging,
     )
 }
 

@@ -104,6 +104,8 @@ pub(super) struct State {
     pub home_all: Option<bool>,
     /// The favorite being dragged to a new place on Home.
     pub drag_favorite: Option<String>,
+    /// The favorite under a pressed button, which becomes the dragged one once the pointer moves.
+    pub pressed_favorite: Option<String>,
     /// The active `/` filter, empty for everything. Cleared when the kind changes.
     pub search: String,
     /// Whether the help (`?`) is open.
@@ -202,6 +204,7 @@ impl State {
             favorites,
             home_all: None,
             drag_favorite: None,
+            pressed_favorite: None,
             search: String::new(),
             show_hints_panel: false,
             icons,

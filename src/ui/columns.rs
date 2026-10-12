@@ -256,7 +256,13 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
     if overview.favorites {
         let span = columns_span(area, home_columns(overview));
         let border = if dimmed { dim_style() } else { Style::default() };
-        let title = Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) });
+        let title = match &overview.dragging {
+            Some(label) if !dimmed => Line::from(vec![
+                Span::styled(" Favorites ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" moving {label}: arrows or the pointer move it, enter or release drops it "), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
+            ]),
+            _ => Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) }),
+        };
         frame.render_widget(Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border).title(title), Rect { x: span.x, width: span.width, ..inner });
     }
     let active_col = match selection {
@@ -267,7 +273,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         let col_idx = col_scroll + i;
         let (title, items) = &overview.catalog[col_idx];
         let scroll = if col_idx == active_col { item_scroll } else { 0 };
-        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, absent: &overview.absent, bare: overview.favorites }, selection, dimmed, icons);
+        draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, absent: &overview.absent, dragging: overview.dragging.as_deref(), bare: overview.favorites }, selection, dimmed, icons);
     }
 
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
@@ -291,6 +297,8 @@ pub(super) struct Column<'a> {
     pub pinned: &'a [String],
     /// Favorites the cluster lacks, drawn grey.
     pub absent: &'a [String],
+    /// The favorite being moved.
+    pub dragging: Option<&'a str>,
     /// Part of the Favorites box, so it draws no box of its own.
     pub bare: bool,
 }
@@ -307,12 +315,14 @@ pub(super) struct Card<'a> {
     pub absent: bool,
     /// A Favorites card: the name and count are centered, with room around them.
     pub big: bool,
+    /// Being dragged or moved with the keyboard.
+    pub lifted: bool,
 }
 
 /// One column: a box titled with the category, listing its kinds as cards.
 /// `item_scroll` applies only to the selected column.
 pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selection: OverviewSelection, dimmed: bool, icons: &mut IconCache) {
-    let Column { index: col_idx, title, items, item_scroll, pinned, absent, bare } = column;
+    let Column { index: col_idx, title, items, item_scroll, pinned, absent, dragging, bare } = column;
     let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
@@ -354,7 +364,7 @@ pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selecti
 
     for (slot, (i, (label, count))) in shown.into_iter().enumerate() {
         let selected = matches!(selection, OverviewSelection::Item(c, it) if c == col_idx && it == i);
-        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label), absent: absent.iter().any(|a| a == label), big: bare }, dimmed, icons);
+        draw_column_item(frame, rows[slot], Card { label, count: *count, health: None, column_title: title, selected, pinned: pinned.iter().any(|p| p == label), absent: absent.iter().any(|a| a == label), big: bare, lifted: dragging == Some(*label) }, dimmed, icons);
     }
     // Cards hidden above or below get a ▲ or ▼.
     if more_above {
@@ -377,7 +387,7 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
 /// A Favorites card: a filled tile with the icon on the left, the name over a large
 /// count, and a border only while it is selected. The add card is an empty outline.
 fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
-    let Card { label, count, column_title, selected, absent, .. } = card;
+    let Card { label, count, column_title, selected, absent, lifted, .. } = card;
     let adding = label == crate::k8s::ADD_FAVORITE;
     let accent = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let grey = Style::default().fg(theme().muted);
@@ -387,12 +397,12 @@ fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, i
         _ => (Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD), accent),
     };
     let border = if dimmed { dim_style() } else if selected { accent } else { grey };
-    let filled = !adding && !absent && !dimmed;
-    let tile = if filled { Style::default().bg(theme().pill_bg) } else { Style::default() };
-    // Only the selected tile, the empty slot and a missing kind get an outline.
+    let filled = !dimmed;
+    // The tile being moved is lit in a lighter fill.
+    let tile = if lifted { Style::default().bg(theme().panel_bg) } else { Style::default().bg(theme().pill_bg) };
     // Every tile is a fill inset by a cell; the outline goes in the margin around it, so
     // selecting one changes nothing else.
-    let outlined = selected || adding || absent;
+    let outlined = selected;
     let block = Block::default().borders(if outlined { Borders::ALL } else { Borders::NONE }).border_set(border_set()).border_style(border);
     let inner = Block::default().borders(Borders::ALL).inner(area);
     frame.render_widget(block, area);
@@ -435,7 +445,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
     if card.big {
         return draw_favorite_card(frame, area, card, dimmed, icons);
     }
-    let Card { label, count, health, column_title, selected, pinned, absent, big } = card;
+    let Card { label, count, health, column_title, selected, pinned, absent, big, .. } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
@@ -594,7 +604,7 @@ pub(super) fn draw_column_detail_popup(frame: &mut Frame, title: &str, items: &[
         for (i, (item_area, (label, count))) in col_areas.iter().zip(row_items.iter()).enumerate() {
             let idx = start + i;
             let health = (shows_health(label) && *count > 0).then(|| health.get(label).copied().unwrap_or_default());
-            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false, absent: false, big: false }, false, icons);
+            draw_column_item(frame, *item_area, Card { label, count: *count, health, column_title: title, selected: idx == selected, pinned: false, absent: false, big: false, lifted: false }, false, icons);
         }
     }
     // Rows hidden above or below get a ▲ or ▼.
@@ -707,7 +717,7 @@ mod icon_tests {
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, height)).unwrap();
         terminal
             .draw(|frame| {
-                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false, absent: false, big: false };
+                let card = Card { label: "Pods", count: 20, health: None, column_title: "Workloads", selected: false, pinned: false, absent: false, big: false, lifted: false };
                 draw_column_item(frame, frame.area(), card, false, &mut icons);
             })
             .unwrap();

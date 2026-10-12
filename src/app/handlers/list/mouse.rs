@@ -18,7 +18,7 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                     if let Some(hit) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                         st.overview_selection = hit;
                         // Pressing a favorite may start dragging it to another place.
-                        st.drag_favorite = match hit {
+                        st.pressed_favorite = match hit {
                             ui::OverviewSelection::Item(c, i) if overview.favorites => overview.catalog.get(c).and_then(|(_, items)| items.get(i)).map(|(l, _)| *l).filter(|l| *l != k8s::ADD_FAVORITE).map(String::from),
                             _ => None,
                         };
@@ -33,12 +33,18 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                     }
                 }
                 // The outline follows the pointer while a favorite is dragged; letting go drops it there.
-                MouseEventKind::Drag(_) if st.drag_favorite.is_some() => {
+                MouseEventKind::Drag(_) if st.drag_favorite.is_some() || st.pressed_favorite.is_some() => {
+                    if st.drag_favorite.is_none() {
+                        st.drag_favorite = st.pressed_favorite.take();
+                    }
+                    ui::set_ghost(st.drag_favorite.clone().map(|label| (label, mouse.column, mouse.row)));
                     if let Some(hit @ ui::OverviewSelection::Item(..)) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
                         st.overview_selection = hit;
                     }
                 }
-                MouseEventKind::Up(_) if st.drag_favorite.is_some() => {
+                MouseEventKind::Up(_) if st.drag_favorite.is_some() || st.pressed_favorite.is_some() => {
+                    st.pressed_favorite = None;
+                    ui::set_ghost(None);
                     if let Some(label) = st.drag_favorite.take()
                         && let ui::OverviewSelection::Item(c, i) = st.overview_selection
                         && let Some(moved) = crate::config::pinned::moved(&st.config.home.favorites, &label, c * 3 + i)

@@ -133,6 +133,7 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     if let Event::Mouse(mouse) = &event
         && !matches!(st.mode, Mode::Shell { .. })
         && st.drag_favorite.is_none()
+        && st.pressed_favorite.is_none()
         && select_with_mouse(mouse)
     {
         return Ok(None);

@@ -14,9 +14,11 @@ struct Selection {
     /// The last frame's cell symbols by row.
     screen: Vec<Vec<String>>,
     toast: Option<(String, bool, Instant)>,
+    /// A name following the pointer while something is dragged.
+    ghost: Option<(String, u16, u16)>,
 }
 
-static SELECTION: Mutex<Selection> = Mutex::new(Selection { anchor: (0, 0), head: (0, 0), dragging: false, screen: Vec::new(), toast: None });
+static SELECTION: Mutex<Selection> = Mutex::new(Selection { anchor: (0, 0), head: (0, 0), dragging: false, screen: Vec::new(), toast: None, ghost: None });
 
 fn with<T>(f: impl FnOnce(&mut Selection) -> T) -> T {
     f(&mut SELECTION.lock().unwrap_or_else(|e| e.into_inner()))
@@ -68,6 +70,11 @@ pub fn show_toast(text: String, good: bool) {
     with(|s| s.toast = Some((text, good, Instant::now())));
 }
 
+/// Shows `name` beside the pointer at `(column, row)` while it drags something; `None` ends it.
+pub fn set_ghost(ghost: Option<(String, u16, u16)>) {
+    with(|s| s.ghost = ghost);
+}
+
 /// Called after each frame is drawn: remembers its text, marks the selection and
 /// shows the toast.
 pub fn after_frame(frame: &mut Frame) {
@@ -83,6 +90,14 @@ pub fn after_frame(frame: &mut Frame) {
                     cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
                 }
             }
+        }
+        if let Some((name, column, row)) = &s.ghost {
+            let label = format!(" ⠿ {name} ");
+            let width = (cell_width(&label) as u16).min(area.width);
+            let x = (column + 1).min(area.width.saturating_sub(width));
+            let rect = Rect { x: area.x + x, y: area.y + (*row).min(area.height.saturating_sub(1)), width, height: 1 };
+            frame.render_widget(Clear, rect);
+            frame.render_widget(Paragraph::new(Span::styled(label, Style::default().fg(theme().pill_bg).bg(theme().namespace).add_modifier(Modifier::BOLD))), rect);
         }
         if let Some((text, good, at)) = &s.toast {
             if at.elapsed() > Duration::from_millis(2000) {

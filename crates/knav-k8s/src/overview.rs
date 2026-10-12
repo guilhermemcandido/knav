@@ -26,6 +26,8 @@ pub struct Overview {
     pub favorites: bool,
     /// Favorites this cluster doesn't have, such as a CRD it lacks.
     pub absent: Vec<String>,
+    /// The favorite being moved, if one is.
+    pub dragging: Option<String>,
     /// Health by kind label, for the kinds that have a notion of it.
     pub health: std::collections::HashMap<&'static str, Health>,
     /// Requests, phases and busiest namespaces, computed while the Resources view is open.
@@ -109,6 +111,7 @@ pub fn overview(
         pinned: Vec::new(),
         favorites: false,
         absent: Vec::new(),
+        dragging: None,
         catalog,
         health,
         report,

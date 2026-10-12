@@ -227,6 +227,7 @@ mod overview_selection_tests {
             pinned: vec![],
             favorites: false,
             absent: vec![],
+            dragging: None,
             catalog,
             health: Default::default(),
             report: None,
