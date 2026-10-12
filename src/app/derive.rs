@@ -161,6 +161,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let report = matches!(mode, Mode::ResourcesDetail).then(|| k8s::report::report(&pod_store.objects()));
         let mut overview = k8s::overview(&nodes, &events, usage.as_ref(), catalog_sections, health, report);
         overview.pinned = pinned.to_vec();
+        overview.dragging = dragging.map(String::from);
         if let Some(pins) = home_pins {
             // Pinned kinds in their order, three to a column, then the card that adds more.
             let mut tiles: Vec<(&'static str, usize)> = Vec::new();
@@ -177,7 +178,6 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             tiles.push((k8s::ADD_FAVORITE, 0));
             overview.catalog = tiles.chunks(3).map(|column| ("", column.to_vec())).collect();
             overview.favorites = true;
-            overview.dragging = dragging.map(String::from);
             overview.pinned.clear();
         }
         // Only for the kind on screen; `resolve` starts a CRD's watch on first open.

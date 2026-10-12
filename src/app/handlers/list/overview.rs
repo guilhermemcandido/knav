@@ -26,6 +26,28 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                     }
                 }
             }
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Esc if st.home_lift.is_some() => st.home_lift = None,
+            KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Char('h' | 'j' | 'k' | 'l') if st.home_lift.is_some() => {
+                // A category moves sideways and a kind up or down, by one place among those shown.
+                let sideways = st.home_lift.as_ref().is_some_and(|(_, kind)| kind.is_none());
+                let (back, forward) = if sideways { (matches!(key.code, KeyCode::Left | KeyCode::Char('h')), matches!(key.code, KeyCode::Right | KeyCode::Char('l'))) } else { (matches!(key.code, KeyCode::Up | KeyCode::Char('k')), matches!(key.code, KeyCode::Down | KeyCode::Char('j'))) };
+                if let ui::OverviewSelection::Header(at) | ui::OverviewSelection::Item(_, at) = st.overview_selection {
+                    let at = if sideways { match st.overview_selection { ui::OverviewSelection::Header(c) => c, _ => at } } else { at };
+                    if back && at > 0 {
+                        move_lift(st, catalog, overview, at - 1);
+                    } else if forward {
+                        move_lift(st, catalog, overview, at + 1);
+                    }
+                }
+            }
+            // Space picks up the selected category or kind to move it.
+            KeyCode::Char(' ') if !overview.favorites => {
+                st.home_lift = match st.overview_selection {
+                    ui::OverviewSelection::Header(col) => overview.catalog.get(col).map(|(title, _)| ((*title).to_string(), None)),
+                    ui::OverviewSelection::Item(col, item) => overview.catalog.get(col).and_then(|(title, items)| items.get(item).map(|(label, _)| ((*title).to_string(), Some((*label).to_string())))),
+                    _ => None,
+                };
+            }
             // Space picks the selected favorite up to move it.
             KeyCode::Char(' ') if overview.favorites => {
                 if let ui::OverviewSelection::Item(col, item) = st.overview_selection
@@ -138,20 +160,65 @@ pub(super) fn pin_toast(st: &mut State, label: &str) {
     }
 }
 
-/// Writes the favorites to `config.toml`, which keeps them for the next start.
-pub(super) fn save_favorites(st: &mut State, labels: Vec<String>) -> bool {
+/// Writes a list of names to `config.toml` at `path` and takes the result in.
+fn save_names(st: &mut State, path: &str, names: &[String]) -> bool {
     let mut array = toml_edit::Array::new();
-    for label in &labels {
-        array.push(label.as_str());
+    for name in names {
+        array.push(name.as_str());
     }
-    match crate::config::edit::save(&crate::config::Config::path(), "home.favorites", Some(toml_edit::Value::Array(array))) {
+    match crate::config::edit::save(&crate::config::Config::path(), path, Some(toml_edit::Value::Array(array))) {
         Ok(saved) => {
             st.config.home = saved.home;
+            st.config.overview = saved.overview;
             true
         }
         Err(e) => {
-            ui::show_toast(format!("Could not save the favorites: {e}"), false);
+            ui::show_toast(format!("Could not save: {e}"), false);
             false
+        }
+    }
+}
+
+/// Writes the favorites to `config.toml`, which keeps them for the next start.
+pub(super) fn save_favorites(st: &mut State, labels: Vec<String>) -> bool {
+    save_names(st, "home.favorites", &labels)
+}
+
+/// Moves the picked-up category, or kind within its category, to place `to` among those
+/// shown, and saves the order in `overview.sections` or `overview.items.<category>`.
+pub(super) fn move_lift(st: &mut State, catalog: &Catalog, overview: &k8s::Overview, to: usize) {
+    use crate::app::overview_layout as layout;
+    let Some((category, kind)) = st.home_lift.clone() else { return };
+    let mut sections = layout::resolve(&st.config.overview, &catalog.layout_names(&st.config.extensions.enabled));
+    match kind {
+        None => {
+            let shown: Vec<&str> = overview.catalog.iter().map(|(title, _)| *title).collect();
+            let to = to.min(shown.len().saturating_sub(1));
+            let (Some(from), Some(dest)) = (sections.iter().position(|s| s.name == category), shown.get(to).and_then(|t| sections.iter().position(|s| s.name == *t))) else { return };
+            if from == dest {
+                return;
+            }
+            layout::move_section_to(&mut sections, from, dest);
+            let names: Vec<String> = sections.iter().map(|s| s.name.clone()).collect();
+            if save_names(st, "overview.sections", &names) {
+                st.overview_selection = ui::OverviewSelection::Header(to);
+            }
+        }
+        Some(kind) => {
+            let Some(col) = overview.catalog.iter().position(|(title, _)| *title == category) else { return };
+            let shown: Vec<&str> = overview.catalog[col].1.iter().map(|(label, _)| *label).collect();
+            let to = to.min(shown.len().saturating_sub(1));
+            let Some(section) = sections.iter_mut().find(|s| s.name == category) else { return };
+            let (Some(from), Some(dest)) = (section.items.iter().position(|i| i.name == kind), shown.get(to).and_then(|t| section.items.iter().position(|i| i.name == *t))) else { return };
+            if from == dest {
+                return;
+            }
+            let item = section.items.remove(from);
+            section.items.insert(dest, item);
+            let names: Vec<String> = section.items.iter().map(|i| i.name.clone()).collect();
+            if save_names(st, &format!("overview.items.{category}"), &names) {
+                st.overview_selection = ui::OverviewSelection::Item(col, to);
+            }
         }
     }
 }

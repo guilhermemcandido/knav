@@ -22,6 +22,11 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                             ui::OverviewSelection::Item(c, i) if overview.favorites => overview.catalog.get(c).and_then(|(_, items)| items.get(i)).map(|(l, _)| *l).filter(|l| *l != k8s::ADD_FAVORITE).map(String::from),
                             _ => None,
                         };
+                        st.pressed_lift = match hit {
+                            ui::OverviewSelection::Header(c) if !overview.favorites => overview.catalog.get(c).map(|(title, _)| ((*title).to_string(), None)),
+                            ui::OverviewSelection::Item(c, i) if !overview.favorites => overview.catalog.get(c).and_then(|(title, items)| items.get(i).map(|(label, _)| ((*title).to_string(), Some((*label).to_string())))),
+                            _ => None,
+                        };
                         // A second click on the same tile soon after opens it.
                         let id = match hit {
                             ui::OverviewSelection::Resources => 0,
@@ -30,6 +35,33 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
                             ui::OverviewSelection::Item(c, i) => 11 + c * 100 + i,
                         };
                         open = state::double_click(&mut st.last_click, id);
+                    }
+                }
+                // The same for a category or kind on the full Home.
+                MouseEventKind::Drag(_) if st.home_lift.is_some() || st.pressed_lift.is_some() => {
+                    if st.home_lift.is_none() {
+                        st.home_lift = st.pressed_lift.take();
+                    }
+                    ui::set_ghost(st.home_lift.as_ref().map(|(category, kind)| (kind.clone().unwrap_or_else(|| category.clone()), mouse.column, mouse.row)));
+                    if let Some(hit @ (ui::OverviewSelection::Item(..) | ui::OverviewSelection::Header(_))) = ui::column_hit(ui::beside_sidebar(frame_area, false, &st.chrome), overview, st.overview_col_scroll, active_col, st.overview_item_scroll, mouse.column, mouse.row) {
+                        st.overview_selection = hit;
+                    }
+                }
+                MouseEventKind::Up(_) if st.home_lift.is_some() || st.pressed_lift.is_some() => {
+                    st.pressed_lift = None;
+                    ui::set_ghost(None);
+                    if let Some((category, kind)) = st.home_lift.take() {
+                        // A category goes where its column is; a kind to a place in its own column.
+                        let to = match (&kind, st.overview_selection) {
+                            (None, ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _)) => Some(c),
+                            (Some(_), ui::OverviewSelection::Item(c, i)) if overview.catalog.get(c).is_some_and(|(title, _)| *title == category) => Some(i),
+                            _ => None,
+                        };
+                        if let Some(to) = to {
+                            st.home_lift = Some((category, kind));
+                            super::overview::move_lift(st, cx.catalog, overview, to);
+                            st.home_lift = None;
+                        }
                     }
                 }
                 // The outline follows the pointer while a favorite is dragged; letting go drops it there.

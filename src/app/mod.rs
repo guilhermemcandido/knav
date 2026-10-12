@@ -123,7 +123,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             layout: &st.config.overview,
             home_pins: crate::config::pinned::home(&st.config.home, st.home_all),
             pinned: &st.config.home.favorites,
-            dragging: st.drag_favorite.as_deref(),
+            dragging: st.drag_favorite.as_deref().or(st.home_lift.as_ref().map(|(category, kind)| kind.as_deref().unwrap_or(category))),
             extensions_enabled: &st.config.extensions.enabled,
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);

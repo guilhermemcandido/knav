@@ -106,6 +106,10 @@ pub(super) struct State {
     pub drag_favorite: Option<String>,
     /// The favorite under a pressed button, which becomes the dragged one once the pointer moves.
     pub pressed_favorite: Option<String>,
+    /// A category, or a kind in it, picked up on the full Home to be moved.
+    pub home_lift: Option<(String, Option<String>)>,
+    /// What is under a pressed button, which is lifted once the pointer moves.
+    pub pressed_lift: Option<(String, Option<String>)>,
     /// The active `/` filter, empty for everything. Cleared when the kind changes.
     pub search: String,
     /// Whether the help (`?`) is open.
@@ -205,6 +209,8 @@ impl State {
             home_all: None,
             drag_favorite: None,
             pressed_favorite: None,
+            home_lift: None,
+            pressed_lift: None,
             search: String::new(),
             show_hints_panel: false,
             icons,

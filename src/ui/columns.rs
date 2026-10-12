@@ -259,7 +259,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         let title = match &overview.dragging {
             Some(label) if !dimmed => Line::from(vec![
                 Span::styled(" Favorites ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" moving {label}: arrows or the pointer move it, enter or release drops it "), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" moving {label} "), Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD)),
             ]),
             _ => Line::styled(" Favorites ", if dimmed { dim_style() } else { Style::default().add_modifier(Modifier::BOLD) }),
         };
@@ -276,6 +276,12 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
         draw_column(frame, *col_area, Column { index: col_idx, title, items, item_scroll: scroll, pinned: &overview.pinned, absent: &overview.absent, dragging: overview.dragging.as_deref(), bare: overview.favorites }, selection, dimmed, icons);
     }
 
+    if let Some(label) = overview.dragging.as_ref().filter(|_| !overview.favorites && !dimmed) {
+        let note = format!(" moving {label} ");
+        let width = (cell_width(&note) as u16).min(area.width);
+        let rect = Rect { x: area.x + area.width - width - 1, y: area.y + area.height.saturating_sub(1), width, height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled(note, Style::default().fg(theme().pill_bg).bg(theme().namespace).add_modifier(Modifier::BOLD))), rect);
+    }
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };
     if col_scroll > 0 {
         let left = Rect { x: area.x, y: area.y, width: SCROLL_ARROW_WIDTH, height: 1 };
@@ -323,7 +329,7 @@ pub(super) struct Card<'a> {
 /// `item_scroll` applies only to the selected column.
 pub(super) fn draw_column(frame: &mut Frame, area: Rect, column: Column, selection: OverviewSelection, dimmed: bool, icons: &mut IconCache) {
     let Column { index: col_idx, title, items, item_scroll, pinned, absent, dragging, bare } = column;
-    let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx);
+    let header_selected = matches!(selection, OverviewSelection::Header(c) if c == col_idx) || (!bare && dragging == Some(title));
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
 
     let (border_style, title_style) = if dimmed {
@@ -384,10 +390,31 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
     ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
+/// A thin line along the very edge of `area`, drawn with one-eighth blocks so it lies
+/// flush with the fill instead of in the middle of the edge cells like box lines.
+fn edge_line(frame: &mut Frame, area: Rect, line: Style, fill: Color) {
+    if area.width < 3 || area.height < 3 {
+        return;
+    }
+    let style = Style::default().fg(line.fg.unwrap_or_default()).bg(fill);
+    let (right, bottom) = (area.x + area.width - 1, area.y + area.height - 1);
+    let buf = frame.buffer_mut();
+    for x in area.x + 1..right {
+        buf[(x, area.y)].set_symbol("▔").set_style(style);
+        buf[(x, bottom)].set_symbol("▁").set_style(style);
+    }
+    for y in area.y..=bottom {
+        buf[(area.x, y)].set_symbol("▏").set_style(style);
+        buf[(right, y)].set_symbol("▕").set_style(style);
+    }
+}
+
 /// A Favorites card: a filled tile with the icon on the left, the name over a large
 /// count, and a border only while it is selected. The add card is an empty outline.
 fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
     let Card { label, count, column_title, selected, absent, lifted, .. } = card;
+    // A row between tiles keeps neighbours apart.
+    let area = Rect { height: area.height.saturating_sub(1).max(1), ..area };
     let adding = label == crate::k8s::ADD_FAVORITE;
     let accent = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let grey = Style::default().fg(theme().muted);
@@ -397,17 +424,13 @@ fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, i
         _ => (Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD), accent),
     };
     let border = if dimmed { dim_style() } else if selected { accent } else { grey };
-    let filled = !dimmed;
     // The tile being moved is lit in a lighter fill.
     let tile = if lifted { Style::default().bg(theme().panel_bg) } else { Style::default().bg(theme().pill_bg) };
-    // Every tile is a fill inset by a cell; the outline goes in the margin around it, so
-    // selecting one changes nothing else.
-    let outlined = selected;
-    let block = Block::default().borders(if outlined { Borders::ALL } else { Borders::NONE }).border_set(border_set()).border_style(border);
+    // The fill covers the whole tile and the selection is a thin line along its edge.
     let inner = Block::default().borders(Borders::ALL).inner(area);
-    frame.render_widget(block, area);
-    if filled {
-        frame.render_widget(Block::default().style(tile), inner);
+    frame.render_widget(Block::default().style(tile), area);
+    if selected {
+        edge_line(frame, area, border, theme().pill_bg);
     }
     if inner.height == 0 || inner.width < 4 {
         return;
@@ -445,7 +468,7 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
     if card.big {
         return draw_favorite_card(frame, area, card, dimmed, icons);
     }
-    let Card { label, count, health, column_title, selected, pinned, absent, big, .. } = card;
+    let Card { label, count, health, column_title, selected, pinned, absent, big, lifted } = card;
     let highlight = Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD);
     let (border_style, text_style, count_style) = if dimmed {
         let muted = dim_style();
@@ -460,7 +483,8 @@ pub(super) fn draw_column_item(frame: &mut Frame, area: Rect, card: Card, dimmed
         (Style::default(), Style::default().add_modifier(Modifier::BOLD), Style::default().fg(theme().namespace))
     };
 
-    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style);
+    // A card being moved is lit in a lighter fill.
+    let block = Block::default().borders(Borders::ALL).border_set(border_set()).border_style(border_style).style(if lifted && !dimmed { Style::default().bg(theme().panel_bg) } else { Style::default() });
     let inner = block.inner(area);
     frame.render_widget(block, area);
     // A pinned kind carries a star on its top border.
