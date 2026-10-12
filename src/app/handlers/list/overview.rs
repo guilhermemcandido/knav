@@ -69,6 +69,8 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
             KeyCode::Char('k') | KeyCode::Up => {
                 st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Up);
             }
+            // The Favorites box is one header, so sideways has nowhere to go from it.
+            KeyCode::Char('h' | 'l') | KeyCode::Left | KeyCode::Right if overview.favorites && matches!(st.overview_selection, ui::OverviewSelection::Header(_)) => {}
             KeyCode::Char('h') | KeyCode::Left => {
                 st.overview_selection = ui::move_overview_selection(overview, st.overview_selection, ui::Direction::Left);
             }

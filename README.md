@@ -106,6 +106,18 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `X` | a debug container in a pod |
 | `P` | permissions: your role or read-only |
 | `b` | sidebar |
+| drag with the mouse | select text; it is copied when you let go |
+
+### Home
+
+Home shows every category of kinds, or only your favorites.
+
+- `*` pins the selected kind (on Home, or in any list) and unpins it again.
+- `f` switches between the favorites and every kind for this session. Settings picks which one Home opens on.
+- Favorites sit in one box, three to a column. Pinned kinds a cluster lacks stay there, greyed.
+- `Space` picks up a favorite, a category or a kind to move it: the arrows carry it and `Enter` drops it. You can also drag it with the mouse, and `[` / `]` nudge a favorite.
+
+Favorites are saved as `home.favorites` and the order of categories and kinds under `[overview]`, both in `config.toml`.
 
 ## Config
 
@@ -117,6 +129,9 @@ Everything is set from the Settings screen (`,`) and saved to
 - **Behaviour**: start in the current context or a picker, read-only, port-forwards
 - **Keys**: rebind any key
 - **Layout**: which sections and tiles Home shows, and in what order
+- **Home** (under General): whether Home opens on your favorites or every kind, and the favorites list
+
+The namespaces you put on the `1`-`9` keys are saved there too, per context, under `[namespaces]`.
 
 ### Your own commands
 
