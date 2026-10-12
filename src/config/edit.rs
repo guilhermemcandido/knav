@@ -7,9 +7,15 @@ use anyhow::{Context as _, Result};
 use super::Config;
 
 /// `document` with `path` set to `value`, or removed for `None`, keeping everything else.
+#[cfg(test)]
 pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>) -> Result<String> {
+    edit_keys(document, &path.split('.').collect::<Vec<_>>(), value)
+}
+
+/// Like `edit_document` with the path already split, for keys that contain dots, such
+/// as a context name.
+pub fn edit_keys(document: &str, keys: &[&str], value: Option<toml_edit::Value>) -> Result<String> {
     let mut doc: toml_edit::DocumentMut = document.parse().context("config.toml is not valid TOML")?;
-    let keys: Vec<&str> = path.split('.').collect();
     let (last, parents) = keys.split_last().context("empty setting path")?;
     match value {
         Some(value) => {
@@ -48,8 +54,13 @@ pub fn edit_document(document: &str, path: &str, value: Option<toml_edit::Value>
 /// Writes `value` (or removes the key) and returns the config as it now reads.
 /// The file is only replaced if the result parses.
 pub fn save(file: &Path, path: &str, value: Option<toml_edit::Value>) -> Result<Config> {
+    save_keys(file, &path.split('.').collect::<Vec<_>>(), value)
+}
+
+/// `save` for a path given as its keys.
+pub fn save_keys(file: &Path, keys: &[&str], value: Option<toml_edit::Value>) -> Result<Config> {
     let existing = std::fs::read_to_string(file).unwrap_or_default();
-    let updated = edit_document(&existing, path, value)?;
+    let updated = edit_keys(&existing, keys, value)?;
     let mut config: Config = toml::from_str(&updated).context("that would make config.toml invalid")?;
     config.overview.migrate_legacy_names();
     if let Some(dir) = file.parent() {

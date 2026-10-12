@@ -1,5 +1,5 @@
-//! Namespaces on number keys 1-9 (0 is always all), saved per context in
-//! `<config dir>/namespaces` as `context<TAB>slot<TAB>namespace` lines.
+//! Namespaces on number keys 1-9 (0 is always all), saved per context in `config.toml`
+//! as `[namespaces]` entries like `"my-context" = { 1 = "default" }`.
 
 use crate::config::Config;
 
@@ -46,48 +46,66 @@ impl Favorites {
         self.slots.iter().position(|s| s.as_deref() == Some(namespace)).map(|i| i + 1)
     }
 
-    fn path() -> PathBuf {
+    /// The file the keys used to live in, before they moved into `config.toml`.
+    fn legacy_path() -> PathBuf {
         Config::dir().join("namespaces")
     }
 
     pub(crate) fn load(context: &str) -> Self {
-        Self::parse(&std::fs::read_to_string(Self::path()).unwrap_or_default(), context)
+        Self::import_legacy();
+        let text = std::fs::read_to_string(Config::path()).unwrap_or_default();
+        Self::from_toml(&text, context)
     }
 
-    fn parse(text: &str, context: &str) -> Self {
+    /// This context's keys from `[namespaces."<context>"]`, like `1 = "default"`.
+    fn from_toml(text: &str, context: &str) -> Self {
         let mut favorites = Self::empty();
-        for line in text.lines() {
-            let mut parts = line.splitn(3, '\t');
-            if let (Some(ctx), Some(slot), Some(ns)) = (parts.next(), parts.next(), parts.next())
-                && ctx == context
-                && let Ok(slot) = slot.parse::<usize>()
+        let table = text.parse::<toml::Table>().ok().and_then(|t| t.get("namespaces")?.get(context)?.as_table().cloned());
+        for (slot, namespace) in table.into_iter().flatten() {
+            if let (Ok(slot), Some(namespace)) = (slot.parse::<usize>(), namespace.as_str())
                 && (1..=SLOTS).contains(&slot)
             {
-                favorites.slots[slot - 1] = Some(ns.to_string());
+                favorites.slots[slot - 1] = Some(namespace.to_string());
             }
         }
         favorites
     }
 
-    /// Rewrites this context's lines, keeping every other context's. Best effort:
-    /// a failed save isn't worth an error.
-    pub(crate) fn save(&self, context: &str) {
-        let path = Self::path();
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
-        let mut out: Vec<String> = existing.lines().filter(|l| l.split('\t').next() != Some(context)).map(String::from).collect();
-        for (i, slot) in self.slots.iter().enumerate() {
-            if let Some(ns) = slot {
-                out.push(format!("{context}\t{}\t{ns}", i + 1));
+    /// Moves the old `namespaces` file into `config.toml` once, keeping what is already
+    /// there, and leaves the file as `namespaces.old`.
+    fn import_legacy() {
+        let legacy = Self::legacy_path();
+        let Ok(text) = std::fs::read_to_string(&legacy) else { return };
+        let mut by_context: std::collections::BTreeMap<String, Self> = std::collections::BTreeMap::new();
+        for line in text.lines() {
+            let mut parts = line.splitn(3, '\t');
+            if let (Some(context), Some(slot), Some(namespace)) = (parts.next(), parts.next(), parts.next())
+                && let Ok(slot) = slot.parse::<usize>()
+                && (1..=SLOTS).contains(&slot)
+            {
+                by_context.entry(context.to_string()).or_insert_with(Self::empty).slots[slot - 1] = Some(namespace.to_string());
             }
         }
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        let config = std::fs::read_to_string(Config::path()).unwrap_or_default();
+        for (context, favorites) in by_context {
+            if Self::from_toml(&config, &context) == Self::empty() {
+                favorites.save(&context);
+            }
         }
-        // Written beside the file, then renamed over it, so a crash never leaves half a file.
-        let temp = path.with_extension("tmp");
-        if std::fs::write(&temp, out.join("\n") + "\n").is_ok() {
-            let _ = std::fs::rename(temp, path);
+        let _ = std::fs::rename(&legacy, legacy.with_extension("old"));
+    }
+
+    /// Writes this context's keys to `config.toml`, keeping the rest of the file. Best
+    /// effort: a failed save isn't worth an error.
+    pub(crate) fn save(&self, context: &str) {
+        let mut table = toml_edit::InlineTable::new();
+        for (i, slot) in self.slots.iter().enumerate() {
+            if let Some(namespace) = slot {
+                table.insert((i + 1).to_string(), toml_edit::Value::from(namespace.as_str()));
+            }
         }
+        let value = (!table.is_empty()).then(|| toml_edit::Value::InlineTable(table));
+        let _ = crate::config::edit::save_keys(&Config::path(), &["namespaces", context], value);
     }
 }
 
@@ -136,9 +154,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_reads_only_the_matching_context() {
-        let text = "a\t1\tdefault\nb\t1\tother\na\t3\tkube-system\n";
-        let f = Favorites::parse(text, "a");
+    fn reads_only_the_matching_context() {
+        let text = "[namespaces]\n\"a.b\" = { 1 = \"default\", 3 = \"kube-system\" }\nb = { 1 = \"other\" }\n";
+        let f = Favorites::from_toml(text, "a.b");
         assert_eq!(f.get(1), Some("default"));
         assert_eq!(f.get(2), None);
         assert_eq!(f.get(3), Some("kube-system"));
