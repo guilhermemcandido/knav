@@ -390,25 +390,6 @@ pub(super) fn resolve_icon_kind(label: &str, column_title: &str) -> Option<Resou
     ResourceKind::from_label(label).or_else(|| (column_title == "CustomResources").then_some(ResourceKind::CustomResourceList))
 }
 
-/// A thin line along the very edge of `area`, drawn with one-eighth blocks so it lies
-/// flush with the fill instead of in the middle of the edge cells like box lines.
-fn edge_line(frame: &mut Frame, area: Rect, line: Style, fill: Color) {
-    if area.width < 3 || area.height < 3 {
-        return;
-    }
-    let style = Style::default().fg(line.fg.unwrap_or_default()).bg(fill);
-    let (right, bottom) = (area.x + area.width - 1, area.y + area.height - 1);
-    let buf = frame.buffer_mut();
-    for x in area.x + 1..right {
-        buf[(x, area.y)].set_symbol("▔").set_style(style);
-        buf[(x, bottom)].set_symbol("▁").set_style(style);
-    }
-    for y in area.y..=bottom {
-        buf[(area.x, y)].set_symbol("▏").set_style(style);
-        buf[(right, y)].set_symbol("▕").set_style(style);
-    }
-}
-
 /// A Favorites card: a filled tile with the icon on the left, the name over a large
 /// count, and a border only while it is selected. The add card is an empty outline.
 fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, icons: &mut IconCache) {
@@ -423,14 +404,15 @@ fn draw_favorite_card(frame: &mut Frame, area: Rect, card: Card, dimmed: bool, i
         (_, true) => (grey.add_modifier(Modifier::BOLD), grey),
         _ => (Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD), accent),
     };
-    let border = if dimmed { dim_style() } else if selected { accent } else { grey };
     // The tile being moved is lit in a lighter fill.
-    let tile = if lifted { Style::default().bg(theme().panel_bg) } else { Style::default().bg(theme().pill_bg) };
-    // The fill covers the whole tile and the selection is a thin line along its edge.
+    let tile = if lifted || (selected && !dimmed) { Style::default().bg(theme().panel_bg) } else { Style::default().bg(theme().pill_bg) };
+    // The fill covers the whole tile. Selected, it is lighter and has a bar down its left
+    // edge; both are plain cell fills, so they line up exactly in any font.
     let inner = Block::default().borders(Borders::ALL).inner(area);
     frame.render_widget(Block::default().style(tile), area);
-    if selected {
-        edge_line(frame, area, border, theme().pill_bg);
+    if selected && !dimmed {
+        let bar = Rect { width: 1, ..area };
+        frame.render_widget(Block::default().style(Style::default().bg(theme().namespace)), bar);
     }
     if inner.height == 0 || inner.width < 4 {
         return;
