@@ -131,7 +131,7 @@ impl Registry {
 /// The Extensions screen's order, as indexes into `loaded`: fuzzy-matched on name,
 /// bundled first, then alphabetical.
 pub fn visible_order(loaded: &[Loaded], filter: &str) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || knav_common::util::fuzzy::positions(filter, &loaded[i].name).is_some()).collect();
+    let mut order: Vec<usize> = (0..loaded.len()).filter(|&i| filter.is_empty() || knav_common::util::fuzzy::contains_positions(filter, &loaded[i].name).is_some()).collect();
     order.sort_by_key(|&i| (!loaded[i].bundled, loaded[i].name.to_lowercase()));
     order
 }

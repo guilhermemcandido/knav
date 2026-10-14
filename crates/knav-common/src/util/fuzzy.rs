@@ -43,6 +43,29 @@ pub fn positions(pattern: &str, text: &str) -> Option<Vec<usize>> {
     Some(found)
 }
 
+/// Case-insensitive match of `pattern` as typed, in one piece. `None` if `text` doesn't
+/// contain it, else a score that is higher the nearer the start it is, and for a start
+/// of a word. An empty pattern scores 0.
+pub fn contains_score(pattern: &str, text: &str) -> Option<i64> {
+    let at = contains_positions(pattern, text)?.first().copied();
+    let Some(at) = at else { return Some(0) };
+    let before = text.to_lowercase().chars().nth(at.wrapping_sub(1)).filter(|_| at > 0);
+    let word_start = at == 0 || before.is_some_and(|c| matches!(c, '-' | '_' | '.' | '/' | ':' | ' '));
+    Some(1000 - at as i64 * 2 + if word_start { 20 } else { 0 })
+}
+
+/// The character positions of `pattern`'s first occurrence in `text`, for highlighting;
+/// `None` when it isn't there, empty for an empty pattern.
+pub fn contains_positions(pattern: &str, text: &str) -> Option<Vec<usize>> {
+    if pattern.is_empty() {
+        return Some(Vec::new());
+    }
+    let text: Vec<char> = text.to_lowercase().chars().collect();
+    let pattern: Vec<char> = pattern.to_lowercase().chars().collect();
+    let at = text.windows(pattern.len()).position(|window| window == pattern.as_slice())?;
+    Some((at..at + pattern.len()).collect())
+}
+
 /// The single best-scoring candidate, or `None` if nothing matches.
 pub fn best_match<'a>(pattern: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     candidates.filter_map(|c| score(pattern, c).map(|s| (s, c))).max_by_key(|(s, _)| *s).map(|(_, c)| c)
@@ -51,6 +74,15 @@ pub fn best_match<'a>(pattern: &str, candidates: impl Iterator<Item = &'a str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contains_needs_the_text_in_one_piece() {
+        assert!(contains_score("traefik", "kube-system traefik-9bcdbbd9").is_some());
+        assert_eq!(contains_score("tfk", "traefik"), None);
+        assert_eq!(contains_positions("ABC", "xabcx"), Some(vec![1, 2, 3]));
+        assert!(contains_score("web", "web-1").unwrap() > contains_score("web", "my-app-web").unwrap());
+        assert_eq!(contains_score("", "anything"), Some(0));
+    }
 
     #[test]
     fn empty_pattern_matches_everything() {

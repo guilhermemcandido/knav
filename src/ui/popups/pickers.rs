@@ -13,7 +13,7 @@ pub fn context_matches<'a>(contexts: &'a [crate::k8s::ContextInfo], filter: &str
     let mut scored: Vec<(i64, &crate::k8s::ContextInfo)> = contexts
         .iter()
         .filter_map(|c| {
-            let score = crate::util::fuzzy::score(filter, &c.name).max(crate::util::fuzzy::score(filter, &c.cluster).map(|s| s / 2));
+            let score = crate::util::fuzzy::contains_score(filter, &c.name).max(crate::util::fuzzy::contains_score(filter, &c.cluster).map(|s| s / 2));
             score.map(|s| (if filter.is_empty() { i64::from(c.is_current) } else { s }, c))
         })
         .collect();

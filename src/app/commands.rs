@@ -246,7 +246,7 @@ pub(crate) fn open_namespace_picker(mode: &mut Mode, names: Vec<String>) {
 
 /// Namespaces matching the picker's filter, best match first.
 pub(crate) fn filtered_names<'a>(names: &'a [String], filter: &str, sort: ListSort, favorites: &Favorites) -> Vec<&'a String> {
-    let mut scored: Vec<(i64, &String)> = names.iter().filter_map(|n| fuzzy::score(filter, n).map(|s| (s, n))).collect();
+    let mut scored: Vec<(i64, &String)> = names.iter().filter_map(|n| fuzzy::contains_score(filter, n).map(|s| (s, n))).collect();
     scored.sort_by_key(|(score, name)| (std::cmp::Reverse(*score), (*name).clone()));
     let mut shown: Vec<&String> = scored.into_iter().map(|(_, n)| n).collect();
     apply(&mut shown, sort.spec, |name, column| namespace_key(name, favorites.key_of(name), column));
@@ -405,8 +405,9 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn search_narrows_to_fuzzy_matches_only() {
+    pub(crate) fn search_narrows_to_matches_of_the_whole_text() {
         assert!(row_matches("traefik", "kube-system traefik-9bcdbbd9-x2767"));
+        assert!(!row_matches("tfk", "kube-system traefik-9bcdbbd9-x2767"), "scattered letters are not a match");
         assert!(!row_matches("traefik", "kube-system coredns-8db54c48d-nhwx7"));
     }
 

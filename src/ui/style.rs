@@ -169,10 +169,10 @@ pub(super) fn match_style() -> Style {
     Style::default().bg(theme().highlight).fg(crate::theme::on(theme().highlight)).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
 }
 
-/// `text` with the characters `pattern` fuzzy-matched highlighted, or plain `base`
-/// when nothing matches.
+/// `text` with the part that `pattern` matches highlighted, or plain `base` when
+/// nothing matches.
 pub(super) fn highlight_fuzzy(text: &str, pattern: &str, base: Style) -> Line<'static> {
-    let Some(positions) = (!pattern.is_empty()).then(|| crate::util::fuzzy::positions(pattern, text)).flatten() else {
+    let Some(positions) = (!pattern.is_empty()).then(|| crate::util::fuzzy::contains_positions(pattern, text)).flatten() else {
         return Line::styled(text.to_string(), base);
     };
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -202,8 +202,8 @@ mod highlight_tests {
 
     #[test]
     fn matched_characters_are_split_into_highlighted_runs() {
-        let line = highlight_fuzzy("kube-system", "ksy", Style::default());
-        assert_eq!(texts(&line), [("k".into(), true), ("ube-".into(), false), ("sy".into(), true), ("stem".into(), false)]);
+        let line = highlight_fuzzy("kube-system", "sys", Style::default());
+        assert_eq!(texts(&line), [("kube-".into(), false), ("sys".into(), true), ("tem".into(), false)]);
     }
 
     #[test]

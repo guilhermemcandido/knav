@@ -204,11 +204,11 @@ pub(crate) fn object_title(manifest: &serde_yaml::Value) -> String {
 }
 
 /// The `/` filter: empty matches everything, `=` matches exactly (jumps use it to land on
-/// one object), anything else is a fuzzy match.
+/// one object), anything else must appear in the text as typed.
 pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
     match search.strip_prefix('=') {
         Some(exact) => haystack == exact,
-        None => search.is_empty() || fuzzy::score(search, haystack).is_some(),
+        None => search.is_empty() || fuzzy::contains_score(search, haystack).is_some(),
     }
 }
 
