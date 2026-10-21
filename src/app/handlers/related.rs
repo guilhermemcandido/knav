@@ -59,6 +59,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             },
                             None => fetch = Some((id(node), k8s::relations::find_manifest(all, &node.kind, node.namespace.as_deref(), &node.name), key)),
                         }
+                    } else if *selected == 0 {
+                        ui::refuse("This is the object the diagram is about");
                     }
                 }
                 KeyCode::Backspace => restore = true,
@@ -88,6 +90,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         && let Some(kind) = cx.catalog.list_for(&node.kind)
                     {
                         open = Some((kind, node.namespace.clone(), node.name.clone()));
+                    } else if let Some(node) = graph.nodes.get(*selected) {
+                        ui::refuse(format!("{} has no list here", node.kind));
                     }
                 }
                 _ => {}

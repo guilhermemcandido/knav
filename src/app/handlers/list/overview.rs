@@ -145,6 +145,8 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                             ui::refuse(format!("{label} is not in this cluster"));
                         } else if let Some(kind) = catalog.kind_for_tile_label(label) {
                             st.switch_kind(kind);
+                        } else {
+                            ui::refuse(format!("{label} can't be opened"));
                         }
                     }
                 }

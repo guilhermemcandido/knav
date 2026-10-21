@@ -61,6 +61,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             && let Some(target) = crate::app::handlers::list::selected_manifest(st, cx.d, catalog, cx.client).as_ref().and_then(crate::ops::actions::Target::from_manifest)
                         {
                             super::custom::run(st, cx, index, &target);
+                        } else {
+                            ui::refuse("Custom commands run on a selected row of a list");
                         }
                     }
                     Some(Cmd::Problems) => {
@@ -84,13 +86,20 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         if let Some(crd) = catalog.crds.get(index) {
                             st.switch_kind(ResourceKind::CustomResource(index, crd.kind));
                             st.mode = Mode::List;
+                        } else {
+                            ui::refuse("That custom resource is no longer in the cluster");
                         }
                     }
                     Some(Cmd::Api(index, plural, _)) => {
                         st.switch_kind(ResourceKind::Api(index, plural));
                         st.mode = Mode::List;
                     }
-                    None => st.mode = std::mem::replace(&mut **back, Mode::List),
+                    None => {
+                        if !cmd.is_empty() {
+                            ui::refuse(format!("Unknown command :{cmd}"));
+                        }
+                        st.mode = std::mem::replace(&mut **back, Mode::List);
+                    }
                 }
             }
             KeyCode::Backspace => {

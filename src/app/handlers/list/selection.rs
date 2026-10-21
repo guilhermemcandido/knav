@@ -108,25 +108,24 @@ pub(super) fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodVi
     }
 }
 
-/// Every row of the current list, in order, with its manifest.
-pub(super) fn visible_manifests(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Vec<serde_yaml::Value> {
-    match st.current_kind {
+/// The marked rows of the current list as action targets. Rows are matched by name
+/// first, so only the marked ones are turned into manifests (or fetched).
+pub(super) fn marked_targets(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Vec<Target> {
+    let marked = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| st.marked.contains(&ui::mark_key(meta.namespace.as_deref().unwrap_or("-"), meta.name.as_deref().unwrap_or_default()));
+    let manifests: Vec<serde_yaml::Value> = match st.current_kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => Vec::new(),
-        ResourceKind::Pods => d.pods.iter().map(|p| k8s::manifest_value(p.as_ref())).collect(),
-        ResourceKind::Deployments => d.deployments.iter().map(|x| k8s::manifest_value(x.as_ref())).collect(),
-        ResourceKind::Nodes => d.sorted_nodes.iter().map(|n| k8s::manifest_value(n.as_ref())).collect(),
+        ResourceKind::Pods => d.pods.iter().filter(|p| marked(&p.metadata)).map(|p| k8s::manifest_value(p.as_ref())).collect(),
+        ResourceKind::Deployments => d.deployments.iter().filter(|x| marked(&x.metadata)).map(|x| k8s::manifest_value(x.as_ref())).collect(),
+        ResourceKind::Nodes => d.sorted_nodes.iter().filter(|n| marked(&n.metadata)).map(|n| k8s::manifest_value(n.as_ref())).collect(),
         kind => match catalog.resolve(kind, client) {
-            Some(k) => d.generic_visible.iter().filter_map(|&real| k.spec_at(real)).collect(),
+            Some(k) => d
+                .generic_visible
+                .iter()
+                .filter(|&&real| d.generic_rows_full.get(real).is_some_and(|r| st.marked.contains(&ui::mark_key(&r.namespace, &r.name))))
+                .filter_map(|&real| k.spec_at(real))
+                .collect(),
             None => Vec::new(),
         },
-    }
-}
-
-/// The marked rows of the current list as action targets.
-pub(super) fn marked_targets(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Vec<Target> {
-    visible_manifests(st, d, catalog, client)
-        .iter()
-        .filter_map(Target::from_manifest)
-        .filter(|t| st.marked.contains(&ui::mark_key(t.namespace.as_deref().unwrap_or("-"), &t.name)))
-        .collect()
+    };
+    manifests.iter().filter_map(Target::from_manifest).collect()
 }

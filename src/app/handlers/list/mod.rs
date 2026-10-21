@@ -87,6 +87,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 } else {
                     st.forwards.remove(real);
                 }
+            } else {
+                ui::refuse("No port-forward selected");
             }
         }
         // Number keys pick the namespace: 0 is all, 1-9 the ones reserved with `n`.
@@ -99,6 +101,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 } else if let Some(ns) = st.favorites.get(n) {
                     st.namespace = Some(ns.to_string());
                     st.table_state.select(Some(0));
+                } else {
+                    ui::refuse(format!("No namespace on key {n}; press n to give it one"));
                 }
             }
         }
@@ -114,6 +118,10 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         } else {
             key.code
         } {
+            // Keys that act on the selected row say so when there is none.
+            KeyCode::Char('d' | 'y' | 'R' | 'Y' | 'e' | 'X' | 'v' | 'F' | 'O' | ' ' | 'l' | 'p' | 'L' | 'D' | 'S' | 'r' | 'c' | 'u' | 't') if row_count == 0 => {
+                ui::refuse("Nothing selected");
+            }
             // `q` and Esc undo one step: out of a drill-down, or back to the mode a jump
             // left behind. With nothing left, the Overview; pickers push their own step, so
             // an empty stack means this kind was opened directly. `:q` quits.
@@ -180,6 +188,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.sort_choosing = true;
                 st.sort_cursor = st.sort.map_or(0, |s| s.column);
             }
+            KeyCode::Char('s') => ui::refuse("This list can't be sorted"),
             // `*` pins this kind to Home's favorites, or unpins it.
             KeyCode::Char('*') => {
                 let label = st.current_kind.label();
@@ -194,6 +203,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(column) = age_column(st.current_kind, *generic_columns, st.wide) {
                     st.sort = Some(SortSpec::pressed(st.sort, column));
                     st.table_state.select(Some(0));
+                } else {
+                    ui::refuse("This list has no age to sort by");
                 }
             }
             // `n` gives a namespace a key 1-9: the highlighted row on the Namespaces list,
@@ -418,6 +429,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     crate::app::jobs::fetch_surroundings(st, client, "Loading the workload's pods", manifest, key);
                 }
             }
+            KeyCode::Char('l' | 'p') => ui::refuse("Logs are for pods; L streams a workload's pods"),
+            KeyCode::Char('L') => ui::refuse(format!("{} have no pods to stream", st.current_kind.label())),
             KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
                 // Delete, restart and scale act on every marked row when there are marks.
                 let bulk = matches!(c, 'D' | 'S' | 'r') && !st.marked.is_empty();
@@ -427,7 +440,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest).into_iter().collect()
                 };
                 // An API resource is a kind, not an object: nothing here acts on it.
-                if let Some(target) = targets.first().cloned().filter(|t| t.kind != "APIResource") {
+                if targets.first().is_some_and(|t| t.kind == "APIResource") {
+                    ui::refuse("API resources are kinds, not objects; Enter opens one");
+                } else if let Some(target) = targets.first().cloned() {
                     let action = match c {
                         'D' => Some(Action::Delete),
                         'r' if target.restartable() => Some(Action::Restart),
@@ -452,15 +467,32 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         } else {
                             crate::app::jobs::run_action(st, client, targets, action, Box::new(Mode::List));
                         }
+                    } else {
+                        ui::refuse(match c {
+                            'S' => format!("A {} can't be scaled", target.kind),
+                            'r' => format!("A {} can't be restarted", target.kind),
+                            'c' => "Only nodes can be cordoned".to_string(),
+                            'u' => format!("A {} can't be suspended", target.kind),
+                            _ => "Only CronJobs can be triggered".to_string(),
+                        });
                     }
+                } else {
+                    ui::refuse("Nothing selected");
                 }
             }
             // Space marks the row (and moves down) for bulk actions.
             KeyCode::Char(' ') => {
-                if let Some(manifest) = selected_manifest(st, cx.d, catalog, client)
-                    && let Some(target) = Target::from_manifest(&manifest)
-                {
-                    let key = ui::mark_key(target.namespace.as_deref().unwrap_or("-"), &target.name);
+                // The row's own name, so marking never waits on fetching its manifest.
+                let meta_key = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| ui::mark_key(meta.namespace.as_deref().unwrap_or("-"), meta.name.as_deref().unwrap_or_default());
+                let selected = st.table_state.selected();
+                let key = match st.current_kind {
+                    ResourceKind::Pods => selected.and_then(|i| cx.d.pods.get(i)).map(|p| meta_key(&p.metadata)),
+                    ResourceKind::Deployments => selected.and_then(|i| cx.d.deployments.get(i)).map(|x| meta_key(&x.metadata)),
+                    ResourceKind::Nodes => selected.and_then(|i| cx.d.sorted_nodes.get(i)).map(|n| meta_key(&n.metadata)),
+                    ResourceKind::ApiResources | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
+                    _ => selected.and_then(|i| generic_rows.get(i)).map(|r| ui::mark_key(&r.namespace, &r.name)),
+                };
+                if let Some(key) = key {
                     if !st.marked.remove(&key) {
                         st.marked.insert(key);
                     }
