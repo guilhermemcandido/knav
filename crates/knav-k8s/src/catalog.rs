@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 
 /// Starts a kind's full watch.
-type StartWatch = Box<dyn Fn(&Client) -> Box<dyn crate::CatalogKind> + Send + Sync>;
+type StartWatch = Box<dyn Fn(&Client) -> (Box<dyn crate::CatalogKind>, tokio::task::JoinHandle<()>) + Send + Sync>;
 
 /// Starts a kind's watch of one namespace, with its task to stop when it is replaced.
 type StartWatchIn = Box<dyn Fn(&Client, &str) -> (Box<dyn crate::CatalogKind>, tokio::task::JoinHandle<()>) + Send + Sync>;
@@ -54,6 +54,10 @@ struct Entry {
     start: StartWatch,
     start_in: StartWatchIn,
     full: Option<Box<dyn crate::CatalogKind>>,
+    /// The full watch's task, stopped when the watch is let go.
+    handle: Option<tokio::task::JoinHandle<()>>,
+    /// When the full watch was last asked for, to let go of ones nobody looks at.
+    used: Option<std::time::Instant>,
 }
 
 /// What the loaded extensions add, as plain data from `Registry::index`,
@@ -87,6 +91,8 @@ pub struct Catalog {
     /// Every discovered CRD kind, watched only once it is opened.
     pub crds: Vec<crate::CrdInfo>,
     crd_watches: HashMap<usize, Box<dyn crate::CatalogKind>>,
+    /// When each CRD watch (`true`) or API table (`false`) was last asked for.
+    used: HashMap<(bool, usize), std::time::Instant>,
     /// Every resource type the API server lists, fetched as a Table once opened.
     pub apis: Vec<crate::ApiInfo>,
     api_list: crate::ApiList,
@@ -109,16 +115,19 @@ impl Catalog {
                     kind: ResourceKind::$variant,
                     label: $label,
                     api: (<$ty as k8s_openapi::Resource>::GROUP, <$ty as k8s_openapi::Resource>::URL_PATH_SEGMENT),
-                    start: Box::new(|client| crate::watch_kind::<$ty>(client.clone()).0),
+                    start: Box::new(|client| crate::watch_kind::<$ty>(client.clone())),
                     start_in: Box::new(|client, namespace| crate::watch_kind_in::<$ty>(client.clone(), Some(namespace))),
                     full: None,
+                    handle: None,
+                    used: None,
                 }
             };
         }
-        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", api: ("", "nodes"), start: Box::new(|_| unreachable!("nodes are watched from the start")), start_in: Box::new(|_, _| unreachable!("nodes are cluster-scoped")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))) };
+        let nodes = Entry { kind: ResourceKind::Nodes, label: "Nodes", api: ("", "nodes"), start: Box::new(|_| unreachable!("nodes are watched from the start")), start_in: Box::new(|_, _| unreachable!("nodes are cluster-scoped")), full: Some(Box::new(crate::WatchedKind::new(node_store, node_feed))), handle: None, used: None };
         // Namespaces feed the namespace picker, so they are always held in full.
         let mut namespaces = kind!(Namespaces, "Namespaces", Namespace);
-        namespaces.full = Some((namespaces.start)(client));
+        let (watch, handle) = (namespaces.start)(client);
+        (namespaces.full, namespaces.handle) = (Some(watch), Some(handle));
         let counts = crate::InstanceCounts::default();
         Catalog {
             client: client.clone(),
@@ -148,6 +157,7 @@ impl Catalog {
             ],
             crds: Vec::new(),
             crd_watches: HashMap::new(),
+            used: HashMap::new(),
             api_list: crate::ApiList { apis: Vec::new(), counts: counts.clone() },
             counts,
             counter: None,
@@ -236,11 +246,35 @@ impl Catalog {
     }
 
     pub fn ensure(&mut self, kind: ResourceKind) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.kind == kind)
-            && entry.full.is_none()
-        {
-            entry.full = Some((entry.start)(&self.client));
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.kind == kind) {
+            if entry.full.is_none() {
+                let (watch, handle) = (entry.start)(&self.client);
+                (entry.full, entry.handle) = (Some(watch), Some(handle));
+            }
+            entry.used = Some(std::time::Instant::now());
         }
+    }
+
+    /// Stops the watches nobody asked for in `idle`, except `keep`'s and the ones held
+    /// from the start. Opening the kind again starts it over.
+    pub fn release_idle(&mut self, keep: ResourceKind, idle: std::time::Duration) {
+        for entry in &mut self.entries {
+            if entry.kind != keep && entry.handle.is_some() && entry.kind != ResourceKind::Namespaces && entry.used.is_some_and(|u| u.elapsed() > idle) {
+                if let Some(handle) = entry.handle.take() {
+                    handle.abort();
+                }
+                entry.full = None;
+            }
+        }
+        let stale = |used: &HashMap<(bool, usize), std::time::Instant>, key: (bool, usize)| used.get(&key).is_none_or(|u| u.elapsed() > idle);
+        let (keep_crd, keep_api) = match keep {
+            ResourceKind::CustomResource(index, _) => (Some(index), None),
+            ResourceKind::Api(index, _) => (None, Some(index)),
+            _ => (None, None),
+        };
+        let used = &self.used;
+        self.crd_watches.retain(|index, _| Some(*index) == keep_crd || !stale(used, (true, *index)));
+        self.api_tables.retain(|index, _| Some(*index) == keep_api || !stale(used, (false, *index)));
     }
 
     /// Like `ensure`, by the label an Overview tile carries.
@@ -307,6 +341,7 @@ impl Catalog {
     pub fn resolve(&mut self, kind: ResourceKind, client: &Client) -> Option<&dyn crate::CatalogKind> {
         match kind {
             ResourceKind::CustomResource(index, _) => {
+                self.used.insert((true, index), std::time::Instant::now());
                 if !self.crd_watches.contains_key(&index) {
                     let api = crate::ApiInfo::from(self.crds.get(index)?);
                     self.crd_watches.insert(index, Box::new(crate::TableKind::start(client.clone(), &api)));
@@ -321,6 +356,7 @@ impl Catalog {
             }
             ResourceKind::ApiResources => Some(&self.api_list),
             ResourceKind::Api(index, _) => {
+                self.used.insert((false, index), std::time::Instant::now());
                 if !self.api_tables.contains_key(&index) {
                     let api = self.apis.get(index)?.clone();
                     self.api_tables.insert(index, crate::TableKind::start(client.clone(), &api));

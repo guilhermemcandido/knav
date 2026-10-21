@@ -194,6 +194,8 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
     // A list narrowed to one namespace (the filter, or inside a namespaced scope) only
     // fetches that namespace until the kind's cluster-wide watch is loaded.
     catalog.focus(current_kind, ns_filter);
+    // Kinds left alone for a while stop being watched; opening one starts it again.
+    catalog.release_idle(current_kind, std::time::Duration::from_secs(300));
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
         kind.set_namespace(ns_filter);
