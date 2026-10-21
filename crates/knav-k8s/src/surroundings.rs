@@ -198,9 +198,22 @@ async fn get_owner(client: &Client, api_version: &str, kind: &str, namespace: Op
     use kube::discovery::{Scope, pinned_kind};
     let (group, version) = api_version.split_once('/').unwrap_or(("", api_version));
     let gvk = kube::core::GroupVersionKind::gvk(group, version, kind);
+    // Discovery answers the same for a kind all session, so each is asked once.
+    static FOUND: std::sync::Mutex<Vec<(String, kube::api::ApiResource, Scope)>> = std::sync::Mutex::new(Vec::new());
+    let key = format!("{api_version}/{kind}");
     let work = async {
-        let (resource, caps) = pinned_kind(client, &gvk).await.ok()?;
-        let api: Api<DynamicObject> = match (caps.scope, namespace) {
+        let known = FOUND.lock().ok().and_then(|f| f.iter().find(|(k, ..)| *k == key).map(|(_, r, s)| (r.clone(), s.clone())));
+        let (resource, scope) = match known {
+            Some(found) => found,
+            None => {
+                let (resource, caps) = pinned_kind(client, &gvk).await.ok()?;
+                if let Ok(mut found) = FOUND.lock() {
+                    found.push((key.clone(), resource.clone(), caps.scope.clone()));
+                }
+                (resource, caps.scope)
+            }
+        };
+        let api: Api<DynamicObject> = match (scope, namespace) {
             (Scope::Namespaced, Some(ns)) => Api::namespaced_with(client.clone(), ns, &resource),
             _ => Api::all_with(client.clone(), &resource),
         };
