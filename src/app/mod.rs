@@ -281,7 +281,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             crds: &catalog.crds,
             extensions: &registry.loaded,
             helm_present: catalog.count(ResourceKind::HelmReleases) > 0,
-            layout_names: &catalog.layout_names(&st.config.extensions.enabled),
+            // Only the Settings screen's Layout tab lists them.
+            layout_names: &if matches!(&st.mode, Mode::Settings { .. }) || matches!(&st.mode, Mode::Notice { back, .. } | Mode::Confirm { back, .. } if matches!(**back, Mode::Settings { .. })) { catalog.layout_names(&st.config.extensions.enabled) } else { Vec::new() },
             dashboard_categories: &catalog.dashboard_categories(),
             apis: &catalog.apis,
             favorites: &st.favorites,
