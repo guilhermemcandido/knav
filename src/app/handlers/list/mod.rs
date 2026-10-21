@@ -191,6 +191,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let label = st.current_kind.label();
                 if matches!(st.current_kind, ResourceKind::CustomResource(..)) || cx.d.overview.all.iter().any(|(_, items)| items.iter().any(|(l, _)| *l == label)) {
                     overview::pin_toast(st, label);
+                } else {
+                    ui::show_toast(format!("{label} can't be pinned to Home"), false);
                 }
             }
             // `A` sorts by age; again flips the direction, then clears it.
@@ -251,6 +253,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if st.refuse_if_read_only() {
                 } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     super::edit::start(st, cx, &manifest, Mode::List);
+                } else {
+                    ui::show_toast("Nothing selected to edit".into(), false);
                 }
             }
             // A debug container beside a pod's first container.
@@ -258,6 +262,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(manifest) = selected_manifest(st, cx.d, catalog, client).filter(|m| m.get("kind").and_then(|k| k.as_str()) == Some("Pod")) {
                     let first = manifest.get("spec").and_then(|s| s.get("containers")).and_then(|c| c.get(0)).and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
                     super::ask_debug(st, &manifest, &first);
+                } else {
+                    ui::show_toast("Debug containers need a pod selected".into(), false);
                 }
             }
             // A workload's revisions, to compare and roll back.
@@ -266,6 +272,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     && k8s::rollout::has_history(&target.kind)
                 {
                     crate::app::jobs::load_history(st, client, target);
+                } else {
+                    ui::show_toast("Select a Deployment, StatefulSet or DaemonSet to see revisions".into(), false);
                 }
             }
             // Forward a port of a pod, service or deployment.
@@ -275,6 +283,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 {
                     let form = portforward::PortForm::new(target.ports());
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
+                } else {
+                    ui::show_toast("Select a pod, service or deployment to forward a port".into(), false);
                 }
             }
             KeyCode::Char('T') => super::themes::open(st, cx.config),
