@@ -98,6 +98,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .items()
             .iter()
             .filter(|(d, _)| in_namespace(&d.metadata))
+            .filter(|(d, _)| current_kind != ResourceKind::Deployments || scope.is_none_or(|s| s.matches_meta(&d.metadata)))
             .filter(|(d, _)| meta_matches(&search, &d.metadata))
             .filter(|(_, row)| !(faults && current_kind == ResourceKind::Deployments) || k8s::ready_is_short(&row.ready))
             .cloned()
@@ -125,6 +126,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let pods_per_node = pods_per_node(&all_pods);
         let mut node_pairs: Vec<(std::sync::Arc<Node>, k8s::NodeRow)> = k8s::snapshot_generic(node_store)
             .into_iter()
+            .filter(|n| current_kind != ResourceKind::Nodes || scope.is_none_or(|s| s.matches_meta(&n.metadata)))
             .filter(|n| row_matches(&search, &n.metadata.name.clone().unwrap_or_default()))
             .collect::<Vec<_>>()
             .into_iter()
@@ -189,7 +191,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // `generic_visible` maps a display row back to the index `spec_at` needs.
     // A list narrowed to one namespace (the filter, or inside a namespaced owner) only
     // fetches that namespace until the kind's cluster-wide watch is loaded.
-    catalog.focus(current_kind, ns_filter.or(scope.and_then(|s| s.namespace())).or(exact_namespace(&search)));
+    catalog.focus(current_kind, ns_filter.or(scope.and_then(|s| s.namespace())));
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
         kind.set_namespace(ns_filter);

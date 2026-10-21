@@ -15,13 +15,15 @@ pub enum Scope {
     Selector { labels: BTreeMap<String, String>, namespace: Option<String>, kind: String, name: String },
     /// Pods in this namespace, without making it the active namespace.
     Namespace { name: String },
+    /// Exactly one object, like the owner a jump lands on.
+    Object { kind: String, name: String, namespace: Option<String> },
 }
 
 impl Scope {
     /// The namespace everything in this scope is in, when there is one.
     pub fn namespace(&self) -> Option<&str> {
         match self {
-            Scope::Owner { namespace, .. } | Scope::Selector { namespace, .. } => namespace.as_deref(),
+            Scope::Owner { namespace, .. } | Scope::Selector { namespace, .. } | Scope::Object { namespace, .. } => namespace.as_deref(),
             Scope::Namespace { name } => Some(name),
         }
     }
@@ -29,14 +31,14 @@ impl Scope {
     /// The kind and name this list is inside, like `("Deployment", "web")`.
     pub fn parts(&self) -> (&str, &str) {
         match self {
-            Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => (kind, name),
+            Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } | Scope::Object { kind, name, .. } => (kind, name),
             Scope::Namespace { name } => ("Namespace", name),
         }
     }
 
     pub fn label(&self) -> String {
         match self {
-            Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } => format!("{kind}/{name}"),
+            Scope::Owner { kind, name, .. } | Scope::Selector { kind, name, .. } | Scope::Object { kind, name, .. } => format!("{kind}/{name}"),
             Scope::Namespace { name } => format!("Namespace/{name}"),
         }
     }
@@ -45,6 +47,7 @@ impl Scope {
         match self {
             Scope::Owner { uid, .. } => meta.owner_references.iter().flatten().any(|o| &o.uid == uid),
             Scope::Namespace { name } => meta.namespace.as_deref() == Some(name.as_str()),
+            Scope::Object { name, namespace, .. } => meta.name.as_deref() == Some(name.as_str()) && meta.namespace == *namespace,
             Scope::Selector { labels, namespace, .. } => {
                 namespace.as_ref().is_none_or(|ns| meta.namespace.as_ref() == Some(ns)) && !labels.is_empty() && labels.iter().all(|(k, v)| meta.labels.as_ref().and_then(|l| l.get(k)) == Some(v))
             }
@@ -54,8 +57,17 @@ impl Scope {
     pub fn matches_row(&self, row: &crate::GenericRow) -> bool {
         match self {
             Scope::Owner { uid, .. } => row.owners.contains(uid),
+            Scope::Object { name, namespace, .. } => row.name == *name && row.namespace == namespace.as_deref().unwrap_or("-"),
             Scope::Selector { .. } | Scope::Namespace { .. } => false,
         }
+    }
+}
+
+/// The name `kind`'s objects go by in a scope, like `ReplicaSet` for the ReplicaSets list.
+pub fn object_kind(kind: ResourceKind) -> String {
+    match kind {
+        ResourceKind::CustomResource(_, label) | ResourceKind::Api(_, label) => label.to_string(),
+        _ => singular(kind),
     }
 }
 
@@ -95,6 +107,19 @@ mod tests {
         assert!(!scope.matches_meta(&meta_owned_by("other")));
         assert!(!scope.matches_meta(&ObjectMeta::default()));
         assert_eq!(scope.label(), "Deployment/web");
+    }
+
+    #[test]
+    fn object_scope_matches_one_name_in_its_namespace() {
+        let scope = Scope::Object { kind: "ReplicaSet".into(), name: "web-5d9d".into(), namespace: Some("shop".into()) };
+        let meta = |ns: Option<&str>, name: &str| ObjectMeta { name: Some(name.into()), namespace: ns.map(String::from), ..Default::default() };
+        assert!(scope.matches_meta(&meta(Some("shop"), "web-5d9d")));
+        assert!(!scope.matches_meta(&meta(Some("other"), "web-5d9d")));
+        assert!(!scope.matches_meta(&meta(Some("shop"), "web")));
+        assert_eq!(scope.namespace(), Some("shop"));
+        assert_eq!(scope.label(), "ReplicaSet/web-5d9d");
+        let node = Scope::Object { kind: "Node".into(), name: "n1".into(), namespace: None };
+        assert!(node.matches_meta(&meta(None, "n1")));
     }
 
     #[test]

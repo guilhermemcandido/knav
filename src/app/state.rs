@@ -316,25 +316,18 @@ impl State {
         self.record_view();
     }
 
-    /// Goes to `kind` filtered to `search`, remembering where it came from so Esc returns.
-    pub fn jump_to(&mut self, kind: ResourceKind, search: String) {
+    /// Goes to the list of `kind` scoped to the object `namespace`/`name`, remembering
+    /// where it came from so Esc returns.
+    pub fn jump_to_object(&mut self, kind: ResourceKind, namespace: Option<&str>, name: &str) {
         let selected = self.table_state.selected().unwrap_or(0);
         self.back_stack.push(Step::List(self.current_kind, self.scope.take(), selected));
         self.current_kind = kind;
         self.sort = None;
         self.hscroll = 0;
         self.table_state.select(Some(0));
-        self.search = search;
-    }
-
-    /// Goes to the list of `kind` showing exactly the object `namespace`/`name`.
-    pub fn jump_to_object(&mut self, kind: ResourceKind, namespace: Option<&str>, name: &str) {
-        let search = match (kind, namespace) {
-            (ResourceKind::Nodes, _) => format!("={name}"),
-            (_, Some(ns)) => format!("={ns} {name}"),
-            (_, None) => format!("=- {name}"),
-        };
-        self.jump_to(kind, search);
+        self.search.clear();
+        let namespace = namespace.filter(|_| kind != ResourceKind::Nodes).map(String::from);
+        self.scope = Some(Scope::Object { kind: k8s::scope::object_kind(kind), name: name.to_string(), namespace });
     }
 
     /// Switches to another kind with a clean slate: no drill-down, sort, scroll or search.

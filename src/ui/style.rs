@@ -125,19 +125,10 @@ fn search_title(text: &str, editing: bool, dimmed: bool, reserve: u16) -> Option
         return None;
     }
     let style = if dimmed { dim_style() } else { Style::default().fg(theme().highlight) };
-    // A jump's exact match reads as `namespace/name`, not the `=namespace name` it is stored as.
-    let shown = match text.strip_prefix('=').filter(|_| !editing) {
-        Some(exact) => match exact.split_once(' ') {
-            Some(("-", name)) => name.to_string(),
-            Some((namespace, name)) => format!("{namespace}/{name}"),
-            None => exact.to_string(),
-        },
-        None => text.to_string(),
-    };
     let reserve = usize::from(reserve);
     // The badges' room is filled with the border line, not blanks.
     let filler = border_set().horizontal_top.repeat(reserve);
-    Some(Line::from(vec![Span::styled(format!(" search: {shown}{} ", if editing { "▏" } else { "" }), style), Span::styled(filler, theme_border(dimmed))]).right_aligned())
+    Some(Line::from(vec![Span::styled(format!(" search: {text}{} ", if editing { "▏" } else { "" }), style), Span::styled(filler, theme_border(dimmed))]).right_aligned())
 }
 
 /// `block` with the search, if any, on the right of its top border.

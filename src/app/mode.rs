@@ -203,19 +203,12 @@ pub(crate) fn object_title(manifest: &serde_yaml::Value) -> String {
     format!("{} {place}{}", text(&["kind"]).unwrap_or_default(), text(&["metadata", "name"]).unwrap_or_default())
 }
 
-/// The `/` filter: empty matches everything, `=` matches exactly (jumps use it to land on
-/// one object), anything else must appear in the text as typed.
+/// The `/` filter: empty matches everything, `=` matches exactly, anything else must appear in the text as typed.
 pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
     match search.strip_prefix('=') {
         Some(exact) => haystack == exact,
         None => search.is_empty() || fuzzy::contains_score(search, haystack).is_some(),
     }
-}
-
-/// The namespace an exact `=namespace name` search points at, so only it needs fetching.
-pub(crate) fn exact_namespace(search: &str) -> Option<&str> {
-    let (namespace, _) = search.strip_prefix('=')?.split_once(' ')?;
-    (namespace != "-").then_some(namespace)
 }
 
 /// `row_matches` against `namespace name`, built only when there is a search.
@@ -316,18 +309,5 @@ mod screen_tests {
         assert_eq!(screen_of(&Mode::Search, ResourceKind::Pods), None);
         assert_eq!(screen_of(&Mode::List, ResourceKind::Overview), Some(Overview));
         assert_eq!(screen_of(&Mode::List, ResourceKind::Pods), Some(List));
-    }
-}
-
-#[cfg(test)]
-mod exact_search_tests {
-    use super::exact_namespace;
-
-    #[test]
-    fn an_exact_search_names_its_namespace() {
-        assert_eq!(exact_namespace("=shop web-5d9d"), Some("shop"));
-        assert_eq!(exact_namespace("=- node-a"), None);
-        assert_eq!(exact_namespace("=node-a"), None);
-        assert_eq!(exact_namespace("shop web"), None);
     }
 }

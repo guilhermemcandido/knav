@@ -110,7 +110,10 @@ pub(crate) fn location(current_kind: ResourceKind, trail: &[Step], scope: Option
             segment(kind, name)
         })
         .collect();
-    segments.push(plain_segment(current_kind.label()));
+    // A jump's object already names the list it is in.
+    if !matches!(scope, Some(Scope::Object { .. })) {
+        segments.push(plain_segment(current_kind.label()));
+    }
     segments
 }
 
