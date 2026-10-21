@@ -189,7 +189,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // `generic_visible` maps a display row back to the index `spec_at` needs.
     // A list narrowed to one namespace (the filter, or inside a namespaced owner) only
     // fetches that namespace until the kind's cluster-wide watch is loaded.
-    catalog.focus(current_kind, ns_filter.or(scope.and_then(|s| s.namespace())));
+    catalog.focus(current_kind, ns_filter.or(scope.and_then(|s| s.namespace())).or(exact_namespace(&search)));
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
         kind.set_namespace(ns_filter);

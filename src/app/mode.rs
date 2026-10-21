@@ -212,6 +212,12 @@ pub(crate) fn row_matches(search: &str, haystack: &str) -> bool {
     }
 }
 
+/// The namespace an exact `=namespace name` search points at, so only it needs fetching.
+pub(crate) fn exact_namespace(search: &str) -> Option<&str> {
+    let (namespace, _) = search.strip_prefix('=')?.split_once(' ')?;
+    (namespace != "-").then_some(namespace)
+}
+
 /// `row_matches` against `namespace name`, built only when there is a search.
 pub(crate) fn meta_matches(search: &str, meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) -> bool {
     search.is_empty() || row_matches(search, &format!("{} {}", meta.namespace.as_deref().unwrap_or_default(), meta.name.as_deref().unwrap_or_default()))
@@ -310,5 +316,18 @@ mod screen_tests {
         assert_eq!(screen_of(&Mode::Search, ResourceKind::Pods), None);
         assert_eq!(screen_of(&Mode::List, ResourceKind::Overview), Some(Overview));
         assert_eq!(screen_of(&Mode::List, ResourceKind::Pods), Some(List));
+    }
+}
+
+#[cfg(test)]
+mod exact_search_tests {
+    use super::exact_namespace;
+
+    #[test]
+    fn an_exact_search_names_its_namespace() {
+        assert_eq!(exact_namespace("=shop web-5d9d"), Some("shop"));
+        assert_eq!(exact_namespace("=- node-a"), None);
+        assert_eq!(exact_namespace("=node-a"), None);
+        assert_eq!(exact_namespace("shop web"), None);
     }
 }
