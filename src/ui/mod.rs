@@ -491,6 +491,11 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
     let shortcuts_line = is_list_kind(&rows);
     let side = sidebar_area(full, shortcuts_line, chrome);
     sidebar::draw_sidebar(frame, side, dimmed, chrome);
+    // With nothing open on top, the sidebar and the list are panes a selection stays in.
+    let plain_screen = overlay.is_none() && background.is_none();
+    if plain_screen && chrome.sidebar.is_some() {
+        selection::screen_pane(side);
+    }
     let body = beside_sidebar(full, shortcuts_line, chrome);
     let full_body = body;
     let body = if is_list_kind(&rows) { Rect { width: body.width - side_panel_width(full.width, chrome).min(body.width), ..body } } else { body };
@@ -502,6 +507,9 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         ),
         _ => (None, body),
     };
+    if plain_screen {
+        selection::screen_pane(body);
+    }
     // Only the focused list highlights matches; behind a popup it's dimmed.
     let search = if dimmed { Search::default() } else { search };
     // Header lines align with the boxes' content as it sits without the sidebar,

@@ -42,6 +42,8 @@ pub struct PaneRange {
 #[derive(Clone)]
 struct Region {
     pane: Option<Pane>,
+    /// Its text is whatever was drawn there, read when a selection starts.
+    from_screen: bool,
     area: Rect,
     /// `rows[i]` is drawn at `area.y + i`.
     rows: Vec<TextRow>,
@@ -81,7 +83,15 @@ pub(super) fn text_lines(pane: Pane, area: Rect, lines: impl IntoIterator<Item =
 
 /// Says what each row of `area` shows, for panes that wrap lines over several rows.
 pub(super) fn text_rows(pane: Pane, area: Rect, rows: Vec<TextRow>) {
-    with(|s| s.drawing.push(Region { pane: Some(pane), area, rows }));
+    with(|s| s.drawing.push(Region { pane: Some(pane), from_screen: false, area, rows }));
+}
+
+/// Marks `area` as a pane of its own, like the list or the sidebar, so a selection
+/// started in it stays in it.
+pub(super) fn screen_pane(area: Rect) {
+    if area.width > 0 && area.height > 0 {
+        with(|s| s.drawing.push(Region { pane: None, from_screen: true, area, rows: Vec::new() }));
+    }
 }
 
 /// A line's text without its styles.
@@ -201,6 +211,9 @@ fn region_at(s: &Selection, at: (u16, u16)) -> Region {
     let inside = |r: &&Region| at.0 >= r.area.x && at.0 < r.area.right() && at.1 >= r.area.y && at.1 < r.area.bottom();
     // A pane with something drawn over it doesn't show what it says, so it is skipped.
     let shown = |r: &&Region| {
+        if r.from_screen {
+            return true;
+        }
         let i = usize::from(at.1 - r.area.y);
         let Some(row) = r.rows.get(i) else { return true };
         let width = usize::from(r.area.width);
@@ -211,13 +224,21 @@ fn region_at(s: &Selection, at: (u16, u16)) -> Region {
         let on_screen: String = s.screen.get(usize::from(at.1)).map(|cells| cells.iter().skip(usize::from(r.area.x)).take(width).map(String::as_str).collect()).unwrap_or_default();
         expected.trim_end() == on_screen.trim_end()
     };
-    if let Some(region) = s.regions.iter().rev().filter(inside).find(shown) {
+    let found = s.regions.iter().rev().filter(inside).find(shown);
+    if let Some(region) = found.filter(|r| !r.from_screen) {
         return region.clone();
     }
     let height = s.screen.len() as u16;
     let width = s.screen.first().map_or(0, |r| r.len()) as u16;
-    let rows = s.screen.iter().enumerate().map(|(i, cells)| TextRow { line: i, start: 0, text: cells.concat().into() }).collect();
-    Region { pane: None, area: Rect { x: 0, y: 0, width, height }, rows }
+    let area = found.map_or(Rect { x: 0, y: 0, width, height }, |r| r.area);
+    let rows = (area.y..area.bottom().min(height))
+        .map(|y| {
+            let cells = &s.screen[usize::from(y)];
+            let text: String = cells.iter().skip(usize::from(area.x)).take(usize::from(area.width)).map(String::as_str).collect();
+            TextRow { line: usize::from(y), start: 0, text: text.into() }
+        })
+        .collect();
+    Region { pane: None, from_screen: false, area, rows }
 }
 
 /// Where `(column, row)` falls in `region`'s text: a line and a cell of it. Past the
@@ -338,7 +359,7 @@ mod tests {
     #[test]
     fn a_selection_runs_line_by_line_and_takes_what_is_cut_off_to_the_right() {
         // Two lines, 5 cells shown each, scrolled 0.
-        let region = Region { pane: None, area: Rect { x: 10, y: 2, width: 5, height: 2 }, rows: vec![row(0, 0, "alpha beta"), row(1, 0, "gamma delta")] };
+        let region = Region { pane: None, from_screen: false, area: Rect { x: 10, y: 2, width: 5, height: 2 }, rows: vec![row(0, 0, "alpha beta"), row(1, 0, "gamma delta")] };
         // From "ph" of line 0 to past the right edge on line 1: the rest of line 0, all of line 1.
         assert_eq!(copied(&region, (12, 2), (30, 3)).as_deref(), Some("pha beta\ngamma delta"));
         // Backwards gives the same.
@@ -350,7 +371,7 @@ mod tests {
     #[test]
     fn a_wrapped_line_is_copied_as_one() {
         let text = "abcdefgh";
-        let region = Region { pane: None, area: Rect { x: 0, y: 0, width: 4, height: 3 }, rows: vec![row(0, 0, text), row(0, 4, text), row(1, 0, "xy")] };
+        let region = Region { pane: None, from_screen: false, area: Rect { x: 0, y: 0, width: 4, height: 3 }, rows: vec![row(0, 0, text), row(0, 4, text), row(1, 0, "xy")] };
         assert_eq!(copied(&region, (0, 0), (3, 1)).as_deref(), Some("abcdefgh"));
         assert_eq!(copied(&region, (2, 0), (1, 2)).as_deref(), Some("cdefgh\nxy"));
         // Past the edge of a wrapped row stops at that row's end.
@@ -359,9 +380,19 @@ mod tests {
 
     #[test]
     fn a_scrolled_line_starts_where_it_is_shown() {
-        let region = Region { pane: None, area: Rect { x: 0, y: 0, width: 3, height: 1 }, rows: vec![row(4, 2, "0123456789")] };
+        let region = Region { pane: None, from_screen: false, area: Rect { x: 0, y: 0, width: 3, height: 1 }, rows: vec![row(4, 2, "0123456789")] };
         assert_eq!(copied(&region, (0, 0), (1, 0)).as_deref(), Some("23"));
         assert_eq!(cells("日本語", 2, 3), "本");
+    }
+
+    #[test]
+    fn a_selection_in_a_screen_pane_stays_inside_it() {
+        // A sidebar in columns 0-3, the list from column 4.
+        let screen: Vec<Vec<String>> = ["SIDElist one", "BAR list two"].iter().map(|r| r.chars().map(String::from).collect()).collect();
+        let list = Region { pane: None, from_screen: true, area: Rect { x: 4, y: 0, width: 8, height: 2 }, rows: Vec::new() };
+        let s = Selection { screen, regions: vec![list], ..Default::default() };
+        let region = region_at(&s, (6, 0));
+        assert_eq!(copied(&region, (6, 0), (0, 1)).as_deref(), Some("st one\nl"));
     }
 
     #[test]
