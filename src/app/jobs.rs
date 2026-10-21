@@ -283,6 +283,6 @@ mod tests {
         let mut st = State::new(crate::ui::icons::IconCache::halfblocks(), Default::default(), Default::default());
         st.read_only_flag = true;
         run_action(&mut st, &client, vec![target()], Action::Delete, Box::new(Mode::List));
-        assert!(matches!(st.mode, Mode::Notice { .. }), "no job should start");
+        assert!(matches!(st.mode, Mode::List), "no job should start");
     }
 }

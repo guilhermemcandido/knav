@@ -142,7 +142,7 @@ pub(super) fn keys(key: crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx)
                         && let Some((label, _)) = items.get(item)
                     {
                         if overview.absent.iter().any(|a| a == label) {
-                            ui::show_toast(format!("{label} is not in this cluster"), false);
+                            ui::refuse(format!("{label} is not in this cluster"));
                         } else if let Some(kind) = catalog.kind_for_tile_label(label) {
                             st.switch_kind(kind);
                         }
@@ -175,7 +175,7 @@ fn save_names(st: &mut State, path: &str, names: &[String]) -> bool {
             true
         }
         Err(e) => {
-            ui::show_toast(format!("Could not save: {e}"), false);
+            ui::refuse(format!("Could not save: {e}"));
             false
         }
     }

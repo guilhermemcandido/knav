@@ -164,7 +164,7 @@ fn select_with_mouse(mouse: &crossterm::event::MouseEvent) -> bool {
                 let lines = text.lines().count();
                 match crate::ops::clipboard::copy(&text) {
                     Ok(_) => ui::show_toast(if lines > 1 { format!("Copied {lines} lines") } else { "Copied".to_string() }, true),
-                    Err(e) => ui::show_toast(format!("Copy failed: {e}"), false),
+                    Err(e) => ui::refuse(format!("Copy failed: {e}")),
                 }
                 true
             }

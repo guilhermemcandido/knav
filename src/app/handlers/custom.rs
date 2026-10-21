@@ -53,8 +53,7 @@ pub(crate) fn hints(commands: &[CustomCommand]) -> Vec<(String, String)> {
 pub(super) fn run(st: &mut State, cx: &mut Cx, index: usize, target: &Target) {
     let Some(command) = st.config.commands.get(index).cloned() else { return };
     if !command.applies_to(&target.kind) {
-        let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Notice { text: format!("{} is for {}, not {}", command.name, command.kinds.join(", "), target.kind), tone: NoticeTone::Info, back: Box::new(back) };
+        ui::refuse(format!("{} is for {}, not {}", command.name, command.kinds.join(", "), target.kind));
         return;
     }
     if !command.read_only && st.refuse_if_read_only() {

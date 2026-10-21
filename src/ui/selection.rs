@@ -70,6 +70,11 @@ pub fn show_toast(text: String, good: bool) {
     with(|s| s.toast = Some((text, good, Instant::now())));
 }
 
+/// A short red message for something that can't be done, with the reason.
+pub fn refuse(text: impl Into<String>) {
+    show_toast(text.into(), false);
+}
+
 /// Shows `name` beside the pointer at `(column, row)` while it drags something; `None` ends it.
 pub fn set_ghost(ghost: Option<(String, u16, u16)>) {
     with(|s| s.ghost = ghost);

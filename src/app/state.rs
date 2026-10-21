@@ -242,8 +242,7 @@ impl State {
         if !self.read_only() {
             return false;
         }
-        let back = std::mem::replace(&mut self.mode, Mode::List);
-        self.mode = Mode::Notice { text: "Read-only mode is on".into(), tone: crate::ops::NoticeTone::Info, back: Box::new(back) };
+        crate::ui::refuse("Read-only mode is on");
         true
     }
 
@@ -367,13 +366,13 @@ mod tests {
     }
 
     #[test]
-    fn read_only_refuses_with_a_notice_that_goes_back() {
+    fn read_only_refuses_and_leaves_the_screen_alone() {
         let mut st = state();
         assert!(!st.refuse_if_read_only());
         assert!(matches!(st.mode, Mode::List));
         st.config.read_only.enabled = true;
         assert!(st.refuse_if_read_only());
-        assert!(matches!(&st.mode, Mode::Notice { back, .. } if matches!(**back, Mode::List)));
+        assert!(matches!(st.mode, Mode::List));
         let mut flagged = state();
         flagged.read_only_flag = true;
         assert!(flagged.read_only(), "--read-only holds whatever Settings says");

@@ -1,7 +1,7 @@
 //! `v` on a Deployment, StatefulSet or DaemonSet: its revisions, what rolling back to
 //! one would change, and the rollback itself, after a confirm.
 
-use crate::ops::{NoticeTone, actions};
+use crate::ops::actions;
 use super::super::*;
 use super::Cx;
 
@@ -54,9 +54,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Enter => {
                     let Some(revision) = revisions.get(*cursor) else { return Ok(None) };
                     if revision.current {
-                        let text = format!("Revision {} is the one running", revision.number);
-                        let here = std::mem::replace(&mut st.mode, Mode::List);
-                        st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(here) };
+                        ui::refuse(format!("Revision {} is the one running", revision.number));
                     } else if read_only {
                         st.refuse_if_read_only();
                     } else {

@@ -1,6 +1,5 @@
 //! What is selected on the list: its manifest, the objects around it, and the pod views.
 
-use crate::ops::NoticeTone;
 use super::*;
 
 /// Scrolls the overview's columns so the selected tile is on screen.
@@ -65,7 +64,7 @@ pub(super) fn open_pod(st: &mut State, cx: &mut Cx, target: &Target, view: PodVi
         let restarted: Vec<&k8s::ContainerInfo> = containers.iter().filter(|c| c.restarts > 0).collect();
         match restarted.as_slice() {
             [] => {
-                st.mode = Mode::Notice { text: format!("{} has not restarted, so there is no previous run to show", target.name), tone: NoticeTone::Info, back: Box::new(Mode::List) };
+                ui::refuse(format!("{} has not restarted, so there is no previous run to show", target.name));
                 return;
             }
             [one] => {

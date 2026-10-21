@@ -41,7 +41,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
-pub use self::selection::{after_frame, set_ghost, selection_drag, selection_finish, selection_start, show_toast};
+pub use self::selection::{after_frame, set_ghost, selection_drag, selection_finish, selection_start, show_toast, refuse};
 use self::dashboard::draw_dashboard;
 pub use self::nav::*;
 pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, sidebar_area, sidebar_row_at};

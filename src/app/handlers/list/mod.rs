@@ -192,7 +192,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if matches!(st.current_kind, ResourceKind::CustomResource(..)) || cx.d.overview.all.iter().any(|(_, items)| items.iter().any(|(l, _)| *l == label)) {
                     overview::pin_toast(st, label);
                 } else {
-                    ui::show_toast(format!("{label} can't be pinned to Home"), false);
+                    ui::refuse(format!("{label} can't be pinned to Home"));
                 }
             }
             // `A` sorts by age; again flips the direction, then clears it.
@@ -254,7 +254,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 } else if let Some(manifest) = selected_manifest(st, cx.d, catalog, client) {
                     super::edit::start(st, cx, &manifest, Mode::List);
                 } else {
-                    ui::show_toast("Nothing selected to edit".into(), false);
+                    ui::refuse("Nothing selected to edit");
                 }
             }
             // A debug container beside a pod's first container.
@@ -263,7 +263,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let first = manifest.get("spec").and_then(|s| s.get("containers")).and_then(|c| c.get(0)).and_then(|c| c.get("name")).and_then(|n| n.as_str()).unwrap_or_default().to_string();
                     super::ask_debug(st, &manifest, &first);
                 } else {
-                    ui::show_toast("Debug containers need a pod selected".into(), false);
+                    ui::refuse("Debug containers need a pod selected");
                 }
             }
             // A workload's revisions, to compare and roll back.
@@ -273,7 +273,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 {
                     crate::app::jobs::load_history(st, client, target);
                 } else {
-                    ui::show_toast("Select a Deployment, StatefulSet or DaemonSet to see revisions".into(), false);
+                    ui::refuse("Select a Deployment, StatefulSet or DaemonSet to see revisions");
                 }
             }
             // Forward a port of a pod, service or deployment.
@@ -284,7 +284,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     let form = portforward::PortForm::new(target.ports());
                     st.mode = Mode::Ports { target, form, back: Box::new(Mode::List) };
                 } else {
-                    ui::show_toast("Select a pod, service or deployment to forward a port".into(), false);
+                    ui::refuse("Select a pod, service or deployment to forward a port");
                 }
             }
             KeyCode::Char('T') => super::themes::open(st, cx.config),
@@ -306,12 +306,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             let namespace = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("namespace")?.as_str().map(String::from));
                             st.jump_to_object(target, namespace.as_deref(), &name);
                         }
-                        None => st.mode = Mode::Notice { text: format!("Owned by a {kind} ({name}), which has no list here"), tone: NoticeTone::Info, back: Box::new(Mode::List) },
+                        None => ui::refuse(format!("Owned by a {kind} ({name}), which has no list here")),
                     },
                     None => {
                         let name = selected_manifest(st, cx.d, catalog, client).and_then(|m| m.get("metadata")?.get("name")?.as_str().map(String::from));
-                        let text = name.map_or_else(|| "It has no owner".to_string(), |n| format!("{n} has no owner"));
-                        st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(Mode::List) };
+                        ui::refuse(name.map_or_else(|| "It has no owner".to_string(), |n| format!("{n} has no owner")));
                     }
                 }
             }
@@ -402,7 +401,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                     if targets.is_empty() {
                         // A ReplicaSet at 0 or a completed Job has no live pods: say so.
-                        st.mode = Mode::Notice { text: format!("{namespace}/{owner_name} has no running pods right now"), tone: NoticeTone::Info, back: Box::new(Mode::List) };
+                        ui::refuse(format!("{namespace}/{owner_name} has no running pods right now"));
                     } else {
                         let title = format!("{namespace}/{owner_name} ({} pod{})", pods.len(), if pods.len() == 1 { "" } else { "s" });
                         let (rx, handles) = k8s::stream_logs_many(client.clone(), namespace, targets);
