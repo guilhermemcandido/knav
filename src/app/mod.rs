@@ -225,8 +225,11 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         // The info panel beside the list follows the selected row.
         let panel_wide = terminal.size().map(|s| s.width >= ui::SIDE_PANEL_MIN_WIDTH).unwrap_or(false);
         if st.info_panel && panel_wide && matches!(st.mode, Mode::List) && st.current_kind != ResourceKind::Overview {
-            match handlers::selected_manifest(&st, derived, catalog, &client) {
-                Some(manifest) => {
+            // Rebuilt only when the selection or the data moved, not on every redraw.
+            let built_from = format!("{:?}|{:?}|{:?}|{}|{}", st.current_kind, st.scope, st.table_state.selected(), fresh.version(), st.reveal);
+            if st.info_built.as_ref().is_none_or(|(from, ..)| *from != built_from) {
+                st.info_built = None;
+                if let Some(manifest) = handlers::peek_selected_manifest(&st, derived, catalog, &client) {
                     let key = format!("{:?}{}", st.current_kind, mode::object_title(&manifest));
                     if key != st.info_key {
                         st.info_key = key;
@@ -236,13 +239,21 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
                     }
                     let view = catalog.view_for(&st.config.extensions.enabled, &manifest);
                     let sections = k8s::details::details(&manifest, &overview.events, crate::app::live_usage(pod_usage.as_deref(), usage.as_ref()), st.reveal, view);
+                    let built_from = format!("{:?}|{:?}|{:?}|{}|{}", st.current_kind, st.scope, st.table_state.selected(), fresh.version(), st.reveal);
+                    st.info_built = Some((built_from, mode::object_title(&manifest), sections));
+                }
+            }
+            match &st.info_built {
+                Some((_, title, sections)) => {
                     if let Ok(size) = terminal.size() {
-                        let (down, right) = ui::side_panel_max_scroll(&sections, size);
+                        let (down, right) = ui::side_panel_max_scroll(sections, size);
                         st.info_scroll = st.info_scroll.min(down);
                         st.info_hscroll = st.info_hscroll.min(right);
                     }
-                    st.chrome.panel = Some(ui::SidePanel { title: mode::object_title(&manifest), sections, scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus });
+                    st.chrome.panel = Some(ui::SidePanel { title: title.clone(), sections: sections.clone(), scroll: st.info_scroll, hscroll: st.info_hscroll, focused: st.info_focus });
                 }
+                // Still being fetched: keep the panel's place so the list doesn't jump.
+                None if row_count > 0 && !matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_)) => st.chrome.panel = Some(ui::SidePanel { title: "Loading…".into(), sections: Vec::new(), scroll: 0, hscroll: 0, focused: st.info_focus }),
                 None => st.chrome.panel = None,
             }
         } else {

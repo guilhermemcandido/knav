@@ -390,6 +390,10 @@ impl CatalogKind for TableKind {
     }
 
     fn state_of(&self, index: usize) -> crate::describe::Note {
+        object_state(&self.peek_spec_at(index)?)
+    }
+
+    fn peek_spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
         let key = {
             let data = self.data.lock().ok()?;
             let row = data.rows.get(index)?;
@@ -397,7 +401,7 @@ impl CatalogKind for TableKind {
         };
         // A stale copy still answers; spec_at refreshes it when the object is opened.
         if let Some((_, value)) = self.objects.lock().ok().and_then(|o| o.get(&key).cloned()) {
-            return object_state(&value);
+            return Some(value);
         }
         let mut fetching = self.fetching.lock().ok()?;
         if fetching.insert(key.clone()) {
@@ -408,6 +412,7 @@ impl CatalogKind for TableKind {
                     && let Ok(mut objects) = objects.lock()
                 {
                     objects.insert(key.clone(), (std::time::Instant::now(), object));
+                    crate::note_change();
                 }
                 if let Ok(mut fetching) = fetching.lock() {
                     fetching.remove(&key);

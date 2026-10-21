@@ -10,7 +10,7 @@ mod mouse;
 mod overview;
 mod selection;
 
-pub(crate) use selection::selected_manifest;
+pub(crate) use selection::{peek_selected_manifest, selected_manifest};
 pub(in crate::app::handlers) use selection::surrounding_manifests;
 use selection::{PodView, keep_overview_selection_visible, marked_targets, open_pod};
 

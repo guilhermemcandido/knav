@@ -80,13 +80,15 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let in_namespace = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| {
             ns_filter.is_none_or(|ns| meta.namespace.as_deref() == Some(ns))
         };
+        // The search belongs to the list on screen, so other kinds skip it.
+        let search_for = |kind: ResourceKind| if current_kind == kind { search.as_str() } else { "" };
         let all_pods = pod_store.items();
         // Kept rows are shared, not rebuilt. The fuzzy search over 100k names is the slow
         // part, so it runs across the cores.
         let keep = k8s::par_map(&all_pods, |(p, _)| {
             in_namespace(&p.metadata)
                 && (current_kind != ResourceKind::Pods || scope.is_none_or(|s| s.matches_meta(&p.metadata)))
-                && meta_matches(&search, &p.metadata)
+                && meta_matches(search_for(ResourceKind::Pods), &p.metadata)
                 && (!(faults && current_kind == ResourceKind::Pods) || k8s::pod_is_fault(p))
         });
         let mut pairs: Vec<k8s::Item<Pod, k8s::PodRow>> = all_pods.iter().zip(keep).filter(|(_, keep)| *keep).map(|(item, _)| item.clone()).collect();
@@ -99,7 +101,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             .iter()
             .filter(|(d, _)| in_namespace(&d.metadata))
             .filter(|(d, _)| current_kind != ResourceKind::Deployments || scope.is_none_or(|s| s.matches_meta(&d.metadata)))
-            .filter(|(d, _)| meta_matches(&search, &d.metadata))
+            .filter(|(d, _)| meta_matches(search_for(ResourceKind::Deployments), &d.metadata))
             .filter(|(_, row)| !(faults && current_kind == ResourceKind::Deployments) || k8s::ready_is_short(&row.ready))
             .cloned()
             .collect();
@@ -113,7 +115,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         // The pods on the open node, from the whole back-chain so it works while
         // NodeDetail is a dimmed background.
         let mut detail: Vec<k8s::Item<Pod, k8s::PodRow>> = if let Some(name) = node_detail_name(mode) {
-            pods.iter().zip(&pod_rows).filter(|(p, _)| p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name)).map(|(p, r)| (p.clone(), r.clone())).collect()
+            all_pods.iter().filter(|(p, _)| in_namespace(&p.metadata) && p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(name)).cloned().collect()
         } else {
             Vec::new()
         };
@@ -121,15 +123,15 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         detail.retain(|(p, _)| meta_matches(&node_search, &p.metadata));
         apply(&mut detail, node_detail_sort(mode), |(_, row), column| pod_key(row, column, false, pod_usage.as_deref()));
         let (node_detail_pods, node_detail_rows): (Vec<Arc<Pod>>, Vec<Arc<k8s::PodRow>>) = detail.into_iter().unzip();
+        // Node rows count every pod, so they are built only for the screens that show them.
+        let need_nodes = matches!(current_kind, ResourceKind::Nodes | ResourceKind::ExtensionDashboard(_)) || matches!(mode, Mode::ResourcesDetail | Mode::ColumnDetail { .. });
         // Nodes are filtered here so handlers indexing `sorted_nodes` match the display.
         // Every pod counts toward its node's PODS, whatever the list is narrowed to.
-        let pods_per_node = pods_per_node(&all_pods);
-        let mut node_pairs: Vec<(std::sync::Arc<Node>, k8s::NodeRow)> = k8s::snapshot_generic(node_store)
+        let pods_per_node = if need_nodes { pods_per_node(&all_pods) } else { HashMap::new() };
+        let mut node_pairs: Vec<(std::sync::Arc<Node>, k8s::NodeRow)> = if need_nodes { k8s::snapshot_generic(node_store) } else { Vec::new() }
             .into_iter()
             .filter(|n| current_kind != ResourceKind::Nodes || scope.is_none_or(|s| s.matches_meta(&n.metadata)))
-            .filter(|n| row_matches(&search, &n.metadata.name.clone().unwrap_or_default()))
-            .collect::<Vec<_>>()
-            .into_iter()
+            .filter(|n| row_matches(search_for(ResourceKind::Nodes), &n.metadata.name.clone().unwrap_or_default()))
             .map(|n| {
                 let name = n.metadata.name.clone().unwrap_or_default();
                 let node_usage = usage.as_ref().and_then(|u| u.for_node(&name));
@@ -317,6 +319,7 @@ pub(super) struct Cache {
     at: std::time::Instant,
     /// How long it took, so a big cluster isn't recomputed faster than it can be.
     took: std::time::Duration,
+    version: u64,
     derived: Derived,
 }
 
@@ -364,10 +367,16 @@ impl Cache {
         }
         static DERIVATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         // The tables cache their column widths per derivation.
-        ui::set_data_version(DERIVATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
+        let version = DERIVATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        ui::set_data_version(version);
         let started = std::time::Instant::now();
         let derived = derive(src, catalog, mode, q);
-        Cache { key, changes, at: std::time::Instant::now(), took: started.elapsed(), derived }
+        Cache { key, changes, at: std::time::Instant::now(), took: started.elapsed(), version, derived }
+    }
+
+    /// Which derivation this is, so work built from it can be kept until the next.
+    pub(super) fn version(&self) -> u64 {
+        self.version
     }
 
     pub(super) fn derived(&self) -> &Derived {

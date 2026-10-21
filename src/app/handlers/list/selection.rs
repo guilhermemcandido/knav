@@ -19,6 +19,16 @@ pub(super) fn keep_overview_selection_visible(st: &mut State, overview: &k8s::Ov
 
 /// The manifest of the row the cursor is on, for every kind with rows.
 pub(crate) fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Option<serde_yaml::Value> {
+    manifest_at(st, d, catalog, client, false)
+}
+
+/// `selected_manifest` for what is drawn every frame: a manifest still being fetched
+/// is `None` for now instead of a wait.
+pub(crate) fn peek_selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client) -> Option<serde_yaml::Value> {
+    manifest_at(st, d, catalog, client, true)
+}
+
+fn manifest_at(st: &State, d: &Derived, catalog: &mut Catalog, client: &Client, peek: bool) -> Option<serde_yaml::Value> {
     let selected = st.table_state.selected()?;
     match st.current_kind {
         ResourceKind::Overview | ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) => None,
@@ -27,7 +37,8 @@ pub(crate) fn selected_manifest(st: &State, d: &Derived, catalog: &mut Catalog, 
         ResourceKind::Nodes => d.sorted_nodes.get(selected).map(|n| k8s::manifest_value(n.as_ref())),
         kind => {
             let real = *d.generic_visible.get(selected)?;
-            catalog.resolve(kind, client).and_then(|k| k.spec_at(real))
+            let kind = catalog.resolve(kind, client)?;
+            if peek { kind.peek_spec_at(real) } else { kind.spec_at(real) }
         }
     }
 }

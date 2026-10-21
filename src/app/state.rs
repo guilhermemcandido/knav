@@ -70,6 +70,9 @@ pub(super) struct State {
     pub info_focus: bool,
     /// The object the panel showed last, to restart its scroll when the selection moves.
     pub info_key: String,
+    /// The panel's title and sections and what they were built from, reused while
+    /// neither the selection nor the data changed.
+    pub info_built: Option<(String, String, Vec<crate::k8s::details::Section>)>,
     /// The sidebar and panel as last drawn, which mouse hits are measured against.
     pub chrome: ui::Chrome,
     /// The resource sidebar (`m`): shown, holding the keys, its cursor and the folded categories.
@@ -190,6 +193,7 @@ impl State {
             info_focus: false,
             chrome: ui::Chrome::default(),
             info_key: String::new(),
+            info_built: None,
             sidebar: false,
             sidebar_focus: false,
             sidebar_cursor: 0,

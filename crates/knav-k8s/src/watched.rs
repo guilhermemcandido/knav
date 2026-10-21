@@ -18,6 +18,11 @@ pub trait CatalogKind: Send + Sync {
     }
     fn rows(&self) -> Vec<Arc<GenericRow>>;
     fn spec_at(&self, index: usize) -> Option<serde_yaml::Value>;
+    /// Like `spec_at`, but never waits on the network: an object not at hand is fetched
+    /// in the background and `None` comes back until it arrives.
+    fn peek_spec_at(&self, index: usize) -> Option<serde_yaml::Value> {
+        self.spec_at(index)
+    }
     /// An object's state from its conditions, when it is at hand. Never waits: a
     /// custom resource not fetched yet is fetched in the background.
     fn state_of(&self, _index: usize) -> crate::describe::Note {

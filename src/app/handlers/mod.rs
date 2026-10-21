@@ -10,7 +10,7 @@ pub(crate) use history::changes as history_changes;
 mod extensions;
 mod inspect;
 mod list;
-pub(crate) use list::selected_manifest;
+pub(crate) use list::{peek_selected_manifest, selected_manifest};
 mod operate;
 mod overview_popups;
 mod details;
