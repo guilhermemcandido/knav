@@ -184,6 +184,7 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
     let lines = details_lines(sections, usize::from(padded.width));
     let scroll = scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     let hscroll = hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
+    super::selection::text_lines(padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 
@@ -247,6 +248,7 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect, chrome: &Chrome) {
     let lines = details_lines(&panel.sections, usize::from(padded.width));
     let scroll = panel.scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     let hscroll = panel.hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
+    super::selection::text_lines(padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 

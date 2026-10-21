@@ -1,6 +1,7 @@
 //! The logs popup: filtering, level colouring and match highlighting.
 
 use super::*;
+use super::selection::{TextRow, plain, text_rows};
 
 /// Log lines matching the filter, a plain case-insensitive substring, in reading order.
 fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str> {
@@ -96,10 +97,23 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
     // Only the rows on screen are built. Following shows the newest end; scrolled,
     // the view starts at line `scroll`.
     let (width, height) = (usize::from(inner.width), usize::from(inner.height));
-    let mut rows: Vec<Line<'static>> = Vec::new();
+    // Each row also says which log line it is part of, so a selection copies whole lines.
+    let rows_with_source = |index: usize, raw: &str| -> Vec<(Line<'static>, TextRow)> {
+        let own = rows_of(raw, timestamp_format, filter, width);
+        let text: std::sync::Arc<str> = own.iter().map(plain).collect::<String>().into();
+        let mut start = 0;
+        own.into_iter()
+            .map(|row| {
+                let source = TextRow { line: index, start, text: text.clone() };
+                start += row.width();
+                (row, source)
+            })
+            .collect()
+    };
+    let mut rows: Vec<(Line<'static>, TextRow)> = Vec::new();
     if follow && order == LogOrder::OldestFirst {
-        for raw in ordered.iter().rev() {
-            let mut own = rows_of(raw, timestamp_format, filter, width);
+        for (index, raw) in ordered.iter().enumerate().rev() {
+            let mut own = rows_with_source(index, raw);
             own.append(&mut rows);
             rows = own;
             if rows.len() >= height {
@@ -109,14 +123,16 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
         rows.drain(..rows.len().saturating_sub(height));
     } else {
         let start = if follow { 0 } else { scroll.min(ordered.len().saturating_sub(1)) };
-        for raw in ordered.iter().skip(start) {
-            rows.extend(rows_of(raw, timestamp_format, filter, width));
+        for (index, raw) in ordered.iter().enumerate().skip(start) {
+            rows.extend(rows_with_source(index, raw));
             if rows.len() >= height {
                 break;
             }
         }
         rows.truncate(height);
     }
+    let (rows, sources): (Vec<Line<'static>>, Vec<TextRow>) = rows.into_iter().unzip();
+    text_rows(inner, sources);
     frame.render_widget(Paragraph::new(rows), inner);
 }
 
