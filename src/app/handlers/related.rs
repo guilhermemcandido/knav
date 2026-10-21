@@ -148,8 +148,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         return Ok(None);
     }
     if let Some(text) = missing {
-        let back = std::mem::replace(&mut st.mode, Mode::List);
-        st.mode = Mode::Notice { text, tone: NoticeTone::Info, back: Box::new(back) };
+        crate::ui::refuse(text);
         return Ok(None);
     }
     if let Some(outcome) = copy_note {
