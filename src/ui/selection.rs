@@ -18,8 +18,30 @@ pub(super) struct TextRow {
     pub text: Arc<str>,
 }
 
+/// The text panes a selection can follow while they scroll.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pane {
+    Details,
+    Panel,
+    Yaml,
+    Logs,
+    Tree,
+}
+
+/// A selection in a pane, from one line and cell to another (both included). The
+/// caller reads the lines from the pane's whole text, the ones scrolled away included.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PaneRange {
+    pub pane: Pane,
+    /// The pane's width, which decides how its text is laid out.
+    pub width: usize,
+    pub from: (usize, usize),
+    pub to: (usize, usize),
+}
+
 #[derive(Clone)]
 struct Region {
+    pane: Option<Pane>,
     area: Rect,
     /// `rows[i]` is drawn at `area.y + i`.
     rows: Vec<TextRow>,
@@ -35,13 +57,16 @@ struct Selection {
     /// Text panes of the frame being drawn, then of the last one drawn.
     drawing: Vec<Region>,
     regions: Vec<Region>,
+    /// The pane the selection started in and where in its text, which stays put while
+    /// the pane scrolls under it.
+    held: Option<(Pane, (usize, usize))>,
     toast: Option<(String, bool, Instant)>,
     /// A name following the pointer while something is dragged.
     ghost: Option<(String, u16, u16)>,
 }
 
 static SELECTION: Mutex<Selection> =
-    Mutex::new(Selection { anchor: (0, 0), head: (0, 0), dragging: false, screen: Vec::new(), drawing: Vec::new(), regions: Vec::new(), toast: None, ghost: None });
+    Mutex::new(Selection { anchor: (0, 0), head: (0, 0), dragging: false, screen: Vec::new(), drawing: Vec::new(), regions: Vec::new(), held: None, toast: None, ghost: None });
 
 fn with<T>(f: impl FnOnce(&mut Selection) -> T) -> T {
     f(&mut SELECTION.lock().unwrap_or_else(|e| e.into_inner()))
@@ -49,14 +74,14 @@ fn with<T>(f: impl FnOnce(&mut Selection) -> T) -> T {
 
 /// Says that `area` shows `lines` (whole, unclipped) from line `first`, each scrolled
 /// `hscroll` cells to the left, one per row.
-pub(super) fn text_lines(area: Rect, lines: impl IntoIterator<Item = String>, first: usize, hscroll: usize) {
+pub(super) fn text_lines(pane: Pane, area: Rect, lines: impl IntoIterator<Item = String>, first: usize, hscroll: usize) {
     let rows = lines.into_iter().take(usize::from(area.height)).enumerate().map(|(i, text)| TextRow { line: first + i, start: hscroll, text: text.into() }).collect();
-    text_rows(area, rows);
+    text_rows(pane, area, rows);
 }
 
 /// Says what each row of `area` shows, for panes that wrap lines over several rows.
-pub(super) fn text_rows(area: Rect, rows: Vec<TextRow>) {
-    with(|s| s.drawing.push(Region { area, rows }));
+pub(super) fn text_rows(pane: Pane, area: Rect, rows: Vec<TextRow>) {
+    with(|s| s.drawing.push(Region { pane: Some(pane), area, rows }));
 }
 
 /// A line's text without its styles.
@@ -70,7 +95,42 @@ pub fn selection_start(column: u16, row: u16) {
         s.anchor = (column, row);
         s.head = (column, row);
         s.dragging = false;
+        let region = region_at(s, s.anchor);
+        s.held = region.pane.map(|pane| (pane, point(&region, s.anchor)));
     });
+}
+
+/// While a selection in a pane is dragged past its top (-1) or bottom (1) edge, so
+/// the pane can scroll to take in more.
+pub fn selection_edge() -> Option<(Pane, i8)> {
+    with(|s| {
+        let (pane, _) = s.held.filter(|_| s.dragging)?;
+        let region = s.regions.iter().rev().find(|r| r.pane == Some(pane))?;
+        if s.head.1 < region.area.y {
+            Some((pane, -1))
+        } else if s.head.1 >= region.area.bottom() {
+            Some((pane, 1))
+        } else {
+            None
+        }
+    })
+}
+
+/// The ends of the selection in `region`'s text, first one first.
+fn ends(s: &Selection, region: &Region) -> ((usize, usize), (usize, usize)) {
+    let anchor = match s.held {
+        Some((pane, at)) if region.pane == Some(pane) => at,
+        _ => point(region, s.anchor),
+    };
+    ordered(anchor, point(region, s.head))
+}
+
+/// The region the selection is in: its pane as drawn last, or the one under the anchor.
+fn selected_region(s: &Selection) -> Region {
+    match s.held {
+        Some((pane, _)) => s.regions.iter().rev().find(|r| r.pane == Some(pane)).cloned().unwrap_or_else(|| region_at(s, s.anchor)),
+        None => region_at(s, s.anchor),
+    }
 }
 
 /// The mouse moved with the button down. True once it is a selection rather than a click.
@@ -82,19 +142,42 @@ pub fn selection_drag(column: u16, row: u16) -> bool {
     })
 }
 
-/// The button came up: the selected text if there was a drag, and the selection ends.
-pub fn selection_finish() -> Option<String> {
+/// The button came up: if there was a drag, the text it covers as drawn, and in a pane
+/// the range for reading it from the pane's whole text.
+pub fn selection_finish() -> Option<(String, Option<PaneRange>)> {
     with(|s| {
         if !std::mem::take(&mut s.dragging) {
+            s.held = None;
             return None;
         }
-        copied(&region_at(s, s.anchor), s.anchor, s.head)
+        let region = selected_region(s);
+        let (from, to) = ends(s, &region);
+        s.held = None;
+        let range = region.pane.map(|pane| PaneRange { pane, width: usize::from(region.area.width), from, to });
+        let text = copied(&region, from, to).unwrap_or_default();
+        (range.is_some() || !text.is_empty()).then_some((text, range))
     })
 }
 
-/// The text of `region` from `anchor` to `head`, whichever comes first, line by line.
-fn copied(region: &Region, anchor: (u16, u16), head: (u16, u16)) -> Option<String> {
-    let (from, to) = ordered(point(region, anchor), point(region, head));
+/// The text from `from` to `to` in `line`'s lines (`None` for one that isn't shown),
+/// line by line, with the first and last cut at those cells.
+pub fn text_between(line: impl Fn(usize) -> Option<String>, from: (usize, usize), to: (usize, usize)) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for index in from.0..=to.0 {
+        let Some(text) = line(index) else { continue };
+        let first = if index == from.0 { from.1 } else { 0 };
+        let end = if index == to.0 { to.1 } else { usize::MAX };
+        lines.push(cells(&text, first, end).trim_end().to_string());
+    }
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    let text = lines.join("\n");
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// The text of `region`'s rows from `from` to `to`, line by line.
+fn copied(region: &Region, from: (usize, usize), to: (usize, usize)) -> Option<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut last = None;
     for row in &region.rows {
@@ -134,7 +217,7 @@ fn region_at(s: &Selection, at: (u16, u16)) -> Region {
     let height = s.screen.len() as u16;
     let width = s.screen.first().map_or(0, |r| r.len()) as u16;
     let rows = s.screen.iter().enumerate().map(|(i, cells)| TextRow { line: i, start: 0, text: cells.concat().into() }).collect();
-    Region { area: Rect { x: 0, y: 0, width, height }, rows }
+    Region { pane: None, area: Rect { x: 0, y: 0, width, height }, rows }
 }
 
 /// Where `(column, row)` falls in `region`'s text: a line and a cell of it. Past the
@@ -201,8 +284,8 @@ pub fn after_frame(frame: &mut Frame) {
         s.regions = std::mem::take(&mut s.drawing);
         if s.dragging {
             // The selection runs in reading order, so it is lit row by row, not as a box.
-            let region = region_at(s, s.anchor);
-            let (from, to) = ordered(point(&region, s.anchor), point(&region, s.head));
+            let region = selected_region(s);
+            let (from, to) = ends(s, &region);
             for (i, row) in region.rows.iter().enumerate() {
                 let y = region.area.y + i as u16;
                 if y >= area.bottom() {
@@ -243,6 +326,11 @@ pub fn after_frame(frame: &mut Frame) {
 mod tests {
     use super::*;
 
+    fn copied(region: &Region, anchor: (u16, u16), head: (u16, u16)) -> Option<String> {
+        let (from, to) = ordered(point(region, anchor), point(region, head));
+        super::copied(region, from, to)
+    }
+
     fn row(line: usize, start: usize, text: &str) -> TextRow {
         TextRow { line, start, text: text.into() }
     }
@@ -250,7 +338,7 @@ mod tests {
     #[test]
     fn a_selection_runs_line_by_line_and_takes_what_is_cut_off_to_the_right() {
         // Two lines, 5 cells shown each, scrolled 0.
-        let region = Region { area: Rect { x: 10, y: 2, width: 5, height: 2 }, rows: vec![row(0, 0, "alpha beta"), row(1, 0, "gamma delta")] };
+        let region = Region { pane: None, area: Rect { x: 10, y: 2, width: 5, height: 2 }, rows: vec![row(0, 0, "alpha beta"), row(1, 0, "gamma delta")] };
         // From "ph" of line 0 to past the right edge on line 1: the rest of line 0, all of line 1.
         assert_eq!(copied(&region, (12, 2), (30, 3)).as_deref(), Some("pha beta\ngamma delta"));
         // Backwards gives the same.
@@ -262,7 +350,7 @@ mod tests {
     #[test]
     fn a_wrapped_line_is_copied_as_one() {
         let text = "abcdefgh";
-        let region = Region { area: Rect { x: 0, y: 0, width: 4, height: 3 }, rows: vec![row(0, 0, text), row(0, 4, text), row(1, 0, "xy")] };
+        let region = Region { pane: None, area: Rect { x: 0, y: 0, width: 4, height: 3 }, rows: vec![row(0, 0, text), row(0, 4, text), row(1, 0, "xy")] };
         assert_eq!(copied(&region, (0, 0), (3, 1)).as_deref(), Some("abcdefgh"));
         assert_eq!(copied(&region, (2, 0), (1, 2)).as_deref(), Some("cdefgh\nxy"));
         // Past the edge of a wrapped row stops at that row's end.
@@ -271,8 +359,15 @@ mod tests {
 
     #[test]
     fn a_scrolled_line_starts_where_it_is_shown() {
-        let region = Region { area: Rect { x: 0, y: 0, width: 3, height: 1 }, rows: vec![row(4, 2, "0123456789")] };
+        let region = Region { pane: None, area: Rect { x: 0, y: 0, width: 3, height: 1 }, rows: vec![row(4, 2, "0123456789")] };
         assert_eq!(copied(&region, (0, 0), (1, 0)).as_deref(), Some("23"));
         assert_eq!(cells("日本語", 2, 3), "本");
+    }
+
+    #[test]
+    fn text_between_reads_whole_lines_and_skips_hidden_ones() {
+        let lines = ["first line", "hidden", "third line"];
+        let line = |i: usize| lines.get(i).filter(|l| **l != "hidden").map(|l| l.to_string());
+        assert_eq!(text_between(line, (0, 6), (2, 4)).as_deref(), Some("line\nthird"));
     }
 }

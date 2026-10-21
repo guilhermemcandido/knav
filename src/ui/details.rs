@@ -130,6 +130,11 @@ fn pair_spans(piece: &str, at: usize, key_len: usize) -> Vec<Span<'static>> {
     spans
 }
 
+/// The details as plain lines at `width`, the way the panes lay them out, for copying.
+pub fn details_text(sections: &[Section], width: usize) -> Vec<String> {
+    details_lines(sections, width).iter().map(super::selection::plain).collect()
+}
+
 pub(super) fn details_lines(sections: &[Section], width: usize) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
     for (i, section) in sections.iter().enumerate() {
@@ -184,7 +189,7 @@ pub(super) fn draw_details(frame: &mut Frame, title: &str, sections: &[Section],
     let lines = details_lines(sections, usize::from(padded.width));
     let scroll = scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     let hscroll = hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
-    super::selection::text_lines(padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
+    super::selection::text_lines(super::selection::Pane::Details, padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 
@@ -248,7 +253,7 @@ pub(super) fn draw_side_panel(frame: &mut Frame, body: Rect, chrome: &Chrome) {
     let lines = details_lines(&panel.sections, usize::from(padded.width));
     let scroll = panel.scroll.min(lines.len().saturating_sub(usize::from(padded.height)));
     let hscroll = panel.hscroll.min(lines.iter().map(Line::width).max().unwrap_or(0).saturating_sub(usize::from(padded.width)));
-    super::selection::text_lines(padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
+    super::selection::text_lines(super::selection::Pane::Panel, padded, lines.iter().skip(scroll).map(super::selection::plain), scroll, hscroll);
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, hscroll as u16)), padded);
 }
 

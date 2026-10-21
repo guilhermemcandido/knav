@@ -41,7 +41,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
-pub use self::selection::{after_frame, set_ghost, selection_drag, selection_finish, selection_start, show_toast, refuse};
+pub use self::selection::{Pane, PaneRange, after_frame, refuse, selection_drag, selection_edge, selection_finish, selection_start, set_ghost, show_toast, text_between};
 use self::dashboard::draw_dashboard;
 pub use self::nav::*;
 pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, sidebar_area, sidebar_row_at};
@@ -51,7 +51,7 @@ pub fn relations_inner(frame_area: Rect) -> Rect {
     Block::default().borders(Borders::ALL).inner(body_area(frame_area, true))
 }
 use self::health::*;
-pub use self::details::{SidePanel, side_panel_max_scroll, details_max_scroll, list_body, side_panel_width, SIDE_PANEL_MIN_WIDTH};
+pub use self::details::{details_text, SidePanel, side_panel_max_scroll, details_max_scroll, list_body, side_panel_width, SIDE_PANEL_MIN_WIDTH};
 pub use self::graph::{DEFAULT_ZOOM, Move, graph_hit, layout as graph_layout, neighbor as graph_neighbor, zoom_in, zoom_out};
 pub use self::header::*;
 pub use self::loading::{Loading, Step, draw_loading};
@@ -159,7 +159,7 @@ pub struct PermissionsView<'a> {
 }
 
 pub enum Overlay<'a> {
-    Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String>, hscroll: &'a mut usize },
+    Spec { title: &'a str, items: &'a [TreeItem<'static, String>], state: &'a mut TreeState<String>, hscroll: &'a mut usize, leaf_values: &'a LeafValues },
     Containers { title: &'a str, containers: &'a [ContainerInfo], state: &'a mut TableState, sort: SortState },
     Logs(LogsView<'a>),
     NodeDetail(NodeDetailView<'a>),
@@ -659,7 +659,7 @@ fn paint_theme_base(frame: &mut Frame) {
 /// overlays that can be backgrounds.
 pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, icons: &mut IconCache) {
     match overlay {
-        Overlay::Spec { title, items, state, hscroll } => draw_spec_popup(frame, title, items, state, hscroll, dimmed),
+        Overlay::Spec { title, items, state, hscroll, leaf_values } => draw_spec_popup(frame, title, items, state, hscroll, leaf_values, dimmed),
         Overlay::Containers { title, containers, state, sort } => draw_containers_popup(frame, title, containers, state, sort, dimmed),
         Overlay::Logs(view) => draw_logs_popup(frame, view),
         Overlay::NodeDetail(view) => draw_node_detail_popup(frame, view, dimmed),

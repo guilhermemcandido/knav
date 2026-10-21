@@ -1,7 +1,7 @@
 //! The logs popup: filtering, level colouring and match highlighting.
 
 use super::*;
-use super::selection::{TextRow, plain, text_rows};
+use super::selection::{Pane, TextRow, plain, text_rows};
 
 /// Log lines matching the filter, a plain case-insensitive substring, in reading order.
 fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str> {
@@ -11,6 +11,27 @@ fn shown<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<&'a str>
         out.reverse();
     }
     out
+}
+
+/// `shown` with each line's id: its place in `lines`, counted so ids rise in reading
+/// order whichever way the log reads, and stay put as lines arrive.
+fn shown_with_ids<'a>(lines: &'a [String], filter: &str, order: LogOrder) -> Vec<(usize, &'a str)> {
+    let needle = filter.to_lowercase();
+    let id = |i: usize| if order == LogOrder::NewestFirst { usize::MAX - i } else { i };
+    let mut out: Vec<(usize, &str)> = lines.iter().enumerate().filter(|(_, l)| needle.is_empty() || contains_ci(l, &needle)).map(|(i, l)| (id(i), l.as_str())).collect();
+    if order == LogOrder::NewestFirst {
+        out.reverse();
+    }
+    out
+}
+
+/// The text of the line with id `id` (see `shown_with_ids`) as the view shows it,
+/// `None` when the filter hides it.
+pub fn log_line_text(lines: &[String], filter: &str, order: LogOrder, format: TimestampFormat, id: usize) -> Option<String> {
+    let index = if order == LogOrder::NewestFirst { usize::MAX - id } else { id };
+    let raw = lines.get(index)?;
+    let needle = filter.to_lowercase();
+    (needle.is_empty() || contains_ci(raw, &needle)).then(|| plain(&colorize_log_line(raw, format, "")))
 }
 
 /// The lines the logs view shows, as text, for copying.
@@ -82,7 +103,7 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
     // The whole body width, so selecting text with the mouse never takes in what is behind.
     let area = body_area(frame.area(), true);
     frame.render_widget(Clear, area);
-    let ordered = shown(lines, filter, order);
+    let ordered = shown_with_ids(lines, filter, order);
 
     // Just the live state; the keys are in `?`. The arrow points the way the log reads.
     let direction = if order == LogOrder::OldestFirst { "↓" } else { "↑" };
@@ -112,8 +133,8 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
     };
     let mut rows: Vec<(Line<'static>, TextRow)> = Vec::new();
     if follow && order == LogOrder::OldestFirst {
-        for (index, raw) in ordered.iter().enumerate().rev() {
-            let mut own = rows_with_source(index, raw);
+        for (id, raw) in ordered.iter().rev() {
+            let mut own = rows_with_source(*id, raw);
             own.append(&mut rows);
             rows = own;
             if rows.len() >= height {
@@ -123,8 +144,8 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
         rows.drain(..rows.len().saturating_sub(height));
     } else {
         let start = if follow { 0 } else { scroll.min(ordered.len().saturating_sub(1)) };
-        for (index, raw) in ordered.iter().enumerate().skip(start) {
-            rows.extend(rows_with_source(index, raw));
+        for (id, raw) in ordered.iter().skip(start) {
+            rows.extend(rows_with_source(*id, raw));
             if rows.len() >= height {
                 break;
             }
@@ -132,7 +153,7 @@ pub(super) fn draw_logs_popup(frame: &mut Frame, view: LogsView) {
         rows.truncate(height);
     }
     let (rows, sources): (Vec<Line<'static>>, Vec<TextRow>) = rows.into_iter().unzip();
-    text_rows(inner, sources);
+    text_rows(Pane::Logs, inner, sources);
     frame.render_widget(Paragraph::new(rows), inner);
 }
 

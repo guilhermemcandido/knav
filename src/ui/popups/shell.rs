@@ -88,6 +88,6 @@ pub(in crate::ui) fn draw_yaml_popup(frame: &mut Frame, title: &str, text: &str,
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = text.lines().skip(scroll).take(usize::from(inner.height)).map(|l| shift_line(yaml_line(l), hscroll)).collect();
-    crate::ui::selection::text_lines(inner, text.lines().skip(scroll).map(String::from), scroll, hscroll);
+    crate::ui::selection::text_lines(crate::ui::selection::Pane::Yaml, inner, text.lines().skip(scroll).map(String::from), scroll, hscroll);
     frame.render_widget(Paragraph::new(lines), inner);
 }

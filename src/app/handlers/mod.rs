@@ -136,8 +136,12 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
         && st.pressed_favorite.is_none()
         && st.home_lift.is_none()
         && st.pressed_lift.is_none()
-        && select_with_mouse(mouse)
+        && select_with_mouse(mouse, st)
     {
+        // Dragged past a pane's edge, the pane scrolls to take in more.
+        if let Some((pane, step)) = ui::selection_edge() {
+            scroll_for_selection(st, cx.frame_area, pane, step);
+        }
         return Ok(None);
     }
     let screen = std::mem::discriminant(&st.mode);
@@ -149,9 +153,49 @@ pub(super) fn dispatch(event: Event, st: &mut State, cx: &mut Cx) -> Result<Opti
     end
 }
 
+/// The text a selection covers in its pane, read from all of the pane's text so the
+/// lines scrolled away are included.
+fn pane_text(st: &State, range: ui::PaneRange) -> Option<String> {
+    let (from, to) = (range.from, range.to);
+    let from_lines = |lines: Vec<String>| ui::text_between(|i| lines.get(i).cloned(), from, to);
+    match (range.pane, &st.mode) {
+        (ui::Pane::Details, Mode::Details { sections, .. }) => from_lines(ui::details_text(sections, range.width)),
+        (ui::Pane::Panel, _) => st.chrome.panel.as_ref().and_then(|p| from_lines(ui::details_text(&p.sections, range.width))),
+        (ui::Pane::Yaml, Mode::Yaml { text, .. }) => from_lines(text.lines().map(String::from).collect()),
+        (ui::Pane::Logs, Mode::Logs { lines, filter, order, timestamp_format, .. }) => ui::text_between(|id| ui::log_line_text(lines, filter, *order, *timestamp_format, id), from, to),
+        (ui::Pane::Tree, Mode::Spec { items, state, leaf_values, .. }) => from_lines(ui::tree_text(items, state, leaf_values)),
+        _ => None,
+    }
+}
+
+/// Scrolls `pane` one line up (`step` -1) or down (1) under a selection.
+fn scroll_for_selection(st: &mut State, frame_area: Rect, pane: ui::Pane, step: i8) {
+    let moved = |scroll: usize, max: usize| if step < 0 { scroll.saturating_sub(1) } else { (scroll + 1).min(max) };
+    match (pane, &mut st.mode) {
+        (ui::Pane::Details, Mode::Details { sections, scroll, .. }) => *scroll = moved(*scroll, ui::details_max_scroll(sections, frame_area).0),
+        (ui::Pane::Panel, _) => st.info_scroll = moved(st.info_scroll, usize::MAX),
+        (ui::Pane::Yaml, Mode::Yaml { text, scroll, .. }) => *scroll = moved(*scroll, text.lines().count().saturating_sub(1)),
+        (ui::Pane::Logs, Mode::Logs { lines, filter, order, timestamp_format, follow, scroll, .. }) => {
+            if step < 0 {
+                ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll);
+            } else {
+                ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll);
+            }
+        }
+        (ui::Pane::Tree, Mode::Spec { state, .. }) => {
+            if step < 0 {
+                state.scroll_up(1);
+            } else {
+                state.scroll_down(1);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Dragging with the left button selects what is on screen and copies it on release.
 /// True when the event was part of a drag, so nothing else should act on it.
-fn select_with_mouse(mouse: &crossterm::event::MouseEvent) -> bool {
+fn select_with_mouse(mouse: &crossterm::event::MouseEvent, st: &State) -> bool {
     use crossterm::event::MouseButton::Left;
     match mouse.kind {
         MouseEventKind::Down(Left) => {
@@ -159,7 +203,7 @@ fn select_with_mouse(mouse: &crossterm::event::MouseEvent) -> bool {
             false
         }
         MouseEventKind::Drag(Left) => ui::selection_drag(mouse.column, mouse.row),
-        MouseEventKind::Up(Left) => match ui::selection_finish() {
+        MouseEventKind::Up(Left) => match ui::selection_finish().and_then(|(shown, range)| range.and_then(|r| pane_text(st, r)).or((!shown.is_empty()).then_some(shown))) {
             Some(text) => {
                 let lines = text.lines().count();
                 match crate::ops::clipboard::copy(&text) {
