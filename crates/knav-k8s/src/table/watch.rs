@@ -71,6 +71,7 @@ pub(super) async fn watch_table(client: &Client, resource: &ApiResource, data: &
                 && let Ok(mut held) = data.lock()
             {
                 apply(&mut held, kind, rows);
+                held.version += 1;
                 super::note_change();
             }
         }

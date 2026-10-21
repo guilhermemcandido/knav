@@ -53,6 +53,8 @@ pub(super) struct TableData {
     /// The namespace the rows were fetched for (`None`: all).
     pub(super) scope: Option<String>,
     pub(super) complete: bool,
+    /// Bumped on every change, so the rows built from it can be reused until the next.
+    pub(super) version: u64,
 }
 
 impl TableData {
@@ -81,6 +83,9 @@ pub struct TableKind {
     /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
     scope: Arc<Mutex<Option<String>>>,
     changed: Arc<tokio::sync::Notify>,
+    /// The rows last built and what from (data version, wide, the second their ages are
+    /// counted at), since every derive asks for them.
+    built: Mutex<Option<(u64, bool, i64, Vec<Arc<GenericRow>>)>>,
 }
 
 impl Drop for TableKind {
@@ -128,7 +133,59 @@ impl TableKind {
                 }
             })
         };
-        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced, objects: Arc::default(), fetching: Arc::default(), scope, changed }
+        TableKind { data, wide: AtomicBool::new(false), handle, client, resource, namespaced: api.namespaced, objects: Arc::default(), fetching: Arc::default(), scope, changed, built: Mutex::default() }
+    }
+
+    fn build_rows(&self) -> Vec<Arc<GenericRow>> {
+        let Ok(data) = self.data.lock() else { return Vec::new() };
+        let shown: Vec<usize> = (0..data.columns.len()).filter(|&i| self.shows(&data.columns[i])).collect();
+        if data.rows.is_empty()
+            && let Some(error) = &data.error
+        {
+            // A resource we can't list (forbidden, gone) says so in the list itself.
+            let extras = shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect();
+            return vec![Arc::new(GenericRow {
+                namespace: "-".into(),
+                name: format!("⚠ {error}"),
+                age: "-".into(),
+                age_secs: 0,
+                extras,
+                status: Some((Tone::Bad, "cannot list".into())),
+                uid: String::new(),
+                owners: Vec::new(),
+                labels: String::new(),
+            })];
+        }
+        let status_column = STATUS_COLUMNS.iter().find_map(|name| data.columns.iter().position(|c| c.name == *name));
+        let ready_column = status_column.is_some_and(|i| data.columns[i].name == "READY");
+        let mut rows = crate::par_map(&data.rows, |row| {
+            Arc::new({
+                let extras = shown
+                    .iter()
+                    .map(|&i| {
+                        let column = &data.columns[i];
+                        let text = row.cells.get(i).cloned().unwrap_or_default();
+                        Col { header: column.name, tone: if Some(i) == status_column { cell_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
+                    })
+                    .collect();
+                let status = status_column.and_then(|i| row.cells.get(i)).filter(|t| !t.is_empty()).map(|text| status_note(text, ready_column));
+                GenericRow {
+                    namespace: row.namespace.clone(),
+                    name: row.name.clone(),
+                    age: row.created.map(humanize_age).unwrap_or_else(|| "-".into()),
+                    age_secs: row.created.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.as_second()).max(0)).unwrap_or(i64::MAX),
+                    extras,
+                    status,
+                    uid: row.uid.clone(),
+                    owners: row.owners.clone(),
+                    labels: row.labels.clone(),
+                }
+            })
+            });
+        if data.loading {
+            rows.push(Arc::new(GenericRow { namespace: "-".into(), name: format!("… loading more ({} so far)", data.rows.len()), age: "-".into(), age_secs: i64::MAX, extras: shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect(), status: Some((Tone::Muted, "loading".into())), uid: String::new(), owners: Vec::new(), labels: String::new() }));
+        }
+        rows
     }
 
     fn shows(&self, column: &TableColumn) -> bool {
@@ -175,6 +232,7 @@ pub(crate) fn percent_encode(text: &str) -> String {
 async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<TableData>, namespace: Option<&str>) -> Option<String> {
     let in_place = data.lock().map(|d| d.columns.is_empty() || !d.covers(namespace)).unwrap_or(true);
     if in_place && let Ok(mut d) = data.lock() {
+        d.version += 1;
         d.rows.clear();
         d.complete = false;
         d.scope = namespace.map(str::to_string);
@@ -187,6 +245,7 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
                 version = page_version.or(version);
                 if in_place {
                     if let Ok(mut d) = data.lock() {
+                        d.version += 1;
                         if d.columns.is_empty() {
                             d.columns = page_columns;
                         }
@@ -207,6 +266,7 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
             }
             Err(e) => {
                 if let Ok(mut d) = data.lock() {
+                    d.version += 1;
                     d.error = Some(format!("{e:#}"));
                     d.loading = false;
                 }
@@ -215,12 +275,13 @@ async fn refresh_table(client: &Client, resource: &ApiResource, data: &Mutex<Tab
         }
     }
     if let Ok(mut d) = data.lock() {
+        d.version += 1;
         if in_place {
             watch::ensure_ordered(&mut d.rows);
             d.complete = true;
         } else {
             watch::ensure_ordered(&mut rows);
-            *d = TableData { columns, rows, error: None, loading: false, scope: namespace.map(str::to_string), complete: true };
+            *d = TableData { columns, rows, error: None, loading: false, scope: namespace.map(str::to_string), complete: true, version: d.version };
         }
     }
     version
@@ -329,6 +390,7 @@ impl CatalogKind for TableKind {
                 && !data.covers(namespace)
             {
                 data.loading = true;
+                data.version += 1;
             }
         }
     }
@@ -338,53 +400,16 @@ impl CatalogKind for TableKind {
     }
 
     fn rows(&self) -> Vec<Arc<GenericRow>> {
-        let Ok(data) = self.data.lock() else { return Vec::new() };
-        let shown: Vec<usize> = (0..data.columns.len()).filter(|&i| self.shows(&data.columns[i])).collect();
-        if data.rows.is_empty()
-            && let Some(error) = &data.error
+        let key = (self.data.lock().map(|d| d.version).unwrap_or(0), self.wide.load(Ordering::Relaxed), k8s_openapi::jiff::Timestamp::now().as_second());
+        if let Ok(built) = self.built.lock()
+            && let Some((version, wide, second, rows)) = built.as_ref()
+            && (*version, *wide, *second) == key
         {
-            // A resource we can't list (forbidden, gone) says so in the list itself.
-            let extras = shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect();
-            return vec![Arc::new(GenericRow {
-                namespace: "-".into(),
-                name: format!("⚠ {error}"),
-                age: "-".into(),
-                age_secs: 0,
-                extras,
-                status: Some((Tone::Bad, "cannot list".into())),
-                uid: String::new(),
-                owners: Vec::new(),
-                labels: String::new(),
-            })];
+            return rows.clone();
         }
-        let status_column = STATUS_COLUMNS.iter().find_map(|name| data.columns.iter().position(|c| c.name == *name));
-        let ready_column = status_column.is_some_and(|i| data.columns[i].name == "READY");
-        let mut rows = crate::par_map(&data.rows, |row| {
-            Arc::new({
-                let extras = shown
-                    .iter()
-                    .map(|&i| {
-                        let column = &data.columns[i];
-                        let text = row.cells.get(i).cloned().unwrap_or_default();
-                        Col { header: column.name, tone: if Some(i) == status_column { cell_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
-                    })
-                    .collect();
-                let status = status_column.and_then(|i| row.cells.get(i)).filter(|t| !t.is_empty()).map(|text| status_note(text, ready_column));
-                GenericRow {
-                    namespace: row.namespace.clone(),
-                    name: row.name.clone(),
-                    age: row.created.map(humanize_age).unwrap_or_else(|| "-".into()),
-                    age_secs: row.created.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.as_second()).max(0)).unwrap_or(i64::MAX),
-                    extras,
-                    status,
-                    uid: row.uid.clone(),
-                    owners: row.owners.clone(),
-                    labels: row.labels.clone(),
-                }
-            })
-            });
-        if data.loading {
-            rows.push(Arc::new(GenericRow { namespace: "-".into(), name: format!("… loading more ({} so far)", data.rows.len()), age: "-".into(), age_secs: i64::MAX, extras: shown.iter().map(|&i| Col { header: data.columns[i].name, text: String::new(), tone: Tone::Plain, sort: None }).collect(), status: Some((Tone::Muted, "loading".into())), uid: String::new(), owners: Vec::new(), labels: String::new() }));
+        let rows = self.build_rows();
+        if let Ok(mut built) = self.built.lock() {
+            *built = Some((key.0, key.1, key.2, rows.clone()));
         }
         rows
     }
@@ -538,7 +563,7 @@ mod tests {
         let _entered = runtime.enter();
         let handle = runtime.spawn(async {});
         let client = Client::try_from(kube::Config::new("http://localhost:1".parse().unwrap())).unwrap();
-        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true, objects: Arc::default(), fetching: Arc::default(), scope: Arc::default(), changed: Arc::default() };
+        let kind = TableKind { data: Arc::new(Mutex::new(data)), wide: AtomicBool::new(false), handle, client, resource: ApiResource::erase::<k8s_openapi::api::core::v1::Pod>(&()), namespaced: true, objects: Arc::default(), fetching: Arc::default(), scope: Arc::default(), changed: Arc::default(), built: Mutex::default() };
         (kind, runtime)
     }
 
@@ -557,7 +582,7 @@ mod tests {
     #[test]
     fn name_and_age_are_left_to_the_list_and_wide_columns_wait_for_wide() {
         let (columns, rows) = parse_table(&table()).unwrap();
-        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None, loading: false, scope: None, complete: true });
+        let (kind, _runtime) = kind_with(TableData { columns, rows, error: None, loading: false, scope: None, complete: true, version: 0 });
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE"]);
         kind.set_wide(true);
         assert_eq!(kind.headers(), ["PRIORITYLEVEL", "MATCHINGPRECEDENCE", "SELECTOR"]);
@@ -568,7 +593,7 @@ mod tests {
 
     #[test]
     fn a_resource_that_cannot_be_listed_says_why() {
-        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()), loading: false, scope: None, complete: true });
+        let (kind, _runtime) = kind_with(TableData { columns: Vec::new(), rows: Vec::new(), error: Some("forbidden".into()), loading: false, scope: None, complete: true, version: 0 });
         let rows = kind.rows();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].name.contains("forbidden"));
