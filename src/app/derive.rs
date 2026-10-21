@@ -74,9 +74,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
     let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, pinned, dragging, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
-        // The Overview stays cluster-wide even with a namespace set. `search` is cleared
-        // on every kind switch, so filtering every list by it is safe.
-        let ns_filter: Option<&str> = if current_kind == ResourceKind::Overview { None } else { namespace.as_deref() };
+        // The Overview stays cluster-wide even with a namespace set. A scope's own
+        // namespace wins, so a drill or jump into another namespace still shows.
+        let ns_filter: Option<&str> = if current_kind == ResourceKind::Overview { None } else { scope.and_then(|s| s.namespace()).or(namespace.as_deref()) };
         let in_namespace = |meta: &k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta| {
             ns_filter.is_none_or(|ns| meta.namespace.as_deref() == Some(ns))
         };
@@ -189,9 +189,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         }
         // Only for the kind on screen; `resolve` starts a CRD's watch on first open.
         // `generic_visible` maps a display row back to the index `spec_at` needs.
-    // A list narrowed to one namespace (the filter, or inside a namespaced owner) only
+    // A list narrowed to one namespace (the filter, or inside a namespaced scope) only
     // fetches that namespace until the kind's cluster-wide watch is loaded.
-    catalog.focus(current_kind, ns_filter.or(scope.and_then(|s| s.namespace())));
+    catalog.focus(current_kind, ns_filter);
     if let Some(kind) = catalog.resolve(current_kind, client) {
         kind.set_wide(wide);
         kind.set_namespace(ns_filter);

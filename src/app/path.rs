@@ -101,7 +101,7 @@ pub(crate) fn location(current_kind: ResourceKind, trail: &[Step], scope: Option
     let mut segments: Vec<ui::PathSegment> = trail
         .iter()
         .filter_map(|step| match step {
-            Step::List(_, sc, _) => sc.as_ref(),
+            Step::List(snap) => snap.scope.as_ref(),
             Step::Mode(..) => None,
         })
         .chain(scope)

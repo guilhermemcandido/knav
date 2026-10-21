@@ -119,14 +119,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // an empty stack means this kind was opened directly. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.back_stack.is_empty() => match st.back_stack.pop() {
-                Some(Step::List(kind, previous_scope, selected)) => {
-                    st.current_kind = kind;
-                    st.scope = previous_scope;
-                    st.sort = None;
-                    st.hscroll = 0;
-                    st.table_state.select(Some(selected));
-                    st.search.clear();
-                }
+                Some(Step::List(snap)) => st.restore_list(snap),
                 Some(Step::Mode(mode, snap)) => {
                     st.restore_list(snap);
                     st.mode = *mode;
@@ -169,7 +162,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }),
                 };
                 if new_scope.is_some() {
-                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), selected));
+                    st.back_stack.push(Step::List(st.list_snapshot()));
+                    st.scope = None;
                     st.scope = new_scope;
                     st.sort = None;
                     st.hscroll = 0;
@@ -477,8 +471,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Enter if st.current_kind == ResourceKind::ApiResources => {
                 let api = st.table_state.selected().and_then(|i| generic_visible.get(i).copied()).and_then(|real| catalog.apis.get(real).map(|a| (real, a.plural)));
                 if let Some((index, plural)) = api {
-                    let selected = st.table_state.selected().unwrap_or(0);
-                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), selected));
+                    st.back_stack.push(Step::List(st.list_snapshot()));
+                    st.scope = None;
                     st.current_kind = ResourceKind::Api(index, plural);
                     st.sort = None;
                     st.hscroll = 0;
@@ -490,7 +484,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(index) = st.table_state.selected()
                     && let Some((real_index, crd)) = crd_rows.get(index)
                 {
-                    st.back_stack.push(Step::List(st.current_kind, st.scope.take(), index));
+                    st.back_stack.push(Step::List(st.list_snapshot()));
+                    st.scope = None;
                     st.current_kind = ResourceKind::CustomResource(*real_index, crd.kind);
                     st.sort = None;
                     st.hscroll = 0;

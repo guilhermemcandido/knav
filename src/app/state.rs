@@ -16,7 +16,7 @@ const HISTORY_LIMIT: usize = 50;
 /// another mode left behind by a jump, with the list as it stood. One stack for both,
 /// so they unwind in the order they happened.
 pub(crate) enum Step {
-    List(ResourceKind, Option<Scope>, usize),
+    List(ListSnapshot),
     Mode(Box<Mode>, ListSnapshot),
 }
 
@@ -319,8 +319,7 @@ impl State {
     /// Goes to the list of `kind` scoped to the object `namespace`/`name`, remembering
     /// where it came from so Esc returns.
     pub fn jump_to_object(&mut self, kind: ResourceKind, namespace: Option<&str>, name: &str) {
-        let selected = self.table_state.selected().unwrap_or(0);
-        self.back_stack.push(Step::List(self.current_kind, self.scope.take(), selected));
+        self.back_stack.push(Step::List(self.list_snapshot()));
         self.current_kind = kind;
         self.sort = None;
         self.hscroll = 0;
@@ -393,7 +392,7 @@ mod tests {
     fn switching_kind_clears_drill_down_sort_scroll_and_search() {
         let mut st = state();
         st.scope = Some(Scope::Namespace { name: "kube-system".into() });
-        st.back_stack.push(Step::List(ResourceKind::Deployments, None, 2));
+        st.back_stack.push(Step::List(ListSnapshot { kind: ResourceKind::Deployments, scope: None, search: String::new(), sort: None, hscroll: 0, selected: 2 }));
         st.sort = Some(SortSpec::pressed(None, 1));
         st.hscroll = 3;
         st.search = "core".into();

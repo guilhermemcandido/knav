@@ -426,11 +426,15 @@ mod tests {
         assert_eq!(rendered.join(">>"), "Node[worker-1]");
     }
 
+    fn snap(kind: ResourceKind, scope: Option<Scope>) -> crate::app::state::ListSnapshot {
+        crate::app::state::ListSnapshot { kind, scope, search: String::new(), sort: None, hscroll: 0, selected: 0 }
+    }
+
     #[test]
     fn location_names_each_drilled_thing_once_then_the_list() {
         let deployment = Scope::Owner { uid: "d".into(), kind: "Deployment".into(), name: "web".into(), namespace: Some("shop".into()) };
         let replicaset = Scope::Owner { uid: "r".into(), kind: "ReplicaSet".into(), name: "web-5d9d".into(), namespace: Some("shop".into()) };
-        let trail = [Step::List(ResourceKind::Deployments, None, 0), Step::List(ResourceKind::ReplicaSets, Some(deployment.clone()), 1)];
+        let trail = [Step::List(snap(ResourceKind::Deployments, None)), Step::List(snap(ResourceKind::ReplicaSets, Some(deployment.clone())))];
         let render = |segments: Vec<ui::PathSegment>| -> String {
             segments.into_iter().map(|s| match s.value { Some(v) => format!("{}[{v}]", s.kind), None => s.kind }).collect::<Vec<_>>().join(">>")
         };
@@ -438,7 +442,7 @@ mod tests {
         assert_eq!(render(location(ResourceKind::ReplicaSets, &trail[..1], Some(&deployment))), "Deployment[web]>>ReplicaSets");
         assert_eq!(render(location(ResourceKind::Nodes, &[], None)), "Nodes");
         let ns = Scope::Namespace { name: "kube-system".into() };
-        assert_eq!(render(location(ResourceKind::Pods, &[Step::List(ResourceKind::Namespaces, None, 0)], Some(&ns))), "Namespace[kube-system]>>Pods");
+        assert_eq!(render(location(ResourceKind::Pods, &[Step::List(snap(ResourceKind::Namespaces, None))], Some(&ns))), "Namespace[kube-system]>>Pods");
     }
 
     #[test]

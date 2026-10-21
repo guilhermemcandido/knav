@@ -118,7 +118,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             scope: st.scope.as_ref(),
             search: &st.search,
             sort: st.sort,
-            faults: st.faults_only,
+            // A jump lands on one object, which Ctrl-z must not hide.
+            faults: st.faults_only && !matches!(st.scope, Some(Scope::Object { .. })),
             wide: st.wide,
             layout: &st.config.overview,
             home_pins: crate::config::pinned::home(&st.config.home, st.home_all),
