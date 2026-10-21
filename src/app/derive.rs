@@ -159,7 +159,9 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
                 Some(pins) => catalog_sections.iter().flat_map(|(_, items)| items).map(|(label, _)| *label).filter(|label| pins.iter().any(|p| p == label)).collect(),
                 None => catalog_sections.get(*col).map(|(_, items)| items.iter().map(|(label, _)| *label).collect()).unwrap_or_default(),
             };
-            for label in wanted {
+            // Kinds without a status have no health to show, so they aren't fetched for it.
+            const NO_HEALTH: [&str; 9] = ["ConfigMaps", "Secrets", "NetworkPolicies", "StorageClasses", "ServiceAccounts", "Roles", "RoleBindings", "ClusterRoles", "ClusterRoleBindings"];
+            for label in wanted.into_iter().filter(|label| !NO_HEALTH.contains(label)) {
                 catalog.ensure_label(label);
             }
             catalog.health([("Pods", k8s::pods_health(&pod_rows)), ("Deployments", k8s::deployments_health(&dep_rows)), ("Nodes", node_health)])
