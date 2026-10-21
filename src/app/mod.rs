@@ -145,6 +145,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         catalog.ensure_helm(&client, &st.config.extensions.enabled);
         let mut wanted_counts = catalog.want_extension_counts(&st.config.extensions.enabled);
         wanted_counts.extend(catalog.builtin_count_keys());
+        // A custom resource pinned to Home shows its count on its tile.
+        wanted_counts.extend(catalog.crd_count_keys(&st.config.home.favorites));
         if matches!(st.current_kind, ResourceKind::CustomResourceList | ResourceKind::CustomResourceGroup(_) | ResourceKind::ApiResources) {
             let reach = usize::from(terminal.size().map(|s| s.height).unwrap_or(40)) * 2;
             let from = st.table_state.offset();
@@ -216,7 +218,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         let hints: Vec<(&str, &str)> = hints_owned.iter().map(|(k, d)| (k.as_str(), *d)).collect();
         // The sidebar shows Home and every category, with the cursor where the keys left it.
         if st.sidebar {
-            let all = sidebar::entries(st.current_kind, &st.sidebar_folded, catalog, overview);
+            let all = sidebar::entries(st.current_kind, &st.sidebar_open, catalog, overview);
             let selected = if st.sidebar_focus { st.sidebar_cursor.min(all.len().saturating_sub(1)) } else { sidebar::current_index(&all) };
             st.chrome.sidebar = Some(ui::Sidebar { rows: all.into_iter().map(|e| e.row).collect(), selected, focused: st.sidebar_focus });
         } else {

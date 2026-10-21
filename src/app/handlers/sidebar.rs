@@ -21,7 +21,7 @@ fn shown(st: &State, cx: &Cx) -> bool {
 }
 
 fn entries(st: &State, cx: &Cx) -> Vec<Entry> {
-    rows::entries(st.current_kind, &st.sidebar_folded, cx.catalog, &cx.d.overview)
+    rows::entries(st.current_kind, &st.sidebar_open, cx.catalog, &cx.d.overview)
 }
 
 fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {
@@ -59,11 +59,11 @@ fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {
         // `a` folds every category, or unfolds them all when they are already folded.
         KeyCode::Char('a') => {
             let sections: Vec<&'static str> = all.iter().filter(|e| e.row.heading).map(|e| e.section).collect();
-            if sections.iter().all(|s| st.sidebar_folded.contains(s)) {
-                st.sidebar_folded.clear();
+            if sections.iter().all(|s| !st.sidebar_open.contains(s)) {
+                st.sidebar_open.extend(sections);
             } else {
                 let section = all.get(st.sidebar_cursor).map(|e| e.section);
-                st.sidebar_folded.extend(sections);
+                st.sidebar_open.clear();
                 // The cursor moves to its category's heading, which is still there.
                 let now = entries(st, cx);
                 st.sidebar_cursor = now.iter().position(|e| e.row.heading && Some(e.section) == section).unwrap_or(0);
@@ -72,13 +72,13 @@ fn keys(key: &crossterm::event::KeyEvent, st: &mut State, cx: &mut Cx) -> bool {
         // Right opens a folded category; Left folds it, or steps out to the heading above a kind.
         KeyCode::Right | KeyCode::Char('l') => {
             if let Some(entry) = all.get(st.sidebar_cursor).filter(|e| e.row.heading && e.row.collapsed) {
-                st.sidebar_folded.remove(entry.section);
+                st.sidebar_open.insert(entry.section);
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
             if let Some(entry) = all.get(st.sidebar_cursor) {
                 if entry.row.heading {
-                    st.sidebar_folded.insert(entry.section);
+                    st.sidebar_open.remove(entry.section);
                 } else if let Some(at) = all.iter().position(|e| e.row.heading && e.section == entry.section) {
                     st.sidebar_cursor = at;
                 }
@@ -110,8 +110,8 @@ fn activate(st: &mut State, all: &[Entry], index: usize) {
             st.sidebar_focus = false;
         }
         None => {
-            if !st.sidebar_folded.remove(entry.section) {
-                st.sidebar_folded.insert(entry.section);
+            if !st.sidebar_open.remove(entry.section) {
+                st.sidebar_open.insert(entry.section);
             }
         }
     }

@@ -147,7 +147,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         }
     }
     if let Some((node, known, key)) = fetch {
-        let api = cx.catalog.api_for_kind(&node.0);
+        // The owner reference naming the box, if one does, says which group it is in.
+        let api_version = match &st.mode {
+            Mode::Relations { target, all, .. } => std::iter::once(target).chain(all.iter()).find_map(|m| owner_api_version(m, &node.0, &node.2)),
+            _ => None,
+        };
+        let api = cx.catalog.api_for(&node.0, api_version.as_deref());
         crate::app::jobs::fetch_related(st, cx.client, node, api, known, key);
         return Ok(None);
     }
@@ -175,4 +180,12 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         st.back_stack.pop();
     }
     Ok(None)
+}
+
+/// The apiVersion `manifest`'s owner reference gives for its owner `kind` `name`.
+fn owner_api_version(manifest: &serde_yaml::Value, kind: &str, name: &str) -> Option<String> {
+    let refs = manifest.get("metadata")?.get("ownerReferences")?.as_sequence()?;
+    refs.iter()
+        .find(|r| r.get("kind").and_then(|k| k.as_str()) == Some(kind) && r.get("name").and_then(|n| n.as_str()) == Some(name))
+        .and_then(|r| r.get("apiVersion")?.as_str().map(String::from))
 }

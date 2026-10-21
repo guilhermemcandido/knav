@@ -204,6 +204,19 @@ impl Catalog {
         }
     }
 
+    /// `api_for_kind` in the group of `api_version` (`group/version`, or a bare version
+    /// for the core group) when known, since a kind's name can be taken in several groups.
+    pub fn api_for(&self, kind: &str, api_version: Option<&str>) -> Option<crate::ApiInfo> {
+        let Some(api_version) = api_version else { return self.api_for_kind(kind) };
+        let group = api_version.rsplit_once('/').map_or("", |(group, _)| group);
+        self.apis
+            .iter()
+            .find(|a| a.kind == kind && a.group == group)
+            .cloned()
+            .or_else(|| self.crds.iter().find(|c| c.kind == kind && c.group == group).map(crate::ApiInfo::from))
+            .or_else(|| self.api_for_kind(kind))
+    }
+
     /// The API type of `kind`, built-in or a CRD, to fetch one object by name.
     pub fn api_for_kind(&self, kind: &str) -> Option<crate::ApiInfo> {
         self.apis.iter().find(|a| a.kind == kind).cloned().or_else(|| self.crds.iter().find(|c| c.kind == kind).map(crate::ApiInfo::from))
@@ -502,6 +515,12 @@ impl Catalog {
             .filter_map(|ext_kind| self.crds.iter().find(|c| c.group == ext_kind.group && c.kind == ext_kind.kind))
             .map(|crd| crate::count_key(crd.group, &crd.plural))
             .collect()
+    }
+
+    /// Count keys for the CRD kinds among `labels`, such as Home's favorites, which
+    /// are counted only when asked for.
+    pub fn crd_count_keys(&self, labels: &[String]) -> Vec<String> {
+        labels.iter().filter_map(|label| self.crds.iter().find(|c| c.kind == label.as_str())).map(|crd| crate::count_key(crd.group, &crd.plural)).collect()
     }
 
     /// A Home tile for any discovered CRD kind, so one outside the fixed sections can be pinned.

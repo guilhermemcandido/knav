@@ -11,14 +11,14 @@ pub(crate) struct Entry {
     pub section: &'static str,
 }
 
-/// Categories start folded when they are long and rarely needed.
-pub(crate) fn folded_by_default() -> HashSet<&'static str> {
-    HashSet::from(["CustomResources"])
+/// The categories open at first; the rest, extensions' included, start folded.
+pub(crate) fn open_by_default() -> HashSet<&'static str> {
+    HashSet::from(["Cluster", "Workloads"])
 }
 
 /// Every visible row with its live count, in the Overview's order, so the Layout
 /// settings shape both.
-pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, catalog: &Catalog, overview: &k8s::Overview) -> Vec<Entry> {
+pub(crate) fn entries(current: ResourceKind, open: &HashSet<&'static str>, catalog: &Catalog, overview: &k8s::Overview) -> Vec<Entry> {
     // A custom resource or API type opened from a list belongs to that list's row.
     let current = match current {
         ResourceKind::CustomResource(index, _) => catalog.crds.get(index).map_or(ResourceKind::CustomResourceList, |c| ResourceKind::CustomResourceGroup(c.group)),
@@ -27,7 +27,7 @@ pub(crate) fn entries(current: ResourceKind, folded: &HashSet<&'static str>, cat
     };
     let mut out = vec![Entry { row: ui::SidebarRow { label: "Home".into(), heading: false, collapsed: false, count: None, current: current == ResourceKind::Overview }, kind: Some(ResourceKind::Overview), section: "" }];
     for (title, items) in &overview.all {
-        let collapsed = folded.contains(title);
+        let collapsed = !open.contains(title);
         let mut kinds: Vec<(&'static str, Option<usize>, ResourceKind)> = items.iter().filter_map(|(label, count)| catalog.kind_for_tile_label(label).map(|kind| (*label, Some(*count), kind))).collect();
         // Port-forwards are knav's own, so the catalog has no tile for them.
         if *title == "Network" {

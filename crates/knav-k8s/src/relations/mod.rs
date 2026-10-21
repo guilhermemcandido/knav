@@ -120,7 +120,9 @@ impl<'a> Index<'a> {
     }
 
     fn find(&self, kind: &str, namespace: Option<&str>, name: &str) -> Option<&Obj<'a>> {
-        self.all.iter().find(|o| o.kind == kind && o.name == name && (cluster_scoped(kind) || o.namespace == namespace))
+        // An owner reference carries no namespace, so a cluster-scoped owner (a custom
+        // resource's, say) is asked for in its child's; it still matches by name.
+        self.all.iter().find(|o| o.kind == kind && o.name == name && (cluster_scoped(kind) || o.namespace == namespace || o.namespace.is_none()))
     }
 
     /// Walks up from `start` through single-controller owners until `stop` says so
@@ -301,6 +303,13 @@ pub fn sibling_pods(target: &Value, manifests: &[Value]) -> (Vec<Value>, String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cluster_scoped_owner_is_found_from_its_childs_namespace() {
+        let owner: Value = serde_yaml::from_str("apiVersion: example.io/v1\nkind: Composite\nmetadata: {name: db}\n").unwrap();
+        let found = find_manifest(&[owner], "Composite", Some("shop"), "db");
+        assert!(found.is_some());
+    }
     use serde_json::json;
 
     fn v(value: serde_json::Value) -> Value {
