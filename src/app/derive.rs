@@ -172,6 +172,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
             for pin in pins {
                 match overview.all.iter().flat_map(|(_, items)| items).find(|(label, _)| label == pin) {
                     Some(tile) => tiles.push(*tile),
+                    None if catalog.crd_tile(pin).is_some() => tiles.extend(catalog.crd_tile(pin)),
                     // Kept so a kind this cluster lacks is still there on the next one.
                     None => {
                         tiles.push((intern(pin), 0));

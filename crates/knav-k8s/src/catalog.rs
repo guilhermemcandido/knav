@@ -461,6 +461,12 @@ impl Catalog {
             .collect()
     }
 
+    /// A Home tile for any discovered CRD kind, so one outside the fixed sections can be pinned.
+    pub fn crd_tile(&self, label: &str) -> Option<(&'static str, usize)> {
+        let crd = self.crds.iter().find(|c| c.kind == label)?;
+        Some((crd.kind, self.counts.get(crd.group, &crd.plural).known_or(0)))
+    }
+
     /// Every category with a dashboard, for the `:` menu and Overview tiles.
     pub fn dashboard_categories(&self) -> Vec<&'static str> {
         self.extensions.dashboards.clone()

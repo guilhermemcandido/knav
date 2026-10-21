@@ -189,7 +189,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // `*` pins this kind to Home's favorites, or unpins it.
             KeyCode::Char('*') => {
                 let label = st.current_kind.label();
-                if cx.d.overview.all.iter().any(|(_, items)| items.iter().any(|(l, _)| *l == label)) {
+                if matches!(st.current_kind, ResourceKind::CustomResource(..)) || cx.d.overview.all.iter().any(|(_, items)| items.iter().any(|(l, _)| *l == label)) {
                     overview::pin_toast(st, label);
                 }
             }
