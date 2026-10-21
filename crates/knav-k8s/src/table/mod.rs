@@ -67,6 +67,9 @@ impl TableData {
 /// A fetched object and when it was fetched.
 type Fetched = (std::time::Instant, serde_yaml::Value);
 
+/// Rows built for a data version, wide or not, with ages counted at one second.
+type BuiltRows = (u64, bool, i64, Vec<Arc<GenericRow>>);
+
 /// One resource type shown through the server's Table view, kept current by a watch
 /// while it is open. With a namespace selected, only that namespace is fetched.
 pub struct TableKind {
@@ -85,7 +88,7 @@ pub struct TableKind {
     changed: Arc<tokio::sync::Notify>,
     /// The rows last built and what from (data version, wide, the second their ages are
     /// counted at), since every derive asks for them.
-    built: Mutex<Option<(u64, bool, i64, Vec<Arc<GenericRow>>)>>,
+    built: Mutex<Option<BuiltRows>>,
 }
 
 impl Drop for TableKind {
