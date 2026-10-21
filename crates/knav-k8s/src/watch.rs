@@ -118,13 +118,13 @@ where
 
 /// `watch_live` limited to one namespace, through a field selector, so it works for any
 /// kind and a big cluster's other namespaces are never fetched.
-pub fn watch_live_in<K>(client: Client, namespace: Option<&str>) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
+pub fn watch_live_in<K>(client: Client, fields: Option<&str>) -> (reflector::Store<K>, Arc<Feed>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
 {
     let api: Api<K> = Api::all(client);
-    let config = match namespace {
-        Some(ns) => first_list().fields(&format!("metadata.namespace={ns}")),
+    let config = match fields {
+        Some(fields) => first_list().fields(fields),
         None => first_list(),
     };
     let (reader, writer) = reflector::store();

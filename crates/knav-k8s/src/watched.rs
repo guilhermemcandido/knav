@@ -111,12 +111,12 @@ where
     watch_kind_in::<K>(client, None)
 }
 
-/// `watch_kind` for one namespace only.
-pub fn watch_kind_in<K>(client: Client, namespace: Option<&str>) -> (Box<dyn CatalogKind>, JoinHandle<()>)
+/// `watch_kind` for only the objects a field selector picks, like `metadata.namespace=x`.
+pub fn watch_kind_in<K>(client: Client, fields: Option<&str>) -> (Box<dyn CatalogKind>, JoinHandle<()>)
 where
     K: Resource<DynamicType = ()> + Clone + Serialize + DeserializeOwned + std::fmt::Debug + Send + Sync + crate::describe::Extras + Default + 'static,
 {
-    let (store, feed, handle) = super::watch::watch_live_in::<K>(client, namespace);
+    let (store, feed, handle) = super::watch::watch_live_in::<K>(client, fields);
     (Box::new(WatchedKind::new(store, feed)), handle)
 }
 

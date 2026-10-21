@@ -22,14 +22,16 @@ use std::sync::Arc;
 /// Starts a kind's full watch.
 type StartWatch = Box<dyn Fn(&Client) -> (Box<dyn crate::CatalogKind>, tokio::task::JoinHandle<()>) + Send + Sync>;
 
-/// Starts a kind's watch of one namespace, with its task to stop when it is replaced.
+/// Starts a kind's watch of what a field selector picks (one namespace, or one object),
+/// with its task to stop when it is replaced.
 type StartWatchIn = Box<dyn Fn(&Client, &str) -> (Box<dyn crate::CatalogKind>, tokio::task::JoinHandle<()>) + Send + Sync>;
 
-/// A watch of one kind in one namespace, for a list narrowed to it before the kind's
-/// cluster-wide watch has loaded: a big cluster's other namespaces aren't fetched.
+/// A watch of one kind in one namespace, or of one object, for a list narrowed to it
+/// before the kind's cluster-wide watch has loaded: the rest of a big cluster isn't fetched.
 struct Focused {
     kind: ResourceKind,
-    namespace: String,
+    /// The field selector it was started with.
+    fields: String,
     watch: Box<dyn crate::CatalogKind>,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -116,7 +118,7 @@ impl Catalog {
                     label: $label,
                     api: (<$ty as k8s_openapi::Resource>::GROUP, <$ty as k8s_openapi::Resource>::URL_PATH_SEGMENT),
                     start: Box::new(|client| crate::watch_kind::<$ty>(client.clone())),
-                    start_in: Box::new(|client, namespace| crate::watch_kind_in::<$ty>(client.clone(), Some(namespace))),
+                    start_in: Box::new(|client, fields| crate::watch_kind_in::<$ty>(client.clone(), Some(fields))),
                     full: None,
                     handle: None,
                     used: None,
@@ -215,23 +217,28 @@ impl Catalog {
         })
     }
 
-    /// Narrows `kind`'s list to `namespace` while its cluster-wide watch isn't loaded:
-    /// a watch of just that namespace stands in, and `get` and `resolve` return it.
-    pub fn focus(&mut self, kind: ResourceKind, namespace: Option<&str>) {
+    /// Narrows `kind`'s list to `namespace`, or to the one object `name`, while its
+    /// cluster-wide watch isn't loaded: a watch of just that stands in, and `get` and
+    /// `resolve` return it.
+    pub fn focus(&mut self, kind: ResourceKind, namespace: Option<&str>, name: Option<&str>) {
         let full_loaded = self.entries.iter().find(|e| e.kind == kind).and_then(|e| e.full.as_ref()).is_some_and(|f| f.loaded());
-        let Some(namespace) = namespace.filter(|_| !cluster_scoped(kind) && !full_loaded) else {
-            // Once in use, a namespace watch stays until the list moves elsewhere.
-            if self.focused.as_ref().is_some_and(|f| f.kind != kind || namespace != Some(f.namespace.as_str())) {
+        let namespace = namespace.filter(|_| !cluster_scoped(kind));
+        let selectors: Vec<String> = namespace.map(|ns| format!("metadata.namespace={ns}")).into_iter().chain(name.map(|n| format!("metadata.name={n}"))).collect();
+        // Nodes and Namespaces are held in full from the start.
+        if selectors.is_empty() || full_loaded || matches!(kind, ResourceKind::Nodes | ResourceKind::Namespaces) {
+            // Once in use, a narrowed watch stays until the list moves elsewhere.
+            if self.focused.as_ref().is_some_and(|f| f.kind != kind || f.fields != selectors.join(",")) {
                 self.focused = None;
             }
             return;
-        };
-        if self.focused.as_ref().is_some_and(|f| f.kind == kind && f.namespace == namespace) {
+        }
+        let fields = selectors.join(",");
+        if self.focused.as_ref().is_some_and(|f| f.kind == kind && f.fields == fields) {
             return;
         }
         let Some(entry) = self.entries.iter().find(|e| e.kind == kind) else { return };
-        let (watch, handle) = (entry.start_in)(&self.client, namespace);
-        self.focused = Some(Focused { kind, namespace: namespace.to_string(), watch, handle });
+        let (watch, handle) = (entry.start_in)(&self.client, &fields);
+        self.focused = Some(Focused { kind, fields, watch, handle });
     }
 
     /// The kind's cluster-wide watch, started if needed, never a namespace one: for
