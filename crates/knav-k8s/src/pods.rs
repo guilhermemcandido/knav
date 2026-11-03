@@ -49,14 +49,12 @@ pub struct ContainerInfo {
     pub restarts: i32,
 }
 
-/// Per-container state from `status.containerStatuses`. The pod `phase` stays
+/// Per-container state from `status.containerStatuses`, plus native sidecars. The pod `phase` stays
 /// `Running` for a crash loop; only the container's waiting reason shows it.
 pub fn containers_for(pod: &Pod) -> Vec<ContainerInfo> {
-    let statuses = pod
-        .status
-        .as_ref()
-        .and_then(|s| s.container_statuses.clone())
-        .unwrap_or_default();
+    let mut statuses = pod.status.as_ref().and_then(|s| s.container_statuses.clone()).unwrap_or_default();
+    let sidecars = pod.status.iter().flat_map(|s| s.init_container_statuses.iter().flatten()).filter(|c| is_sidecar(pod, &c.name));
+    statuses.extend(sidecars.cloned());
 
     statuses
         .into_iter()
@@ -83,6 +81,7 @@ pub fn pod_status(pod: &Pod) -> String {
     let mut reason = status.reason.clone().or_else(|| status.phase.clone()).unwrap_or_else(|| "Unknown".into());
     let mut initializing = false;
     let init_statuses = status.init_container_statuses.as_deref().unwrap_or_default();
+    let init_total = pod.spec.as_ref().and_then(|s| s.init_containers.as_ref()).map_or(init_statuses.len(), Vec::len);
     for (i, container) in init_statuses.iter().enumerate() {
         let state = container.state.as_ref();
         if is_sidecar(pod, &container.name) && container.started == Some(true) {
@@ -101,7 +100,7 @@ pub fn pod_status(pod: &Pod) -> String {
             reason = format!("Init:{}", waiting.reason.clone().unwrap_or_default());
         } else {
             initializing = true;
-            reason = format!("Init:{i}/{}", init_statuses.len());
+            reason = format!("Init:{i}/{init_total}");
         }
         break;
     }
@@ -118,11 +117,16 @@ pub fn pod_status(pod: &Pod) -> String {
             }
         }
         if reason == "Completed" && has_running {
-            reason = "Running".into();
+            let ready = status.conditions.iter().flatten().any(|c| c.type_ == "Ready" && c.status == "True");
+            reason = if ready { "Running" } else { "NotReady" }.into();
         }
     }
     if pod.metadata.deletion_timestamp.is_some() {
-        reason = if status.reason.as_deref() == Some("NodeLost") { "Unknown".into() } else { "Terminating".into() };
+        if status.reason.as_deref() == Some("NodeLost") {
+            reason = "Unknown".into();
+        } else if !matches!(status.phase.as_deref(), Some("Succeeded" | "Failed")) {
+            reason = "Terminating".into();
+        }
     }
     reason
 }
@@ -166,7 +170,8 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let status = pod.status.clone().unwrap_or_default();
     let phase = pod_status(pod);
     let container_statuses = status.container_statuses.unwrap_or_default();
-    let restarts = container_statuses.iter().map(|c| c.restart_count).sum();
+    let sidecar_restarts: i32 = status.init_container_statuses.iter().flatten().filter(|c| is_sidecar(pod, &c.name)).map(|c| c.restart_count).sum();
+    let restarts = container_statuses.iter().map(|c| c.restart_count).sum::<i32>() + sidecar_restarts;
     let sidecars: Vec<_> = status.init_container_statuses.iter().flatten().filter(|c| is_sidecar(pod, &c.name) && c.started == Some(true)).collect();
     let ready_count = container_statuses.iter().filter(|c| c.ready).count() + sidecars.iter().filter(|c| c.ready).count();
     // Like kubectl, the total is what the spec asks for, so an unstarted pod reads 0/1.
@@ -281,6 +286,49 @@ mod status_tests {
             "metadata": {"name": "p"},
             "status": {"phase": "Running", "containerStatuses": [{"name": "c", "image": "i", "imageID": "", "ready": ready, "restartCount": 0, "state": state}]}
         }))
+    }
+
+    #[test]
+    fn sidecars_show_in_containers_and_restarts_and_late_states_match_kubectl() {
+        let pod = |extra: serde_json::Value| -> Pod {
+            let mut v = serde_json::json!({
+                "metadata": {"name": "p"},
+                "spec": {"initContainers": [{"name": "proxy", "restartPolicy": "Always"}, {"name": "x"}, {"name": "y"}], "containers": [{"name": "app"}]},
+                "status": {"phase": "Running",
+                    "initContainerStatuses": [{"name": "proxy", "image": "i", "imageID": "", "ready": true, "started": true, "restartCount": 2, "state": {"running": {}}}],
+                    "containerStatuses": [{"name": "app", "image": "i", "imageID": "", "ready": true, "restartCount": 1, "state": {"running": {}}}]}
+            });
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(v).unwrap()
+        };
+        let p = pod(serde_json::json!({}));
+        assert_eq!(containers_for(&p).iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["app", "proxy"]);
+        assert_eq!(row_for(&p).restarts, 3);
+        let mut waiting = p.clone();
+        let init = waiting.status.as_mut().unwrap().init_container_statuses.as_mut().unwrap();
+        init.push(serde_json::from_value(serde_json::json!({"name": "x", "image": "i", "imageID": "", "ready": false, "restartCount": 0, "state": {"waiting": {}}})).unwrap());
+        assert_eq!(pod_status(&waiting), "Init:1/3");
+        let mut done = pod(serde_json::json!({"metadata": {"name": "p", "deletionTimestamp": "2024-01-01T00:00:00Z"}}));
+        done.status.as_mut().unwrap().init_container_statuses = None;
+        done.status.as_mut().unwrap().phase = Some("Succeeded".into());
+        assert_ne!(pod_status(&done), "Terminating");
+    }
+
+    #[test]
+    fn a_finished_container_beside_a_running_one_is_notready_until_the_pod_is_ready() {
+        let mut p = pod_from_statuses();
+        assert_eq!(pod_status(&p), "NotReady");
+        p.status.as_mut().unwrap().conditions = Some(vec![serde_json::from_value(serde_json::json!({"type": "Ready", "status": "True"})).unwrap()]);
+        assert_eq!(pod_status(&p), "Running");
+    }
+
+    fn pod_from_statuses() -> Pod {
+        serde_json::from_value(serde_json::json!({
+            "metadata": {"name": "p"},
+            "status": {"phase": "Running", "containerStatuses": [
+                {"name": "a", "image": "i", "imageID": "", "ready": false, "restartCount": 0, "state": {"terminated": {"exitCode": 0, "reason": "Completed"}}},
+                {"name": "b", "image": "i", "imageID": "", "ready": true, "restartCount": 0, "state": {"running": {}}}]}
+        })).unwrap()
     }
 
     #[test]
