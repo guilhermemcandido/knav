@@ -140,7 +140,7 @@ pub(super) fn draw_table(frame: &mut Frame, area: Rect, pods: &[std::sync::Arc<P
         let tone = crate::k8s::status_tone(&p.phase);
         let cell_style = row_tone_style(tone, dimmed);
         let status_style = cell_style;
-        let ready_style = if dimmed || tone != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase)) };
+        let ready_style = if dimmed || tone != crate::k8s::describe::Tone::Plain { cell_style } else { Style::default().fg(pod_ready_color(&p.ready, &p.phase, p.finished)) };
         let mut cells = vec![
             Cell::from(highlight_fuzzy(&p.namespace, search.text, cell_style)),
             Cell::from(highlight_fuzzy(&p.name, search.text, cell_style)),
@@ -328,9 +328,17 @@ pub(super) fn ready_color(ready: &str) -> Color {
     }
 }
 
-/// A pod's READY colour: like a Deployment's, but a pod that ran to completion is grey.
-pub(super) fn pod_ready_color(ready: &str, phase: &str) -> Color {
-    if matches!(phase, "Succeeded" | "Completed") { theme().muted } else { ready_color(ready) }
+/// A pod's READY colour: like a Deployment's, but a pod that ran to completion is grey
+/// and containers that finished cleanly are not counted as missing.
+pub(super) fn pod_ready_color(ready: &str, phase: &str, finished: usize) -> Color {
+    if matches!(phase, "Succeeded" | "Completed") {
+        return theme().muted;
+    }
+    let mut parts = ready.split('/').filter_map(|p| p.parse::<usize>().ok());
+    match (parts.next(), parts.next()) {
+        (Some(have), Some(want)) if want > 0 && have + finished >= want => theme().ok,
+        _ => ready_color(ready),
+    }
 }
 
 /// The state of a `have/want` ready count for colouring a whole row.
@@ -656,10 +664,12 @@ mod generic_table_tests {
 
     #[test]
     fn a_completed_pod_is_grey_not_unready() {
-        assert_eq!(pod_ready_color("0/1", "Completed"), theme().muted);
-        assert_eq!(pod_ready_color("0/1", "Succeeded"), theme().muted);
-        assert_eq!(pod_ready_color("0/1", "Running"), theme().warn);
-        assert_eq!(pod_ready_color("2/2", "Running"), theme().ok);
+        assert_eq!(pod_ready_color("0/1", "Completed", 0), theme().muted);
+        assert_eq!(pod_ready_color("0/1", "Succeeded", 0), theme().muted);
+        assert_eq!(pod_ready_color("0/1", "Running", 0), theme().warn);
+        assert_eq!(pod_ready_color("2/2", "Running", 0), theme().ok);
+        assert_eq!(pod_ready_color("1/2", "Running", 1), theme().ok);
+        assert_eq!(pod_ready_color("1/3", "Running", 1), theme().warn);
     }
 
     #[test]

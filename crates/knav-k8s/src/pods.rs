@@ -17,6 +17,8 @@ pub struct PodRow {
     pub containers: Vec<ContainerInfo>,
     /// Ready over total containers, like "2/3".
     pub ready: String,
+    /// Containers that are not ready only because they ran and exited 0.
+    pub finished: usize,
     pub node: String,
     /// The kind of its owner (`ReplicaSet`, `Job`), or `-`.
     pub controlled_by: String,
@@ -161,6 +163,7 @@ pub fn row_for(pod: &Pod) -> PodRow {
     // Like kubectl, the total is what the spec asks for, so an unstarted pod reads 0/1.
     let total = pod.spec.as_ref().map(|s| s.containers.len()).unwrap_or(container_statuses.len());
     let ready = format!("{ready_count}/{total}");
+    let finished = container_statuses.iter().filter(|c| !c.ready && c.state.as_ref().and_then(|s| s.terminated.as_ref()).is_some_and(|t| t.exit_code == 0)).count();
     let containers = containers_for(pod);
     let node = pod.spec.as_ref().and_then(|s| s.node_name.clone()).unwrap_or_else(|| "-".into());
     let age = pod
@@ -181,7 +184,7 @@ pub fn row_for(pod: &Pod) -> PodRow {
     };
     let cpu_limit = limit("cpu", crate::metrics::parse_cpu_millicores);
     let memory_limit = limit("memory", crate::metrics::parse_memory_bytes);
-    PodRow { namespace, name, phase, restarts, containers, ready, node, controlled_by, qos, ip, images, age, age_secs, cpu_limit, memory_limit }
+    PodRow { namespace, name, phase, restarts, containers, ready, finished, node, controlled_by, qos, ip, images, age, age_secs, cpu_limit, memory_limit }
 }
 
 impl AgeRow for PodRow {
