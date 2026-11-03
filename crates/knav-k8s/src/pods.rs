@@ -85,6 +85,9 @@ pub fn pod_status(pod: &Pod) -> String {
     let init_statuses = status.init_container_statuses.as_deref().unwrap_or_default();
     for (i, container) in init_statuses.iter().enumerate() {
         let state = container.state.as_ref();
+        if is_sidecar(pod, &container.name) && container.started == Some(true) {
+            continue;
+        }
         if let Some(done) = state.and_then(|s| s.terminated.as_ref()) {
             if done.exit_code == 0 {
                 continue;
@@ -124,6 +127,11 @@ pub fn pod_status(pod: &Pod) -> String {
     reason
 }
 
+/// A native sidecar: an init container with `restartPolicy: Always`.
+fn is_sidecar(pod: &Pod, name: &str) -> bool {
+    pod.spec.as_ref().and_then(|s| s.init_containers.as_ref()).is_some_and(|ics| ics.iter().any(|c| c.name == name && c.restart_policy.as_deref() == Some("Always")))
+}
+
 fn terminated_reason(done: &k8s_openapi::api::core::v1::ContainerStateTerminated) -> String {
     match done.reason.as_deref().filter(|r| !r.is_empty()) {
         Some(reason) => reason.to_string(),
@@ -159,9 +167,11 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let phase = pod_status(pod);
     let container_statuses = status.container_statuses.unwrap_or_default();
     let restarts = container_statuses.iter().map(|c| c.restart_count).sum();
-    let ready_count = container_statuses.iter().filter(|c| c.ready).count();
+    let sidecars: Vec<_> = status.init_container_statuses.iter().flatten().filter(|c| is_sidecar(pod, &c.name) && c.started == Some(true)).collect();
+    let ready_count = container_statuses.iter().filter(|c| c.ready).count() + sidecars.iter().filter(|c| c.ready).count();
     // Like kubectl, the total is what the spec asks for, so an unstarted pod reads 0/1.
-    let total = pod.spec.as_ref().map(|s| s.containers.len()).unwrap_or(container_statuses.len());
+    let spec_sidecars = pod.spec.as_ref().and_then(|s| s.init_containers.as_ref()).map_or(0, |ics| ics.iter().filter(|c| c.restart_policy.as_deref() == Some("Always")).count());
+    let total = pod.spec.as_ref().map(|s| s.containers.len() + spec_sidecars).unwrap_or(container_statuses.len());
     let ready = format!("{ready_count}/{total}");
     let finished = container_statuses.iter().filter(|c| !c.ready && c.state.as_ref().and_then(|s| s.terminated.as_ref()).is_some_and(|t| t.exit_code == 0)).count();
     let containers = containers_for(pod);
@@ -271,6 +281,21 @@ mod status_tests {
             "metadata": {"name": "p"},
             "status": {"phase": "Running", "containerStatuses": [{"name": "c", "image": "i", "imageID": "", "ready": ready, "restartCount": 0, "state": state}]}
         }))
+    }
+
+    #[test]
+    fn a_running_native_sidecar_counts_as_ready_and_initialized() {
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "metadata": {"name": "p"},
+            "spec": {"initContainers": [{"name": "validation"}, {"name": "proxy", "restartPolicy": "Always"}], "containers": [{"name": "app"}]},
+            "status": {"phase": "Running",
+                "initContainerStatuses": [
+                    {"name": "validation", "image": "i", "imageID": "", "ready": true, "restartCount": 0, "state": {"terminated": {"exitCode": 0}}},
+                    {"name": "proxy", "image": "i", "imageID": "", "ready": true, "started": true, "restartCount": 0, "state": {"running": {}}}],
+                "containerStatuses": [{"name": "app", "image": "i", "imageID": "", "ready": true, "restartCount": 0, "state": {"running": {}}}]}
+        })).unwrap();
+        assert_eq!(pod_status(&pod), "Running");
+        assert_eq!(row_for(&pod).ready, "2/2");
     }
 
     #[test]
