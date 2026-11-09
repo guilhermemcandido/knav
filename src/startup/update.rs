@@ -222,8 +222,18 @@ fn tag_from_release_json(body: &[u8]) -> Result<String> {
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
-    let output = std::process::Command::new("curl").args(["-fsSL", url]).output().context("couldn't run curl (is it installed?)")?;
+    let mut curl = std::process::Command::new("curl");
+    curl.args(["-fsSL", url]);
+    // GitHub's API allows far more requests with a token than anonymously.
+    let api = url.starts_with("https://api.github.com/");
+    if api && let Some(token) = ["GITHUB_TOKEN", "GH_TOKEN"].iter().find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty())) {
+        curl.args(["-H", &format!("Authorization: Bearer {token}")]);
+    }
+    let output = curl.output().context("couldn't run curl (is it installed?)")?;
     if !output.status.success() {
+        if api {
+            anyhow::bail!("couldn't download {url} (GitHub may be rate limiting this address; set GITHUB_TOKEN or try again later)");
+        }
         anyhow::bail!("couldn't download {url}");
     }
     Ok(output.stdout)
