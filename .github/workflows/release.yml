@@ -25,9 +25,9 @@ jobs:
         include:
           # Both Macs build on Apple silicon; Intel is a cross target there.
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-15
           # Linux builds are static (musl), so they run on any distribution.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
