@@ -125,13 +125,18 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
             let layout = ui::PodLayout { pods: pod_rows, usage: pod_usage.as_deref(), wide: st.wide, hscroll: st.hscroll };
             match mouse.kind {
                 MouseEventKind::Moved => {
-                    st.hovered = ui::row_at(table, layout, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
-                        .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
+                    st.hovered = if mouse.row + 1 == frame_area.height {
+                        // On the path bar, where narrow containers are only dots.
+                        st.table_state.selected().map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row, on_bar: true })
+                    } else {
+                        ui::row_at(table, layout, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
+                            .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row, on_bar: false })
+                    };
                 }
                 // A click selects the row; a second click on it soon after opens it.
                 MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
                     st.hovered = ui::row_at(table, layout, &st.table_state, row_count, ratatui::layout::Position::new(mouse.column, mouse.row))
-                        .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row });
+                        .map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row, on_bar: false });
                     if let Some(index) = ui::list_row_at(table, st.table_state.offset(), row_count, mouse.row) {
                         st.table_state.select(Some(index));
                         // Clicking a pod's CONTROLLER follows it to the owner.

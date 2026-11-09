@@ -184,11 +184,22 @@ pub(super) fn path_line(segments: &[PathSegment], pod: Option<&SelectedItem>, wi
 }
 
 /// Draws the bar on the last row, over everything.
-pub(super) fn draw_path_bar(frame: &mut Frame, segments: &[PathSegment], pod: Option<SelectedItem>) {
+/// Returns whether `hover` (a column) is over the container dots.
+pub(super) fn draw_path_bar(frame: &mut Frame, segments: &[PathSegment], pod: Option<SelectedItem>, hover: Option<u16>) -> bool {
     let area = frame.area();
     let bar = Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
     frame.render_widget(Clear, bar);
-    frame.render_widget(Paragraph::new(path_line(segments, pod.as_ref(), bar.width)), bar);
+    let line = path_line(segments, pod.as_ref(), bar.width);
+    let over_dots = hover.is_some_and(|column| {
+        let mut x = 0usize;
+        line.spans.iter().any(|span| {
+            let start = x;
+            x += span.width();
+            span.content == " ● " && (start..x).contains(&usize::from(column))
+        })
+    });
+    frame.render_widget(Paragraph::new(line), bar);
+    over_dots
 }
 
 #[cfg(test)]

@@ -282,6 +282,8 @@ pub struct Hover {
     pub row: usize,
     pub column: u16,
     pub row_on_screen: u16,
+    /// Over the path bar's container dots instead of the list.
+    pub on_bar: bool,
 }
 
 /// The line in the middle of an empty list, saying why when a search or the
@@ -563,7 +565,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
 
             // Floats near the cursor while it is over a container dot.
             if !dimmed
-                && let Some(hover) = &hover
+                && let Some(hover) = hover.as_ref().filter(|h| !h.on_bar)
                 && let Some(pod) = pods.get(hover.row)
             {
                 draw_hover_popup(frame, pod, hover.column, hover.row_on_screen, full);
@@ -641,7 +643,18 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         draw_hints(frame, hints, show_hints_panel, &header.namespace_slots, shortcuts_line);
     }
     if let Some(segments) = path {
-        draw_path_bar(frame, segments, selected_pod);
+        let over = hover.filter(|h| h.on_bar).map(|h| h.column);
+        let over_dots = draw_path_bar(frame, segments, selected_pod, over);
+        // The bar shrinks containers to dots when narrow, so hovering one names them.
+        if over_dots
+            && !dimmed
+            && let Rows::Pods(pods, _) = &rows
+            && let Some(pod) = selected_row.and_then(|i| pods.get(i))
+            && let Some(hover) = hover
+        {
+            let above = Rect { height: full.height.saturating_sub(1), ..full };
+            draw_hover_popup(frame, pod, hover.column, above.height, above);
+        }
     }
     paint_theme_base(frame);
 }
