@@ -6,6 +6,7 @@ use std::sync::{
 };
 
 use futures::StreamExt;
+use k8s_openapi::api::core::v1::Event;
 use kube::{
     Client, Resource,
     api::Api,
@@ -62,6 +63,28 @@ async fn streams(client: &Client) -> bool {
     tokio::time::timeout(std::time::Duration::from_secs(3), finished).await.unwrap_or(false)
 }
 
+/// Drops what nothing shows and is often most of an object: managedFields, and the
+/// `last-applied-configuration` annotation, a second copy of the whole manifest.
+fn slim(meta: &mut k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta) {
+    meta.managed_fields = None;
+    if let Some(annotations) = &mut meta.annotations {
+        annotations.remove("kubectl.kubernetes.io/last-applied-configuration");
+    }
+}
+
+/// Events feed only the Overview's list, so what it doesn't read is dropped: labels,
+/// annotations, owners and the involved object's uid and field path.
+fn keep_event_fields(event: &mut Event) {
+    let meta = &mut event.metadata;
+    meta.labels = None;
+    meta.annotations = None;
+    meta.owner_references = None;
+    event.involved_object.uid = None;
+    event.involved_object.field_path = None;
+    event.involved_object.resource_version = None;
+    event.related = None;
+}
+
 /// Watches every `K` in the cluster into an in-memory store, reconnecting with backoff.
 pub fn watch_store<K>(client: Client) -> (reflector::Store<K>, JoinHandle<()>)
 where
@@ -73,15 +96,13 @@ where
 
 /// `watch_store` that starts listing only once `after` resolves, so a big, busy kind
 /// (events) doesn't compete with the lists the first screen waits for.
-pub fn watch_store_after<K>(client: Client, after: impl std::future::Future<Output = ()> + Send + 'static) -> (reflector::Store<K>, JoinHandle<()>)
-where
-    K: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
+pub fn watch_store_after(client: Client, after: impl std::future::Future<Output = ()> + Send + 'static) -> (reflector::Store<Event>, JoinHandle<()>)
 {
-    let api: Api<K> = Api::all(client);
+    let api: Api<Event> = Api::all(client);
     let (reader, writer) = reflector::store();
     let handle = tokio::spawn(async move {
         after.await;
-        let stream = watcher(api, first_list()).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer);
+        let stream = watcher(api, first_list()).default_backoff().modify(|object| slim(object.meta_mut())).modify(|event: &mut Event| keep_event_fields(event)).reflect(writer);
         let mut stream = stream.applied_objects().boxed();
         while stream.next().await.is_some() {
             CHANGES.fetch_add(1, Ordering::Relaxed);
@@ -132,7 +153,7 @@ where
     let noted = Arc::clone(&feed);
     // After the reflector, so a queued key always finds its object in the store.
     // managedFields are often a third of an object and nothing shows them.
-    let stream = watcher(api, config).default_backoff().modify(|object| object.meta_mut().managed_fields = None).reflect(writer).inspect(move |event| {
+    let stream = watcher(api, config).default_backoff().modify(|object| slim(object.meta_mut())).reflect(writer).inspect(move |event| {
         if let Ok(event) = event {
             noted.note(event);
         }
