@@ -294,6 +294,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
         (Event::Mouse(mouse), Mode::NodeDetail { state, .. }) if matches!(mouse.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp) => {
             wheel_select(mouse.kind, state, node_detail_rows.len());
         }
+        // Over the path bar, the selected pod's container dots name themselves.
+        (Event::Mouse(mouse), Mode::NodeDetail { state, .. }) if matches!(mouse.kind, MouseEventKind::Moved) => {
+            let on_bar = mouse.row + 1 == cx.frame_area.height;
+            st.hovered = state.selected().filter(|_| on_bar).map(|row| ui::Hover { row, column: mouse.column, row_on_screen: mouse.row, on_bar: true });
+        }
         (Event::Mouse(mouse), Mode::Logs { lines, filter, scroll, follow, order, timestamp_format, .. }) => match mouse.kind {
             MouseEventKind::ScrollDown => ui::logs_scroll_down(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),
             MouseEventKind::ScrollUp => ui::logs_scroll_up(frame_area, lines, filter, *timestamp_format, *order, follow, scroll),

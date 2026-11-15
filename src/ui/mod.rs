@@ -550,6 +550,15 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
             Rows::Overview(..) | Rows::Dashboard(..) => None,
         },
     };
+    // The pod whose container dots the path bar may be showing, for their hover popup.
+    let bar_pod: Option<std::sync::Arc<PodRow>> = match &overlay {
+        Some(Overlay::NodeDetail(NodeDetailView { pods, state, .. })) if background.is_none() => state.selected().and_then(|i| pods.get(i)).cloned(),
+        _ if dimmed => None,
+        _ => match &rows {
+            Rows::Pods(pods, _) => selected_row.and_then(|i| pods.get(i)).cloned(),
+            _ => None,
+        },
+    };
     let is_overview = matches!(rows, Rows::Overview(..));
     if is_list_kind(&rows) && overlay.is_none() {
         details::draw_side_panel(frame, full_body, chrome);
@@ -657,12 +666,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         let over = hover.filter(|h| h.on_bar).map(|h| h.column);
         let over_dots = draw_path_bar(frame, segments, selected_pod, over);
         // The bar shrinks containers to dots when narrow, so hovering one names them.
-        if over_dots
-            && !dimmed
-            && let Rows::Pods(pods, _) = &rows
-            && let Some(pod) = selected_row.and_then(|i| pods.get(i))
-            && let Some(hover) = hover
-        {
+        if over_dots && let Some(pod) = &bar_pod && let Some(hover) = hover {
             let above = Rect { height: full.height.saturating_sub(1), ..full };
             draw_hover_popup(frame, pod, hover.column, above.height, above);
         }

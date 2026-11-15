@@ -395,7 +395,7 @@ pub(super) fn draw_mode(
                         sort: popup_sort.view(),
                         search: ui::Search { text: nd_search, editing: *nd_editing },
                     });
-                    paint(frame, None, None, Some(overlay), false);
+                    paint(frame, hovered, None, Some(overlay), false);
                 })?;
             }
             Mode::Events { filter, search: event_search, editing, state, sort: popup_sort } => {
