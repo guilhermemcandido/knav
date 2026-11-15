@@ -146,9 +146,11 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     };
     let mut terminal = ratatui::init();
     let _ = execute!(stdout(), EnableMouseCapture);
+    app::title::push();
     let stores = (&pod_store.store, &dep_store.store, &node_store);
     if let app::boot::Boot::Quit = app::boot::wait(&mut terminal, &active_context, &header.k8s_version, stores, discovery, &mut catalog).await? {
         let _ = execute!(stdout(), DisableMouseCapture);
+        app::title::pop();
         ratatui::restore();
         return Ok(SessionEnd::Quit);
     }
@@ -163,6 +165,7 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let result = app::run(&mut terminal, stores, &mut catalog, &registry, session, notes);
 
     let _ = execute!(stdout(), DisableMouseCapture);
+    app::title::pop();
     ratatui::restore();
     result
 }

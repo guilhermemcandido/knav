@@ -16,6 +16,7 @@ mod path;
 pub(crate) mod settings;
 mod sidebar;
 mod state;
+pub(crate) mod title;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -99,6 +100,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
     }
 
     let mut cache: Option<derive::Cache> = None;
+    let mut title = String::new();
     loop {
         if let Some(outcome) = jobs::finish(&mut st) {
             return Ok(outcome);
@@ -302,6 +304,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             role: &st.role,
             read_only: st.read_only(),
         };
+        title::update(&mut title, title::text(&st.context, st.namespace.as_deref()));
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 
         // A shell's output arrives on its own, so redraw quickly while one is open.
