@@ -1,10 +1,9 @@
 //! Category dashboards. Most are a manifest's declarative widgets, some are a
-//! sandboxed WASM component, and two (Karpenter, GitOps) are native Rust.
+//! sandboxed WASM component, and one (Karpenter) is native Rust.
 //! All are reached through `Found`, so callers never know which kind they hold.
 
 mod context;
 mod declarative;
-mod gitops;
 mod karpenter;
 pub mod kit;
 pub(super) mod wasm;
@@ -26,7 +25,7 @@ pub trait Dashboard {
 
 /// Dashboards that need a real join across kinds. Checked before the manifests,
 /// so a manifest can't shadow one.
-const NATIVE: &[&dyn Dashboard] = &[&karpenter::Karpenter, &gitops::GitOps];
+const NATIVE: &[&dyn Dashboard] = &[&karpenter::Karpenter];
 
 /// A found dashboard. Each owns what it needs (the engine and component are cheap
 /// `Arc` clones), so the caller can lend `&mut Catalog` to it.
@@ -71,7 +70,11 @@ pub fn find(category: &str, registry: &Registry) -> Option<Found> {
     if widgets.is_empty() {
         return None;
     }
-    Some(Found::Declarative(declarative::DeclarativeDashboard { title: owner.name.clone(), category: category.to_string(), widgets }))
+    // Extensions sharing a category (Flux and Argo CD under GitOps) share one dashboard,
+    // named for the category; a lone extension names its own.
+    let owners = registry.loaded.iter().filter(|l| l.error.is_none() && l.kinds.iter().any(|k| k.category == category)).count();
+    let title = if owners > 1 { category.to_string() } else { owner.name.clone() };
+    Some(Found::Declarative(declarative::DeclarativeDashboard { title, category: category.to_string(), widgets }))
 }
 
 /// Every category with a dashboard: the native ones plus every manifest's.
@@ -197,9 +200,20 @@ mod tests {
         let registry = Registry::load(dir.path()); // no user dir: bundled manifests only
         let found = categories(&registry);
         assert!(found.contains(&"Karpenter"), "native");
-        assert!(found.contains(&"GitOps"), "native");
+        assert!(found.contains(&"GitOps"), "declarative, from the Flux and Argo CD manifests");
         assert!(found.contains(&"Cert-Manager"), "declarative, from the bundled manifest");
         assert!(found.contains(&"Kyverno"), "declarative, from the bundled manifest");
+    }
+
+    #[test]
+    fn every_bundled_manifest_loads_and_gitops_is_shared_by_flux_and_argo() {
+        let dir = tempdir();
+        let registry = Registry::load(dir.path());
+        let broken: Vec<_> = registry.loaded.iter().filter(|l| l.error.is_some()).map(|l| (&l.id, &l.error)).collect();
+        assert!(broken.is_empty(), "{broken:?}");
+        let found = find("GitOps", &registry).expect("a GitOps dashboard");
+        assert_eq!(found.title(), "GitOps");
+        assert_eq!(find("Istio", &registry).expect("an Istio dashboard").title(), "Istio");
     }
 
     /// A temporary directory, removed when dropped.

@@ -66,7 +66,19 @@ pub enum WidgetSpec {
     Count,
     /// Buckets objects into True, False and Unknown by `ready`, `condition:<Type>` or
     /// `field:<.path>`.
-    Tally { by: String },
+    Tally {
+        by: String,
+        /// A boolean field that, when true, counts the object as suspended instead.
+        #[serde(default)]
+        suspend: Option<String>,
+    },
+    /// Counts objects by the text of one field, each value with its own colour (`ok`,
+    /// `warn`, `bad`, `muted` or `accent`). Other values count as "other".
+    Breakdown {
+        by: String,
+        /// `[value, colour]` pairs, in legend order. The first is the headline.
+        values: Vec<[String; 2]>,
+    },
     /// Sums numeric fields across every object, as `[label, path]` pairs.
     Sum { fields: Vec<[String; 2]> },
     /// One row per object from `[label, path]` columns, optionally sorted by `sort_by`.
@@ -119,7 +131,15 @@ impl Manifest {
                     return Err(ParseError::Invalid(format!("{}: dashboard widget references kind `{kind}`, which isn't in `extension.kind`", manifest.extension.id)));
                 }
             }
-            if let WidgetSpec::Tally { by } = &widget.spec
+            if let WidgetSpec::Breakdown { by, values } = &widget.spec {
+                if !by.starts_with('.') || values.is_empty() {
+                    return Err(ParseError::Invalid(format!("{}: dashboard breakdown needs `by` as a \".path\" and at least one value", manifest.extension.id)));
+                }
+                if let Some([value, color]) = values.iter().find(|[_, color]| !matches!(color.as_str(), "ok" | "warn" | "bad" | "muted" | "accent")) {
+                    return Err(ParseError::Invalid(format!("{}: breakdown value `{value}` has colour `{color}`; use ok, warn, bad, muted or accent", manifest.extension.id)));
+                }
+            }
+            if let WidgetSpec::Tally { by, .. } = &widget.spec
                 && by != "ready"
                 && !by.starts_with("condition:")
                 && !by.starts_with("field:.")

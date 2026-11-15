@@ -30,7 +30,8 @@ group = "security.istio.io"
 kind = "AuthorizationPolicy"
 category = "Istio"
 
-# No health to tally, so the dashboard is an inventory of each kind.
+# No health to tally, so the dashboard is an inventory with the settings that matter:
+# the mTLS mode, the policy actions and how traffic to a host is secured.
 [[extension.dashboard]]
 kind = "VirtualService"
 widget = "count"
@@ -41,12 +42,40 @@ widget = "count"
 
 [[extension.dashboard]]
 kind = "DestinationRule"
-widget = "count"
+label = "DestinationRule: TLS"
+widget = "breakdown"
+by = ".spec.trafficPolicy.tls.mode"
+values = [["ISTIO_MUTUAL", "ok"], ["MUTUAL", "ok"], ["SIMPLE", "accent"], ["DISABLE", "bad"]]
 
 [[extension.dashboard]]
 kind = "PeerAuthentication"
-widget = "count"
+label = "PeerAuthentication: mTLS"
+widget = "breakdown"
+by = ".spec.mtls.mode"
+values = [["STRICT", "ok"], ["PERMISSIVE", "warn"], ["DISABLE", "bad"], ["UNSET", "muted"]]
 
 [[extension.dashboard]]
 kind = "AuthorizationPolicy"
-widget = "count"
+label = "AuthorizationPolicy: action"
+widget = "breakdown"
+by = ".spec.action"
+values = [["ALLOW", "ok"], ["DENY", "bad"], ["AUDIT", "accent"], ["CUSTOM", "warn"]]
+
+[[extension.dashboard]]
+kind = "VirtualService"
+widget = "list"
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Hosts", ".spec.hosts"],
+  ["Gateways", ".spec.gateways"],
+]
+
+[[extension.dashboard]]
+kind = "Gateway"
+widget = "list"
+columns = [
+  ["Name", ".metadata.name"],
+  ["Namespace", ".metadata.namespace"],
+  ["Selector", ".spec.selector.istio"],
+]

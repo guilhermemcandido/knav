@@ -93,6 +93,16 @@ pub fn sparkline(values: &[usize], color: Color) -> Vec<Span<'static>> {
         .collect()
 }
 
+/// Events about any of `kinds` in each five-minute step of the last hour, oldest first.
+pub fn activity(events: &[knav_k8s::EventEntry], kinds: &[&str]) -> Vec<usize> {
+    const BUCKETS: usize = 12;
+    let mut counts = vec![0; BUCKETS];
+    for e in events.iter().filter(|e| kinds.contains(&e.kind.as_str()) && (0..3600).contains(&e.age_secs)) {
+        counts[BUCKETS - 1 - (e.age_secs as usize / 300).min(BUCKETS - 1)] += 1;
+    }
+    counts
+}
+
 /// A legend: a dot, the number and its label per entry, in the entry's colour, wrapped onto
 /// more lines when `width` is short. Entries with nothing in them are left out.
 pub fn legend(entries: &[(usize, &str, Color)], width: usize) -> Vec<Line<'static>> {

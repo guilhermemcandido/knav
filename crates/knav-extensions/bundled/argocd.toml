@@ -11,3 +11,17 @@ category = "GitOps"
   [extension.kind.view]
   template = "timeline"
   from = ".status.conditions"
+
+[[extension.dashboard]]
+kind = "Application"
+label = "Argo CD sync"
+widget = "breakdown"
+by = ".status.sync.status"
+values = [["Synced", "ok"], ["OutOfSync", "warn"], ["Unknown", "muted"]]
+
+[[extension.dashboard]]
+kind = "Application"
+label = "Argo CD health"
+widget = "breakdown"
+by = ".status.health.status"
+values = [["Healthy", "ok"], ["Progressing", "warn"], ["Degraded", "bad"], ["Suspended", "muted"], ["Missing", "warn"]]

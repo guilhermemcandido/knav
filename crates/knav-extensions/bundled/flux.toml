@@ -38,3 +38,27 @@ category = "GitOps"
   [extension.kind.view]
   template = "timeline"
   from = ".status.conditions"
+
+[[extension.dashboard]]
+kind = "Kustomization"
+widget = "tally"
+by = "ready"
+suspend = ".spec.suspend"
+
+[[extension.dashboard]]
+kind = "HelmRelease"
+widget = "tally"
+by = "ready"
+suspend = ".spec.suspend"
+
+[[extension.dashboard]]
+kind = "GitRepository"
+widget = "tally"
+by = "ready"
+suspend = ".spec.suspend"
+
+[[extension.dashboard]]
+kind = "OCIRepository"
+widget = "tally"
+by = "ready"
+suspend = ".spec.suspend"

@@ -57,6 +57,10 @@ pub(crate) fn menu_sections(crds: &[k8s::CrdInfo], dashboard_categories: &[&'sta
 /// The names of the extensions that own `cmd`: a dashboard's category, or a custom resource
 /// kind one of them declares.
 fn owners(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Loaded]) -> Vec<String> {
+    // knav's own view of Helm's releases, not a resource type of any extension.
+    if matches!(cmd, Cmd::Kind(ResourceKind::HelmReleases)) {
+        return vec!["Helm · installed releases".into()];
+    }
     let owns = |l: &&crate::extensions::Loaded| match cmd {
         Cmd::Kind(ResourceKind::ExtensionDashboard(category)) => l.kinds.iter().any(|k| k.category == category),
         Cmd::Crd(i) => crds.get(i).is_some_and(|c| l.kinds.iter().any(|k| k.group == c.group && k.kind == c.kind)),
@@ -78,6 +82,8 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             if !crd.kind.eq_ignore_ascii_case(&crd.plural) {
                 names.push(crd.kind.to_lowercase());
             }
+            // The form kubectl takes, which tells two kinds of one name apart.
+            names.push(format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase()));
             names
         }
         // A dashboard answers to its extensions' names too, so `flux` finds GitOps.
@@ -131,7 +137,20 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    let ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(10).collect();
+    let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(10).collect();
+    // Two entries with one name (Flux's HelmRelease and knav's Helm releases) are told
+    // apart: the custom resource takes its full name.
+    let same = |ranked: &[Suggestion], label: &str| ranked.iter().filter(|s| s.label == label).count() > 1;
+    for i in 0..ranked.len() {
+        if let Cmd::Crd(index) = ranked[i].cmd
+            && same(&ranked, &ranked[i].label)
+        {
+            let crd = &crds[index];
+            let full = format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase());
+            ranked[i].primary = full.clone();
+            ranked[i].label = full;
+        }
+    }
     with_group_kinds(ranked, crds, extensions, &names_of)
 }
 
@@ -542,5 +561,20 @@ mod tests {
         let found = command_suggestions("helmrelease", &crds, &[], &categories, &registry.loaded, &[]);
         let release = found.iter().find(|s| matches!(s.cmd, Cmd::Crd(0))).expect("the HelmRelease kind");
         assert_eq!(release.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["helm.toolkit.fluxcd.io", "Flux"]);
+    }
+
+    #[test]
+    fn two_kinds_of_one_name_are_told_apart() {
+        let registry = crate::extensions::Registry::load(std::path::Path::new("/nonexistent"));
+        let crds = [crd("helm.toolkit.fluxcd.io", "HelmRelease", "helmreleases")];
+        let found = command_suggestions("helmreleases", &crds, &[], &[], &registry.loaded, &[]);
+        let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"helmreleases.helm.toolkit.fluxcd.io"), "{labels:?}");
+        assert!(labels.contains(&"helmreleases"), "{labels:?}");
+        let native = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::HelmReleases))).expect("the built-in row");
+        assert_eq!(native.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Helm · installed releases"]);
+        // The full name still finds it, so Tab completion keeps working.
+        let typed = command_suggestions("helmreleases.helm.toolkit.fluxcd.io", &crds, &[], &[], &registry.loaded, &[]);
+        assert!(matches!(typed.first().map(|s| s.cmd), Some(Cmd::Crd(0))));
     }
 }
