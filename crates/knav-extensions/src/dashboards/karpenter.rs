@@ -6,8 +6,9 @@ use ratatui::text::{Line, Span};
 use serde_yaml::Value;
 
 use knav_common::theme::theme;
-use knav_common::util::text::{format_bytes, truncate};
+use knav_common::util::text::{cell_width, format_bytes, truncate};
 
+use super::kit::{card, gauge, grid};
 use super::{Dashboard, DashboardContext};
 
 pub struct Karpenter;
@@ -114,7 +115,7 @@ impl Dashboard for Karpenter {
                 pods: row.pod_count,
             });
         }
-        render(ctx.nodes.len(), unmanaged, &pools)
+        render(ctx.nodes.len(), unmanaged, &pools, ctx.width)
     }
 }
 
@@ -122,75 +123,80 @@ fn dot(good: bool) -> Span<'static> {
     if good { Span::styled("●", Style::default().fg(theme().ok)) } else { Span::styled("●", Style::default().fg(theme().bad)) }
 }
 
-fn meter_line(label: &str, used: f64, capacity: f64, format_value: impl Fn(f64) -> String) -> Line<'static> {
+fn meter_line(label: &str, used: f64, capacity: f64, width: usize, format_value: impl Fn(f64) -> String) -> Line<'static> {
     let ratio = if capacity > 0.0 { (used / capacity).clamp(0.0, 1.0) } else { 0.0 };
     let color = if ratio >= 0.9 { theme().bad } else if ratio >= 0.75 { theme().warn } else { theme().ok };
-    const WIDTH: usize = 24;
-    let filled = ((ratio * WIDTH as f64).round() as usize).min(WIDTH);
-    Line::from(vec![
-        Span::styled(format!("  {label:<8}"), Style::default().fg(theme().muted)),
-        Span::styled("▓".repeat(filled), Style::default().fg(color)),
-        Span::styled("░".repeat(WIDTH - filled), Style::default().fg(theme().muted)),
-        Span::raw(format!(" {} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0)),
-    ])
+    let note = format!(" {} / {} ({:.0}%)", format_value(used), format_value(capacity), ratio * 100.0);
+    let label = format!("{label:<8}");
+    let bar = width.saturating_sub(cell_width(&label) + cell_width(&note)).clamp(8, 30);
+    let mut spans = vec![Span::styled(label, Style::default().fg(theme().muted))];
+    spans.extend(gauge(bar, ratio, color));
+    spans.push(Span::raw(note));
+    Line::from(spans)
 }
 
 fn cores(v: f64) -> String {
     format!("{:.2}", v / 1000.0)
 }
 
-fn render(total_nodes: usize, unmanaged_nodes: usize, pools: &[Pool]) -> Vec<Line<'static>> {
+fn render(total_nodes: usize, unmanaged_nodes: usize, pools: &[Pool], width: usize) -> Vec<Line<'static>> {
     let karpenter_nodes: usize = pools.iter().map(|p| p.nodes.len()).sum();
     let ready_nodes = pools.iter().flat_map(|p| &p.nodes).filter(|n| n.ready).count();
     let nodepools_ready = pools.iter().filter(|p| p.ready).count();
     let mut out = vec![
+        Line::default(),
         Line::from(vec![
+            Span::raw(" "),
             Span::styled(format!("{total_nodes} "), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw("nodes total, "),
             Span::styled(format!("{karpenter_nodes} "), Style::default().fg(theme().accent).add_modifier(Modifier::BOLD)),
             Span::raw("managed by Karpenter, "),
             Span::styled(format!("{ready_nodes}"), Style::default().fg(theme().ok)),
             Span::raw(" ready"),
+            Span::styled(format!("   {}/{} NodePools ready", nodepools_ready, pools.len()), Style::default().fg(theme().muted)),
         ]),
-        Line::from(vec![Span::styled(format!("{}/{} ", nodepools_ready, pools.len()), Style::default().add_modifier(Modifier::BOLD)), Span::raw("NodePools ready")]),
         Line::default(),
     ];
     if pools.is_empty() {
-        out.push(Line::styled("No NodePools found.", Style::default().fg(theme().muted)));
+        out.push(Line::styled(" No NodePools found.", Style::default().fg(theme().muted)));
         return out;
     }
-    for pool in pools {
-        out.push(Line::from(vec![
-            dot(pool.ready),
-            Span::styled(format!(" {}", pool.name), Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  node class: {}", pool.node_class.as_deref().unwrap_or("-")), Style::default().fg(theme().muted)),
-        ]));
-        if !pool.instance_types.is_empty() {
-            out.push(Line::styled(format!("  instance types: {}", pool.instance_types.join(", ")), Style::default().fg(theme().muted)));
-        }
-        out.push(meter_line("CPU", pool.cpu_usage_millicores as f64, pool.cpu_capacity_millicores as f64, cores));
-        out.push(meter_line("Memory", pool.memory_usage_bytes as f64, pool.memory_capacity_bytes as f64, format_bytes));
-        if pool.nodes.is_empty() {
-            out.push(Line::styled("  (no nodes)", Style::default().fg(theme().muted)));
-        } else {
-            out.push(Line::styled(format!("  {:<24}{:<16}{:<10}{:<10}{:<10}PODS", "NAME", "INSTANCE TYPE", "STATUS", "CPU", "MEMORY"), Style::default().fg(theme().muted)));
-            for node in &pool.nodes {
-                let (status_text, status_color) = if node.ready { ("Ready", theme().ok) } else { ("NotReady", theme().bad) };
-                let cpu = node.cpu_millicores.map(|m| format!("{:.2}", m as f64 / 1000.0)).unwrap_or_else(|| "-".into());
-                let mem = node.memory_bytes.map(|b| format_bytes(b as f64)).unwrap_or_else(|| "-".into());
-                out.push(Line::from(vec![
-                    Span::raw(format!("  {:<24}{:<16}", truncate(&node.name, 23), truncate(&node.instance_type, 15))),
-                    Span::styled(format!("{status_text:<10}"), Style::default().fg(status_color)),
-                    Span::raw(format!("{:<10}{:<10}{}", cpu, mem, node.pods)),
-                ]));
-            }
-        }
-        out.push(Line::default());
-    }
+    out.extend(grid(width, 76, pools, pool_card));
     if unmanaged_nodes > 0 {
-        out.push(Line::styled(format!("{unmanaged_nodes} other node{} not managed by Karpenter", if unmanaged_nodes == 1 { "" } else { "s" }), Style::default().fg(theme().muted)));
+        out.push(Line::styled(format!(" {unmanaged_nodes} other node{} not managed by Karpenter", if unmanaged_nodes == 1 { "" } else { "s" }), Style::default().fg(theme().muted)));
     }
     out
+}
+
+fn pool_card(pool: &Pool, width: usize) -> Vec<Line<'static>> {
+    let inner = width.saturating_sub(4);
+    let mut body = vec![Line::from(vec![
+        dot(pool.ready),
+        Span::styled(if pool.ready { " ready" } else { " not ready" }, Style::default().fg(if pool.ready { theme().ok } else { theme().bad })),
+        Span::styled(format!("   node class: {}", pool.node_class.as_deref().unwrap_or("-")), Style::default().fg(theme().muted)),
+    ])];
+    if !pool.instance_types.is_empty() {
+        body.push(Line::styled(format!("instance types: {}", pool.instance_types.join(", ")), Style::default().fg(theme().muted)));
+    }
+    body.push(meter_line("CPU", pool.cpu_usage_millicores as f64, pool.cpu_capacity_millicores as f64, inner, cores));
+    body.push(meter_line("Memory", pool.memory_usage_bytes as f64, pool.memory_capacity_bytes as f64, inner, format_bytes));
+    body.push(Line::default());
+    if pool.nodes.is_empty() {
+        body.push(Line::styled("(no nodes)", Style::default().fg(theme().muted)));
+    } else {
+        body.push(Line::styled(format!("{:<24}{:<16}{:<10}{:<8}{:<9}PODS", "NAME", "INSTANCE TYPE", "STATUS", "CPU", "MEMORY"), Style::default().fg(theme().muted)));
+        for node in &pool.nodes {
+            let (status_text, status_color) = if node.ready { ("Ready", theme().ok) } else { ("NotReady", theme().bad) };
+            let cpu = node.cpu_millicores.map(|m| format!("{:.2}", m as f64 / 1000.0)).unwrap_or_else(|| "-".into());
+            let mem = node.memory_bytes.map(|b| format_bytes(b as f64)).unwrap_or_else(|| "-".into());
+            body.push(Line::from(vec![
+                Span::raw(format!("{:<24}{:<16}", truncate(&node.name, 23), truncate(&node.instance_type, 15))),
+                Span::styled(format!("{status_text:<10}"), Style::default().fg(status_color)),
+                Span::raw(format!("{:<8}{:<9}{}", cpu, mem, node.pods)),
+            ]));
+        }
+    }
+    card(&pool.name, width, body)
 }
 
 #[cfg(test)]
@@ -264,6 +270,6 @@ mod tests {
         assert_eq!(pools[0].nodes.len(), 1);
         assert_eq!(unmanaged, 1);
         assert_eq!(pools[0].instance_types, vec!["m5.large", "m5.xlarge"]);
-        assert!(!render(2, unmanaged, &pools).is_empty());
+        assert!(!render(2, unmanaged, &pools, 100).is_empty());
     }
 }

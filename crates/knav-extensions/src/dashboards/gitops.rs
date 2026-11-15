@@ -133,8 +133,8 @@ fn flux_card(status: &FluxTally, events: &[EventEntry], width: usize) -> Vec<Lin
     let mut body = vec![
         headline(status.ready, status.total, "ready", color),
         Line::from(stacked(inner, &slices)),
-        legend(&[(status.ready, "ready", theme().ok), (status.not_ready, "failing", theme().bad), (status.suspended, "suspended", theme().muted), (status.unknown, "unknown", theme().warn)]),
     ];
+    body.extend(legend(&[(status.ready, "ready", theme().ok), (status.not_ready, "failing", theme().bad), (status.suspended, "suspended", theme().muted), (status.unknown, "unknown", theme().warn)], inner));
     let recent = activity(events, status.label);
     if recent.iter().any(|n| *n > 0) {
         let mut spans = sparkline(&recent, theme().accent);
@@ -146,31 +146,25 @@ fn flux_card(status: &FluxTally, events: &[EventEntry], width: usize) -> Vec<Lin
 
 fn argo_sync(argocd: &ArgoTally, width: usize) -> Vec<Line<'static>> {
     let inner = width.saturating_sub(4);
-    card(
-        "Argo CD sync",
-        width,
-        vec![
-            headline(argocd.sync_synced, argocd.total, "synced", if argocd.sync_out_of_sync > 0 { theme().warn } else { theme().ok }),
-            Line::from(stacked(inner, &[Slice::new(argocd.sync_synced, theme().ok), Slice::new(argocd.sync_out_of_sync, theme().warn), Slice::new(argocd.sync_unknown, theme().muted)])),
-            legend(&[(argocd.sync_synced, "synced", theme().ok), (argocd.sync_out_of_sync, "out of sync", theme().warn), (argocd.sync_unknown, "unknown", theme().muted)]),
-        ],
-    )
+    let mut body = vec![
+        headline(argocd.sync_synced, argocd.total, "synced", if argocd.sync_out_of_sync > 0 { theme().warn } else { theme().ok }),
+        Line::from(stacked(inner, &[Slice::new(argocd.sync_synced, theme().ok), Slice::new(argocd.sync_out_of_sync, theme().warn), Slice::new(argocd.sync_unknown, theme().muted)])),
+    ];
+    body.extend(legend(&[(argocd.sync_synced, "synced", theme().ok), (argocd.sync_out_of_sync, "out of sync", theme().warn), (argocd.sync_unknown, "unknown", theme().muted)], inner));
+    card("Argo CD sync", width, body)
 }
 
 fn argo_health(argocd: &ArgoTally, width: usize) -> Vec<Line<'static>> {
     let inner = width.saturating_sub(4);
-    card(
-        "Argo CD health",
-        width,
-        vec![
-            headline(argocd.health_healthy, argocd.total, "healthy", if argocd.health_degraded > 0 { theme().bad } else { theme().ok }),
-            Line::from(stacked(
-                inner,
-                &[Slice::new(argocd.health_healthy, theme().ok), Slice::new(argocd.health_progressing, theme().warn), Slice::new(argocd.health_degraded, theme().bad), Slice::new(argocd.health_other, theme().muted)],
-            )),
-            legend(&[(argocd.health_healthy, "healthy", theme().ok), (argocd.health_progressing, "progressing", theme().warn), (argocd.health_degraded, "degraded", theme().bad), (argocd.health_other, "other", theme().muted)]),
-        ],
-    )
+    let mut body = vec![
+        headline(argocd.health_healthy, argocd.total, "healthy", if argocd.health_degraded > 0 { theme().bad } else { theme().ok }),
+        Line::from(stacked(
+            inner,
+            &[Slice::new(argocd.health_healthy, theme().ok), Slice::new(argocd.health_progressing, theme().warn), Slice::new(argocd.health_degraded, theme().bad), Slice::new(argocd.health_other, theme().muted)],
+        )),
+    ];
+    body.extend(legend(&[(argocd.health_healthy, "healthy", theme().ok), (argocd.health_progressing, "progressing", theme().warn), (argocd.health_degraded, "degraded", theme().bad), (argocd.health_other, "other", theme().muted)], inner));
+    card("Argo CD health", width, body)
 }
 
 fn render(flux: &[FluxTally], argocd: &ArgoTally, events: &[EventEntry], width: usize) -> Vec<Line<'static>> {

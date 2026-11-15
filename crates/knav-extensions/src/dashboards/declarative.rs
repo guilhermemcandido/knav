@@ -184,11 +184,12 @@ fn card_widget(label: &str, spec: &WidgetSpec, objects: &[Value], total: usize, 
                 }
             }
             let color = if f > 0 { theme().bad } else if t == total { theme().ok } else { theme().warn };
-            vec![
+            let mut body = vec![
                 Line::from(vec![big(t, color), Span::styled(format!(" / {total}  true"), Style::default().fg(theme().muted))]),
                 Line::from(stacked(inner, &[Slice::new(t, theme().ok), Slice::new(f, theme().bad), Slice::new(u, theme().muted)])),
-                legend(&[(t, "true", theme().ok), (f, "false", theme().bad), (u, "unknown", theme().muted)]),
-            ]
+            ];
+            body.extend(legend(&[(t, "true", theme().ok), (f, "false", theme().bad), (u, "unknown", theme().muted)], inner));
+            body
         }
         WidgetSpec::Sum { fields } => {
             let sums: Vec<(String, usize)> = fields
@@ -198,7 +199,9 @@ fn card_widget(label: &str, spec: &WidgetSpec, objects: &[Value], total: usize, 
             let palette = [theme().ok, theme().bad, theme().warn, theme().muted, theme().accent];
             let slices: Vec<Slice> = sums.iter().enumerate().map(|(i, (_, n))| Slice::new(*n, palette[i % palette.len()])).collect();
             let entries: Vec<(usize, &str, Color)> = sums.iter().enumerate().map(|(i, (name, n))| (*n, name.as_str(), palette[i % palette.len()])).collect();
-            vec![Line::from(vec![big(total, theme().text_strong), Span::styled("  total", Style::default().fg(theme().muted))]), Line::from(stacked(inner, &slices)), legend(&entries)]
+            let mut body = vec![Line::from(vec![big(total, theme().text_strong), Span::styled("  total", Style::default().fg(theme().muted))]), Line::from(stacked(inner, &slices))];
+            body.extend(legend(&entries, inner));
+            body
         }
         _ => vec![Line::from(vec![big(total, theme().text_strong)])],
     };

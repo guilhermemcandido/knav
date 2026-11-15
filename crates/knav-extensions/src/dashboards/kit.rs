@@ -93,20 +93,29 @@ pub fn sparkline(values: &[usize], color: Color) -> Vec<Span<'static>> {
         .collect()
 }
 
-/// A legend entry: a dot, the number and its label, in the slice's colour. Entries with
-/// nothing in them are left out so the line stays short.
-pub fn legend(entries: &[(usize, &str, Color)]) -> Line<'static> {
-    let mut spans = Vec::new();
+/// A legend: a dot, the number and its label per entry, in the entry's colour, wrapped onto
+/// more lines when `width` is short. Entries with nothing in them are left out.
+pub fn legend(entries: &[(usize, &str, Color)], width: usize) -> Vec<Line<'static>> {
+    let mut lines: Vec<Vec<Span<'static>>> = vec![Vec::new()];
+    let mut used = 0;
     for (count, label, color) in entries.iter().filter(|(count, ..)| *count > 0) {
-        if !spans.is_empty() {
-            spans.push(Span::raw("  "));
+        let text = format!("● {count} {label}");
+        let need = cell_width(&text) + if used > 0 { 2 } else { 0 };
+        if used > 0 && used + need > width {
+            lines.push(Vec::new());
+            used = 0;
         }
-        spans.push(Span::styled(format!("● {count} {label}"), Style::default().fg(*color)));
+        let row = lines.last_mut().expect("a row");
+        if used > 0 {
+            row.push(Span::raw("  "));
+        }
+        used += cell_width(&text) + if row.is_empty() { 0 } else { 2 };
+        row.push(Span::styled(text, Style::default().fg(*color)));
     }
-    if spans.is_empty() {
-        spans.push(Span::styled("nothing yet", Style::default().fg(theme().muted)));
+    if lines[0].is_empty() {
+        lines[0].push(Span::styled("nothing yet", Style::default().fg(theme().muted)));
     }
-    Line::from(spans)
+    lines.into_iter().map(Line::from).collect()
 }
 
 /// Cuts a line to `width` cells, so a card's border never gets pushed out.
@@ -163,6 +172,23 @@ pub fn columns(total: usize, min_width: usize) -> (usize, usize) {
     (cols, each)
 }
 
+/// Grows a card to `height` lines by adding empty rows above its bottom edge, so the cards
+/// in a row end together.
+fn stretch(mut card: Vec<Line<'static>>, height: usize, width: usize) -> Vec<Line<'static>> {
+    // A card is a top edge, body rows that start `│ ` and end ` │`, and a bottom edge.
+    if card.len() < 3 || card.len() >= height {
+        return card;
+    }
+    let (left, right) = (card[1].spans.first().cloned(), card[1].spans.last().cloned());
+    let (Some(left), Some(right)) = (left, right) else { return card };
+    let bottom = card.pop().expect("a bottom edge");
+    while card.len() < height - 1 {
+        card.push(Line::from(vec![left.clone(), Span::raw(" ".repeat(width.saturating_sub(4))), right.clone()]));
+    }
+    card.push(bottom);
+    card
+}
+
 /// Lays cards out in rows of equal-width columns. `build` gets a card's full width and
 /// returns its lines.
 pub fn grid<T>(total: usize, min_width: usize, items: &[T], build: impl Fn(&T, usize) -> Vec<Line<'static>>) -> Vec<Line<'static>> {
@@ -171,6 +197,7 @@ pub fn grid<T>(total: usize, min_width: usize, items: &[T], build: impl Fn(&T, u
     for row in items.chunks(cols) {
         let cards: Vec<Vec<Line<'static>>> = row.iter().map(|item| build(item, each)).collect();
         let height = cards.iter().map(Vec::len).max().unwrap_or(0);
+        let cards: Vec<Vec<Line<'static>>> = cards.into_iter().map(|c| stretch(c, height, each)).collect();
         for y in 0..height {
             let mut spans = Vec::new();
             for (i, card) in cards.iter().enumerate() {
@@ -242,6 +269,21 @@ mod tests {
         assert_eq!(columns(80, 30), (2, 39));
         assert_eq!(columns(50, 30), (1, 50));
         assert_eq!(columns(200, 30), (6, 32));
+    }
+
+    #[test]
+    fn cards_in_a_row_end_on_the_same_line() {
+        let lines = grid(61, 30, &[1, 3], |n, w| card("c", w, vec![Line::from("x"); *n]));
+        assert_eq!(lines.len(), 5, "{:?}", lines.iter().map(|l| text(&l.spans)).collect::<Vec<_>>());
+        assert!(text(&lines[4].spans).starts_with('╰') && text(&lines[4].spans).contains("╯ ╰"));
+    }
+
+    #[test]
+    fn a_legend_wraps_instead_of_overflowing() {
+        let entries = [(9, "synced", Color::Green), (3, "out of sync", Color::Yellow), (2, "unknown", Color::Gray)];
+        let lines = legend(&entries, 24);
+        assert!(lines.len() > 1 && lines.iter().all(|l| l.width() <= 24), "{lines:?}");
+        assert_eq!(legend(&[(0, "x", Color::Green)], 24).len(), 1);
     }
 
     #[test]
