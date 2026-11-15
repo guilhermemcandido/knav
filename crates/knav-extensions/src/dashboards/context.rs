@@ -16,12 +16,14 @@ pub struct DashboardContext<'a> {
     pub nodes: &'a [Arc<Node>],
     pub node_rows: &'a [NodeRow],
     pub events: &'a [EventEntry],
+    /// Cells a dashboard has to draw in, so it can lay out cards and bars.
+    pub width: usize,
 }
 
 impl<'a> DashboardContext<'a> {
     /// Built once per frame. Dashboards only ever get `&mut Self`, never a way to build one.
-    pub fn new(catalog: &'a mut Catalog, client: &'a Client, nodes: &'a [Arc<Node>], node_rows: &'a [NodeRow], events: &'a [EventEntry]) -> Self {
-        Self { catalog, client, nodes, node_rows, events }
+    pub fn new(catalog: &'a mut Catalog, client: &'a Client, nodes: &'a [Arc<Node>], node_rows: &'a [NodeRow], events: &'a [EventEntry], width: usize) -> Self {
+        Self { catalog, client, nodes, node_rows, events, width }
     }
 
     /// One CRD kind's manifests, empty if it isn't installed.

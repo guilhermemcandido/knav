@@ -9,6 +9,7 @@ use crate::manifest::{DashboardWidget, WidgetSpec};
 use knav_common::theme::theme;
 use knav_common::util::text::truncate;
 
+use super::kit::{Slice, card, grid, legend, stacked};
 use super::{Dashboard, DashboardContext};
 
 /// A manifest's widgets, each with the `(group, kind)` pairs it reads, checked at parse time.
@@ -28,23 +29,36 @@ impl Dashboard for DeclarativeDashboard {
     }
 
     fn lines(&self, ctx: &mut DashboardContext) -> Vec<Line<'static>> {
-        let mut out = Vec::new();
+        let mut cards: Vec<(String, WidgetSpec, Vec<Value>, usize)> = Vec::new();
+        let mut lists = Vec::new();
         for (widget, sources) in &self.widgets {
             let label = widget.label.clone().unwrap_or_else(|| {
                 let mut names = vec![widget.kind.clone()];
                 names.extend(widget.extra_kinds.clone());
                 names.join(" / ")
             });
-            // `count` only needs the number; the other widgets need the objects.
-            let line = if let WidgetSpec::Count = widget.spec {
-                let total: usize = sources.iter().map(|(group, kind)| ctx.count(group, kind)).sum();
-                vec![Line::from(vec![Span::styled(format!("{total} "), Style::default().add_modifier(Modifier::BOLD)), Span::raw(label)])]
-            } else {
-                let objects: Vec<Value> = sources.iter().flat_map(|(group, kind)| ctx.fetch(group, kind)).collect();
-                render_widget(&label, &widget.spec, &objects)
-            };
-            out.extend(line);
+            match widget.spec {
+                // `count` only needs the number; the other widgets need the objects.
+                WidgetSpec::Count => {
+                    let total: usize = sources.iter().map(|(group, kind)| ctx.count(group, kind)).sum();
+                    cards.push((label, widget.spec.clone(), Vec::new(), total));
+                }
+                WidgetSpec::Tally { .. } | WidgetSpec::Sum { .. } => {
+                    let objects: Vec<Value> = sources.iter().flat_map(|(group, kind)| ctx.fetch(group, kind)).collect();
+                    let total = objects.len();
+                    cards.push((label, widget.spec.clone(), objects, total));
+                }
+                WidgetSpec::List { .. } => {
+                    let objects: Vec<Value> = sources.iter().flat_map(|(group, kind)| ctx.fetch(group, kind)).collect();
+                    lists.push(render_widget(&label, &widget.spec, &objects));
+                }
+            }
+        }
+        let mut out = vec![Line::default()];
+        out.extend(grid(ctx.width, 34, &cards, |(label, spec, objects, total), width| card_widget(label, spec, objects, *total, width)));
+        for list in lists {
             out.push(Line::default());
+            out.extend(list);
         }
         out
     }
@@ -153,6 +167,42 @@ fn days_span(object: &Value, path: &str) -> Span<'static> {
         d if d < 30 => Span::styled(format!("in {d}d"), Style::default().fg(theme().warn)),
         d => Span::styled(format!("in {d}d"), Style::default().fg(theme().ok)),
     }
+}
+
+/// A count, tally or sum as a card: a headline number, a bar and a legend.
+fn card_widget(label: &str, spec: &WidgetSpec, objects: &[Value], total: usize, width: usize) -> Vec<Line<'static>> {
+    let inner = width.saturating_sub(4);
+    let big = |n: usize, color: Color| Span::styled(n.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD));
+    let body = match spec {
+        WidgetSpec::Tally { by } => {
+            let (mut t, mut f, mut u) = (0, 0, 0);
+            for object in objects {
+                match bucket_of(object, by) {
+                    Some(true) => t += 1,
+                    Some(false) => f += 1,
+                    None => u += 1,
+                }
+            }
+            let color = if f > 0 { theme().bad } else if t == total { theme().ok } else { theme().warn };
+            vec![
+                Line::from(vec![big(t, color), Span::styled(format!(" / {total}  true"), Style::default().fg(theme().muted))]),
+                Line::from(stacked(inner, &[Slice::new(t, theme().ok), Slice::new(f, theme().bad), Slice::new(u, theme().muted)])),
+                legend(&[(t, "true", theme().ok), (f, "false", theme().bad), (u, "unknown", theme().muted)]),
+            ]
+        }
+        WidgetSpec::Sum { fields } => {
+            let sums: Vec<(String, usize)> = fields
+                .iter()
+                .map(|[field_label, path]| (field_label.clone(), objects.iter().filter_map(|o| at_dotted(o, path)).filter_map(Value::as_i64).sum::<i64>().max(0) as usize))
+                .collect();
+            let palette = [theme().ok, theme().bad, theme().warn, theme().muted, theme().accent];
+            let slices: Vec<Slice> = sums.iter().enumerate().map(|(i, (_, n))| Slice::new(*n, palette[i % palette.len()])).collect();
+            let entries: Vec<(usize, &str, Color)> = sums.iter().enumerate().map(|(i, (name, n))| (*n, name.as_str(), palette[i % palette.len()])).collect();
+            vec![Line::from(vec![big(total, theme().text_strong), Span::styled("  total", Style::default().fg(theme().muted))]), Line::from(stacked(inner, &slices)), legend(&entries)]
+        }
+        _ => vec![Line::from(vec![big(total, theme().text_strong)])],
+    };
+    card(label, width, body)
 }
 
 fn render_widget(label: &str, spec: &WidgetSpec, objects: &[Value]) -> Vec<Line<'static>> {

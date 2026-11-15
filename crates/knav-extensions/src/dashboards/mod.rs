@@ -6,6 +6,7 @@ mod context;
 mod declarative;
 mod gitops;
 mod karpenter;
+pub mod kit;
 pub(super) mod wasm;
 
 use ratatui::text::Line;

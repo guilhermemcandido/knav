@@ -88,6 +88,12 @@ fn role_label(role: &str, read_only: bool) -> String {
     }
 }
 
+/// Cells inside an extension dashboard's box, for it to lay out cards in.
+fn dashboard_width(terminal: &ratatui::DefaultTerminal, chrome: &ui::Chrome) -> usize {
+    let area = terminal.size().map(|s| ratatui::layout::Rect::new(0, 0, s.width, s.height)).unwrap_or_default();
+    usize::from(ui::beside_sidebar(area, false, chrome).width.saturating_sub(2))
+}
+
 pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catalog: &mut Catalog, registry: &extensions::Registry, session: Session, notes: Vec<String>) -> Result<SessionEnd> {
     let Stores { pods: pod_store, deployments: dep_store, nodes: node_store, events: event_store, node_metrics: node_metrics_rx, pod_metrics } = stores;
     let Session { client, config, active_context, header, read_only } = session;
@@ -128,6 +134,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             pinned: &st.config.home.favorites,
             dragging: st.drag_favorite.as_deref().or(st.home_lift.as_ref().map(|(category, kind)| kind.as_deref().unwrap_or(category))),
             extensions_enabled: &st.config.extensions.enabled,
+            dashboard_width: dashboard_width(terminal, &st.chrome),
         };
         let fresh = derive::Cache::take_or_derive(cache.take(), &src, catalog, &st.mode, &query);
         let derived = fresh.derived();

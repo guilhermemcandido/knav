@@ -51,6 +51,8 @@ pub(super) struct Query<'a> {
     pub pinned: &'a [String],
     /// The favorite being moved.
     pub dragging: Option<&'a str>,
+    /// Cells inside the dashboard's box.
+    pub dashboard_width: usize,
     /// Ids of the enabled extensions.
     pub extensions_enabled: &'a [String],
 }
@@ -71,7 +73,7 @@ pub(super) struct Sources<'a> {
 pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Query) -> Derived {
     let Sources { pod_store, dep_store, node_store, event_store, node_metrics_rx, pod_usage_rx, client, forwards, registry } = *src;
     let pod_usage = pod_usage_rx.borrow().clone();
-    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, pinned, dragging, extensions_enabled } = *q;
+    let Query { current_kind, namespace, scope, search, sort, faults, wide, layout, home_pins, pinned, dragging, dashboard_width, extensions_enabled } = *q;
     let namespace = namespace.map(str::to_string);
     let search = search.to_string();
         // The Overview stays cluster-wide even with a namespace set. A scope's own
@@ -278,7 +280,7 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         };
         let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
             extensions::dashboards::find(category, registry).map(|found| {
-                let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events);
+                let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events, dashboard_width);
                 (found.title(), found.lines(&mut ctx))
             })
         } else {
@@ -340,7 +342,7 @@ const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(1);
 fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
     let forwards: Vec<&str> = forwards.iter().map(|f| f.name.as_str()).collect();
     format!(
-        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}|{forwards:?}",
+        "{:?}|{:?}|{:?}|{}|{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}|{:?}|{}|{forwards:?}",
         q.current_kind,
         q.namespace,
         q.scope,
@@ -358,6 +360,7 @@ fn key_of(q: &Query, mode: &Mode, forwards: &[k8s::GenericRow]) -> String {
         q.home_pins,
         q.pinned,
         q.dragging,
+        q.dashboard_width,
     )
 }
 
