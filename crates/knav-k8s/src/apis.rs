@@ -59,25 +59,43 @@ pub fn leak(text: &str) -> &'static str {
     leaked
 }
 
-/// The names (`plural.group`) of every installed CRD. Lists metadata only, in pages,
-/// since full CRDs carry their schemas and can total hundreds of megabytes.
-async fn crd_names(client: &Client) -> std::collections::HashSet<String> {
+/// The names (`plural.group`) of every installed CRD, and whether the list is whole.
+/// Lists metadata only, in pages, since full CRDs carry their schemas and can total
+/// hundreds of megabytes. A page that fails is tried again, and one that keeps failing
+/// ends the list early and says so, instead of hiding every CRD after it.
+async fn crd_names(client: &Client) -> (std::collections::HashSet<String>, bool) {
     use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
     use kube::{ResourceExt, api::{Api, ListParams}, core::PartialObjectMeta};
     let api: Api<PartialObjectMeta<CustomResourceDefinition>> = Api::all(client.clone());
     let mut names = std::collections::HashSet::new();
     let mut token: Option<String> = None;
     loop {
-        let mut params = ListParams::default().limit(500);
-        params.continue_token = token.take();
-        let Ok(page) = api.list_metadata(&params).await else { break };
+        let mut page = None;
+        for attempt in 0..3 {
+            let mut params = ListParams::default().limit(500);
+            params.continue_token = token.clone();
+            match api.list_metadata(&params).await {
+                Ok(found) => {
+                    page = Some(found);
+                    break;
+                }
+                Err(_) if attempt < 2 => tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt + 1))).await,
+                Err(_) => {}
+            }
+        }
+        let Some(page) = page else { return (names, false) };
         names.extend(page.items.iter().map(|crd| crd.name_any()));
         match page.metadata.continue_.filter(|t| !t.is_empty()) {
             Some(next) => token = Some(next),
-            None => break,
+            None => return (names, true),
         }
     }
-    names
+}
+
+/// Whether a resource in `group` is probably a custom resource, for when the CRD list
+/// couldn't be read in full: it is outside the core, `*.k8s.io` and built-in groups.
+fn looks_custom(group: &str) -> bool {
+    group.contains('.') && group != "k8s.io" && !group.ends_with(".k8s.io")
 }
 
 /// Discovery through the aggregated API (two requests) when the server has it,
@@ -92,7 +110,7 @@ async fn run_discovery(client: &Client) -> Option<Discovery> {
 /// Every listable resource at its recommended version, and the custom resources among
 /// them at their preferred one. Both sorted by group then kind; empty if discovery fails.
 pub async fn discover(client: &Client) -> (Vec<ApiInfo>, Vec<CrdInfo>) {
-    let (found, names) = tokio::join!(run_discovery(client), crd_names(client));
+    let (found, (names, complete)) = tokio::join!(run_discovery(client), crd_names(client));
     let Some(discovery) = found else { return (Vec::new(), Vec::new()) };
     let mut apis: Vec<ApiInfo> = discovery
         .groups()
@@ -119,7 +137,8 @@ pub async fn discover(client: &Client) -> (Vec<ApiInfo>, Vec<CrdInfo>) {
         let mut seen = std::collections::HashSet::new();
         for version in versions {
             for (resource, caps) in group.versioned_resources(version) {
-                if resource.plural.contains('/') || !names.contains(&format!("{}.{}", resource.plural, resource.group)) || !seen.insert(resource.plural.clone()) {
+                let is_crd = names.contains(&format!("{}.{}", resource.plural, resource.group)) || (!complete && looks_custom(&resource.group));
+                if resource.plural.contains('/') || !is_crd || !seen.insert(resource.plural.clone()) {
                     continue;
                 }
                 crds.push(CrdInfo { group: leak(&resource.group), kind: leak(&resource.kind), plural: resource.plural.clone(), version: resource.version.clone(), namespaced: caps.scope == Scope::Namespaced });
@@ -213,5 +232,20 @@ mod live {
         for crd in crds.iter().take(5) {
             println!("  {}/{} {}", crd.group, crd.version, crd.kind);
         }
+    }
+}
+
+#[cfg(test)]
+mod custom_group_tests {
+    use super::looks_custom;
+
+    #[test]
+    fn built_in_groups_are_not_custom() {
+        assert!(!looks_custom(""));
+        assert!(!looks_custom("apps"));
+        assert!(!looks_custom("metrics.k8s.io"));
+        assert!(!looks_custom("rbac.authorization.k8s.io"));
+        assert!(looks_custom("pkg.crossplane.io"));
+        assert!(looks_custom("apiextensions.crossplane.io"));
     }
 }
