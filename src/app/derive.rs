@@ -281,7 +281,12 @@ pub(super) fn derive(src: &Sources, catalog: &mut Catalog, mode: &Mode, q: &Quer
         let dashboard = if let ResourceKind::ExtensionDashboard(category) = current_kind {
             extensions::dashboards::find(category, registry).map(|found| {
                 let mut ctx = extensions::dashboards::DashboardContext::new(catalog, client, &sorted_nodes, &node_rows, &overview.events, dashboard_width);
-                (found.title(), found.lines(&mut ctx))
+                let mut lines = found.lines(&mut ctx);
+                if ctx.missing() > 0 {
+                    lines.push(ratatui::text::Line::default());
+                    lines.push(ratatui::text::Line::styled(format!(" Loading {} more objects…", ctx.missing()), ratatui::style::Style::default().fg(crate::theme::theme().muted)));
+                }
+                (found.title(), lines)
             })
         } else {
             None

@@ -37,6 +37,11 @@ pub trait CatalogKind: Send + Sync {
         let _ = namespace;
         (0..self.count()).filter_map(|i| self.spec_at(i)).collect()
     }
+    /// Like `manifests` for a dashboard: never waits on the network. Objects not at hand
+    /// arrive in the background, and how many are still missing comes back with the rest.
+    fn peek_manifests(&self) -> (Vec<serde_yaml::Value>, usize) {
+        (self.manifests(None), 0)
+    }
     fn health(&self) -> Option<Health> {
         None
     }
