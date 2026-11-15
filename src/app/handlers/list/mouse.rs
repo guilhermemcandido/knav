@@ -8,6 +8,20 @@ pub(super) fn handle(mouse: crossterm::event::MouseEvent, st: &mut State, cx: &m
     let Derived { pod_rows, pod_usage, overview, .. } = cx.d;
     let (frame_area, row_count) = (cx.frame_area, cx.row_count);
     let (mut open, mut to_owner) = (false, false);
+    // A dashboard has no rows, only a scroll position the drawing clamps.
+    if matches!(st.current_kind, ResourceKind::ExtensionDashboard(_)) {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                st.dashboard_scroll += 3;
+                return (false, false);
+            }
+            MouseEventKind::ScrollUp => {
+                st.dashboard_scroll = st.dashboard_scroll.saturating_sub(3);
+                return (false, false);
+            }
+            _ => {}
+        }
+    }
         if st.current_kind == ResourceKind::Overview {
             let active_col = match st.overview_selection {
                 ui::OverviewSelection::Header(c) | ui::OverviewSelection::Item(c, _) => c,
