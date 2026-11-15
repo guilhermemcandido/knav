@@ -72,13 +72,36 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
         };
         let text = Rect { x: text_x, y: row.y + row_h / 2, width: row.right().saturating_sub(text_x), height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
-        // A custom resource's API group at the right end, so it reads which one it is.
-        if let Some(group) = suggestion.group {
-            let group_style = if chosen { style.remove_modifier(Modifier::BOLD) } else { Style::default().fg(theme().muted) };
-            let room = text.width.saturating_sub(cell_width(&suggestion.label) as u16 + 3);
-            let shown = if cell_width(group) as u16 > room { String::new() } else { group.to_string() };
-            frame.render_widget(Paragraph::new(Span::styled(shown, group_style)).right_aligned(), Rect { width: text.width.saturating_sub(1), ..text });
+        // What the row belongs to at the right end (its API group, its extension), each
+        // role in its own colour. Tags that don't fit are dropped, the group first.
+        let color = |role: TagRole| match role {
+            TagRole::Group => theme().key,
+            TagRole::GroupRow => theme().warm,
+            TagRole::Extension => theme().accent,
+        };
+        let mut room = usize::from(text.width.saturating_sub(1)).saturating_sub(cell_width(&suggestion.label) + 3);
+        let mut shown: Vec<&(String, TagRole)> = Vec::new();
+        for tag in suggestion.tags.iter().rev() {
+            let need = cell_width(&tag.0) + if shown.is_empty() { 0 } else { 2 };
+            if need > room {
+                break;
+            }
+            room -= need;
+            shown.push(tag);
         }
+        shown.reverse();
+        let mut spans = Vec::new();
+        for (i, (label, role)) in shown.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw("  "));
+            }
+            let mut tag_style = Style::default().fg(color(*role));
+            if chosen {
+                tag_style = tag_style.bg(theme().select_bg);
+            }
+            spans.push(Span::styled(label.clone(), tag_style));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)).right_aligned(), Rect { width: text.width.saturating_sub(1), ..text });
     }
 }
 
@@ -89,7 +112,7 @@ mod tests {
     fn rows(show_icons: bool) -> Vec<String> {
         let mut icons = IconCache::halfblocks();
         icons.set_enabled(show_icons);
-        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), group: None }).collect();
+        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new() }).collect();
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 20)).unwrap();
         terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, "", &suggestions, 0, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();

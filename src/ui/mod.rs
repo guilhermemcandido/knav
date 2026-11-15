@@ -389,8 +389,19 @@ pub enum SuggestionIcon {
 pub struct SuggestionView {
     pub label: String,
     pub icon: SuggestionIcon,
-    /// The API group of a custom resource kind, shown at the row's right end.
-    pub group: Option<&'static str>,
+    /// What the row belongs to, shown at its right end, each in its role's colour.
+    pub tags: Vec<(String, TagRole)>,
+}
+
+/// What a tag on a `:` suggestion says, so each kind of thing has its own colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TagRole {
+    /// A custom resource's API group.
+    Group,
+    /// The label on an API group's own row.
+    GroupRow,
+    /// The extension that provides the row.
+    Extension,
 }
 
 /// One path segment: a kind ("Node") and its value ("worker-1"), each in its own
