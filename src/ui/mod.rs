@@ -164,7 +164,7 @@ pub enum Overlay<'a> {
     Logs(LogsView<'a>),
     NodeDetail(NodeDetailView<'a>),
     /// The `:` command line with its sorted suggestions. Unlike `Search` it dims the page.
-    Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
+    Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize, groups: bool },
     Context(ContextView<'a>),
     Events(EventsView<'a>),
     /// One event in full, since the browser clips long messages.
@@ -655,10 +655,10 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     }
     match overlay {
-        Some(Overlay::Command { input, suggestions, selected }) => {
+        Some(Overlay::Command { input, suggestions, selected, groups }) => {
             // Under the header, or over the top of the list on a short screen.
             let bar = command_bar.unwrap_or(Rect { height: COMMAND_BAR_HEIGHT.min(body.height), ..body });
-            draw_command_line(frame, bar, input, suggestions, selected, icons);
+            draw_command_line(frame, bar, CommandLine { input, groups }, suggestions, selected, icons);
         }
         Some(overlay) => draw_overlay(frame, overlay, false, icons),
         None => {}

@@ -69,7 +69,20 @@ fn owners(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Load
     extensions.iter().filter(|l| l.error.is_none()).filter(owns).map(|l| l.name.clone()).collect()
 }
 
+/// Whether what is typed also matches API group names: asked for with Ctrl-g, or implied by a
+/// dot, which only a group (`kagent.dev`) or a `plural.group` name has.
+pub(crate) fn matches_groups(input: &str, groups: bool) -> bool {
+    groups || input.contains('.')
+}
+
+/// `command_suggestions_in` with API groups left out of the matching.
+#[cfg(test)]
 pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str], extensions: &[crate::extensions::Loaded], custom: &[String]) -> Vec<Suggestion> {
+    command_suggestions_in(input, crds, apis, dashboard_categories, extensions, custom, false)
+}
+
+pub(crate) fn command_suggestions_in(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str], extensions: &[crate::extensions::Loaded], custom: &[String], groups: bool) -> Vec<Suggestion> {
+    let groups = matches_groups(input, groups);
     let input = input.trim().to_lowercase();
     if input.is_empty() {
         return Vec::new();
@@ -111,6 +124,8 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         .chain(std::iter::once(Cmd::Quit))
         .chain((0..custom.len()).map(Cmd::Custom))
         .chain(menu_sections(crds, dashboard_categories).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
+        // A group's own name is matched only when asked for; its kinds still sit under it.
+        .filter(|cmd| groups || !matches!(cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))))
         .chain((0..crds.len()).map(Cmd::Crd))
         // Every other resource the server lists, unless a built-in kind has that name.
         .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none() && !crds.iter().any(|c| c.group == a.group && c.plural == a.plural)).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
@@ -685,5 +700,27 @@ mod tests {
         let labels: Vec<String> = found.iter().map(|s| format!("{}{}", "  ".repeat(usize::from(s.depth)), s.label)).collect();
         assert!(!labels.iter().any(|l| l.contains("model")), "{labels:?}");
         assert_eq!(found.iter().filter(|s| matches!(s.cmd, Cmd::Crd(_))).count(), 2, "{labels:?}");
+    }
+
+    #[test]
+    fn a_group_name_matches_only_when_asked_for_or_when_a_dot_is_typed() {
+        let crds = [crd("kagent.dev", "Agent", "agents"), crd("kagent.dev", "Tool", "tools")];
+        // By default only types are matched: `kagent` is a group, not a kind.
+        assert!(command_suggestions_in("kagent", &crds, &[], &[], &[], &[], false).is_empty());
+        // Ctrl-g includes the groups, which then list their kinds.
+        let with_groups = command_suggestions_in("kagent", &crds, &[], &[], &[], &[], true);
+        assert!(matches!(with_groups[0].cmd, Cmd::Kind(ResourceKind::CustomResourceGroup("kagent.dev"))));
+        assert_eq!(with_groups.iter().filter(|s| matches!(s.cmd, Cmd::Crd(_))).count(), 2);
+        // A dot is only ever a group or a full name, so it asks for the groups itself.
+        assert!(!command_suggestions_in("kagent.dev", &crds, &[], &[], &[], &[], false).is_empty());
+        assert!(matches_groups("kagent.dev", false) && !matches_groups("kagent", false) && matches_groups("kagent", true));
+    }
+
+    #[test]
+    fn a_matching_kind_still_shows_its_group_as_a_header() {
+        let crds = [crd("apps.knav.dev", "WebApp", "webapps")];
+        let found = command_suggestions_in("web", &crds, &[], &[], &[], &[], false);
+        let layout: Vec<(u8, &str)> = found.iter().map(|s| (s.depth, s.label.as_str())).collect();
+        assert_eq!(layout, [(0, "apps.knav.dev"), (1, "webapps")]);
     }
 }

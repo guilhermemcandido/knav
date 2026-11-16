@@ -9,32 +9,32 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
     let active_context = cx.active_context;
     let names = command_names(st);
     match (event, &mut st.mode) {
-        (Event::Key(key), Mode::Command { input, selected, back }) => match key.code {
+        (Event::Key(key), Mode::Command { input, selected, groups, back }) => match key.code {
             KeyCode::Esc => st.mode = std::mem::replace(&mut **back, Mode::List),
             // Tab completes the highlighted suggestion, or moves on to the next when it is
             // already typed out.
             KeyCode::Tab => {
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names);
+                let suggestions = command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups);
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
                     let name = chosen.primary_name();
                     if *input == name {
                         *selected = (*selected + 1) % suggestions.len();
                     } else {
                         *input = name;
-                        *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
+                        *selected = best_row(&command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups));
                     }
                 }
             }
             KeyCode::Up => *selected = selected.saturating_sub(1),
             KeyCode::Down => {
-                let len = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names).len();
+                let len = command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups).len();
                 *selected = (*selected + 1).min(len.saturating_sub(1));
             }
             KeyCode::Enter => {
                 let cmd = input.trim().to_lowercase();
                 // The highlighted suggestion wins; what was typed is the fallback for an exact
                 // alias that isn't in the visible list.
-                let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names);
+                let suggestions = command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups);
                 let typed = || match cmd.as_str() {
                     "q" | "quit" | "exit" => Some(Cmd::Quit),
                     "config" | "settings" | "preferences" | "prefs" | "options" => Some(Cmd::Settings),
@@ -102,13 +102,18 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     }
                 }
             }
+            // Ctrl-g also matches what is typed against API group names.
+            KeyCode::Char('g') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                *groups = !*groups;
+                *selected = best_row(&command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups));
+            }
             KeyCode::Backspace => {
                 input.pop();
-                *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
+                *selected = best_row(&command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups));
             }
             KeyCode::Char(c) => {
                 input.push(c);
-                *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
+                *selected = best_row(&command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names, *groups));
             }
             _ => {}
         },

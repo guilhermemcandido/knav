@@ -2,17 +2,27 @@
 
 use super::*;
 
-/// Rows each suggestion takes with icons: room for a 4x2 icon beside its name.
-const SUGGESTION_HEIGHT: u16 = 2;
+/// Rows each suggestion takes with icons: one, so the text sits level with its icon (an
+/// even number of lines can't centre a line of text against it).
+const SUGGESTION_HEIGHT: u16 = 1;
 
-const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 4, height: SUGGESTION_HEIGHT };
+/// The icon's cells: as wide as a square one row tall needs, plus a gap.
+const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 2, height: SUGGESTION_HEIGHT };
+
+/// What the command line shows above its suggestions.
+pub struct CommandLine<'a> {
+    pub input: &'a str,
+    /// Whether what is typed also matches API group names.
+    pub groups: bool,
+}
 
 /// The least room a description is worth drawing in, in cells.
 const MIN_DESCRIPTION: usize = 12;
 
 /// The `:` command line: the input on top and the live suggestions under it, each with
 /// its icon. The best match's remaining letters show dimmed after the cursor.
-pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
+pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: CommandLine, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
+    let CommandLine { input, groups } = line;
     let width = bar.width;
     // Without icons each suggestion is a single row.
     let row_h = if icons.enabled() { SUGGESTION_HEIGHT } else { 1 };
@@ -40,6 +50,11 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
         Span::styled(ghost.to_string(), Style::default().fg(theme().muted)),
     ]);
     frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
+    // Whether API groups are matched too, at the right end of the input line.
+    let note = if groups { Span::styled("API groups included · Ctrl-g", Style::default().fg(theme().accent)) } else { Span::styled("types only · Ctrl-g includes API groups", Style::default().fg(theme().muted)) };
+    if inner.width as usize > cell_width(&note.content) + cell_width(input) + 12 {
+        frame.render_widget(Paragraph::new(note).right_aligned(), Rect { height: 1, width: inner.width.saturating_sub(1), ..inner });
+    }
     if shown == 0 {
         return;
     }
@@ -127,7 +142,7 @@ mod tests {
         icons.set_enabled(show_icons);
         let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new(), depth: 0 }).collect();
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 20)).unwrap();
-        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, "", &suggestions, 0, &mut icons)).unwrap();
+        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, CommandLine { input: "", groups: false }, &suggestions, 0, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();
         (0..20).map(|y| (0..40).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect()
     }
@@ -141,9 +156,9 @@ mod tests {
     }
 
     #[test]
-    fn with_icons_each_suggestion_takes_two_rows() {
+    fn with_icons_each_suggestion_stays_one_row_so_text_meets_its_icon() {
         let rows = rows(true);
-        assert!(rows[4].contains("pods") && rows[6].contains("deployments"), "{rows:#?}");
+        assert!(rows[3].contains("pods") && rows[4].contains("deployments"), "{rows:#?}");
     }
 
     /// The rows of a menu of one group header and one kind, drawn `width` cells wide.
@@ -160,7 +175,7 @@ mod tests {
             },
         ];
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 12)).unwrap();
-        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width, height: 3 }, "ag", &suggestions, 1, &mut icons)).unwrap();
+        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width, height: 3 }, CommandLine { input: "ag", groups: false }, &suggestions, 1, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();
         (0..12).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect()
     }
