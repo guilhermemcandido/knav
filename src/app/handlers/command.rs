@@ -44,7 +44,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     c if is_context_command(c) => Some(Cmd::Context),
                     c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
                 };
-                match suggestions.get((*selected).min(suggestions.len().saturating_sub(1))).map(|s| s.cmd).or_else(typed) {
+                // A hidden command typed out in full (`ctx`, `theme`) runs first, whatever else matched.
+                match hidden_command(&cmd).or_else(|| suggestions.get((*selected).min(suggestions.len().saturating_sub(1))).map(|s| s.cmd)).or_else(typed) {
                     Some(Cmd::Quit) => return Ok(Some(SessionEnd::Quit)),
                     Some(Cmd::Settings) => {
                         let mut opened = std::mem::replace(&mut **back, Mode::List);

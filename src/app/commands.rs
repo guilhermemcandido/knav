@@ -81,6 +81,17 @@ fn owner_keys(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::
     owning(cmd, crds, extensions).flat_map(|l| [l.id.to_lowercase(), l.name.to_lowercase()]).collect()
 }
 
+/// The commands left out of the suggestions because they have keys of their own.
+fn hidden_command_of(cmd: Cmd) -> Option<Cmd> {
+    matches!(cmd, Cmd::Context | Cmd::Theme | Cmd::Settings | Cmd::Kind(ResourceKind::Overview)).then_some(cmd)
+}
+
+/// The hidden command `typed` names exactly (`ctx`, `theme`, `config`, `home`), which still runs.
+pub(crate) fn hidden_command(typed: &str) -> Option<Cmd> {
+    let typed = typed.trim().to_lowercase();
+    [Cmd::Context, Cmd::Theme, Cmd::Settings, Cmd::Kind(ResourceKind::Overview)].into_iter().find(|cmd| cmd.names().contains(&typed))
+}
+
 /// What is typed: a name to find, plus filters that accumulate as `key:value` words, the way
 /// GitHub's search takes them (`agents group:kagent ext:flux is:custom`).
 #[derive(Default)]
@@ -169,8 +180,10 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         .chain(std::iter::once(Cmd::Quit))
         .chain((0..custom.len()).map(Cmd::Custom))
         .chain(menu_sections(crds, dashboard_categories).iter().flat_map(|s| s.tiles.iter().copied()).map(Cmd::Kind))
-        // A group's name is never matched on its own; its kinds still sit under it.
-        .filter(|cmd| !matches!(cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))))
+        // A group's name is never matched on its own; its kinds still sit under it. The context
+        // switcher, settings, themes and Home have keys of their own (C , T H), so they aren't
+        // listed; typing one's exact name still runs it (`hidden_command`).
+        .filter(|cmd| !matches!(cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))) && hidden_command_of(*cmd).is_none())
         .chain((0..crds.len()).map(Cmd::Crd))
         // Every other resource the server lists, unless a built-in kind has that name or it is a
         // custom resource (looked up in a set, not by scanning every CRD per resource).
@@ -589,13 +602,25 @@ mod tests {
     }
 
     #[test]
-    fn quit_context_and_events_are_commands_too() {
+    fn quit_and_events_are_commands_too() {
         for input in ["q", "quit", "exit"] {
             assert!(matches!(top(input).cmd, Cmd::Quit), "{input}");
         }
-        assert!(matches!(top("ctx").cmd, Cmd::Context));
-        assert!(matches!(top("context").cmd, Cmd::Context));
         assert!(matches!(top("ev").cmd, Cmd::Events));
+    }
+
+    #[test]
+    fn what_has_a_key_of_its_own_is_not_listed_but_still_runs_when_typed() {
+        for input in ["ctx", "context", "theme", "config", "settings", "overview", "home"] {
+            let found = command_suggestions(input, &[], &[], &[], &[], &[]);
+            assert!(!found.iter().any(|s| matches!(s.cmd, Cmd::Context | Cmd::Theme | Cmd::Settings | Cmd::Kind(ResourceKind::Overview))), "{input} is listed: {:?}", found.iter().map(|s| &s.label).collect::<Vec<_>>());
+        }
+        assert!(matches!(hidden_command("ctx"), Some(Cmd::Context)));
+        assert!(matches!(hidden_command("CONTEXT "), Some(Cmd::Context)));
+        assert!(matches!(hidden_command("theme"), Some(Cmd::Theme)));
+        assert!(matches!(hidden_command("config"), Some(Cmd::Settings)));
+        assert!(matches!(hidden_command("home"), Some(Cmd::Kind(ResourceKind::Overview))));
+        assert!(hidden_command("pods").is_none() && hidden_command("quit").is_none());
     }
 
     #[test]
@@ -1010,9 +1035,7 @@ mod tests {
             found.iter().find(|s| s.depth == 0).map(|s| s.tags().into_iter().map(|(t, _)| t).collect()).unwrap_or_default()
         };
         assert_eq!(tag("portforwards"), ["View"]);
-        assert_eq!(tag("overview"), ["View"]);
         assert_eq!(tag("quit"), ["Command"]);
-        assert_eq!(tag("theme"), ["Command"]);
         assert_eq!(tag("problems"), ["View"]);
         assert_eq!(tag("describe"), ["Your command"]);
         let gitops = tag("gitops");
