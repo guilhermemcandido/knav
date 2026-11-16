@@ -79,16 +79,21 @@ Or from source (Rust 1.96+):
 cargo install --git https://github.com/guilhermemcandido/knav
 ```
 
-Needs a kubeconfig. `kubectl` is only used for port-forwards and shells.
+Needs a kubeconfig. `kubectl` is used for port-forwards, shells, debug containers and your own commands.
 
 ## Use
 
 ```
 knav              # current context
 knav -c prod      # pick a context by name
-knav --read-only  # block every change: delete, edit, scale, shells
-knav update       # update to the latest release
+knav --read-only  # block every change: delete, edit, scale, shells (the P menu can't lift it)
+knav -c           # pick a context from a list
+knav update       # update to the latest release (-y skips the question)
 ```
+
+`knav update` downloads the latest release and checks its checksum before replacing the binary. GitHub limits anonymous requests, so set `GITHUB_TOKEN` (or `GH_TOKEN`) if it says it is being rate limited. A build from Homebrew or Nix is updated by that tool. It never installs an older version.
+
+Port-forwards still work in read-only mode: they change nothing in the cluster, but they do open a local port, so check the address.
 
 Press `?` anywhere for the keys on that screen. The essentials:
 
@@ -105,6 +110,10 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `v` | rollout history of a workload |
 | `X` | a debug container in a pod |
 | `P` | permissions: your role or read-only |
+| `Space` | mark a row; `D`, `S` and `r` then act on every marked row |
+| `Esc` | clear marks, then the filter, then go back |
+| `ctrl-z` / `ctrl-w` | faults only / wide columns |
+| `[` / `]` | the view before / after this one |
 | `b` | sidebar |
 | drag with the mouse | select text; it is copied when you let go |
 
@@ -138,7 +147,11 @@ The namespaces you put on the `1`-`9` keys are saved there too, per context, und
 Add them to `~/.config/knav/config.toml` (there is no Settings screen for these yet),
 then restart knav. Each one runs on the selected object, from its key or by name on the
 `:` line (`:describe`). `{kind}`, `{name}`, `{namespace}` and `{context}` are filled in
-from the selection.
+from the selection. Every command also gets `$KNAV_CONTEXT`, `$KNAV_NAMESPACE`, `$KNAV_KIND`
+and `$KNAV_NAME` in its environment. **Always pass `--context {context}`** (or
+`--context "$KNAV_CONTEXT"`) to `kubectl`: without it, kubectl uses the kubeconfig's own
+current context, which may not be the cluster knav is showing. The placeholders are
+quoted for you, so don't put quotes around them.
 
 ```toml
 [[commands]]
@@ -154,7 +167,31 @@ output = "terminal"       # hand over the terminal; "view" shows the output, "ba
 run = "stern {name} -n {namespace} --context {context}"
 ```
 
-Themes also switch live with `T`. Your own extensions go in `~/.config/knav/extensions/`.
+Themes also switch live with `T`.
+
+### Extensions
+
+Extensions add views and dashboards for Flux, Argo CD, cert-manager, Istio and more (`E` lists them).
+Each is a manifest, bundled or yours in `~/.config/knav/extensions/<id>/manifest.toml`: it lists the
+kinds it covers and, optionally, dashboard widgets that draw as cards:
+
+| `widget` | Shows |
+| --- | --- |
+| `count` | how many objects |
+| `tally` | ready / failing / unknown by `ready`, `condition:<Type>` or `field:<.path>`; `suspend = ".spec.suspend"` counts suspended objects apart |
+| `breakdown` | counts by a field's value, each value with a colour (`by`, `values = [["Synced", "ok"], ...]`, optional `default` for objects without the field) |
+| `sum` | totals of numeric fields |
+| `list` | a table of fields, optionally sorted, with date columns |
+
+Several extensions that share a `category` share one dashboard (Flux and Argo CD under GitOps). The id
+of an extension must be unique: a second one with the same id is refused. A dashboard can also be a
+sandboxed WASM component (see `examples/`).
+
+### The terminal title
+
+While knav runs, the terminal's title reads `knav · <context> · <namespace>` and is put back when you quit.
+If your shell prompt shows the Kubernetes context only for some commands (powerlevel10k, starship), add `knav`
+to that list; it shows the kubeconfig's current context, not one you switched to inside knav.
 
 ## License
 

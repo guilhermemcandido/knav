@@ -31,7 +31,8 @@ pub(crate) enum SessionEnd {
 fn main() -> Result<()> {
     let (context_query, pick, read_only) = match Cli::parse(std::env::args().skip(1))? {
         Cli::Version => {
-            println!("knav {}", env!("CARGO_PKG_VERSION"));
+            // The commit too, since `knav update` compares builds of one version by it.
+            println!("knav {}", startup::update::build_name(env!("CARGO_PKG_VERSION"), env!("KNAV_COMMIT")));
             return Ok(());
         }
         Cli::Help => {

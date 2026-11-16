@@ -62,7 +62,7 @@ impl Paint {
 }
 
 /// `0.1.0 · af347e2`, or just the version when the commit is unknown.
-fn build_name(version: &str, commit: &str) -> String {
+pub(crate) fn build_name(version: &str, commit: &str) -> String {
     match short(commit) {
         "" => version.to_string(),
         sha => format!("{version} · {sha}"),

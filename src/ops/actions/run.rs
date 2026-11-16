@@ -127,6 +127,13 @@ pub(super) fn api_from(client: &Client, target: &Target, resource: &ApiResource,
     }
 }
 
+/// Deleting asks for the very object that was shown: if it was replaced meanwhile (a pod the
+/// controller recreated under the same name), the server refuses instead of deleting the new one.
+fn delete_params(target: &Target) -> DeleteParams {
+    let uid = target.manifest.get("metadata").and_then(|m| m.get("uid")).and_then(serde_yaml::Value::as_str).map(str::to_string);
+    DeleteParams { preconditions: uid.map(|uid| kube::api::Preconditions { uid: Some(uid), resource_version: None }), ..DeleteParams::default() }
+}
+
 async fn perform(client: &Client, target: &Target, action: Action, api: Api<DynamicObject>) -> Result<String> {
     let name = target.name.as_str();
     let merge = |body: serde_json::Value| Patch::Merge(body);
@@ -134,7 +141,7 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
     let label = target.label();
     match action {
         Action::Delete => {
-            api.delete(name, &DeleteParams::default()).await?;
+            api.delete(name, &delete_params(target)).await?;
             Ok(format!("Deleted {label}"))
         }
         Action::Scale(replicas) => {
@@ -224,5 +231,23 @@ mod job_name_tests {
         assert_ne!(first, second);
         assert!(first.ends_with("-manual-1111"));
         assert_eq!(manual_job_name("nightly", 0xab), "nightly-manual-ab");
+    }
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::*;
+
+    fn target(manifest: serde_yaml::Value) -> Target {
+        Target { api_version: "v1".into(), kind: "Pod".into(), name: "web-1".into(), namespace: Some("shop".into()), manifest }
+    }
+
+    #[test]
+    fn a_delete_names_the_uid_it_was_shown_with() {
+        let shown = target(serde_yaml::from_str("metadata:\n  name: web-1\n  uid: abc-123\n").unwrap());
+        let params = delete_params(&shown);
+        assert_eq!(params.preconditions.and_then(|p| p.uid).as_deref(), Some("abc-123"));
+        let unknown = target(serde_yaml::from_str("metadata:\n  name: web-1\n").unwrap());
+        assert!(delete_params(&unknown).preconditions.is_none());
     }
 }

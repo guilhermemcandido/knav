@@ -10,8 +10,9 @@ on:
     tags: ["v*"]
     branches: [main]
 
+# Read-only by default: only the job that uploads to the release can write.
 permissions:
-  contents: write
+  contents: read
 
 # One at a time per ref, so two quick pushes can't upload over each other.
 concurrency:
@@ -38,6 +39,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -87,6 +90,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -108,6 +113,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           path: src
+          persist-credentials: false
 
       # Replaces the files of the current version's release, when there is one.
       - name: Rebuild the current release
