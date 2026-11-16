@@ -147,8 +147,13 @@ pub(crate) fn command_suggestions_in(input: &str, crds: &[k8s::CrdInfo], apis: &
             // A custom resource shows its plain name; the full `plural.group` it also answers to
             // stays out of sight.
             let label = if alias == primary || matches!(cmd, Cmd::Crd(_)) { primary.clone() } else { format!("{primary} ({alias})") };
+            let native = match cmd {
+                Cmd::Api(i, ..) => apis.get(i).map(|a| (a.group, a.kind)),
+                Cmd::Kind(_) => native_of(&names, apis),
+                _ => None,
+            };
             let ext = Some(owners(cmd, crds, extensions).join(" · ")).filter(|o| !o.is_empty());
-            Some((score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, count: None, best: false }))
+            Some((score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, count: None, best: false, native, built_in: false }))
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
@@ -169,63 +174,111 @@ pub(crate) fn command_suggestions_in(input: &str, crds: &[k8s::CrdInfo], apis: &
     grouped(ranked, crds, extensions, &names_of)
 }
 
+/// The API group and kind a built-in kind is, found in the cluster's own resource list by
+/// its names. A kind that also matches by name wins over a metrics or other lookalike.
+fn native_of(names: &[String], apis: &[k8s::ApiInfo]) -> Option<(&'static str, &'static str)> {
+    let by_plural = || apis.iter().filter(|a| names.iter().any(|n| n == a.plural));
+    by_plural().find(|a| names.iter().any(|n| n.eq_ignore_ascii_case(a.kind))).or_else(|| by_plural().next()).map(|a| (a.group, a.kind))
+}
+
 /// How many kinds are listed under one API group before `+N more`.
 const KINDS_UNDER_A_GROUP: usize = 6;
 
-/// Gathers the custom resource matches into a tree: each API group once, as a header at
-/// the place of its best match, then its kinds, the matched ones first.
+/// Which API group a matched row sits under: a custom resource's, or a built-in's.
+#[derive(Clone, Copy, PartialEq)]
+enum Bucket {
+    Custom(&'static str),
+    Native(&'static str),
+}
+
+/// Gathers the resource matches into a tree: each API group once, as a header at the place of
+/// its best match, then its kinds. Custom groups list what matched, or all their kinds when
+/// the group's own name matched; built-in groups list what matched, under a `built-in` header.
 fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Loaded], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
-    let group_of = |cmd: Cmd| match cmd {
-        Cmd::Kind(ResourceKind::CustomResourceGroup(group)) => Some(group),
-        Cmd::Crd(i) => crds.get(i).map(|c| c.group),
-        _ => None,
+    let bucket_of = |s: &Suggestion| match s.cmd {
+        Cmd::Kind(ResourceKind::CustomResourceGroup(group)) => Some(Bucket::Custom(group)),
+        Cmd::Crd(i) => crds.get(i).map(|c| Bucket::Custom(c.group)),
+        _ => s.native.map(|(group, _)| Bucket::Native(group)),
     };
     let mut out: Vec<Suggestion> = Vec::new();
-    let mut seen: Vec<&'static str> = Vec::new();
+    let mut seen: Vec<Bucket> = Vec::new();
     for suggestion in &ranked {
-        let Some(group) = group_of(suggestion.cmd) else {
+        let Some(bucket) = bucket_of(suggestion) else {
             out.push(suggestion.clone());
             continue;
         };
-        if seen.contains(&group) {
+        if seen.contains(&bucket) {
             continue;
         }
-        seen.push(group);
-        let all: Vec<usize> = (0..crds.len()).filter(|&i| crds[i].group == group).collect();
-        let owned = extensions.iter().filter(|l| l.error.is_none() && l.kinds.iter().any(|k| k.group == group)).map(|l| l.name.clone()).collect::<Vec<_>>().join(" · ");
-        out.push(Suggestion {
-            cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)),
-            label: group.to_string(),
-            primary: group.to_string(),
-            ext: Some(owned).filter(|o| !o.is_empty()),
-            depth: 0,
-            kind_name: None,
-            count: Some(all.len()),
-            best: suggestion.best && matches!(suggestion.cmd, Cmd::Kind(_)),
-        });
-        // The kinds that matched are all that is listed, so `:agents` doesn't bring along
-        // every other kind of the group. A group matched by its own name lists its kinds.
-        let matched = ranked.iter().filter(|r| matches!(r.cmd, Cmd::Crd(i) if all.contains(&i)));
-        let mut rows: Vec<Suggestion> = matched.cloned().collect();
-        if rows.is_empty() {
-            for &i in &all {
-                let primary = names_of(Cmd::Crd(i)).remove(0);
-                let ext = Some(owners(Cmd::Crd(i), crds, extensions).join(" · ")).filter(|o| !o.is_empty());
-                rows.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, ext, depth: 1, kind_name: None, count: None, best: false });
+        seen.push(bucket);
+        let (header, mut rows) = match bucket {
+            Bucket::Custom(group) => {
+                let all: Vec<usize> = (0..crds.len()).filter(|&i| crds[i].group == group).collect();
+                let owned = extensions.iter().filter(|l| l.error.is_none() && l.kinds.iter().any(|k| k.group == group)).map(|l| l.name.clone()).collect::<Vec<_>>().join(" · ");
+                let header = Suggestion {
+                    cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)),
+                    label: group.to_string(),
+                    primary: group.to_string(),
+                    ext: Some(owned).filter(|o| !o.is_empty()),
+                    depth: 0,
+                    kind_name: None,
+                    count: Some(all.len()),
+                    best: suggestion.best && matches!(suggestion.cmd, Cmd::Kind(_)),
+                    native: None,
+                    built_in: false,
+                };
+                // The kinds that matched are all that is listed, so `:agents` doesn't bring
+                // along every other kind of the group. A group matched by its own name lists
+                // its kinds.
+                let mut rows: Vec<Suggestion> = ranked.iter().filter(|r| matches!(r.cmd, Cmd::Crd(i) if all.contains(&i))).cloned().collect();
+                if rows.is_empty() {
+                    for &i in &all {
+                        let primary = names_of(Cmd::Crd(i)).remove(0);
+                        let ext = Some(owners(Cmd::Crd(i), crds, extensions).join(" · ")).filter(|o| !o.is_empty());
+                        rows.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, ext, depth: 1, kind_name: None, count: None, best: false, native: None, built_in: false });
+                    }
+                }
+                for row in &mut rows {
+                    row.kind_name = match row.cmd {
+                        Cmd::Crd(i) => Some(crds[i].kind),
+                        _ => None,
+                    };
+                }
+                (header, rows)
             }
-        }
+            Bucket::Native(group) => {
+                // A built-in group has no view of its own, so its header opens the list of every
+                // resource type, which names the groups.
+                let header = Suggestion {
+                    cmd: Cmd::Kind(ResourceKind::ApiResources),
+                    label: if group.is_empty() { "core".to_string() } else { group.to_string() },
+                    primary: "apiresources".to_string(),
+                    ext: None,
+                    depth: 0,
+                    kind_name: None,
+                    count: None,
+                    best: false,
+                    native: None,
+                    built_in: true,
+                };
+                let mut rows: Vec<Suggestion> = ranked.iter().filter(|r| bucket_of(r) == Some(bucket)).cloned().collect();
+                for row in &mut rows {
+                    row.kind_name = row.native.map(|(_, kind)| kind);
+                }
+                (header, rows)
+            }
+        };
+        let more_cmd = header.cmd;
+        let more_primary = header.primary.clone();
+        out.push(header);
         let hidden = rows.len().saturating_sub(KINDS_UNDER_A_GROUP);
         rows.truncate(KINDS_UNDER_A_GROUP);
         for mut row in rows {
             row.depth = 1;
-            row.kind_name = match row.cmd {
-                Cmd::Crd(i) => Some(crds[i].kind),
-                _ => None,
-            };
             out.push(row);
         }
         if hidden > 0 {
-            out.push(Suggestion { cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)), label: format!("+{hidden} more"), primary: group.to_string(), ext: None, depth: 1, kind_name: None, count: None, best: false });
+            out.push(Suggestion { cmd: more_cmd, label: format!("+{hidden} more"), primary: more_primary, ext: None, depth: 1, kind_name: None, count: None, best: false, native: None, built_in: false });
         }
     }
     out
@@ -248,6 +301,10 @@ pub(crate) struct Suggestion {
     pub(crate) count: Option<usize>,
     /// The match ranked first, which starts out highlighted even when a header sits above it.
     pub(crate) best: bool,
+    /// A built-in or discovered resource's API group and kind, from the cluster's own list.
+    pub(crate) native: Option<(&'static str, &'static str)>,
+    /// A header for the built-in kinds of one API group.
+    pub(crate) built_in: bool,
 }
 
 /// The row to highlight: the best match, which a group header may sit above.
@@ -280,12 +337,11 @@ impl Suggestion {
             (Cmd::Kind(ResourceKind::CustomResourceGroup(_)), Some(n)) if self.depth == 0 => {
                 tags.push((format!("API group · {n} kind{}", if n == 1 { "" } else { "s" }), ui::TagRole::GroupRow));
             }
-            (Cmd::Crd(_), _) => {
-                if let Some(kind) = self.kind_name {
-                    tags.push((kind.to_string(), ui::TagRole::Kind));
-                }
-            }
+            _ if self.built_in && self.depth == 0 => tags.push(("built-in".to_string(), ui::TagRole::Native)),
             _ => {}
+        }
+        if let Some(kind) = self.kind_name {
+            tags.push((kind.to_string(), ui::TagRole::Kind));
         }
         if let Some(ext) = &self.ext {
             tags.push((ext.clone(), ui::TagRole::Extension));
@@ -722,5 +778,40 @@ mod tests {
         let found = command_suggestions_in("web", &crds, &[], &[], &[], &[], false);
         let layout: Vec<(u8, &str)> = found.iter().map(|s| (s.depth, s.label.as_str())).collect();
         assert_eq!(layout, [(0, "apps.knav.dev"), (1, "webapps")]);
+    }
+
+    fn api(group: &'static str, kind: &'static str, plural: &'static str) -> k8s::ApiInfo {
+        k8s::ApiInfo { group, version: "v1".into(), kind, plural, namespaced: true, verbs: vec!["list".into()] }
+    }
+
+    #[test]
+    fn built_in_kinds_sit_under_their_api_group_marked_built_in() {
+        let apis = [
+            api("networking.k8s.io", "Ingress", "ingresses"),
+            api("networking.k8s.io", "IngressClass", "ingressclasses"),
+            api("certificates.k8s.io", "CertificateSigningRequest", "certificatesigningrequests"),
+            api("metrics.k8s.io", "PodMetrics", "pods"),
+            api("", "Pod", "pods"),
+        ];
+        let found = command_suggestions("ingress", &[], &apis, &[], &[], &[]);
+        let layout: Vec<(u8, &str)> = found.iter().map(|s| (s.depth, s.label.as_str())).collect();
+        let header = layout.iter().position(|r| *r == (0, "networking.k8s.io")).expect("networking header");
+        assert_eq!(found[header].tags()[0].0, "built-in", "{layout:?}");
+        let under: Vec<&str> = layout[header + 1..].iter().take_while(|r| r.0 == 1).map(|r| r.1).collect();
+        assert!(under.iter().any(|l| l.starts_with("ingresses")) && under.iter().any(|l| l.starts_with("ingressclasses")), "{layout:?}");
+        let ingress = found.iter().find(|s| s.label.starts_with("ingresses")).unwrap();
+        assert_eq!(ingress.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Ingress"]);
+        // A header sits above the best match, which is still what starts out highlighted.
+        assert!(found[best_row(&found)].label.starts_with("ingresses"));
+    }
+
+    #[test]
+    fn a_built_in_kind_is_not_mistaken_for_its_metrics_lookalike() {
+        let apis = [api("metrics.k8s.io", "PodMetrics", "pods"), api("", "Pod", "pods")];
+        let found = command_suggestions("pods", &[], &apis, &[], &[], &[]);
+        let header = found.iter().find(|s| s.depth == 0 && s.built_in).expect("a built-in header");
+        assert_eq!(header.label, "core");
+        let pods = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::Pods))).unwrap();
+        assert_eq!(pods.native, Some(("", "Pod")));
     }
 }

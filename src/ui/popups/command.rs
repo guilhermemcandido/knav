@@ -97,6 +97,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: Comma
         // when that is short, so no row ever changes size; tags that don't fit are dropped.
         let color = |role: TagRole| match role {
             TagRole::GroupRow => theme().warm,
+            TagRole::Native => theme().heading,
             TagRole::Extension => theme().accent,
             TagRole::Kind => theme().text_soft,
             TagRole::Description => theme().muted,

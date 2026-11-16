@@ -402,7 +402,9 @@ pub enum TagRole {
     GroupRow,
     /// The extension that provides the row.
     Extension,
-    /// A custom resource's kind, as the API names it.
+    /// A built-in API group's header.
+    Native,
+    /// A resource's kind, as the API names it.
     Kind,
     /// The CRD's own one-line description, cut to the room left.
     Description,
