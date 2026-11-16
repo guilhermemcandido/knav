@@ -21,7 +21,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         *selected = (*selected + 1) % suggestions.len();
                     } else {
                         *input = name;
-                        *selected = 0;
+                        *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
                     }
                 }
             }
@@ -104,11 +104,11 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Backspace => {
                 input.pop();
-                *selected = 0;
+                *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
             }
             KeyCode::Char(c) => {
                 input.push(c);
-                *selected = 0;
+                *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
             }
             _ => {}
         },

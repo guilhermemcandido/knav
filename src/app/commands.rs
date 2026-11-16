@@ -126,52 +126,87 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
                 })
                 .max_by_key(|(score, _)| *score)?;
             let primary = names[0].clone();
-            let label = if alias == primary { primary.clone() } else { format!("{primary} ({alias})") };
-            let group = match cmd {
-                Cmd::Crd(i) => Some(crds[i].group),
-                Cmd::Kind(ResourceKind::CustomResourceGroup(_)) => Some("API group"),
-                _ => None,
-            };
+            // A custom resource shows its plain name; the full `plural.group` it also answers to
+            // stays out of sight.
+            let label = if alias == primary || matches!(cmd, Cmd::Crd(_)) { primary.clone() } else { format!("{primary} ({alias})") };
             let ext = Some(owners(cmd, crds, extensions).join(" · ")).filter(|o| !o.is_empty());
-            Some((score, Suggestion { cmd, label, primary, group, ext }))
+            Some((score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, count: None, best: false }))
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(10).collect();
-    // Two entries with one name (Flux's HelmRelease and knav's Helm releases) are told
-    // apart: the custom resource takes its full name.
-    let same = |ranked: &[Suggestion], label: &str| ranked.iter().filter(|s| s.label == label).count() > 1;
+    if let Some(first) = ranked.first_mut() {
+        first.best = true;
+    }
+    // Tab completes a custom resource whose name another entry shares to its full
+    // `plural.group`, so Enter can't land on the wrong one.
     for i in 0..ranked.len() {
         if let Cmd::Crd(index) = ranked[i].cmd
-            && same(&ranked, &ranked[i].label)
+            && ranked.iter().enumerate().any(|(j, other)| j != i && other.label == ranked[i].label)
         {
             let crd = &crds[index];
-            let full = format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase());
-            ranked[i].primary = full.clone();
-            ranked[i].label = full;
+            ranked[i].primary = format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase());
         }
     }
-    with_group_kinds(ranked, crds, extensions, &names_of)
+    grouped(ranked, crds, extensions, &names_of)
 }
 
-/// A matched CRD group is followed by its kinds, so typing a group shows what is in it.
-fn with_group_kinds(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Loaded], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
-    const KINDS_UNDER_A_GROUP: usize = 6;
+/// How many kinds are listed under one API group before `+N more`.
+const KINDS_UNDER_A_GROUP: usize = 6;
+
+/// Gathers the custom resource matches into a tree: each API group once, as a header at
+/// the place of its best match, then its kinds, the matched ones first.
+fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Loaded], names_of: &dyn Fn(Cmd) -> Vec<String>) -> Vec<Suggestion> {
+    let group_of = |cmd: Cmd| match cmd {
+        Cmd::Kind(ResourceKind::CustomResourceGroup(group)) => Some(group),
+        Cmd::Crd(i) => crds.get(i).map(|c| c.group),
+        _ => None,
+    };
     let mut out: Vec<Suggestion> = Vec::new();
-    for suggestion in ranked {
-        let Cmd::Kind(ResourceKind::CustomResourceGroup(group)) = suggestion.cmd else {
-            if !out.iter().any(|s| matches!((s.cmd, suggestion.cmd), (Cmd::Crd(a), Cmd::Crd(b)) if a == b)) {
-                out.push(suggestion);
-            }
+    let mut seen: Vec<&'static str> = Vec::new();
+    for suggestion in &ranked {
+        let Some(group) = group_of(suggestion.cmd) else {
+            out.push(suggestion.clone());
             continue;
         };
-        out.push(suggestion);
-        for i in (0..crds.len()).filter(|i| crds[*i].group == group).take(KINDS_UNDER_A_GROUP) {
-            if !out.iter().any(|s| matches!(s.cmd, Cmd::Crd(j) if j == i)) {
+        if seen.contains(&group) {
+            continue;
+        }
+        seen.push(group);
+        let all: Vec<usize> = (0..crds.len()).filter(|&i| crds[i].group == group).collect();
+        let owned = extensions.iter().filter(|l| l.error.is_none() && l.kinds.iter().any(|k| k.group == group)).map(|l| l.name.clone()).collect::<Vec<_>>().join(" · ");
+        out.push(Suggestion {
+            cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)),
+            label: group.to_string(),
+            primary: group.to_string(),
+            ext: Some(owned).filter(|o| !o.is_empty()),
+            depth: 0,
+            kind_name: None,
+            count: Some(all.len()),
+            best: suggestion.best && matches!(suggestion.cmd, Cmd::Kind(_)),
+        });
+        // What matched under this group comes first, then the rest of its kinds.
+        let matched = ranked.iter().filter(|r| matches!(r.cmd, Cmd::Crd(i) if all.contains(&i)));
+        let mut rows: Vec<Suggestion> = matched.cloned().collect();
+        for &i in &all {
+            if !rows.iter().any(|r| matches!(r.cmd, Cmd::Crd(j) if j == i)) {
                 let primary = names_of(Cmd::Crd(i)).remove(0);
                 let ext = Some(owners(Cmd::Crd(i), crds, extensions).join(" · ")).filter(|o| !o.is_empty());
-                out.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, group: Some(group), ext });
+                rows.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, ext, depth: 1, kind_name: None, count: None, best: false });
             }
+        }
+        let hidden = rows.len().saturating_sub(KINDS_UNDER_A_GROUP);
+        rows.truncate(KINDS_UNDER_A_GROUP);
+        for mut row in rows {
+            row.depth = 1;
+            row.kind_name = match row.cmd {
+                Cmd::Crd(i) => Some(crds[i].kind),
+                _ => None,
+            };
+            out.push(row);
+        }
+        if hidden > 0 {
+            out.push(Suggestion { cmd: Cmd::Kind(ResourceKind::CustomResourceGroup(group)), label: format!("+{hidden} more"), primary: group.to_string(), ext: None, depth: 1, kind_name: None, count: None, best: false });
         }
     }
     out
@@ -184,11 +219,21 @@ pub(crate) struct Suggestion {
     pub(crate) label: String,
     /// The name Tab completes to.
     pub(crate) primary: String,
-    /// The API group a custom resource kind is from, shown beside it ("API group" on
-    /// a group's own row).
-    pub(crate) group: Option<&'static str>,
     /// The extensions that provide this kind or dashboard, shown beside it.
     pub(crate) ext: Option<String>,
+    /// 0 for a row of its own, 1 for a kind listed under its API group.
+    pub(crate) depth: u8,
+    /// A custom resource's kind as the API names it (`Agent` for `agents`).
+    pub(crate) kind_name: Option<&'static str>,
+    /// How many kinds an API group's header stands for.
+    pub(crate) count: Option<usize>,
+    /// The match ranked first, which starts out highlighted even when a header sits above it.
+    pub(crate) best: bool,
+}
+
+/// The row to highlight: the best match, which a group header may sit above.
+pub(crate) fn best_row(suggestions: &[Suggestion]) -> usize {
+    suggestions.iter().position(|s| s.best).unwrap_or(0)
 }
 
 impl Suggestion {
@@ -208,13 +253,20 @@ impl Suggestion {
         }
     }
 
-    /// What shows at the row's right end: the API group (or "API group" on a group's own
-    /// row), then the extensions that provide it.
+    /// What shows at the row's right end: an API group's header says how many kinds it
+    /// holds, a kind says what the API calls it, and extensions say they provide the row.
     pub(crate) fn tags(&self) -> Vec<(String, ui::TagRole)> {
         let mut tags = Vec::new();
-        if let Some(group) = self.group {
-            let role = if matches!(self.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))) { ui::TagRole::GroupRow } else { ui::TagRole::Group };
-            tags.push((group.to_string(), role));
+        match (self.cmd, self.count) {
+            (Cmd::Kind(ResourceKind::CustomResourceGroup(_)), Some(n)) if self.depth == 0 => {
+                tags.push((format!("API group · {n} kind{}", if n == 1 { "" } else { "s" }), ui::TagRole::GroupRow));
+            }
+            (Cmd::Crd(_), _) => {
+                if let Some(kind) = self.kind_name {
+                    tags.push((kind.to_string(), ui::TagRole::Kind));
+                }
+            }
+            _ => {}
         }
         if let Some(ext) = &self.ext {
             tags.push((ext.clone(), ui::TagRole::Extension));
@@ -532,11 +584,15 @@ mod tests {
     }
 
     #[test]
-    fn a_custom_kind_is_found_with_its_group() {
+    fn a_custom_kind_is_found_under_its_group_header() {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
-        let first = command_suggestions("environ", &crds, &[], &[], &[], &[]).into_iter().next().unwrap();
-        assert!(matches!(first.cmd, Cmd::Crd(0)));
-        assert_eq!(first.group, Some("platform.example.com"));
+        let found = command_suggestions("environ", &crds, &[], &[], &[], &[]);
+        assert!(matches!(found[0].cmd, Cmd::Kind(ResourceKind::CustomResourceGroup("platform.example.com"))), "the group comes first");
+        assert_eq!(found[0].depth, 0);
+        assert_eq!(found[0].tags()[0].0, "API group · 2 kinds");
+        assert!(matches!(found[1].cmd, Cmd::Crd(0)), "the match is first under it");
+        assert_eq!(found[1].depth, 1);
+        assert_eq!(found[1].tags()[0].0, "Environment");
     }
 
     #[test]
@@ -544,8 +600,32 @@ mod tests {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
         let found = command_suggestions("platform.example", &crds, &[], &[], &[], &[]);
         let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
-        let kinds: Vec<&str> = found[at + 1..].iter().take_while(|s| s.group == Some("platform.example.com")).map(|s| s.label.as_str()).collect();
+        let kinds: Vec<&str> = found[at + 1..].iter().take_while(|s| s.depth == 1).map(|s| s.label.as_str()).collect();
         assert_eq!(kinds, ["environments", "teams"]);
+    }
+
+    #[test]
+    fn similar_groups_each_get_their_own_header_and_kinds() {
+        let crds = [crd("api.kagent.dev", "Agent", "agents"), crd("api.kagent.dev", "ModelConfig", "modelconfigs"), crd("kagent.dev", "Agent", "agents")];
+        let found = command_suggestions("agent", &crds, &[], &[], &[], &[]);
+        let layout: Vec<(u8, &str)> = found.iter().map(|s| (s.depth, s.label.as_str())).collect();
+        let api = layout.iter().position(|r| *r == (0, "api.kagent.dev")).expect("api.kagent.dev header");
+        let plain = layout.iter().position(|r| *r == (0, "kagent.dev")).expect("kagent.dev header");
+        assert!(layout[api + 1..].iter().take_while(|r| r.0 == 1).any(|r| r.1 == "agents"), "{layout:?}");
+        assert!(layout[plain + 1..].iter().take_while(|r| r.0 == 1).any(|r| r.1 == "agents"), "{layout:?}");
+        // Each header stands once, however many of its kinds matched.
+        assert_eq!(layout.iter().filter(|r| r.0 == 0 && r.1 == "api.kagent.dev").count(), 1);
+    }
+
+    #[test]
+    fn a_big_group_is_cut_with_a_more_row() {
+        let names: Vec<String> = (0..9).map(|i| format!("thing{i}")).collect();
+        let crds: Vec<k8s::CrdInfo> = names.iter().map(|n| crd("many.example.com", Box::leak(n.clone().into_boxed_str()), &format!("{n}s"))).collect();
+        let found = command_suggestions("many.example", &crds, &[], &[], &[], &[]);
+        assert_eq!(found.iter().filter(|s| s.depth == 1 && matches!(s.cmd, Cmd::Crd(_))).count(), 6);
+        let more = found.last().expect("rows");
+        assert_eq!(more.label, "+3 more");
+        assert!(matches!(more.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup("many.example.com"))));
     }
 
     #[test]
@@ -560,7 +640,7 @@ mod tests {
         let crds = [crd("helm.toolkit.fluxcd.io", "HelmRelease", "helmreleases")];
         let found = command_suggestions("helmrelease", &crds, &[], &categories, &registry.loaded, &[]);
         let release = found.iter().find(|s| matches!(s.cmd, Cmd::Crd(0))).expect("the HelmRelease kind");
-        assert_eq!(release.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["helm.toolkit.fluxcd.io", "Flux"]);
+        assert_eq!(release.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["HelmRelease", "Flux"]);
     }
 
     #[test]
@@ -568,13 +648,22 @@ mod tests {
         let registry = crate::extensions::Registry::load(std::path::Path::new("/nonexistent"));
         let crds = [crd("helm.toolkit.fluxcd.io", "HelmRelease", "helmreleases")];
         let found = command_suggestions("helmreleases", &crds, &[], &[], &registry.loaded, &[]);
-        let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
-        assert!(labels.contains(&"helmreleases.helm.toolkit.fluxcd.io"), "{labels:?}");
-        assert!(labels.contains(&"helmreleases"), "{labels:?}");
         let native = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::HelmReleases))).expect("the built-in row");
+        assert_eq!((native.depth, native.label.as_str()), (0, "helmreleases"));
         assert_eq!(native.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Helm · installed releases"]);
-        // The full name still finds it, so Tab completion keeps working.
+        // Flux's is a kind under its own group, and Tab completes it to the unambiguous name.
+        let flux = found.iter().find(|s| matches!(s.cmd, Cmd::Crd(0))).expect("the Flux kind");
+        assert_eq!((flux.depth, flux.label.as_str(), flux.primary.as_str()), (1, "helmreleases", "helmreleases.helm.toolkit.fluxcd.io"));
+        // Typing the full name highlights that kind, not the group header above it.
         let typed = command_suggestions("helmreleases.helm.toolkit.fluxcd.io", &crds, &[], &[], &registry.loaded, &[]);
-        assert!(matches!(typed.first().map(|s| s.cmd), Some(Cmd::Crd(0))));
+        assert!(matches!(typed[best_row(&typed)].cmd, Cmd::Crd(0)));
+    }
+
+    #[test]
+    fn an_exact_kind_name_highlights_the_kind_not_its_group_header() {
+        let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
+        let found = command_suggestions("teams", &crds, &[], &[], &[], &[]);
+        assert!(matches!(found[0].cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))), "the header sits on top");
+        assert!(matches!(found[best_row(&found)].cmd, Cmd::Crd(1)));
     }
 }

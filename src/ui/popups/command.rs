@@ -7,6 +7,9 @@ const SUGGESTION_HEIGHT: u16 = 3;
 
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
 
+/// The least room a description is worth drawing in, in cells.
+const MIN_DESCRIPTION: usize = 12;
+
 /// The `:` command line: the input on top and the live suggestions under it, each with
 /// its icon. The best match's remaining letters show dimmed after the cursor.
 pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
@@ -55,10 +58,12 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
     for (n, suggestion) in suggestions.iter().enumerate().skip(start).take(shown) {
         let row = Rect { x: inner.x, y: rows_top + (n - start) as u16 * row_h, width: inner.width, height: row_h };
         let chosen = n == selected;
+        // A kind sits in from its API group's header, so the groups read as a tree.
+        let indent = u16::from(suggestion.depth) * 3;
         let style = if chosen { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
         frame.render_widget(Block::default().style(style), row);
         let text_x = if icons.enabled() {
-            let icon_area = Rect { x: row.x + 1, y: row.y, ..SUGGESTION_ICON };
+            let icon_area = Rect { x: row.x + 1 + indent, y: row.y, ..SUGGESTION_ICON };
             // Icons a little inside their square, so they don't crowd the row.
             let fill = crate::config::tunables::tunables().suggestion_icon_percent as f32 / 100.0;
             let square = icons.centered_square(icon_area);
@@ -68,28 +73,36 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
             }
             icon_area.right() + 1
         } else {
-            row.x + 1
+            row.x + 1 + indent
         };
         let text = Rect { x: text_x, y: row.y + row_h / 2, width: row.right().saturating_sub(text_x), height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(suggestion.label.clone(), style)), text);
-        // What the row belongs to at the right end (its API group, its extension), each
-        // role in its own colour. Tags that don't fit are dropped, the group first.
+        // What the row belongs to at the right end (its kind, its extension), each role in
+        // its own colour. The CRD's description takes only the room left and is left out
+        // when that is short, so no row ever changes size; tags that don't fit are dropped.
         let color = |role: TagRole| match role {
-            TagRole::Group => theme().key,
             TagRole::GroupRow => theme().warm,
             TagRole::Extension => theme().accent,
+            TagRole::Kind => theme().text_soft,
+            TagRole::Description => theme().muted,
         };
         let mut room = usize::from(text.width.saturating_sub(1)).saturating_sub(cell_width(&suggestion.label) + 3);
-        let mut shown: Vec<&(String, TagRole)> = Vec::new();
-        for tag in suggestion.tags.iter().rev() {
+        let mut shown: Vec<(String, TagRole)> = Vec::new();
+        for tag in suggestion.tags.iter().rev().filter(|t| t.1 != TagRole::Description) {
             let need = cell_width(&tag.0) + if shown.is_empty() { 0 } else { 2 };
             if need > room {
                 break;
             }
             room -= need;
-            shown.push(tag);
+            shown.push(tag.clone());
         }
         shown.reverse();
+        if let Some((description, role)) = suggestion.tags.iter().find(|t| t.1 == TagRole::Description) {
+            let room = room.saturating_sub(if shown.is_empty() { 0 } else { 2 });
+            if room >= MIN_DESCRIPTION {
+                shown.insert(0, (truncate(description, room), *role));
+            }
+        }
         let mut spans = Vec::new();
         for (i, (label, role)) in shown.iter().enumerate() {
             if i > 0 {
@@ -112,7 +125,7 @@ mod tests {
     fn rows(show_icons: bool) -> Vec<String> {
         let mut icons = IconCache::halfblocks();
         icons.set_enabled(show_icons);
-        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new() }).collect();
+        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new(), depth: 0 }).collect();
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 20)).unwrap();
         terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, "", &suggestions, 0, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -131,5 +144,44 @@ mod tests {
     fn with_icons_each_suggestion_takes_three_rows() {
         let rows = rows(true);
         assert!(rows[4].contains("pods") && rows[7].contains("deployments"), "{rows:#?}");
+    }
+
+    /// The rows of a menu of one group header and one kind, drawn `width` cells wide.
+    fn tree(width: u16, description: &str) -> Vec<String> {
+        let mut icons = IconCache::halfblocks();
+        icons.set_enabled(false);
+        let suggestions = vec![
+            SuggestionView { label: "kagent.dev".into(), icon: SuggestionIcon::Named("home"), tags: vec![("API group · 2 kinds".into(), TagRole::GroupRow)], depth: 0 },
+            SuggestionView {
+                label: "agents".into(),
+                icon: SuggestionIcon::Named("home"),
+                tags: vec![(description.into(), TagRole::Description), ("Agent".into(), TagRole::Kind)],
+                depth: 1,
+            },
+        ];
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 12)).unwrap();
+        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width, height: 3 }, "ag", &suggestions, 1, &mut icons)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..12).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect()
+    }
+
+    #[test]
+    fn a_kind_sits_in_from_its_group_and_a_description_takes_only_the_room_left() {
+        let long = "An Agent declares an LLM-backed agent that can call tools and talk to other agents";
+        let wide = tree(70, long);
+        assert!(wide[3].contains("kagent.dev") && wide[3].contains("API group · 2 kinds"), "{wide:#?}");
+        // One row each: the box is as tall with a description as without.
+        assert!(wide[4].contains("   agents") && wide[4].contains("Agent"), "{wide:#?}");
+        assert!(wide[4].contains('…') && wide[5].starts_with('╰'), "{wide:#?}");
+        assert_eq!(tree(70, "").len(), wide.len());
+        assert_eq!(tree(70, "").iter().position(|r| r.starts_with('╰')), wide.iter().position(|r| r.starts_with('╰')));
+    }
+
+    #[test]
+    fn a_narrow_menu_drops_the_description_and_keeps_the_kind() {
+        let rows = tree(34, "An Agent declares an LLM-backed agent");
+        assert!(rows[4].contains("agents") && rows[4].contains("Agent"), "{rows:#?}");
+        assert!(!rows[4].contains("declares"), "{rows:#?}");
+        assert!(rows[5].starts_with('╰'), "{rows:#?}");
     }
 }

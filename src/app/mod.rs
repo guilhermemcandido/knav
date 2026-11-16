@@ -295,6 +295,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             // Only the Settings screen's Layout tab lists them.
             layout_names: &if matches!(&st.mode, Mode::Settings { .. }) || matches!(&st.mode, Mode::Notice { back, .. } | Mode::Confirm { back, .. } if matches!(**back, Mode::Settings { .. })) { catalog.layout_names(&st.config.extensions.enabled) } else { Vec::new() },
             dashboard_categories: &catalog.dashboard_categories(),
+            descriptions: &catalog.descriptions,
             apis: &catalog.apis,
             favorites: &st.favorites,
             hints: &hints,
@@ -311,6 +312,14 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             role: &st.role,
             read_only: st.read_only(),
         };
+        // While a `:` command is typed, the descriptions of the kinds it lists are fetched
+        // ahead, so they are there by the time the typing pauses.
+        if let Mode::Command { input, .. } = &st.mode {
+            let names: Vec<String> = st.config.commands.iter().map(|c| c.name.clone()).collect();
+            let shown = commands::command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &registry.loaded, &names);
+            let kinds: Vec<usize> = shown.iter().filter_map(|s| if let commands::Cmd::Crd(i) = s.cmd { Some(i) } else { None }).collect();
+            catalog.describe(&kinds);
+        }
         title::update(&mut title, title::text(&st.context, st.namespace.as_deref()));
         let frame_area = draw::draw_mode(terminal, &mut st.mode, &view, &mut st.table_state, st.hovered, &mut st.icons, &mut st.hscroll)?;
 

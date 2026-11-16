@@ -103,6 +103,8 @@ pub struct Catalog {
     counter: Option<crate::Counter>,
     api_tables: HashMap<usize, crate::TableKind>,
     pub extensions: ExtensionIndex,
+    /// One-line descriptions of custom resource kinds, for the `:` menu.
+    pub descriptions: crate::Descriptions,
     /// Helm releases, from a watch of the release Secrets. Kept apart from `entries`
     /// because it runs only while the Helm extension is on.
     helm: Option<Box<dyn crate::CatalogKind>>,
@@ -166,6 +168,7 @@ impl Catalog {
             apis: Vec::new(),
             api_tables: HashMap::new(),
             extensions,
+            descriptions: crate::Descriptions::default(),
             helm: None,
             focused: None,
         }
@@ -177,6 +180,21 @@ impl Catalog {
         self.api_list.apis = apis.clone();
         self.apis = apis;
         self.crds = crds;
+        // The extensions' own kinds are the ones most likely opened, so their descriptions
+        // are fetched now.
+        let wanted: Vec<(String, String)> = self
+            .crds
+            .iter()
+            .filter(|c| self.extensions.kinds.iter().any(|k| k.group == c.group && k.kind == c.kind))
+            .map(|c| (c.group.to_string(), c.plural.clone()))
+            .collect();
+        self.descriptions.request(&self.client, &wanted);
+    }
+
+    /// Starts fetching the descriptions of these custom resource kinds, for the `:` menu.
+    pub fn describe(&self, kinds: &[usize]) {
+        let wanted: Vec<(String, String)> = kinds.iter().filter_map(|&i| self.crds.get(i)).map(|c| (c.group.to_string(), c.plural.clone())).collect();
+        self.descriptions.request(&self.client, &wanted);
     }
 
     /// Starts counting every type's objects (once), following the namespace shown.

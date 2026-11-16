@@ -23,6 +23,8 @@ pub(super) struct View<'a> {
     pub layout_names: &'a [(&'static str, Vec<&'static str>)],
     /// Every category with a dashboard, for the `:` suggestions.
     pub dashboard_categories: &'a [&'static str],
+    /// One-line descriptions of custom resource kinds, for the `:` menu.
+    pub descriptions: &'a k8s::Descriptions,
     pub favorites: &'a Favorites,
     pub hints: &'a [(&'a str, &'a str)],
     pub show_hints_panel: bool,
@@ -52,7 +54,7 @@ pub(super) fn draw_mode(
     icons: &mut icons::IconCache,
     hscroll: &mut usize,
 ) -> Result<Rect> {
-    let View { rows, overview, nodes, usage, pod_usage, problems, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
+    let View { rows, overview, nodes, usage, pod_usage, problems, node_detail_rows, node_rows, crds, apis, extensions, helm_present, layout_names, dashboard_categories, descriptions, favorites, hints, show_hints_panel, chrome, path, header_now, search, sort_view, marked, config_preset, config, context, role, read_only } = view;
     let (show_hints_panel, sort_view) = (*show_hints_panel, *sort_view);
     let rows_view = rows;
     let mut frame_area = Rect::default();
@@ -73,7 +75,19 @@ pub(super) fn draw_mode(
                 terminal.draw(|frame| {
                     frame_area = frame.area();
                     let found = command_suggestions(input, crds, apis, dashboard_categories, extensions, &config.commands.iter().map(|c| c.name.clone()).collect::<Vec<_>>());
-                    let suggestions: Vec<ui::SuggestionView> = found.into_iter().map(|s| ui::SuggestionView { icon: s.icon(crds), tags: s.tags(), label: s.label }).collect();
+                    let suggestions: Vec<ui::SuggestionView> = found
+                        .into_iter()
+                        .map(|s| {
+                            let mut tags = s.tags();
+                            // A kind's own description comes first, and gives way first when short of room.
+                            if let Cmd::Crd(i) = s.cmd
+                                && let Some(text) = crds.get(i).and_then(|c| descriptions.get(c.group, &c.plural))
+                            {
+                                tags.insert(0, (text, ui::TagRole::Description));
+                            }
+                            ui::SuggestionView { icon: s.icon(crds), tags, depth: s.depth, label: s.label }
+                        })
+                        .collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
                     let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     paint(frame, hovered, None, Some(overlay), false);
