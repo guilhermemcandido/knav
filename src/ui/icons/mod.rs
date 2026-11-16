@@ -132,7 +132,7 @@ impl IconCache {
 
     pub fn centered_square(&self, area: Rect) -> Rect {
         let font = self.picker.font_size();
-        if font.width == 0 || area.height == 0 {
+        if font.width == 0 || area.height == 0 || area.width == 0 {
             return area;
         }
         let target_width = ((area.height as f32 * font.height as f32) / font.width as f32).round() as u16;

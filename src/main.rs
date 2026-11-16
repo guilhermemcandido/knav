@@ -148,11 +148,13 @@ pub(crate) async fn session(config: &Config, context: Option<&str>, notes: Vec<S
     let _ = execute!(stdout(), EnableMouseCapture);
     app::title::push();
     let stores = (&pod_store.store, &dep_store.store, &node_store);
-    if let app::boot::Boot::Quit = app::boot::wait(&mut terminal, &active_context, &header.k8s_version, stores, discovery, &mut catalog).await? {
+    let booted = app::boot::wait(&mut terminal, &active_context, &header.k8s_version, stores, discovery, &mut catalog).await;
+    if !matches!(booted, Ok(app::boot::Boot::Ready)) {
+        // Quit or failed: either way the terminal goes back to how it was, so an error is readable.
         let _ = execute!(stdout(), DisableMouseCapture);
         app::title::pop();
         ratatui::restore();
-        return Ok(SessionEnd::Quit);
+        return booted.map(|_| SessionEnd::Quit);
     }
 
     // Usually done during the loading screen; a slow API server doesn't hold up the start.

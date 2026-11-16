@@ -75,6 +75,9 @@ fn owners(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Load
 
 /// What `ext:` matches against: the ids and names of the extensions that own `cmd`.
 fn owner_keys(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::Loaded]) -> Vec<String> {
+    if matches!(cmd, Cmd::Kind(ResourceKind::HelmReleases)) {
+        return vec!["helm".into()];
+    }
     owning(cmd, crds, extensions).flat_map(|l| [l.id.to_lowercase(), l.name.to_lowercase()]).collect()
 }
 
@@ -133,6 +136,16 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             }
             names
         }
+        // Another group's resource of the same name is told apart by `plural.group`, once a dot is typed.
+        Cmd::Api(i, ..) => {
+            let mut names = cmd.names();
+            if input.contains('.')
+                && let Some(api) = apis.get(i).filter(|a| !a.group.is_empty())
+            {
+                names.push(format!("{}.{}", api.plural.to_lowercase(), api.group.to_lowercase()));
+            }
+            names
+        }
         // A dashboard answers to its extensions' names too, so `flux` finds GitOps.
         Cmd::Kind(ResourceKind::ExtensionDashboard(category)) => {
             let mut names = cmd.names();
@@ -164,7 +177,9 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             let names = names_of(cmd);
             let native = match cmd {
                 Cmd::Api(i, ..) => apis.get(i).map(|a| (a.group, a.kind)),
-                Cmd::Kind(_) => native_of(&names, apis),
+                // Only kinds that are Kubernetes resources: knav's own views (Helm releases,
+                // port-forwards, the Overview, dashboards) have no API group.
+                Cmd::Kind(k) if !k.aliases().is_empty() && !matches!(k, ResourceKind::HelmReleases | ResourceKind::PortForwards | ResourceKind::ApiResources | ResourceKind::Overview | ResourceKind::CustomResourceList) => native_of(&names, apis),
                 _ => None,
             };
             // The filters keep only kinds that satisfy every one of them.
@@ -184,8 +199,9 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
                 }
             }
             for wanted in &query.is {
-                let built_in = fuzzy::score(wanted, "builtin").is_some() && native.is_some();
-                let custom = fuzzy::score(wanted, "custom").is_some() && matches!(cmd, Cmd::Crd(_));
+                // A start of the word, not any letters in order: `is:b` is built-in, `is:c` custom.
+                let built_in = ("builtin".starts_with(wanted.as_str()) || "built-in".starts_with(wanted.as_str())) && native.is_some();
+                let custom = "custom".starts_with(wanted.as_str()) && matches!(cmd, Cmd::Crd(_));
                 if !(built_in || custom) {
                     return None;
                 }
@@ -214,20 +230,24 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    // Listing a group's kinds (filters and no name) needs more room than a search by name.
-    let limit = if input.is_empty() { 30 } else { 10 };
-    let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(limit).collect();
+    // Everything that matched is grouped first and the menu is cut after, so a group's `+N more`
+    // counts what is really left and a block is never cut in half by an arbitrary top ten.
+    let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(MAX_MATCHES).collect();
     if let Some(first) = ranked.first_mut() {
         first.best = true;
     }
-    // Tab completes a custom resource whose name another entry shares (or that was found
-    // through a group filter) to its full `plural.group`, so Enter can't land on the wrong one.
-    for i in 0..ranked.len() {
-        if let Cmd::Crd(index) = ranked[i].cmd
-            && (query.has_filters() || ranked.iter().enumerate().any(|(j, other)| j != i && other.label == ranked[i].label))
-        {
-            let crd = &crds[index];
-            ranked[i].primary = format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase());
+    // Tab completes a resource whose name another entry shares (or that was found through a
+    // group filter) to its full `plural.group`, so Enter can't land on a different row.
+    let labels: Vec<String> = ranked.iter().map(|r| r.label.clone()).collect();
+    for (i, row) in ranked.iter_mut().enumerate() {
+        let shared = labels.iter().enumerate().any(|(j, other)| j != i && *other == labels[i]);
+        let full = match row.cmd {
+            Cmd::Crd(index) if shared || query.has_filters() => Some((crds[index].plural.to_lowercase(), crds[index].group.to_lowercase())),
+            Cmd::Api(index, ..) if shared || input.contains('.') => apis.get(index).filter(|a| !a.group.is_empty()).map(|a| (a.plural.to_lowercase(), a.group.to_lowercase())),
+            _ => None,
+        };
+        if let Some((plural, group)) = full {
+            row.primary = format!("{plural}.{group}");
         }
     }
     grouped(ranked, crds, extensions, &names_of)
@@ -239,6 +259,12 @@ fn native_of(names: &[String], apis: &[k8s::ApiInfo]) -> Option<(&'static str, &
     let by_plural = || apis.iter().filter(|a| names.iter().any(|n| n == a.plural));
     by_plural().find(|a| names.iter().any(|n| n.eq_ignore_ascii_case(a.kind))).or_else(|| by_plural().next()).map(|a| (a.group, a.kind))
 }
+
+/// How many matches are grouped before the menu is cut.
+const MAX_MATCHES: usize = 400;
+/// The most rows of kinds that belong to no group, and the most group blocks, one menu shows.
+const MAX_FLAT_ROWS: usize = 10;
+const MAX_BLOCKS: usize = 8;
 
 /// How many kinds are listed under one API group before `+N more`.
 const KINDS_UNDER_A_GROUP: usize = 6;
@@ -261,15 +287,23 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
     };
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen: Vec<Bucket> = Vec::new();
+    let (mut flat, mut blocks) = (0, 0);
     for suggestion in &ranked {
         let Some(bucket) = bucket_of(suggestion) else {
-            out.push(suggestion.clone());
+            if flat < MAX_FLAT_ROWS {
+                flat += 1;
+                out.push(suggestion.clone());
+            }
             continue;
         };
         if seen.contains(&bucket) {
             continue;
         }
         seen.push(bucket);
+        if blocks >= MAX_BLOCKS {
+            continue;
+        }
+        blocks += 1;
         let (header, mut rows) = match bucket {
             Bucket::Custom(group) => {
                 let all: Vec<usize> = (0..crds.len()).filter(|&i| crds[i].group == group).collect();
@@ -411,6 +445,16 @@ impl Suggestion {
             tags.push((ext.clone(), ui::TagRole::Extension));
         }
         tags
+    }
+
+    /// An API group's header, which Tab and Enter treat differently from a kind.
+    pub(crate) fn is_header(&self) -> bool {
+        self.depth == 0 && (self.built_in || matches!(self.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))))
+    }
+
+    /// The `+N more` row closing a group's block.
+    pub(crate) fn is_more(&self) -> bool {
+        self.depth == 1 && self.label.starts_with('+') && matches!(self.cmd, Cmd::Kind(_))
     }
 
     /// The name Tab completes to: the first of its names.
@@ -902,5 +946,44 @@ mod tests {
         assert_eq!(header.label, "core");
         let pods = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::Pods))).unwrap();
         assert_eq!(pods.native, Some(("", "Pod")));
+    }
+
+    #[test]
+    fn knavs_own_helm_view_is_not_taken_for_flux_s_helmreleases() {
+        let apis = [api("helm.toolkit.fluxcd.io", "HelmRelease", "helmreleases")];
+        let found = command_suggestions("helmreleases", &[], &apis, &[], &[], &[]);
+        let helm = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::HelmReleases))).expect("the Helm view");
+        assert!(helm.native.is_none() && helm.depth == 0, "knav's view has no API group");
+        // And `ext:helm` still finds it.
+        let by_ext = command_suggestions("ext:helm", &[], &[], &[], &[], &[]);
+        assert!(by_ext.iter().any(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::HelmReleases))));
+    }
+
+    #[test]
+    fn more_counts_everything_that_matched_not_just_the_first_ten() {
+        let names: Vec<String> = (0..15).map(|i| format!("thing{i}")).collect();
+        let crds: Vec<k8s::CrdInfo> = names.iter().map(|n| crd("many.example.com", Box::leak(n.clone().into_boxed_str()), &format!("{n}s"))).collect();
+        let found = command_suggestions("thing", &crds, &[], &[], &[], &[]);
+        assert_eq!(found.last().expect("rows").label, "+9 more");
+    }
+
+    #[test]
+    fn the_same_plural_in_two_groups_completes_to_the_full_name() {
+        let apis = [api("", "Event", "events"), api("events.k8s.io", "Event", "events")];
+        let found = command_suggestions("events.events", &[], &apis, &[], &[], &[]);
+        let full: Vec<&str> = found.iter().filter(|s| matches!(s.cmd, Cmd::Api(..))).map(|s| s.primary.as_str()).collect();
+        assert!(full.contains(&"events.events.k8s.io"), "{full:?}");
+        let plain = command_suggestions("events", &[], &apis, &[], &[], &[]);
+        let apis_rows: Vec<&str> = plain.iter().filter(|s| matches!(s.cmd, Cmd::Api(..))).map(|s| s.primary.as_str()).collect();
+        assert!(apis_rows.contains(&"events.events.k8s.io"), "the second one is told apart: {apis_rows:?}");
+    }
+
+    #[test]
+    fn is_filters_take_the_start_of_a_word_and_an_unknown_one_matches_nothing() {
+        let crds = [crd("kagent.dev", "Agent", "agents")];
+        let apis = [api("", "Pod", "pods")];
+        assert!(command_suggestions("is:c", &crds, &apis, &[], &[], &[]).iter().any(|s| matches!(s.cmd, Cmd::Crd(_))));
+        assert!(!command_suggestions("is:b", &crds, &apis, &[], &[], &[]).iter().any(|s| matches!(s.cmd, Cmd::Crd(_))));
+        assert!(command_suggestions("is:foo", &crds, &apis, &[], &[], &[]).is_empty());
     }
 }

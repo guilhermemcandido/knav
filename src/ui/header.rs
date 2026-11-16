@@ -165,15 +165,30 @@ fn shorten_names(fields: &mut [(&str, String)], room: usize, width_of: impl Fn(&
         let longest = fields.iter_mut().filter(|(name, v)| matches!(*name, "Context:" | "Cluster:" | "User:") && cell_width(v) > SHORTEST).max_by_key(|(_, v)| cell_width(v));
         let Some((_, v)) = longest.filter(|_| total > room) else { return };
         let target = cell_width(v).saturating_sub(total - room).max(SHORTEST);
-        *v = keep_end(v, target);
+        let shorter = keep_end(v, target);
+        // A pass that doesn't shrink the name would repeat for ever.
+        if cell_width(&shorter) >= cell_width(v) {
+            return;
+        }
+        *v = shorter;
     }
 }
 
 /// The end of `text` in `width` cells, after an ellipsis: an ARN keeps its cluster name.
 fn keep_end(text: &str, width: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let keep = width.saturating_sub(1).min(chars.len());
-    format!("…{}", chars[chars.len() - keep..].iter().collect::<String>())
+    // Measured in cells, not characters: a wide character takes two.
+    let keep = width.saturating_sub(1);
+    let (mut tail, mut used) = (Vec::new(), 0);
+    for ch in text.chars().rev() {
+        let w = cell_width(&ch.to_string());
+        if used + w > keep {
+            break;
+        }
+        used += w;
+        tail.push(ch);
+    }
+    tail.reverse();
+    format!("…{}", tail.into_iter().collect::<String>())
 }
 
 fn fit_namespaces(all: &[(usize, String)], room: usize, active: &str) -> (Vec<(usize, String)>, bool) {
@@ -242,5 +257,26 @@ mod tests {
     fn tiny_terminals_drop_the_header() {
         let full = Rect { x: 0, y: 0, width: 80, height: 9 };
         assert_eq!(body_area(full, true), full);
+    }
+}
+
+#[cfg(test)]
+mod shorten_tests {
+    use super::*;
+
+    #[test]
+    fn wide_character_names_are_shortened_and_the_loop_ends() {
+        let wide = "集群".repeat(20);
+        let mut fields = vec![("Context:", wide.clone()), ("Cluster:", wide.clone()), ("User:", wide)];
+        shorten_names(&mut fields, 40, |(label, value)| cell_width(label) + cell_width(value));
+        // It stopped, and nothing grew.
+        assert!(fields.iter().all(|(_, v)| cell_width(v) <= 80), "{fields:?}");
+        assert!(fields.iter().all(|(_, v)| v.starts_with('…')), "{fields:?}");
+    }
+
+    #[test]
+    fn keep_end_counts_cells_not_characters() {
+        assert!(cell_width(&keep_end(&"集".repeat(30), 10)) <= 10);
+        assert_eq!(keep_end("arn:aws:eks:cluster-name", 8), "…er-name");
     }
 }

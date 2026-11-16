@@ -47,7 +47,8 @@ impl Cli {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 // No name after it: show the picker instead of erroring.
-                "-c" | "--context" => match args.next() {
+                // Another flag after it isn't a name: `-c --read-only` shows the picker.
+                "-c" | "--context" => match args.next_if(|next| !next.starts_with('-')) {
                     Some(value) => context_query = Some(value),
                     None => pick = true,
                 },
@@ -133,5 +134,13 @@ mod tests {
     fn an_unknown_flag_is_an_error() {
         assert!(parse(&["--nope"]).is_err());
         assert!(parse(&["update", "--nope"]).is_err());
+    }
+
+    #[test]
+    fn a_bare_context_flag_before_another_flag_opens_the_picker() {
+        match parse(&["-c", "--read-only"]).unwrap() {
+            Cli::Launch { context_query, pick, read_only } => assert!(context_query.is_none() && pick && read_only),
+            _ => panic!("expected a launch"),
+        }
     }
 }

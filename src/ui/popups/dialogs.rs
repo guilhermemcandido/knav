@@ -297,7 +297,7 @@ pub(in crate::ui) fn draw_history(frame: &mut Frame, view: HistoryView) {
         Row::new(vec![dot, Cell::from(r.number.to_string()), Cell::from(r.age.clone()), Cell::from(r.pods.map_or("-".to_string(), |p| p.to_string())), Cell::from(r.images.clone()), cause])
     });
     let table_h = (view.revisions.len() as u16 + 1).min((inner.height / 3).max(4));
-    let images_w = view.revisions.iter().map(|r| cell_width(&r.images)).max().unwrap_or(0).clamp(6, usize::from(inner.width / 2)) as u16;
+    let images_w = view.revisions.iter().map(|r| cell_width(&r.images)).max().unwrap_or(0).clamp(6, usize::from(inner.width / 2).max(6)) as u16;
     let table = Table::new(rows, [Constraint::Length(1), Constraint::Length(8), Constraint::Length(6), Constraint::Length(4), Constraint::Length(images_w), Constraint::Fill(1)])
         .column_spacing(COLUMN_GAP)
         .header(header)

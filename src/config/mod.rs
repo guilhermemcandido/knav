@@ -378,14 +378,32 @@ impl Config {
         let contents = match std::fs::read_to_string(&path) {
             Ok(contents) => contents,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::default(), Vec::new()),
-            Err(e) => return (Config::default(), vec![format!("could not read {}: {e}", path.display())]),
+            // Unreadable: changes stay blocked until it can be read, since it may hold the protection.
+            Err(e) => return (Config { read_only: ReadOnlyConfig { enabled: true, contexts: Vec::new() }, ..Config::default() }, vec![format!("could not read {}, so changes are blocked: {e}", path.display())]),
         };
-        match toml::from_str::<Config>(&contents) {
+        Self::from_text(&contents, &path)
+    }
+
+    /// What `contents` (the text of `path`) gives, and what was wrong with it.
+    pub fn from_text(contents: &str, path: &std::path::Path) -> (Self, Vec<String>) {
+        match toml::from_str::<Config>(contents) {
             Ok(mut config) => {
                 config.overview.migrate_legacy_names();
                 (config, Vec::new())
             }
-            Err(e) => (Config::default(), vec![format!("{} could not be read, so defaults are in use:\n{e}", path.display())]),
+            Err(e) => {
+                // Whatever else is wrong, a protection the file asked for must still hold: its own
+                // `read_only` section if that part is fine, and read-only on if nothing can be told.
+                let read_only = match contents.parse::<toml::Table>() {
+                    Err(_) => ReadOnlyConfig { enabled: true, contexts: Vec::new() },
+                    Ok(table) => match table.get("read_only") {
+                        None => ReadOnlyConfig::default(),
+                        Some(section) => section.clone().try_into().unwrap_or(ReadOnlyConfig { enabled: true, contexts: Vec::new() }),
+                    },
+                };
+                let blocked = if read_only.enabled { ", and changes are blocked until it is fixed" } else { "" };
+                (Config { read_only, ..Config::default() }, vec![format!("{} could not be read, so defaults are in use{blocked}:\n{e}", path.display())])
+            }
         }
     }
 
@@ -429,5 +447,34 @@ mod tests {
         assert!(!config.applies_to("staging-2"));
         assert!(!config.applies_to("dev"));
         assert!(ReadOnlyConfig { enabled: true, contexts: vec![] }.applies_to("dev"));
+    }
+}
+
+#[cfg(test)]
+mod broken_config_tests {
+    use super::*;
+
+    fn load(text: &str) -> (Config, Vec<String>) {
+        Config::from_text(text, std::path::Path::new("config.toml"))
+    }
+
+    #[test]
+    fn a_type_error_elsewhere_keeps_the_read_only_section() {
+        let (config, problems) = load("[ui]\nborder = 5\n[read_only]\ncontexts = [\"prod*\"]\n");
+        assert!(!problems.is_empty());
+        assert!(config.read_only.applies_to("prod-eu") && !config.read_only.applies_to("dev"));
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_parsed_at_all_blocks_changes() {
+        let (config, problems) = load("[read_only\n");
+        assert!(problems[0].contains("blocked"), "{problems:?}");
+        assert!(config.read_only.applies_to("anything"));
+    }
+
+    #[test]
+    fn a_broken_file_that_never_asked_for_read_only_does_not_turn_it_on() {
+        let (config, _) = load("[ui]\nborder = 5\n");
+        assert!(!config.read_only.applies_to("prod"));
     }
 }

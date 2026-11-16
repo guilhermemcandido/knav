@@ -17,7 +17,9 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names);
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
                     let name = chosen.primary_name();
-                    if *input == name {
+                    // A header or `+N more` row isn't something to complete to, and a name already typed
+                    // out is done: both move on to the next row.
+                    if chosen.is_header() || chosen.is_more() || *input == name {
                         *selected = (*selected + 1) % suggestions.len();
                     } else {
                         *input = name;
@@ -42,7 +44,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     c if is_context_command(c) => Some(Cmd::Context),
                     c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
                 };
-                match suggestions.get(*selected).map(|s| s.cmd).or_else(typed) {
+                match suggestions.get((*selected).min(suggestions.len().saturating_sub(1))).map(|s| s.cmd).or_else(typed) {
                     Some(Cmd::Quit) => return Ok(Some(SessionEnd::Quit)),
                     Some(Cmd::Settings) => {
                         let mut opened = std::mem::replace(&mut **back, Mode::List);

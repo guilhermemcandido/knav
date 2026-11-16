@@ -238,7 +238,8 @@ impl State {
 
     /// Whether changes to the cluster are blocked.
     pub fn read_only(&self) -> bool {
-        self.read_only_override.unwrap_or_else(|| self.read_only_flag || self.config.read_only.applies_to(&self.context))
+        // The command-line flag is absolute: the `P` menu can only change what the config asked for.
+        self.read_only_flag || self.read_only_override.unwrap_or_else(|| self.config.read_only.applies_to(&self.context))
     }
 
     /// Shows why a change was refused, when read-only. Returns whether it was.

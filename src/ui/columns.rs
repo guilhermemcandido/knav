@@ -282,7 +282,7 @@ pub(super) fn draw_columns(frame: &mut Frame, area: Rect, overview: &Overview, v
     if let Some(label) = overview.dragging.as_ref().filter(|_| !overview.favorites && !dimmed) {
         let note = format!(" moving {label} ");
         let width = (cell_width(&note) as u16).min(area.width);
-        let rect = Rect { x: area.x + area.width - width - 1, y: area.y + area.height.saturating_sub(1), width, height: 1 };
+        let rect = Rect { x: area.x + area.width.saturating_sub(width + 1), y: area.y + area.height.saturating_sub(1), width, height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(note, Style::default().fg(theme().pill_bg).bg(theme().namespace).add_modifier(Modifier::BOLD))), rect);
     }
     let arrow_style = if dimmed { dim_style() } else { Style::default().fg(theme().namespace).add_modifier(Modifier::BOLD) };

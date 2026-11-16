@@ -59,14 +59,26 @@ pub fn save(file: &Path, path: &str, value: Option<toml_edit::Value>) -> Result<
 
 /// `save` for a path given as its keys.
 pub fn save_keys(file: &Path, keys: &[&str], value: Option<toml_edit::Value>) -> Result<Config> {
-    let existing = std::fs::read_to_string(file).unwrap_or_default();
+    // Only a missing file starts empty: any other read error must not turn into an empty config
+    // that then replaces the real one.
+    let existing = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
+    };
     let updated = edit_keys(&existing, keys, value)?;
     let mut config: Config = toml::from_str(&updated).context("that would make config.toml invalid")?;
     config.overview.migrate_legacy_names();
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).ok();
     }
-    std::fs::write(file, updated).with_context(|| format!("writing {}", file.display()))?;
+    // Written beside it and renamed over it, so a crash can't leave half a file.
+    let temp = file.with_extension(format!("toml.tmp{}", std::process::id()));
+    std::fs::write(&temp, updated).with_context(|| format!("writing {}", temp.display()))?;
+    if let Err(e) = std::fs::rename(&temp, file) {
+        std::fs::remove_file(&temp).ok();
+        return Err(e).with_context(|| format!("replacing {}", file.display()));
+    }
     Ok(config)
 }
 

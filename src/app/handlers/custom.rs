@@ -60,7 +60,7 @@ pub(super) fn run(st: &mut State, cx: &mut Cx, index: usize, target: &Target) {
         return;
     }
     let subject = custom::Subject { kind: &target.kind, name: &target.name, namespace: target.namespace.as_deref(), context: cx.active_context };
-    let line = custom::command_line(&command.run, &subject);
+    let line = custom::with_environment(&custom::command_line(&command.run, &subject), &subject);
     let title = format!("{} {}", command.name, target.label());
     match command.output {
         CommandOutput::View => crate::app::jobs::run_command(st, title, line, true),

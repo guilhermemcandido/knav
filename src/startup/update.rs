@@ -69,6 +69,20 @@ fn build_name(version: &str, commit: &str) -> String {
     }
 }
 
+/// Compares two `1.2.3` versions (a `-rc1` or `+build` suffix is ignored), or `None` when
+/// either isn't one.
+fn compare_versions(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    let parts = |v: &str| -> Option<Vec<u64>> { v.split(['-', '+']).next()?.split('.').map(|p| p.parse().ok()).collect() };
+    let (a, b) = (parts(a)?, parts(b)?);
+    // `1.2` equals `1.2.0`.
+    let len = a.len().max(b.len());
+    let pad = |mut v: Vec<u64>| {
+        v.resize(len, 0);
+        v
+    };
+    Some(pad(a).cmp(&pad(b)))
+}
+
 fn short(commit: &str) -> &str {
     commit.get(..7).unwrap_or(commit)
 }
@@ -94,9 +108,15 @@ fn update(paint: &Paint, auto_yes: bool) -> Result<()> {
     let checksum = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-{target}.sha256"))?;
     // Releases before this was added have no commit file.
     let latest_commit = download(&format!("https://github.com/{REPO}/releases/download/{latest}/knav-commit")).map(|b| String::from_utf8_lossy(&b).trim().to_string()).unwrap_or_default();
-    let new_version = version(&latest) != current;
+    // Strictly newer only: an older latest release is never offered as an update.
+    let order = compare_versions(version(&latest), current);
+    let new_version = order.map_or(version(&latest) != current, |o| o == std::cmp::Ordering::Greater);
     if paint.0 {
         print!("\r\x1b[2K");
+    }
+    if order == Some(std::cmp::Ordering::Less) {
+        paint.done(&format!("knav {} is newer than the latest release ({})", paint.bold(&build_name(current, COMMIT)), version(&latest)));
+        return Ok(());
     }
     // The same commit counts too: a local build of it never matches byte for byte.
     let same_commit = !COMMIT.is_empty() && COMMIT == latest_commit;
@@ -222,19 +242,30 @@ fn tag_from_release_json(body: &[u8]) -> Result<String> {
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
+    use std::io::Write as _;
+    use std::process::Stdio;
     let mut curl = std::process::Command::new("curl");
-    curl.args(["-fsSL", url]);
-    // GitHub's API allows far more requests with a token than anonymously.
+    // HTTPS only, even across redirects, and no connection that can hang for ever.
+    curl.args(["-fsSL", "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "10", "--max-time", "120", url]);
+    // GitHub's API allows far more requests with a token than anonymously. The header goes in
+    // on stdin, so the token is never in the process list.
     let api = url.starts_with("https://api.github.com/");
-    if api && let Some(token) = ["GITHUB_TOKEN", "GH_TOKEN"].iter().find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty())) {
-        curl.args(["-H", &format!("Authorization: Bearer {token}")]);
+    let token = if api { ["GITHUB_TOKEN", "GH_TOKEN"].iter().find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty())) } else { None };
+    if token.is_some() {
+        curl.args(["-H", "@-"]).stdin(Stdio::piped());
     }
-    let output = curl.output().context("couldn't run curl (is it installed?)")?;
+    let mut child = curl.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().context("couldn't run curl (is it installed?)")?;
+    if let (Some(token), Some(mut stdin)) = (token, child.stdin.take()) {
+        writeln!(stdin, "Authorization: Bearer {token}").ok();
+    }
+    let output = child.wait_with_output().context("couldn't run curl (is it installed?)")?;
     if !output.status.success() {
-        if api {
-            anyhow::bail!("couldn't download {url} (GitHub may be rate limiting this address; set GITHUB_TOKEN or try again later)");
+        let why = String::from_utf8_lossy(&output.stderr);
+        // Only a 403 or 429 from the API says rate limiting; anything else says what happened.
+        if api && (why.contains("403") || why.contains("429")) {
+            anyhow::bail!("couldn't download {url} (GitHub is rate limiting this address; set GITHUB_TOKEN or try again later)");
         }
-        anyhow::bail!("couldn't download {url}");
+        anyhow::bail!("couldn't download {url} ({})", why.trim().lines().last().unwrap_or("no reason given"));
     }
     Ok(output.stdout)
 }
@@ -290,22 +321,56 @@ fn refuse_if_package_managed(exe: &std::path::Path) -> Result<()> {
 /// directory entry, so this is safe while `exe` is running.
 fn replace_running_binary(exe: &std::path::Path, bytes: &[u8]) -> Result<()> {
     let dir = exe.parent().context("the running binary has no parent directory")?;
-    let tmp = dir.join(".knav-update");
-    {
-        let mut file = std::fs::File::create(&tmp).with_context(|| format!("couldn't write to {} (try `sudo knav update`?)", dir.display()))?;
-        file.write_all(bytes)?;
+    // A name of its own, created new, so it can't follow a planted link or clash with another update.
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    let tmp = dir.join(format!(".knav-update-{}-{nanos}", std::process::id()));
+    let written = (|| -> Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o755);
         }
+        let mut file = options.open(&tmp).with_context(|| format!("couldn't write to {} (try `sudo knav update`?)", dir.display()))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    let replaced = written.and_then(|()| std::fs::rename(&tmp, exe).with_context(|| format!("couldn't replace {}", exe.display())));
+    if replaced.is_err() {
+        std::fs::remove_file(&tmp).ok();
     }
-    std::fs::rename(&tmp, exe).with_context(|| format!("couldn't replace {}", exe.display()))
+    replaced
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_compare_numerically_and_an_older_release_is_not_an_update() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_versions("0.2.0", "0.1.0"), Some(Greater));
+        assert_eq!(compare_versions("0.10.0", "0.9.0"), Some(Greater));
+        assert_eq!(compare_versions("0.2.0", "0.3.0"), Some(Less));
+        assert_eq!(compare_versions("1.2", "1.2.0"), Some(Equal));
+        assert_eq!(compare_versions("0.2.0-rc1", "0.2.0"), Some(Equal));
+        assert_eq!(compare_versions("nightly", "0.2.0"), None);
+    }
+
+    #[test]
+    fn the_new_binary_goes_in_beside_the_old_one_and_leaves_nothing_behind() {
+        let dir = std::env::temp_dir().join(format!("knav-update-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("knav");
+        std::fs::write(&exe, b"old").unwrap();
+        replace_running_binary(&exe, b"new").unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left.len(), 1, "{left:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn the_tag_is_read_from_the_releases_api_shape() {

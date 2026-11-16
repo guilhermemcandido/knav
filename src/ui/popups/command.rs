@@ -58,7 +58,12 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let ghost = suggestions.get(selected).and_then(|s| s.label.strip_prefix(input)).unwrap_or("");
+    // The rest of the highlighted name after the word being typed, whatever its case, and none
+    // while that word is a filter or a space was just typed.
+    let typed = input.rsplit(' ').next().filter(|word| !word.is_empty() && !word.contains(':')).map(str::to_lowercase);
+    let ghost = typed
+        .and_then(|typed| suggestions.get(selected).and_then(|s| if s.label.to_lowercase().starts_with(&typed) { s.label.get(typed.len()..).map(str::to_string) } else { None }))
+        .unwrap_or_default();
     let mut spans = vec![Span::styled("> ", line_style)];
     spans.extend(input_spans(input));
     spans.push(Span::styled("▏", line_style));
@@ -154,7 +159,11 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
             }
             let mut tag_style = Style::default().fg(color(*role));
             if chosen {
-                tag_style = tag_style.bg(theme().select_bg);
+                // On the selection's own colours, since the roles' colours can match it.
+                tag_style = Style::default().fg(crate::theme::on(theme().select_bg)).bg(theme().select_bg);
+                if *role == TagRole::Description {
+                    tag_style = tag_style.add_modifier(Modifier::DIM);
+                }
             } else if suggestion.header {
                 tag_style = tag_style.bg(theme().pill_bg);
             }

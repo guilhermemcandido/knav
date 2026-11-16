@@ -202,7 +202,7 @@ pub fn start(request: &ForwardRequest) -> Result<Forward> {
     let ForwardRequest { context, namespace, resource, address, local, remote } = request;
     let (context, namespace, resource, address, local, remote) = (context.as_str(), namespace.as_str(), resource.as_str(), address.as_str(), *local, *remote);
     let mut child = Command::new("kubectl")
-        .args(["--context", context, "-n", namespace, "port-forward", "--address", address, resource, &format!("{local}:{remote}")])
+        .args(["--context", context, "-n", namespace, "port-forward", &format!("--address={address}"), resource, &format!("{local}:{remote}")])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

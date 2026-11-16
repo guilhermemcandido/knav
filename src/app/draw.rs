@@ -85,7 +85,7 @@ pub(super) fn draw_mode(
                             {
                                 tags.insert(0, (text, ui::TagRole::Description));
                             }
-                            ui::SuggestionView { icon: s.icon(crds), tags, depth: s.depth, header: s.depth == 0 && (s.built_in || matches!(s.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_)))), last: s.last, label: s.label }
+                            ui::SuggestionView { icon: s.icon(crds), tags, depth: s.depth, header: s.is_header(), last: s.last, label: s.label }
                         })
                         .collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));

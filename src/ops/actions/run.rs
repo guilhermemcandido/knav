@@ -179,14 +179,21 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
     }
 }
 
+/// `<cronjob>-manual-<stamp>` in at most 63 characters. It is the CronJob's name that gives way,
+/// never the stamp, so two triggers of a long-named CronJob don't collide.
+fn manual_job_name(cronjob: &str, stamp: i64) -> String {
+    let suffix = format!("-manual-{stamp:x}");
+    let room = 63usize.saturating_sub(suffix.len());
+    format!("{}{suffix}", cronjob.chars().take(room).collect::<String>())
+}
+
 /// The Job a CronJob would create, owned by it and named `<cronjob>-manual-<n>`,
 /// like `kubectl create job --from=cronjob/...`.
 pub(super) fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json::Value> {
     let cronjob = serde_json::to_value(&target.manifest)?;
     let template = cronjob.pointer("/spec/jobTemplate").context("the CronJob has no jobTemplate")?;
     let uid = cronjob.pointer("/metadata/uid").cloned().unwrap_or_default();
-    let mut name = format!("{}-manual-{stamp:x}", target.name);
-    name.truncate(63);
+    let name = manual_job_name(&target.name, stamp);
     let mut annotations = template.pointer("/metadata/annotations").cloned().unwrap_or_else(|| json!({}));
     annotations["cronjob.kubernetes.io/instantiate"] = json!("manual");
     Ok(json!({
@@ -205,3 +212,17 @@ pub(super) fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json
     }))
 }
 
+#[cfg(test)]
+mod job_name_tests {
+    use super::manual_job_name;
+
+    #[test]
+    fn a_long_cronjob_name_gives_way_not_the_stamp() {
+        let long = "a".repeat(60);
+        let (first, second) = (manual_job_name(&long, 0x1111), manual_job_name(&long, 0x2222));
+        assert!(first.len() <= 63 && second.len() <= 63);
+        assert_ne!(first, second);
+        assert!(first.ends_with("-manual-1111"));
+        assert_eq!(manual_job_name("nightly", 0xab), "nightly-manual-ab");
+    }
+}

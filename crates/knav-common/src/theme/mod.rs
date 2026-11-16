@@ -292,9 +292,20 @@ pub fn themes_dir() -> std::path::PathBuf {
 /// A theme file: an optional `base` (a built-in or user theme to start
 /// from), then colour roles either at the top or under `[colors]`.
 pub fn theme_from_toml(text: &str, dir: &std::path::Path) -> Option<Theme> {
+    theme_from_toml_at(text, dir, 0)
+}
+
+/// How many `base` themes may lead into one another, so a theme naming itself (or two naming
+/// each other) is refused instead of looping until the stack runs out.
+const MAX_BASE_DEPTH: u8 = 8;
+
+fn theme_from_toml_at(text: &str, dir: &std::path::Path, depth: u8) -> Option<Theme> {
+    if depth > MAX_BASE_DEPTH {
+        return None;
+    }
     let table: toml::Table = text.parse().ok()?;
     let mut theme = match table.get("base").and_then(|b| b.as_str()) {
-        Some(base) => builtin(base).or_else(|| user_theme_in(dir, base))?,
+        Some(base) => builtin(base).or_else(|| user_theme_at(dir, base, depth + 1))?,
         None => Theme::default(),
     };
     let colors = table.get("colors").and_then(|c| c.as_table()).unwrap_or(&table);
@@ -307,12 +318,16 @@ pub fn theme_from_toml(text: &str, dir: &std::path::Path) -> Option<Theme> {
 }
 
 pub fn user_theme_in(dir: &std::path::Path, name: &str) -> Option<Theme> {
+    user_theme_at(dir, name, 0)
+}
+
+fn user_theme_at(dir: &std::path::Path, name: &str, depth: u8) -> Option<Theme> {
     // A name is a file name, nothing else.
     if name.is_empty() || name.contains(['/', '\\', '.']) {
         return None;
     }
     let text = std::fs::read_to_string(dir.join(format!("{name}.toml"))).ok()?;
-    theme_from_toml(&text, dir)
+    theme_from_toml_at(&text, dir, depth)
 }
 
 pub fn user_theme(name: &str) -> Option<Theme> {
@@ -524,5 +539,22 @@ mod tests {
         let (fallback, ignored) = build("nope", &BTreeMap::new());
         assert_eq!(fallback, Theme::default());
         assert_eq!(ignored.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod base_cycle_tests {
+    use super::*;
+
+    #[test]
+    fn a_theme_that_names_itself_as_its_base_is_refused() {
+        let dir = std::env::temp_dir().join(format!("knav-theme-cycle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mine.toml"), "base = \"mine\"\n").unwrap();
+        std::fs::write(dir.join("a.toml"), "base = \"b\"\n").unwrap();
+        std::fs::write(dir.join("b.toml"), "base = \"a\"\n").unwrap();
+        assert!(user_theme_in(&dir, "mine").is_none());
+        assert!(user_theme_in(&dir, "a").is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
