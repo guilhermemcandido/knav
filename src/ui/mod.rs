@@ -406,6 +406,8 @@ pub enum TagRole {
     GroupRow,
     /// The extension that provides the row.
     Extension,
+    /// What a row of knav's own is: a view, a command or a dashboard.
+    Knav,
     /// A built-in API group's header.
     Native,
     /// A resource's kind, as the API names it.

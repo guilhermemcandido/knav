@@ -131,6 +131,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
         let color = |role: TagRole| match role {
             TagRole::GroupRow => theme().warm,
             TagRole::Native => theme().heading,
+            TagRole::Knav => theme().label,
             TagRole::Extension => theme().accent,
             TagRole::Kind => theme().text_soft,
             TagRole::Description => theme().muted,

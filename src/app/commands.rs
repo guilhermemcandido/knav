@@ -435,6 +435,18 @@ impl Suggestion {
     /// what the API calls it, and extensions say they provide the row.
     pub(crate) fn tags(&self) -> Vec<(String, ui::TagRole)> {
         let mut tags = Vec::new();
+        // A row of knav's own says what sort it is: none of these is a Kubernetes API resource.
+        let own = match self.cmd {
+            Cmd::Context | Cmd::Theme | Cmd::Settings | Cmd::Quit => Some("Command"),
+            Cmd::Custom(_) => Some("Your command"),
+            Cmd::Events | Cmd::Problems => Some("View"),
+            Cmd::Kind(ResourceKind::Overview | ResourceKind::PortForwards | ResourceKind::ApiResources | ResourceKind::CustomResourceList | ResourceKind::HelmReleases) => Some("View"),
+            Cmd::Kind(ResourceKind::ExtensionDashboard(_)) => Some("Dashboard"),
+            _ => None,
+        };
+        if let Some(own) = own.filter(|_| self.depth == 0 && !self.is_header()) {
+            tags.push((own.to_string(), ui::TagRole::Knav));
+        }
         match self.cmd {
             Cmd::Kind(ResourceKind::CustomResourceGroup(_)) if self.depth == 0 => tags.push(("API group".to_string(), ui::TagRole::GroupRow)),
             _ if self.built_in && self.depth == 0 => tags.push(("Built-in".to_string(), ui::TagRole::Native)),
@@ -837,7 +849,7 @@ mod tests {
         let found = command_suggestions("helmreleases", &crds, &[], &[], &registry.loaded, &[]);
         let native = found.iter().find(|s| matches!(s.cmd, Cmd::Kind(ResourceKind::HelmReleases))).expect("the built-in row");
         assert_eq!((native.depth, native.label.as_str()), (0, "helmreleases"));
-        assert_eq!(native.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Helm · installed releases"]);
+        assert_eq!(native.tags().iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["View", "Helm · installed releases"]);
         // Flux's is a kind under its own group, and Tab completes it to the unambiguous name.
         let flux = found.iter().find(|s| matches!(s.cmd, Cmd::Crd(0))).expect("the Flux kind");
         assert_eq!((flux.depth, flux.label.as_str(), flux.primary.as_str()), (1, "helmreleases", "helmreleases.helm.toolkit.fluxcd.io"));
@@ -987,5 +999,23 @@ mod tests {
         assert!(command_suggestions("is:c", &crds, &apis, &[], &[], &[]).iter().any(|s| matches!(s.cmd, Cmd::Crd(_))));
         assert!(!command_suggestions("is:b", &crds, &apis, &[], &[], &[]).iter().any(|s| matches!(s.cmd, Cmd::Crd(_))));
         assert!(command_suggestions("is:foo", &crds, &apis, &[], &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn rows_of_knavs_own_say_what_sort_they_are() {
+        let registry = crate::extensions::Registry::load(std::path::Path::new("/nonexistent"));
+        let categories = extensions::dashboards::categories(&registry);
+        let tag = |input: &str| -> Vec<String> {
+            let found = command_suggestions(input, &[], &[], &categories, &registry.loaded, &["describe".to_string()]);
+            found.iter().find(|s| s.depth == 0).map(|s| s.tags().into_iter().map(|(t, _)| t).collect()).unwrap_or_default()
+        };
+        assert_eq!(tag("portforwards"), ["View"]);
+        assert_eq!(tag("overview"), ["View"]);
+        assert_eq!(tag("quit"), ["Command"]);
+        assert_eq!(tag("theme"), ["Command"]);
+        assert_eq!(tag("problems"), ["View"]);
+        assert_eq!(tag("describe"), ["Your command"]);
+        let gitops = tag("gitops");
+        assert_eq!(gitops.first().map(String::as_str), Some("Dashboard"), "{gitops:?}");
     }
 }
