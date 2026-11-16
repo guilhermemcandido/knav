@@ -35,8 +35,7 @@ pub(crate) enum Mode {
     List,
     /// The `:` command line. `:q` exits, `:pods` and the like switch the view, Esc returns
     /// to `back`.
-    /// `groups` also matches what is typed against API group names (Ctrl-g, or a dot).
-    Command { input: String, selected: usize, groups: bool, back: Box<Mode> },
+    Command { input: String, selected: usize, back: Box<Mode> },
     /// The `/` filter. It edits the persistent `search`, so it stays applied afterwards.
     Search,
     /// The context browser (`C`). Enter checks the context is reachable, then hands back

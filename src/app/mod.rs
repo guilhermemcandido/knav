@@ -314,9 +314,9 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         };
         // While a `:` command is typed, the descriptions of the kinds it lists are fetched
         // ahead, so they are there by the time the typing pauses.
-        if let Mode::Command { input, groups, .. } = &st.mode {
+        if let Mode::Command { input, .. } = &st.mode {
             let names: Vec<String> = st.config.commands.iter().map(|c| c.name.clone()).collect();
-            let shown = commands::command_suggestions_in(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &registry.loaded, &names, *groups);
+            let shown = commands::command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &registry.loaded, &names);
             let kinds: Vec<usize> = shown.iter().filter_map(|s| if let commands::Cmd::Crd(i) = s.cmd { Some(i) } else { None }).collect();
             catalog.describe(&kinds);
         }

@@ -94,7 +94,7 @@ Press `?` anywhere for the keys on that screen. The essentials:
 
 | Key | Does |
 | --- | --- |
-| `:pods` | open any resource (`:svc`, a custom resource, ...) |
+| `:pods` | open any resource (`:svc`, a custom resource, ...). Narrow it with filters that stack, like a GitHub search: `:agents group:kagent`, `ext:flux`, `is:custom` or `is:builtin` |
 | `/` | search the list |
 | `Enter` | drill in, from a Deployment down to a container's logs |
 | `i` / `R` | info panel / related objects |

@@ -71,10 +71,10 @@ pub(super) fn draw_mode(
                     paint(frame, hovered, None, None, false);
                 })?;
             }
-            Mode::Command { input, selected, groups, .. } => {
+            Mode::Command { input, selected, .. } => {
                 terminal.draw(|frame| {
                     frame_area = frame.area();
-                    let found = command_suggestions_in(input, crds, apis, dashboard_categories, extensions, &config.commands.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), *groups);
+                    let found = command_suggestions(input, crds, apis, dashboard_categories, extensions, &config.commands.iter().map(|c| c.name.clone()).collect::<Vec<_>>());
                     let suggestions: Vec<ui::SuggestionView> = found
                         .into_iter()
                         .map(|s| {
@@ -85,11 +85,11 @@ pub(super) fn draw_mode(
                             {
                                 tags.insert(0, (text, ui::TagRole::Description));
                             }
-                            ui::SuggestionView { icon: s.icon(crds), tags, depth: s.depth, label: s.label }
+                            ui::SuggestionView { icon: s.icon(crds), tags, depth: s.depth, header: s.depth == 0 && (s.built_in || matches!(s.cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_)))), last: s.last, label: s.label }
                         })
                         .collect();
                     let selected = (*selected).min(suggestions.len().saturating_sub(1));
-                    let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected, groups: commands::matches_groups(input, *groups) };
+                    let overlay = ui::Overlay::Command { input, suggestions: &suggestions, selected };
                     paint(frame, hovered, None, Some(overlay), false);
                 })?;
             }

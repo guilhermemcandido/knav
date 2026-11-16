@@ -9,20 +9,41 @@ const SUGGESTION_HEIGHT: u16 = 1;
 /// The icon's cells: as wide as a square one row tall needs, plus a gap.
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 2, height: SUGGESTION_HEIGHT };
 
-/// What the command line shows above its suggestions.
-pub struct CommandLine<'a> {
-    pub input: &'a str,
-    /// Whether what is typed also matches API group names.
-    pub groups: bool,
-}
-
 /// The least room a description is worth drawing in, in cells.
 const MIN_DESCRIPTION: usize = 12;
 
+/// The colour of a `key:value` filter word, or `None` for ordinary text. A filter with nothing
+/// after the colon yet is dimmed: it is still being typed.
+fn chip_color(word: &str) -> Option<Color> {
+    let (key, value) = word.split_once(':')?;
+    let color = match key.to_lowercase().as_str() {
+        "group" | "g" => theme().warm,
+        "ext" | "e" => theme().accent,
+        "is" => theme().heading,
+        _ => return None,
+    };
+    Some(if value.is_empty() { theme().muted } else { color })
+}
+
+/// The typed input, with each filter word drawn as a coloured chip.
+fn input_spans(input: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for token in input.split_inclusive(' ') {
+        let word = token.trim_end_matches(' ');
+        match chip_color(word) {
+            Some(bg) => {
+                spans.push(Span::styled(format!(" {word} "), Style::default().bg(bg).fg(crate::theme::on(bg)).add_modifier(Modifier::BOLD)));
+                spans.push(Span::raw(token[word.len()..].to_string()));
+            }
+            None => spans.push(Span::styled(token.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD))),
+        }
+    }
+    spans
+}
+
 /// The `:` command line: the input on top and the live suggestions under it, each with
 /// its icon. The best match's remaining letters show dimmed after the cursor.
-pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: CommandLine, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
-    let CommandLine { input, groups } = line;
+pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str, suggestions: &[SuggestionView], selected: usize, icons: &mut IconCache) {
     let width = bar.width;
     // Without icons each suggestion is a single row.
     let row_h = if icons.enabled() { SUGGESTION_HEIGHT } else { 1 };
@@ -38,18 +59,12 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: Comma
     frame.render_widget(block, area);
 
     let ghost = suggestions.get(selected).and_then(|s| s.label.strip_prefix(input)).unwrap_or("");
-    let line = Line::from(vec![
-        Span::styled("> ", line_style),
-        Span::styled(input.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)),
-        Span::styled("▏", line_style),
-        Span::styled(ghost.to_string(), Style::default().fg(theme().muted)),
-    ]);
+    let mut spans = vec![Span::styled("> ", line_style)];
+    spans.extend(input_spans(input));
+    spans.push(Span::styled("▏", line_style));
+    spans.push(Span::styled(ghost.to_string(), Style::default().fg(theme().muted)));
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
-    // Whether API groups are matched too, at the right end of the input line.
-    let note = if groups { Span::styled("API groups included · Ctrl-g", Style::default().fg(theme().accent)) } else { Span::styled("types only · Ctrl-g includes API groups", Style::default().fg(theme().muted)) };
-    if inner.width as usize > cell_width(&note.content) + cell_width(input) + 12 {
-        frame.render_widget(Paragraph::new(note).right_aligned(), Rect { height: 1, width: inner.width.saturating_sub(1), ..inner });
-    }
     if shown == 0 {
         return;
     }
@@ -70,8 +85,26 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: Comma
         let chosen = n == selected;
         // A kind sits in from its API group's header, so the groups read as a tree.
         let indent = u16::from(suggestion.depth) * 3;
-        let style = if chosen { Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme().row) };
+        // A group's header is a coloured band, so where one group ends and the next starts is plain.
+        let header_color = suggestion.tags.iter().find_map(|t| match t.1 {
+            TagRole::GroupRow => Some(theme().warm),
+            TagRole::Native => Some(theme().heading),
+            _ => None,
+        });
+        let style = if chosen {
+            Style::default().bg(theme().select_bg).fg(crate::theme::on(theme().select_bg)).add_modifier(Modifier::BOLD)
+        } else if suggestion.header {
+            Style::default().bg(theme().pill_bg).fg(header_color.unwrap_or(theme().row)).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme().row)
+        };
         frame.render_widget(Block::default().style(style), row);
+        // A tree connector leads from the header to each of its kinds.
+        if suggestion.depth > 0 {
+            let connector = if suggestion.last { "└─" } else { "├─" };
+            let connector_style = if chosen { style.remove_modifier(Modifier::BOLD) } else { Style::default().fg(theme().muted) };
+            frame.render_widget(Paragraph::new(Span::styled(connector, connector_style)), Rect { x: row.x + 1, y: row.y, width: 2, height: 1 });
+        }
         let text_x = if icons.enabled() {
             let icon_area = Rect { x: row.x + 1 + indent, y: row.y, ..SUGGESTION_ICON };
             // Icons a little inside their square, so they don't crowd the row.
@@ -122,6 +155,8 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: Comma
             let mut tag_style = Style::default().fg(color(*role));
             if chosen {
                 tag_style = tag_style.bg(theme().select_bg);
+            } else if suggestion.header {
+                tag_style = tag_style.bg(theme().pill_bg);
             }
             spans.push(Span::styled(label.clone(), tag_style));
         }
@@ -136,9 +171,9 @@ mod tests {
     fn rows(show_icons: bool) -> Vec<String> {
         let mut icons = IconCache::halfblocks();
         icons.set_enabled(show_icons);
-        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new(), depth: 0 }).collect();
+        let suggestions: Vec<SuggestionView> = ["pods", "deployments", "nodes"].iter().map(|l| SuggestionView { label: l.to_string(), icon: SuggestionIcon::Named("home"), tags: Vec::new(), depth: 0, header: false, last: false }).collect();
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 20)).unwrap();
-        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, CommandLine { input: "", groups: false }, &suggestions, 0, &mut icons)).unwrap();
+        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width: 40, height: 3 }, "", &suggestions, 0, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();
         (0..20).map(|y| (0..40).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect()
     }
@@ -162,16 +197,18 @@ mod tests {
         let mut icons = IconCache::halfblocks();
         icons.set_enabled(false);
         let suggestions = vec![
-            SuggestionView { label: "kagent.dev".into(), icon: SuggestionIcon::Named("home"), tags: vec![("API group · 2 kinds".into(), TagRole::GroupRow)], depth: 0 },
+            SuggestionView { label: "kagent.dev".into(), icon: SuggestionIcon::Named("home"), tags: vec![("API group".into(), TagRole::GroupRow)], depth: 0, header: true, last: false },
             SuggestionView {
                 label: "agents".into(),
                 icon: SuggestionIcon::Named("home"),
                 tags: vec![(description.into(), TagRole::Description), ("Agent".into(), TagRole::Kind)],
                 depth: 1,
+                header: false,
+                last: true,
             },
         ];
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 12)).unwrap();
-        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width, height: 3 }, CommandLine { input: "ag", groups: false }, &suggestions, 1, &mut icons)).unwrap();
+        terminal.draw(|frame| draw_command_line(frame, Rect { x: 0, y: 0, width, height: 3 }, "ag", &suggestions, 1, &mut icons)).unwrap();
         let buffer = terminal.backend().buffer();
         (0..12).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect()
     }
@@ -180,9 +217,9 @@ mod tests {
     fn a_kind_sits_in_from_its_group_and_a_description_takes_only_the_room_left() {
         let long = "An Agent declares an LLM-backed agent that can call tools and talk to other agents";
         let wide = tree(70, long);
-        assert!(wide[3].contains("kagent.dev") && wide[3].contains("API group · 2 kinds"), "{wide:#?}");
+        assert!(wide[3].contains("kagent.dev") && wide[3].contains("API group"), "{wide:#?}");
         // One row each: the box is as tall with a description as without.
-        assert!(wide[4].contains("   agents") && wide[4].contains("Agent"), "{wide:#?}");
+        assert!(wide[4].contains("└─ agents") && wide[4].contains("Agent"), "{wide:#?}");
         assert!(wide[4].contains('…') && wide[5].starts_with('╰'), "{wide:#?}");
         assert_eq!(tree(70, "").len(), wide.len());
         assert_eq!(tree(70, "").iter().position(|r| r.starts_with('╰')), wide.iter().position(|r| r.starts_with('╰')));

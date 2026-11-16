@@ -467,7 +467,7 @@ fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<boo
         // The current mode becomes `back`, so Esc returns to where `:` was pressed.
         KeyCode::Char(':') => {
             let back = Box::new(std::mem::replace(&mut st.mode, Mode::List));
-            st.mode = Mode::Command { input: String::new(), selected: 0, groups: false, back };
+            st.mode = Mode::Command { input: String::new(), selected: 0, back };
         }
         KeyCode::Char('C') => open_context_switcher(&mut st.mode, active_context),
         KeyCode::Char('E') => extensions::open(st),

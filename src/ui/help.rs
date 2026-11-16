@@ -81,7 +81,7 @@ pub(super) fn help_sections(hints: &[(&str, &str)], slots: &[Option<String>]) ->
         Section {
             title: "GENERAL",
             entries: vec![
-                shown(":", "command", "Command mode"),
+                shown(":", "command", "Command mode (filters: group:  ext:  is:custom)"),
                 shown("/", "search", "Filter"),
                 shown("s", "sort", "Sort by column"),
                 shown("A", "sort_age", "Sort by age"),

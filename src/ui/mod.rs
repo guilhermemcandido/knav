@@ -164,7 +164,7 @@ pub enum Overlay<'a> {
     Logs(LogsView<'a>),
     NodeDetail(NodeDetailView<'a>),
     /// The `:` command line with its sorted suggestions. Unlike `Search` it dims the page.
-    Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize, groups: bool },
+    Command { input: &'a str, suggestions: &'a [SuggestionView], selected: usize },
     Context(ContextView<'a>),
     Events(EventsView<'a>),
     /// One event in full, since the browser clips long messages.
@@ -393,6 +393,10 @@ pub struct SuggestionView {
     pub tags: Vec<(String, TagRole)>,
     /// 0 for a row of its own, 1 for a kind listed under its API group.
     pub depth: u8,
+    /// An API group's header, drawn as a band.
+    pub header: bool,
+    /// The last row under its header, drawn with a closing connector.
+    pub last: bool,
 }
 
 /// What a tag on a `:` suggestion says, so each kind of thing has its own colour.
@@ -657,10 +661,10 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
         frame.buffer_mut().set_style(full, Style::default().add_modifier(Modifier::DIM));
     }
     match overlay {
-        Some(Overlay::Command { input, suggestions, selected, groups }) => {
+        Some(Overlay::Command { input, suggestions, selected }) => {
             // Under the header, or over the top of the list on a short screen.
             let bar = command_bar.unwrap_or(Rect { height: COMMAND_BAR_HEIGHT.min(body.height), ..body });
-            draw_command_line(frame, bar, CommandLine { input, groups }, suggestions, selected, icons);
+            draw_command_line(frame, bar, input, suggestions, selected, icons);
         }
         Some(overlay) => draw_overlay(frame, overlay, false, icons),
         None => {}
