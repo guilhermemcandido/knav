@@ -18,7 +18,12 @@ struct State {
     /// `plural.group` to its description; `None` when the CRD has none or the fetch failed.
     done: HashMap<String, Option<String>>,
     pending: HashSet<String>,
+    /// Fetches that failed (not "no such CRD"), tried again once `RETRY_AFTER` has passed.
+    failed: HashMap<String, std::time::Instant>,
 }
+
+/// How long a failed fetch waits before another try, so a flaky link isn't hammered.
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Clone, Default)]
 pub struct Descriptions {
@@ -36,19 +41,30 @@ impl Descriptions {
         let Ok(mut state) = self.state.lock() else { return };
         for (group, plural) in wanted {
             let name = format!("{plural}.{group}");
-            if state.done.contains_key(&name) || !state.pending.insert(name.clone()) {
+            if state.done.contains_key(&name) || state.failed.get(&name).is_some_and(|at| at.elapsed() < RETRY_AFTER) || !state.pending.insert(name.clone()) {
                 continue;
             }
             let (client, shared) = (client.clone(), Arc::clone(&self.state));
             tokio::spawn(async move {
-                let found = {
+                let fetched = {
                     let _slot = FETCHES.acquire().await;
                     let api: Api<CustomResourceDefinition> = Api::all(client);
-                    api.get(&name).await.ok().and_then(|crd| describe(&crd))
+                    api.get(&name).await
                 };
                 if let Ok(mut state) = shared.lock() {
                     state.pending.remove(&name);
-                    state.done.insert(name, found);
+                    match fetched {
+                        Ok(crd) => {
+                            state.done.insert(name, describe(&crd));
+                        }
+                        // No such CRD is an answer; anything else may pass, so it is tried again later.
+                        Err(kube::Error::Api(status)) if status.code == 404 => {
+                            state.done.insert(name, None);
+                        }
+                        Err(_) => {
+                            state.failed.insert(name, std::time::Instant::now());
+                        }
+                    }
                 }
                 crate::note_change();
             });

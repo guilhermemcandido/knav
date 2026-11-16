@@ -48,6 +48,7 @@ impl State {
         self.search = snap.search;
         self.sort = snap.sort;
         self.hscroll = snap.hscroll;
+        self.sort_choosing = false;
         self.table_state.select(Some(snap.selected));
     }
 }
@@ -288,6 +289,8 @@ impl State {
         self.scope = view.scope;
         self.back_stack.clear();
         self.sort = None;
+        // A new list never opens already choosing a sort column.
+        self.sort_choosing = false;
         self.hscroll = 0;
         self.table_state.select(Some(0));
         self.search.clear();
@@ -327,6 +330,8 @@ impl State {
         self.back_stack.push(Step::List(self.list_snapshot()));
         self.current_kind = kind;
         self.sort = None;
+        // A new list never opens already choosing a sort column.
+        self.sort_choosing = false;
         self.hscroll = 0;
         self.table_state.select(Some(0));
         self.search.clear();
@@ -340,6 +345,8 @@ impl State {
         self.scope = None;
         self.back_stack.clear();
         self.sort = None;
+        // A new list never opens already choosing a sort column.
+        self.sort_choosing = false;
         self.hscroll = 0;
         self.table_state.select(Some(0));
         self.search.clear();
@@ -416,6 +423,17 @@ mod tests {
         st.namespace = Some("kube-system".into());
         st.switch_kind(ResourceKind::Pods);
         assert_eq!(st.namespace.as_deref(), Some("kube-system"));
+    }
+
+    #[test]
+    fn a_new_list_never_opens_already_choosing_a_sort_column() {
+        let mut st = state();
+        st.sort_choosing = true;
+        st.switch_kind(ResourceKind::Deployments);
+        assert!(!st.sort_choosing);
+        st.sort_choosing = true;
+        st.jump_to_object(ResourceKind::Pods, Some("web"), "web-1");
+        assert!(!st.sort_choosing);
     }
 }
 

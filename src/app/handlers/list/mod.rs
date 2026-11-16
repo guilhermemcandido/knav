@@ -126,6 +126,8 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             // left behind. With nothing left, the Overview; pickers push their own step, so
             // an empty stack means this kind was opened directly. `:q` quits.
             KeyCode::Esc if !st.marked.is_empty() => st.marked.clear(),
+            // A filter is the innermost thing to undo, so Esc clears it before leaving the list.
+            KeyCode::Esc if !st.search.is_empty() => st.search.clear(),
             KeyCode::Char('q') | KeyCode::Esc if !st.back_stack.is_empty() => match st.back_stack.pop() {
                 Some(Step::List(snap)) => st.restore_list(snap),
                 Some(Step::Mode(mode, snap)) => {

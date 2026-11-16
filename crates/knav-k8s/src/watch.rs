@@ -18,6 +18,42 @@ use tokio::task::JoinHandle;
 /// Bumped on every change any watch sees, so the UI can tell when to recompute.
 static CHANGES: AtomicU64 = AtomicU64::new(0);
 
+/// The newest watch error nobody has been told about, and what was last reported (with when),
+/// so a forbidden or unreachable list says so instead of sitting on "loading".
+static WATCH_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static REPORTED: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+
+/// How long an error already shown stays quiet before it may be shown again.
+const REPEAT_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Notes that the watch of `kind` failed. A 401 or 403 is named plainly; anything else gives its
+/// first line.
+fn note_watch_error(kind: &str, error: &dyn std::fmt::Display) {
+    let text = error.to_string();
+    let first = text.lines().next().unwrap_or("").trim();
+    let why = if first.contains("403") || first.to_lowercase().contains("forbidden") {
+        "access denied (forbidden)".to_string()
+    } else if first.contains("401") || first.to_lowercase().contains("unauthorized") {
+        "not authorised (check your credentials)".to_string()
+    } else {
+        first.chars().take(110).collect()
+    };
+    if let Ok(mut slot) = WATCH_ERROR.lock() {
+        *slot = Some(format!("{}: {why}", kind.to_lowercase()));
+    }
+}
+
+/// A watch error to show, once: the same one is not repeated for a minute.
+pub fn take_watch_error() -> Option<String> {
+    let message = WATCH_ERROR.lock().ok()?.take()?;
+    let mut reported = REPORTED.lock().ok()?;
+    if reported.as_ref().is_some_and(|(last, at)| *last == message && at.elapsed() < REPEAT_AFTER) {
+        return None;
+    }
+    *reported = Some((message.clone(), std::time::Instant::now()));
+    Some(message)
+}
+
 /// Tells the UI something changed that no reflector reported (a table kind's watch).
 pub fn note_change() {
     CHANGES.fetch_add(1, Ordering::Relaxed);
@@ -104,8 +140,13 @@ pub fn watch_store_after(client: Client, after: impl std::future::Future<Output 
         after.await;
         let stream = watcher(api, first_list()).default_backoff().modify(|object| slim(object.meta_mut())).modify(|event: &mut Event| keep_event_fields(event)).reflect(writer);
         let mut stream = stream.applied_objects().boxed();
-        while stream.next().await.is_some() {
-            CHANGES.fetch_add(1, Ordering::Relaxed);
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(_) => {
+                    CHANGES.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => note_watch_error("events", &e),
+            }
         }
     });
     (reader, handle)
@@ -122,8 +163,13 @@ where
     let stream = watcher(api, first_list().fields(field_selector)).default_backoff().reflect(writer);
     let handle = tokio::spawn(async move {
         let mut stream = stream.applied_objects().boxed();
-        while stream.next().await.is_some() {
-            CHANGES.fetch_add(1, Ordering::Relaxed);
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(_) => {
+                    CHANGES.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => note_watch_error(&K::kind(&()), &e),
+            }
         }
     });
     (reader, handle)
@@ -160,8 +206,13 @@ where
     });
     let handle = tokio::spawn(async move {
         let mut stream = stream.applied_objects().boxed();
-        while stream.next().await.is_some() {
-            CHANGES.fetch_add(1, Ordering::Relaxed);
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(_) => {
+                    CHANGES.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => note_watch_error(&K::kind(&()), &e),
+            }
         }
     });
     (reader, feed, handle)
@@ -233,5 +284,22 @@ mod streaming_probe {
     async fn the_current_cluster_says_whether_it_streams() {
         let client = kube::Client::try_default().await.unwrap();
         println!("streams lists: {}", super::streams(&client).await);
+    }
+}
+
+#[cfg(test)]
+mod watch_error_tests {
+    use super::*;
+
+    #[test]
+    fn a_watch_error_is_named_plainly_and_shown_once() {
+        // Both cases in one test: the error slot is shared by the whole process.
+        note_watch_error("Pod", &"ApiError: pods is forbidden: User cannot list resource (403)");
+        assert_eq!(take_watch_error().as_deref(), Some("pod: access denied (forbidden)"));
+        assert_eq!(take_watch_error(), None, "taken, so nothing is left");
+        note_watch_error("Pod", &"ApiError: pods is forbidden: User cannot list resource (403)");
+        assert_eq!(take_watch_error(), None, "the same error is not repeated within a minute");
+        note_watch_error("Node", &"connection refused");
+        assert_eq!(take_watch_error().as_deref(), Some("node: connection refused"));
     }
 }

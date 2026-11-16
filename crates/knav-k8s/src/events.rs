@@ -83,7 +83,7 @@ pub fn node_warnings(node: &Node) -> Vec<EventEntry> {
             let age_secs = c
                 .last_transition_time
                 .as_ref()
-                .map(|t| k8s_openapi::jiff::Timestamp::now().as_second() - t.0.as_second())
+                .map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.0.as_second()).max(0))
                 .unwrap_or(0);
             Some(EventEntry {
                 message: c.message.unwrap_or_else(|| c.type_.clone()),
@@ -113,7 +113,7 @@ pub fn event_entry(event: &Event) -> EventEntry {
         .or(event.first_timestamp.as_ref().map(|t| t.0));
     let age = timestamp.map(humanize_age).unwrap_or_else(|| "-".into());
     let age_secs =
-        timestamp.map(|t| k8s_openapi::jiff::Timestamp::now().as_second() - t.as_second()).unwrap_or(0);
+        timestamp.map(|t| (k8s_openapi::jiff::Timestamp::now().as_second() - t.as_second()).max(0)).unwrap_or(0);
 
     EventEntry {
         message: event.message.clone().unwrap_or_default(),

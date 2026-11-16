@@ -312,6 +312,10 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             role: &st.role,
             read_only: st.read_only(),
         };
+        // A watch that can't list (forbidden, unreachable) says so once, instead of staying on loading.
+        if let Some(problem) = k8s::take_watch_error() {
+            ui::refuse(problem);
+        }
         // While a `:` command is typed, the descriptions of the kinds it lists are fetched
         // ahead, so they are there by the time the typing pauses.
         if let Mode::Command { input, .. } = &st.mode {

@@ -1,4 +1,4 @@
-use futures::{AsyncBufReadExt, StreamExt};
+use futures::AsyncBufReadExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     Client,
@@ -195,7 +195,7 @@ pub fn row_for(pod: &Pod) -> PodRow {
     let images = pod.spec.as_ref().map(|s| s.containers.iter().filter_map(|c| c.image.clone()).collect::<Vec<_>>().join(",")).filter(|i| !i.is_empty()).unwrap_or_else(|| "-".into());
     let limit = |key: &str, parse: fn(&str) -> i64| -> Option<i64> {
         let specs = &pod.spec.as_ref()?.containers;
-        specs.iter().map(|c| c.resources.as_ref()?.limits.as_ref()?.get(key).map(|q| parse(&q.0))).sum::<Option<i64>>().filter(|_| !specs.is_empty())
+        specs.iter().map(|c| c.resources.as_ref()?.limits.as_ref()?.get(key).map(|q| parse(&q.0))).try_fold(0i64, |sum, limit| limit.map(|n| sum.saturating_add(n))).filter(|_| !specs.is_empty())
     };
     let cpu_limit = limit("cpu", crate::metrics::parse_cpu_millicores);
     let memory_limit = limit("memory", crate::metrics::parse_memory_bytes);
@@ -212,6 +212,9 @@ impl AgeRow for PodRow {
 }
 
 /// Streams one container's log. The caller aborts the handle when done;
+/// The lines asked for when a log opens: what the viewer keeps at most.
+const LOG_TAIL_LINES: i64 = 100_000;
+
 /// `previous` reads the last terminated run.
 pub fn stream_logs(client: Client, namespace: String, pod: String, container: String, previous: bool) -> (mpsc::UnboundedReceiver<String>, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
@@ -237,20 +240,31 @@ fn spawn_log_stream(client: Client, namespace: String, pod: String, container: S
             previous,
             // Timestamps come from the API server, not from when knav read the line.
             timestamps: true,
+            // Only as much as the view keeps, so a container with a huge log isn't downloaded whole.
+            tail_lines: Some(LOG_TAIL_LINES),
             ..Default::default()
         };
 
-        let mut lines = match api.log_stream(&pod, &lp).await {
-            Ok(stream) => stream.lines(),
+        let mut reader = match api.log_stream(&pod, &lp).await {
+            Ok(stream) => Box::pin(stream),
             Err(e) => {
                 let _ = tx.send(format!("[failed to start log stream: {e}]"));
                 return;
             }
         };
 
+        // Read a line at a time as bytes: one that isn't valid UTF-8 shows with replacement
+        // characters instead of ending the follow.
+        let mut buf = Vec::new();
         loop {
-            match lines.next().await {
-                Some(Ok(line)) => {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) => break, // stream ended (container exited)
+                Ok(_) => {
+                    while matches!(buf.last(), Some(b'\n' | b'\r')) {
+                        buf.pop();
+                    }
+                    let line = String::from_utf8_lossy(&buf).into_owned();
                     let line = match &tag {
                         Some(tag) => match line.split_once(' ') {
                             Some((ts, rest)) => format!("{ts} \u{200B}[{tag}] {rest}"),
@@ -262,11 +276,10 @@ fn spawn_log_stream(client: Client, namespace: String, pod: String, container: S
                         break; // receiver dropped, view was closed
                     }
                 }
-                Some(Err(e)) => {
+                Err(e) => {
                     let _ = tx.send(format!("[log stream error: {e}]"));
                     break;
                 }
-                None => break, // stream ended (container exited)
             }
         }
     })

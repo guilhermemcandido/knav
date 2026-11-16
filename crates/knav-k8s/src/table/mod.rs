@@ -82,7 +82,8 @@ pub struct TableKind {
     /// Full objects fetched for the info view and actions, cached.
     objects: Arc<Mutex<HashMap<(String, String), Fetched>>>,
     /// When every object was last listed in one request, and whether a listing is running.
-    listing: Arc<Mutex<(Option<std::time::Instant>, bool)>>,
+    /// When every object was last listed, whether a listing is running and whether the last one failed.
+    listing: Arc<Mutex<(Option<std::time::Instant>, bool, bool)>>,
     /// Objects being fetched for their state, so a redraw doesn't ask again.
     fetching: Arc<Mutex<std::collections::HashSet<(String, String)>>>,
     /// The namespace to fetch (`None` for all), and a nudge to refetch when it changes.
@@ -442,15 +443,20 @@ impl CatalogKind for TableKind {
         }
         if let Ok(mut listing) = self.listing.lock() {
             let age = listing.0.map(|at| at.elapsed());
-            let due = age.is_none_or(|age| age > LIST_AGAIN_AFTER || (missing > 0 && age > Duration::from_secs(2)));
+            // After a failure (no access, a dropped link) the next try waits longer instead of
+            // asking again every couple of seconds for ever.
+            let due = match listing.2 {
+                true => age.is_none_or(|age| age > FAILED_LIST_RETRY),
+                false => age.is_none_or(|age| age > LIST_AGAIN_AFTER || (missing > 0 && age > Duration::from_secs(2))),
+            };
             if due && !listing.1 && !keys.is_empty() {
                 listing.1 = true;
                 let (client, resource) = (self.client.clone(), self.resource.clone());
                 let (objects, state) = (Arc::clone(&self.objects), Arc::clone(&self.listing));
                 tokio::spawn(async move {
-                    list_all(client, &resource, &objects).await;
+                    let listed = list_all(client, &resource, &objects).await;
                     if let Ok(mut state) = state.lock() {
-                        *state = (Some(std::time::Instant::now()), false);
+                        *state = (Some(std::time::Instant::now()), false, !listed);
                     }
                     crate::note_change();
                 });
@@ -554,28 +560,38 @@ const STALE_AFTER: Duration = Duration::from_secs(5);
 /// How long a listing of every object is trusted, for the dashboards that read them all.
 const LIST_AGAIN_AFTER: Duration = Duration::from_secs(10);
 
-/// Lists every object of the kind, a page at a time, into the cache. A failed page ends
-/// the listing; what arrived stays.
-async fn list_all(client: Client, resource: &ApiResource, objects: &Mutex<HashMap<(String, String), Fetched>>) {
+/// How long a failed listing waits before the next try.
+const FAILED_LIST_RETRY: Duration = Duration::from_secs(30);
+
+/// Lists every object of the kind, a page at a time, into the cache. Whether every page was
+/// read comes back: a failed page ends the listing and what arrived stays. After a whole
+/// listing the cache forgets objects that no longer exist.
+async fn list_all(client: Client, resource: &ApiResource, objects: &Mutex<HashMap<(String, String), Fetched>>) -> bool {
     use kube::api::ListParams;
     let api: Api<DynamicObject> = Api::all_with(client, resource);
     let mut token: Option<String> = None;
+    let mut present: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     loop {
         let mut params = ListParams::default().limit(500);
         params.continue_token = token.take();
-        let Ok(page) = api.list(&params).await else { return };
+        let Ok(page) = api.list(&params).await else { return false };
         if let Ok(mut cache) = objects.lock() {
             let now = std::time::Instant::now();
             for object in &page.items {
                 let key = (object.metadata.namespace.clone().unwrap_or_else(|| "-".into()), object.metadata.name.clone().unwrap_or_default());
+                present.insert(key.clone());
                 cache.insert(key, (now, manifest_value(object)));
             }
         }
         match page.metadata.continue_.filter(|t| !t.is_empty()) {
             Some(next) => token = Some(next),
-            None => return,
+            None => break,
         }
     }
+    if let Ok(mut cache) = objects.lock() {
+        cache.retain(|key, _| present.contains(key));
+    }
+    true
 }
 
 async fn fetch_object(client: Client, resource: &ApiResource, namespaced: bool, namespace: &str, name: &str) -> Option<serde_yaml::Value> {
