@@ -280,6 +280,14 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             st.marked.clear();
             st.marked_kind = st.current_kind;
         }
+        // The `:` line's matches, worked out once for both the descriptions to fetch ahead and the frame.
+        let command_matches: Vec<commands::Suggestion> = match &st.mode {
+            Mode::Command { input, .. } => {
+                let names: Vec<String> = st.config.commands.iter().map(|c| c.name.clone()).collect();
+                commands::command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &registry.loaded, &names)
+            }
+            _ => Vec::new(),
+        };
         let view = draw::View {
             rows: &rows_view,
             overview,
@@ -294,9 +302,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             helm_present: catalog.count(ResourceKind::HelmReleases) > 0,
             // Only the Settings screen's Layout tab lists them.
             layout_names: &if matches!(&st.mode, Mode::Settings { .. }) || matches!(&st.mode, Mode::Notice { back, .. } | Mode::Confirm { back, .. } if matches!(**back, Mode::Settings { .. })) { catalog.layout_names(&st.config.extensions.enabled) } else { Vec::new() },
-            dashboard_categories: &catalog.dashboard_categories(),
             descriptions: &catalog.descriptions,
-            apis: &catalog.apis,
+            command_matches: &command_matches,
             favorites: &st.favorites,
             hints: &hints,
             show_hints_panel: st.show_hints_panel,
@@ -318,10 +325,8 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         }
         // While a `:` command is typed, the descriptions of the kinds it lists are fetched
         // ahead, so they are there by the time the typing pauses.
-        if let Mode::Command { input, .. } = &st.mode {
-            let names: Vec<String> = st.config.commands.iter().map(|c| c.name.clone()).collect();
-            let shown = commands::command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &registry.loaded, &names);
-            let kinds: Vec<usize> = shown.iter().filter_map(|s| if let commands::Cmd::Crd(i) = s.cmd { Some(i) } else { None }).collect();
+        if !command_matches.is_empty() {
+            let kinds: Vec<usize> = command_matches.iter().filter_map(|s| if let commands::Cmd::Crd(i) = s.cmd { Some(i) } else { None }).collect();
             catalog.describe(&kinds);
         }
         title::update(&mut title, title::text(&st.context, st.namespace.as_deref()));

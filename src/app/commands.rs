@@ -160,6 +160,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         }
         _ => cmd.names(),
     };
+    let crd_keys: std::collections::HashSet<(&str, &str)> = crds.iter().map(|c| (c.group, c.plural.as_str())).collect();
     let mut scored: Vec<(i64, Suggestion)> = std::iter::once(Cmd::Context)
         .chain(std::iter::once(Cmd::Events))
         .chain(std::iter::once(Cmd::Problems))
@@ -171,8 +172,9 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         // A group's name is never matched on its own; its kinds still sit under it.
         .filter(|cmd| !matches!(cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))))
         .chain((0..crds.len()).map(Cmd::Crd))
-        // Every other resource the server lists, unless a built-in kind has that name.
-        .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none() && !crds.iter().any(|c| c.group == a.group && c.plural == a.plural)).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
+        // Every other resource the server lists, unless a built-in kind has that name or it is a
+        // custom resource (looked up in a set, not by scanning every CRD per resource).
+        .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none() && !crd_keys.contains(&(a.group, a.plural))).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
         .filter_map(|cmd| {
             let names = names_of(cmd);
             let native = match cmd {
