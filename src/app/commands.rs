@@ -82,8 +82,11 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             if !crd.kind.eq_ignore_ascii_case(&crd.plural) {
                 names.push(crd.kind.to_lowercase());
             }
-            // The form kubectl takes, which tells two kinds of one name apart.
-            names.push(format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase()));
+            // The form kubectl takes, which tells two kinds of one name apart. Only once a dot
+            // is typed, or `agent` would match every kind of a group called `kagent.dev`.
+            if input.contains('.') {
+                names.push(format!("{}.{}", crd.plural.to_lowercase(), crd.group.to_lowercase()));
+            }
             names
         }
         // A dashboard answers to its extensions' names too, so `flux` finds GitOps.
@@ -185,11 +188,12 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
             count: Some(all.len()),
             best: suggestion.best && matches!(suggestion.cmd, Cmd::Kind(_)),
         });
-        // What matched under this group comes first, then the rest of its kinds.
+        // The kinds that matched are all that is listed, so `:agents` doesn't bring along
+        // every other kind of the group. A group matched by its own name lists its kinds.
         let matched = ranked.iter().filter(|r| matches!(r.cmd, Cmd::Crd(i) if all.contains(&i)));
         let mut rows: Vec<Suggestion> = matched.cloned().collect();
-        for &i in &all {
-            if !rows.iter().any(|r| matches!(r.cmd, Cmd::Crd(j) if j == i)) {
+        if rows.is_empty() {
+            for &i in &all {
                 let primary = names_of(Cmd::Crd(i)).remove(0);
                 let ext = Some(owners(Cmd::Crd(i), crds, extensions).join(" · ")).filter(|o| !o.is_empty());
                 rows.push(Suggestion { cmd: Cmd::Crd(i), label: primary.clone(), primary, ext, depth: 1, kind_name: None, count: None, best: false });
@@ -593,6 +597,7 @@ mod tests {
         assert!(matches!(found[1].cmd, Cmd::Crd(0)), "the match is first under it");
         assert_eq!(found[1].depth, 1);
         assert_eq!(found[1].tags()[0].0, "Environment");
+        assert_eq!(found.len(), 2, "the group's other kinds don't come along: {:?}", found.iter().map(|s| s.label.as_str()).collect::<Vec<_>>());
     }
 
     #[test]
@@ -613,6 +618,7 @@ mod tests {
         let plain = layout.iter().position(|r| *r == (0, "kagent.dev")).expect("kagent.dev header");
         assert!(layout[api + 1..].iter().take_while(|r| r.0 == 1).any(|r| r.1 == "agents"), "{layout:?}");
         assert!(layout[plain + 1..].iter().take_while(|r| r.0 == 1).any(|r| r.1 == "agents"), "{layout:?}");
+        assert!(!layout.iter().any(|r| r.1.starts_with("modelconfigs")), "only what matched is listed: {layout:?}");
         // Each header stands once, however many of its kinds matched.
         assert_eq!(layout.iter().filter(|r| r.0 == 0 && r.1 == "api.kagent.dev").count(), 1);
     }
@@ -665,5 +671,19 @@ mod tests {
         let found = command_suggestions("teams", &crds, &[], &[], &[], &[]);
         assert!(matches!(found[0].cmd, Cmd::Kind(ResourceKind::CustomResourceGroup(_))), "the header sits on top");
         assert!(matches!(found[best_row(&found)].cmd, Cmd::Crd(1)));
+    }
+
+    #[test]
+    fn typing_agents_lists_only_agents_not_the_groups_other_kinds() {
+        let crds = [
+            crd("api.kagent.dev", "Agent", "agents"),
+            crd("api.kagent.dev", "ModelConfig", "modelconfigs"),
+            crd("api.kagent.dev", "ModelProvider", "modelproviders"),
+            crd("kagent.dev", "Agent", "agents"),
+        ];
+        let found = command_suggestions("agents", &crds, &[], &[], &[], &[]);
+        let labels: Vec<String> = found.iter().map(|s| format!("{}{}", "  ".repeat(usize::from(s.depth)), s.label)).collect();
+        assert!(!labels.iter().any(|l| l.contains("model")), "{labels:?}");
+        assert_eq!(found.iter().filter(|s| matches!(s.cmd, Cmd::Crd(_))).count(), 2, "{labels:?}");
     }
 }

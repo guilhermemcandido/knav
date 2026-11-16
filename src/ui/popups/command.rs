@@ -2,10 +2,10 @@
 
 use super::*;
 
-/// Rows each suggestion takes with icons: room for a 6x3 icon beside its name.
-const SUGGESTION_HEIGHT: u16 = 3;
+/// Rows each suggestion takes with icons: room for a 4x2 icon beside its name.
+const SUGGESTION_HEIGHT: u16 = 2;
 
-const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 6, height: SUGGESTION_HEIGHT };
+const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 4, height: SUGGESTION_HEIGHT };
 
 /// The least room a description is worth drawing in, in cells.
 const MIN_DESCRIPTION: usize = 12;
@@ -141,9 +141,9 @@ mod tests {
     }
 
     #[test]
-    fn with_icons_each_suggestion_takes_three_rows() {
+    fn with_icons_each_suggestion_takes_two_rows() {
         let rows = rows(true);
-        assert!(rows[4].contains("pods") && rows[7].contains("deployments"), "{rows:#?}");
+        assert!(rows[4].contains("pods") && rows[6].contains("deployments"), "{rows:#?}");
     }
 
     /// The rows of a menu of one group header and one kind, drawn `width` cells wide.
