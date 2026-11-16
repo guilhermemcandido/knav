@@ -37,12 +37,7 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, line: Comma
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Complete against the name, not the alias note in "namespaces (ns)".
-    let ghost = suggestions
-        .get(selected)
-        .and_then(|s| s.label.split(" (").next())
-        .and_then(|name| name.strip_prefix(input))
-        .unwrap_or("");
+    let ghost = suggestions.get(selected).and_then(|s| s.label.strip_prefix(input)).unwrap_or("");
     let line = Line::from(vec![
         Span::styled("> ", line_style),
         Span::styled(input.to_string(), Style::default().fg(theme().text_strong).add_modifier(Modifier::BOLD)),

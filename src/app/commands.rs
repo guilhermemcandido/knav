@@ -131,7 +131,7 @@ pub(crate) fn command_suggestions_in(input: &str, crds: &[k8s::CrdInfo], apis: &
         .chain(apis.iter().enumerate().filter(|(_, a)| ResourceKind::from_command(a.plural).is_none() && !crds.iter().any(|c| c.group == a.group && c.plural == a.plural)).map(|(i, a)| Cmd::Api(i, a.plural, a.kind)))
         .filter_map(|cmd| {
             let names = names_of(cmd);
-            let (score, alias) = names
+            let score = names
                 .iter()
                 .filter_map(|alias| {
                     let mut score = fuzzy::score(&input, alias)?;
@@ -140,13 +140,12 @@ pub(crate) fn command_suggestions_in(input: &str, crds: &[k8s::CrdInfo], apis: &
                     } else if alias.starts_with(&input) {
                         score += 50;
                     }
-                    Some((score, alias.clone()))
+                    Some(score)
                 })
-                .max_by_key(|(score, _)| *score)?;
+                .max()?;
             let primary = names[0].clone();
-            // A custom resource shows its plain name; the full `plural.group` it also answers to
-            // stays out of sight.
-            let label = if alias == primary || matches!(cmd, Cmd::Crd(_)) { primary.clone() } else { format!("{primary} ({alias})") };
+            // A row shows its plain name, whichever of its other names matched.
+            let label = primary.clone();
             let native = match cmd {
                 Cmd::Api(i, ..) => apis.get(i).map(|a| (a.group, a.kind)),
                 Cmd::Kind(_) => native_of(&names, apis),
@@ -284,7 +283,7 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
     out
 }
 
-/// One autocomplete line: what it does, and its label (`namespaces (ns)` when found by alias).
+/// One autocomplete line: what it does, and its label (the kind's plain name).
 #[derive(Clone)]
 pub(crate) struct Suggestion {
     pub(crate) cmd: Cmd,
@@ -450,10 +449,10 @@ mod tests {
     }
 
     #[test]
-    fn an_exact_alias_ranks_first_and_shows_the_full_name() {
+    fn an_exact_alias_ranks_first_and_shows_the_plain_name() {
         let s = top("ns");
         assert!(matches!(s.cmd, Cmd::Kind(ResourceKind::Namespaces)));
-        assert_eq!(s.label, "namespaces (ns)");
+        assert_eq!(s.label, "namespaces");
         assert!(matches!(top("dp").cmd, Cmd::Kind(ResourceKind::Deployments)));
         assert!(matches!(top("po").cmd, Cmd::Kind(ResourceKind::Pods)));
         assert!(matches!(top("svc").cmd, Cmd::Kind(ResourceKind::Services)));
