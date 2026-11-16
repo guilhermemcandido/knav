@@ -45,13 +45,15 @@ kind = "DestinationRule"
 label = "DestinationRule: TLS"
 widget = "breakdown"
 by = ".spec.trafficPolicy.tls.mode"
-values = [["ISTIO_MUTUAL", "ok"], ["MUTUAL", "ok"], ["SIMPLE", "accent"], ["DISABLE", "bad"]]
+default = "UNSET"
+values = [["ISTIO_MUTUAL", "ok"], ["MUTUAL", "ok"], ["SIMPLE", "accent"], ["DISABLE", "bad"], ["UNSET", "muted"]]
 
 [[extension.dashboard]]
 kind = "PeerAuthentication"
 label = "PeerAuthentication: mTLS"
 widget = "breakdown"
 by = ".spec.mtls.mode"
+default = "UNSET"
 values = [["STRICT", "ok"], ["PERMISSIVE", "warn"], ["DISABLE", "bad"], ["UNSET", "muted"]]
 
 [[extension.dashboard]]
@@ -59,6 +61,7 @@ kind = "AuthorizationPolicy"
 label = "AuthorizationPolicy: action"
 widget = "breakdown"
 by = ".spec.action"
+default = "ALLOW"
 values = [["ALLOW", "ok"], ["DENY", "bad"], ["AUDIT", "accent"], ["CUSTOM", "warn"]]
 
 [[extension.dashboard]]

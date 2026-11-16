@@ -78,6 +78,10 @@ pub enum WidgetSpec {
         by: String,
         /// `[value, colour]` pairs, in legend order. The first is the headline.
         values: Vec<[String; 2]>,
+        /// What an object that doesn't have the field counts as (an Istio policy with no
+        /// `action` is an `ALLOW`), instead of "other".
+        #[serde(default)]
+        default: Option<String>,
     },
     /// Sums numeric fields across every object, as `[label, path]` pairs.
     Sum { fields: Vec<[String; 2]> },
@@ -131,7 +135,7 @@ impl Manifest {
                     return Err(ParseError::Invalid(format!("{}: dashboard widget references kind `{kind}`, which isn't in `extension.kind`", manifest.extension.id)));
                 }
             }
-            if let WidgetSpec::Breakdown { by, values } = &widget.spec {
+            if let WidgetSpec::Breakdown { by, values, .. } = &widget.spec {
                 if !by.starts_with('.') || values.is_empty() {
                     return Err(ParseError::Invalid(format!("{}: dashboard breakdown needs `by` as a \".path\" and at least one value", manifest.extension.id)));
                 }

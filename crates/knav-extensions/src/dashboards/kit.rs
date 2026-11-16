@@ -46,20 +46,21 @@ pub fn gauge(width: usize, ratio: f64, color: Color) -> Vec<Span<'static>> {
 /// Whole cells for each slice out of `width`, by largest remainder, with every non-empty
 /// slice getting at least one cell while there is room.
 fn cells(slices: &[Slice], width: usize) -> Vec<usize> {
-    let total: usize = slices.iter().map(|s| s.count).sum();
+    // Summed without overflow: counts come from the cluster.
+    let total: usize = slices.iter().fold(0usize, |sum, s| sum.saturating_add(s.count));
     if total == 0 || width == 0 {
         return vec![0; slices.len()];
     }
     let exact: Vec<f64> = slices.iter().map(|s| s.count as f64 / total as f64 * width as f64).collect();
     let mut out: Vec<usize> = exact.iter().map(|e| e.floor() as usize).collect();
     for (i, slice) in slices.iter().enumerate() {
-        if slice.count > 0 && out[i] == 0 && out.iter().sum::<usize>() < width {
+        if slice.count > 0 && out[i] == 0 && out.iter().fold(0usize, |a, b| a.saturating_add(*b)) < width {
             out[i] = 1;
         }
     }
     let mut order: Vec<usize> = (0..slices.len()).filter(|&i| slices[i].count > 0).collect();
     order.sort_by(|&a, &b| (exact[b] - exact[b].floor()).partial_cmp(&(exact[a] - exact[a].floor())).unwrap_or(std::cmp::Ordering::Equal));
-    for i in order.into_iter().cycle().take(width.saturating_sub(out.iter().sum())) {
+    for i in order.into_iter().cycle().take(width.saturating_sub(out.iter().fold(0usize, |a, b| a.saturating_add(*b)))) {
         out[i] += 1;
     }
     out
@@ -69,7 +70,7 @@ fn cells(slices: &[Slice], width: usize) -> Vec<usize> {
 pub fn stacked(width: usize, slices: &[Slice]) -> Vec<Span<'static>> {
     let sizes = cells(slices, width);
     let mut spans: Vec<Span<'static>> = slices.iter().zip(&sizes).filter(|(_, n)| **n > 0).map(|(s, n)| Span::styled("█".repeat(*n), Style::default().fg(s.color).bg(track()))).collect();
-    let used: usize = sizes.iter().sum();
+    let used: usize = sizes.iter().fold(0usize, |a, b| a.saturating_add(*b));
     if used < width {
         spans.push(Span::styled(" ".repeat(width - used), Style::default().bg(track())));
     }

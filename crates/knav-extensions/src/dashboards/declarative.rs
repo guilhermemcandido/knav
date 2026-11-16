@@ -9,6 +9,7 @@ use crate::manifest::{DashboardWidget, WidgetSpec};
 use knav_common::theme::theme;
 use knav_common::util::text::truncate;
 
+use knav_common::util::text::cell_width;
 use knav_k8s::EventEntry;
 
 use super::kit::{Slice, activity, grid, legend, sparkline, stacked};
@@ -61,7 +62,7 @@ impl Dashboard for DeclarativeDashboard {
                 WidgetSpec::List { .. } => {
                     let objects: Vec<Value> = sources.iter().flat_map(|(group, kind)| ctx.fetch(group, kind)).collect();
                     if !objects.is_empty() {
-                        lists.push(render_widget(&label, &widget.spec, &objects));
+                        lists.push(render_list(&label, &widget.spec, &objects, ctx.width));
                     }
                 }
             }
@@ -165,29 +166,6 @@ fn bucket_of(object: &Value, by: &str) -> Option<bool> {
     }
 }
 
-fn tally_line(true_count: usize, false_count: usize, unknown_count: usize) -> Line<'static> {
-    let total = true_count + false_count + unknown_count;
-    let mut spans = vec![Span::raw(format!("{total} total"))];
-    if true_count > 0 {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(format!("● {true_count} true"), Style::default().fg(theme().ok)));
-    }
-    if false_count > 0 {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(format!("● {false_count} false"), Style::default().fg(theme().bad)));
-    }
-    if unknown_count > 0 {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(format!("● {unknown_count} unknown"), Style::default().fg(theme().muted)));
-    }
-    Line::from(spans)
-}
-
-fn bar_segment(count: i64, total: i64, color: Color, width: usize) -> Span<'static> {
-    let cells = if total > 0 { ((count as f64 / total as f64) * width as f64).round() as usize } else { 0 };
-    Span::styled("▓".repeat(cells.min(width)), Style::default().fg(color))
-}
-
 /// A field's value ordered by what it is: a timestamp, a number or text.
 /// Missing values sort last.
 #[derive(PartialEq, PartialOrd)]
@@ -214,17 +192,29 @@ fn sort_key(object: &Value, path: &str) -> SortKey {
     }
 }
 
-/// Days until (or since) the timestamp at `path`, coloured by how soon.
+/// Time until (or since) the timestamp at `path`, coloured by how soon. Worked out in seconds,
+/// so a certificate that expired an hour ago reads "expired", not "in 0d".
 fn days_span(object: &Value, path: &str) -> Span<'static> {
-    let Some(days) = at_dotted(object, path).and_then(Value::as_str).and_then(|s| s.parse::<k8s_openapi::jiff::Timestamp>().ok()).map(|t| (t.as_second() - k8s_openapi::jiff::Timestamp::now().as_second()) / 86400) else {
+    let Some(secs) = at_dotted(object, path).and_then(Value::as_str).and_then(|s| s.parse::<k8s_openapi::jiff::Timestamp>().ok()).map(|t| t.as_second() - k8s_openapi::jiff::Timestamp::now().as_second()) else {
         return Span::styled("-", Style::default().fg(theme().muted));
     };
-    match days {
-        d if d < 0 => Span::styled(format!("expired {}d ago", -d), Style::default().fg(theme().bad)),
-        d if d < 7 => Span::styled(format!("in {d}d"), Style::default().fg(theme().bad)),
-        d if d < 30 => Span::styled(format!("in {d}d"), Style::default().fg(theme().warn)),
-        d => Span::styled(format!("in {d}d"), Style::default().fg(theme().ok)),
+    if secs < 0 {
+        let ago = -secs;
+        let text = match ago {
+            0..=3599 => "expired just now".to_string(),
+            3600..=86399 => format!("expired {}h ago", ago / 3600),
+            _ => format!("expired {}d ago", ago / 86400),
+        };
+        return Span::styled(text, Style::default().fg(theme().bad));
     }
+    let days = secs / 86400;
+    let text = if days == 0 { format!("in {}h", secs / 3600) } else { format!("in {days}d") };
+    let color = match days {
+        d if d < 7 => theme().bad,
+        d if d < 30 => theme().warn,
+        _ => theme().ok,
+    };
+    Span::styled(text, Style::default().fg(color))
 }
 
 fn color_named(name: &str) -> Color {
@@ -278,11 +268,11 @@ fn card_widget(item: &Card, width: usize) -> Vec<Line<'static>> {
             body.extend(legend(&[(t, word.as_str(), theme().ok), (f, "failing", theme().bad), (sus, "suspended", theme().muted), (u, "unknown", theme().warn)], inner));
             body
         }
-        WidgetSpec::Breakdown { by, values } => {
+        WidgetSpec::Breakdown { by, values, default } => {
             let mut counts = vec![0usize; values.len()];
             let mut other = 0;
             for object in objects {
-                let text = at_dotted(object, by).and_then(scalar_text);
+                let text = at_dotted(object, by).and_then(scalar_text).or_else(|| default.clone());
                 match values.iter().position(|[value, _]| Some(value) == text.as_ref()) {
                     Some(i) => counts[i] += 1,
                     None => other += 1,
@@ -300,7 +290,7 @@ fn card_widget(item: &Card, width: usize) -> Vec<Line<'static>> {
         WidgetSpec::Sum { fields } => {
             let sums: Vec<(String, usize)> = fields
                 .iter()
-                .map(|[field_label, path]| (field_label.clone(), objects.iter().filter_map(|o| at_dotted(o, path)).filter_map(Value::as_i64).sum::<i64>().max(0) as usize))
+                .map(|[field_label, path]| (field_label.clone(), objects.iter().filter_map(|o| at_dotted(o, path)).filter_map(Value::as_i64).fold(0i64, i64::saturating_add).max(0) as usize))
                 .collect();
             let palette = [theme().ok, theme().bad, theme().warn, theme().muted, theme().accent];
             let slices: Vec<Slice> = sums.iter().enumerate().map(|(i, (_, n))| Slice::new(*n, palette[i % palette.len()])).collect();
@@ -319,74 +309,46 @@ fn card_widget(item: &Card, width: usize) -> Vec<Line<'static>> {
     super::kit::card(label, width, body)
 }
 
-fn render_widget(label: &str, spec: &WidgetSpec, objects: &[Value]) -> Vec<Line<'static>> {
-    match spec {
-        WidgetSpec::Count => vec![Line::from(vec![Span::styled(format!("{} ", objects.len()), Style::default().add_modifier(Modifier::BOLD)), Span::raw(label.to_string())])],
-        WidgetSpec::Tally { by, .. } => {
-            let (mut t, mut f, mut u) = (0, 0, 0);
-            for object in objects {
-                match bucket_of(object, by) {
-                    Some(true) => t += 1,
-                    Some(false) => f += 1,
-                    None => u += 1,
-                }
-            }
-            vec![Line::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)), tally_line(t, f, u)]
-        }
-        WidgetSpec::Breakdown { .. } => vec![Line::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD))],
-        WidgetSpec::Sum { fields } => {
-            let sums: Vec<(String, i64)> = fields
-                .iter()
-                .map(|[field_label, path]| (field_label.clone(), objects.iter().filter_map(|o| at_dotted(o, path)).filter_map(Value::as_i64).sum()))
-                .collect();
-            let mut out = vec![Line::styled(format!("{label} ({} total)", objects.len()), Style::default().add_modifier(Modifier::BOLD))];
-            let total: i64 = sums.iter().map(|(_, n)| *n).sum();
-            if total > 0 {
-                const WIDTH: usize = 40;
-                const PALETTE: &[fn() -> Color] = &[|| theme().ok, || theme().bad, || theme().warn, || theme().muted, || theme().accent];
-                let bar: Vec<Span<'static>> = sums.iter().enumerate().map(|(i, (_, n))| bar_segment(*n, total, PALETTE[i % PALETTE.len()](), WIDTH)).collect();
-                out.push(Line::from(bar));
-                let legend: Vec<Span<'static>> = sums
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(i, (field_label, n))| [Span::styled(format!("● {n} {field_label}"), Style::default().fg(PALETTE[i % PALETTE.len()]())), Span::raw("  ")])
-                    .collect();
-                out.push(Line::from(legend));
-            }
-            out
-        }
-        WidgetSpec::List { sort_by, date_columns, columns, limit } => {
-            let mut rows: Vec<&Value> = objects.iter().collect();
-            if let Some(sort_by) = sort_by {
-                rows.sort_by(|a, b| sort_key(a, sort_by).partial_cmp(&sort_key(b, sort_by)).unwrap_or(std::cmp::Ordering::Equal));
-            }
-            let mut out = vec![Line::styled(format!("{label} ({})", objects.len()), Style::default().add_modifier(Modifier::BOLD))];
-            if rows.is_empty() {
-                out.push(Line::styled("  none found", Style::default().fg(theme().muted)));
-                return out;
-            }
-            let header: String = columns.iter().map(|[column_label, _]| format!("{:<20}", column_label.to_uppercase())).collect();
-            out.push(Line::styled(format!("  {header}"), Style::default().fg(theme().muted)));
-            for object in rows.into_iter().take(*limit) {
-                let mut spans = vec![Span::raw("  ".to_string())];
-                for [_, path] in columns {
-                    if date_columns.contains(path) {
-                        let mut span = days_span(object, path);
-                        span.content = format!("{:<20}", span.content).into();
-                        spans.push(span);
-                    } else {
-                        let text = at_dotted(object, path).and_then(scalar_text).unwrap_or_else(|| "-".into());
-                        spans.push(Span::raw(format!("{:<20}", truncate(&text, 19))));
-                    }
-                }
-                out.push(Line::from(spans));
-            }
-            if objects.len() > *limit {
-                out.push(Line::styled(format!("  … and {} more", objects.len() - limit), Style::default().fg(theme().muted)));
-            }
-            out
-        }
+/// Text padded to `width` cells (not characters), so wide characters keep the columns lined up.
+fn pad_cells(text: &str, width: usize) -> String {
+    format!("{text}{}", " ".repeat(width.saturating_sub(cell_width(text))))
+}
+
+/// A list widget: one row per object from `[label, path]` columns, sized to `width` cells.
+fn render_list(label: &str, spec: &WidgetSpec, objects: &[Value], width: usize) -> Vec<Line<'static>> {
+    let WidgetSpec::List { sort_by, date_columns, columns, limit } = spec else { return Vec::new() };
+    // Sorted on keys worked out once each, not re-parsed for every comparison.
+    let mut rows: Vec<(SortKey, &Value)> = objects.iter().map(|o| (sort_by.as_deref().map_or(SortKey::Missing, |path| sort_key(o, path)), o)).collect();
+    if sort_by.is_some() {
+        rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     }
+    let mut out = vec![Line::styled(format!("{label} ({})", objects.len()), Style::default().add_modifier(Modifier::BOLD))];
+    if rows.is_empty() {
+        out.push(Line::styled("  none found", Style::default().fg(theme().muted)));
+        return out;
+    }
+    // The columns share the width, each at least 8 cells and at most 28.
+    let column_width = (width.saturating_sub(2) / columns.len().max(1)).clamp(8, 28);
+    let header: String = columns.iter().map(|[column_label, _]| pad_cells(&truncate(&column_label.to_uppercase(), column_width - 1), column_width)).collect();
+    out.push(Line::styled(format!("  {header}"), Style::default().fg(theme().muted)));
+    for (_, object) in rows.into_iter().take(*limit) {
+        let mut spans = vec![Span::raw("  ".to_string())];
+        for [_, path] in columns {
+            if date_columns.contains(path) {
+                let mut span = days_span(object, path);
+                span.content = pad_cells(&truncate(&span.content, column_width - 1), column_width).into();
+                spans.push(span);
+            } else {
+                let text = at_dotted(object, path).and_then(scalar_text).unwrap_or_else(|| "-".into());
+                spans.push(Span::raw(pad_cells(&truncate(&text, column_width - 1), column_width)));
+            }
+        }
+        out.push(Line::from(spans));
+    }
+    if objects.len() > *limit {
+        out.push(Line::styled(format!("  … and {} more", objects.len() - limit), Style::default().fg(theme().muted)));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -425,8 +387,37 @@ mod tests {
         let a: Value = serde_json::from_value(serde_json::json!({"summary": {"pass": 3}})).unwrap();
         let b: Value = serde_json::from_value(serde_json::json!({"summary": {"pass": 5}})).unwrap();
         let spec = WidgetSpec::Sum { fields: vec![["pass".into(), ".summary.pass".into()]] };
-        let lines = render_widget("PolicyReports", &spec, &[a, b]);
-        assert!(line_text(&lines[0]).contains("(2 total)"));
+        let card = Card { label: "PolicyReports".into(), spec, objects: vec![a, b], total: 2, recent: vec![0; 12] };
+        let lines: Vec<String> = card_widget(&card, 40).iter().map(line_text).collect();
+        assert!(lines.iter().any(|l| l.contains("● 8 pass")), "{lines:?}");
+    }
+
+    #[test]
+    fn a_sum_that_would_overflow_saturates_instead_of_panicking() {
+        let big: Value = serde_json::from_value(serde_json::json!({"summary": {"pass": i64::MAX}})).unwrap();
+        let spec = WidgetSpec::Sum { fields: vec![["pass".into(), ".summary.pass".into()]] };
+        let card = Card { label: "Reports".into(), spec, objects: vec![big.clone(), big.clone(), big], total: 3, recent: vec![0; 12] };
+        assert!(!card_widget(&card, 40).is_empty());
+    }
+
+    #[test]
+    fn a_certificate_that_expired_an_hour_ago_says_expired() {
+        let soon = |secs: i64| -> Value {
+            let at = k8s_openapi::jiff::Timestamp::now().as_second() + secs;
+            serde_json::from_value(serde_json::json!({"status": {"notAfter": k8s_openapi::jiff::Timestamp::from_second(at).unwrap().to_string()}})).unwrap()
+        };
+        assert!(days_span(&soon(-3600), ".status.notAfter").content.starts_with("expired"));
+        assert!(days_span(&soon(-90_000), ".status.notAfter").content.starts_with("expired 1d"));
+        assert!(days_span(&soon(7200), ".status.notAfter").content.starts_with("in 1h") || days_span(&soon(7200), ".status.notAfter").content.starts_with("in 2h"));
+        assert_eq!(days_span(&soon(86_400 * 10 + 60), ".status.notAfter").content, "in 10d");
+    }
+
+    #[test]
+    fn list_rows_are_as_wide_as_their_columns_even_with_wide_characters() {
+        let object: Value = serde_json::from_value(serde_json::json!({"metadata": {"name": "集群集群集群集群集群集群"}})).unwrap();
+        let spec = WidgetSpec::List { sort_by: None, date_columns: vec![], columns: vec![["Name".into(), ".metadata.name".into()], ["Name".into(), ".metadata.name".into()]], limit: 5 };
+        let lines = render_list("Things", &spec, &[object], 60);
+        assert!(lines[2].width() <= 2 + 2 * 28, "{}", line_text(&lines[2]));
     }
 
     #[test]
@@ -434,7 +425,7 @@ mod tests {
         let far: Value = serde_json::from_value(serde_json::json!({"metadata": {"name": "far"}, "status": {"notAfter": "2099-01-01T00:00:00Z"}})).unwrap();
         let soon: Value = serde_json::from_value(serde_json::json!({"metadata": {"name": "soon"}, "status": {"notAfter": "2026-09-25T00:00:00Z"}})).unwrap();
         let spec = WidgetSpec::List { sort_by: Some(".status.notAfter".into()), date_columns: vec![], columns: vec![["Name".into(), ".metadata.name".into()]], limit: 20 };
-        let lines = render_widget("Certificate", &spec, &[far, soon]);
+        let lines = render_list("Certificate", &spec, &[far, soon], 80);
         let rendered: Vec<String> = lines.iter().map(line_text).collect();
         let soon_at = rendered.iter().position(|l| l.contains("soon")).unwrap();
         let far_at = rendered.iter().position(|l| l.contains("far")).unwrap();
@@ -452,7 +443,7 @@ mod tests {
     #[test]
     fn a_breakdown_card_counts_each_value_and_leaves_the_rest_as_other() {
         let objects = vec![app("Synced", "Healthy"), app("Synced", "Degraded"), app("OutOfSync", "Healthy"), app("Weird", "Healthy")];
-        let spec = WidgetSpec::Breakdown { by: ".status.sync.status".into(), values: vec![["Synced".into(), "ok".into()], ["OutOfSync".into(), "warn".into()]] };
+        let spec = WidgetSpec::Breakdown { by: ".status.sync.status".into(), values: vec![["Synced".into(), "ok".into()], ["OutOfSync".into(), "warn".into()]], default: None };
         let card = Card { label: "Argo CD sync".into(), spec, objects, total: 4, recent: vec![0; 12] };
         let lines = text(&card_widget(&card, 40));
         assert!(lines[0].contains("Argo CD sync"), "{lines:?}");
@@ -475,5 +466,15 @@ mod tests {
     fn a_list_of_values_reads_as_one_comma_separated_line() {
         let object: Value = serde_json::from_value(serde_json::json!({"spec": {"hosts": ["a.example.com", "b.example.com"]}})).unwrap();
         assert_eq!(at_dotted(&object, ".spec.hosts").and_then(scalar_text).as_deref(), Some("a.example.com, b.example.com"));
+    }
+
+    #[test]
+    fn a_missing_field_counts_as_the_default_value() {
+        let with: Value = serde_json::from_value(serde_json::json!({"spec": {"action": "DENY"}})).unwrap();
+        let without: Value = serde_json::from_value(serde_json::json!({"spec": {}})).unwrap();
+        let spec = WidgetSpec::Breakdown { by: ".spec.action".into(), values: vec![["ALLOW".into(), "ok".into()], ["DENY".into(), "bad".into()]], default: Some("ALLOW".into()) };
+        let card = Card { label: "Policies".into(), spec, objects: vec![with, without.clone(), without], total: 3, recent: vec![0; 12] };
+        let lines: Vec<String> = card_widget(&card, 50).iter().map(line_text).collect();
+        assert!(lines.iter().any(|l| l.contains("● 2 ALLOW") && l.contains("● 1 DENY")), "{lines:?}");
     }
 }

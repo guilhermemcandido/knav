@@ -18,7 +18,7 @@ wasmtime::component::bindgen!({
 
 /// Budget for one `lines()` call. Fuel caps instructions, so a runaway guest can't
 /// hang the render loop; the memory limit is separate, since fuel ignores allocation.
-const FUEL_BUDGET: u64 = 200_000_000;
+const FUEL_BUDGET: u64 = 30_000_000;
 const MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// One engine for the process. Fuel metering is an engine setting, so every store

@@ -67,6 +67,14 @@ impl Registry {
                 loaded.push(from_text(&fallback_id, &text, false, Some(&entry.path())));
             }
         }
+        // Two extensions with one id would share (and overwrite) each other's compiled guest and
+        // be enabled together: the later one is refused, so a user manifest can't take a bundled id.
+        let mut seen = std::collections::HashSet::new();
+        for l in &mut loaded {
+            if !seen.insert(l.id.clone()) && l.error.is_none() {
+                l.error = Some(format!("the id \"{}\" is already used by another extension", l.id));
+            }
+        }
         let wasm_engine = dashboards::wasm::engine().ok();
         let mut wasm = std::collections::HashMap::new();
         for l in &mut loaded {
@@ -149,7 +157,7 @@ fn from_text(fallback_id: &str, text: &str, bundled: bool, dir: Option<&std::pat
 }
 
 /// The largest WASM dashboard accepted, so a stray huge file isn't read into memory.
-const WASM_DASHBOARD_MAX_BYTES: u64 = 16 * 1024 * 1024;
+const WASM_DASHBOARD_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The WASM dashboard's absolute path, checked to stay inside the extension's directory
 /// (symlinks included) and under `WASM_DASHBOARD_MAX_BYTES`. Doesn't read the file.
@@ -163,7 +171,12 @@ fn resolve_wasm_dashboard(name: Option<&str>, dir: Option<&std::path::Path>) -> 
     if !canonical.starts_with(&canonical_dir) {
         return Err(format!("wasm_dashboard \"{name}\" resolves outside the extension's own directory"));
     }
-    let size = std::fs::metadata(&canonical).map(|m| m.len()).unwrap_or(0);
+    // A file, and one whose size can be read: a FIFO or a failed lookup must not pass as empty.
+    let metadata = std::fs::metadata(&canonical).map_err(|e| format!("wasm_dashboard \"{name}\": {e}"))?;
+    if !metadata.is_file() {
+        return Err(format!("wasm_dashboard \"{name}\" is not a regular file"));
+    }
+    let size = metadata.len();
     if size > WASM_DASHBOARD_MAX_BYTES {
         return Err(format!("wasm_dashboard \"{name}\" is {size} bytes, over the {WASM_DASHBOARD_MAX_BYTES}-byte limit"));
     }
