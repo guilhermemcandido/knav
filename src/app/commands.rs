@@ -81,6 +81,17 @@ fn owner_keys(cmd: Cmd, crds: &[k8s::CrdInfo], extensions: &[crate::extensions::
     owning(cmd, crds, extensions).flat_map(|l| [l.id.to_lowercase(), l.name.to_lowercase()]).collect()
 }
 
+/// How well `pattern` matches `text`, the way the `/` search matches: the text as typed, in one
+/// piece and in any case, ranked by how near the start it is, or `=name` for exactly that name.
+/// Not the letters scattered anywhere in order, which would let `ingress` match
+/// `certificatesigningrequests`.
+fn name_score(pattern: &str, text: &str) -> Option<i64> {
+    match pattern.strip_prefix('=') {
+        Some(exact) => text.eq_ignore_ascii_case(exact).then_some(1000),
+        None => fuzzy::contains_score(pattern, text),
+    }
+}
+
 /// The commands left out of the suggestions because they have keys of their own.
 fn hidden_command_of(cmd: Cmd) -> Option<Cmd> {
     matches!(cmd, Cmd::Context | Cmd::Theme | Cmd::Settings | Cmd::Kind(ResourceKind::Overview)).then_some(cmd)
@@ -205,11 +216,11 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             let mut group_score = 0;
             for filter in &query.groups {
                 let group = group?;
-                group_score += fuzzy::score(filter, if group.is_empty() { "core" } else { group })?;
+                group_score += name_score(filter, if group.is_empty() { "core" } else { group })?;
             }
             if !query.exts.is_empty() {
                 let keys = owner_keys(cmd, crds, extensions);
-                if !query.exts.iter().all(|filter| keys.iter().any(|key| fuzzy::score(filter, key).is_some())) {
+                if !query.exts.iter().all(|filter| keys.iter().any(|key| name_score(filter, key).is_some())) {
                     return None;
                 }
             }
@@ -227,7 +238,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
                 names
                     .iter()
                     .filter_map(|alias| {
-                        let mut score = fuzzy::score(&input, alias)?;
+                        let mut score = name_score(&input, alias)?;
                         if *alias == input {
                             score += 1000;
                         } else if alias.starts_with(&input) {
@@ -823,7 +834,8 @@ mod tests {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
         let found = command_suggestions("platform.example", &crds, &[], &[], &[], &[]);
         let at = found.iter().position(|s| s.label == "platform.example.com").expect("the group row");
-        let kinds: Vec<&str> = found[at + 1..].iter().take_while(|s| s.depth == 1).map(|s| s.label.as_str()).collect();
+        let mut kinds: Vec<&str> = found[at + 1..].iter().take_while(|s| s.depth == 1).map(|s| s.label.as_str()).collect();
+        kinds.sort_unstable();
         assert_eq!(kinds, ["environments", "teams"]);
     }
 
@@ -1040,5 +1052,35 @@ mod tests {
         assert_eq!(tag("describe"), ["Your command"]);
         let gitops = tag("gitops");
         assert_eq!(gitops.first().map(String::as_str), Some("Dashboard"), "{gitops:?}");
+    }
+
+    #[test]
+    fn the_text_must_appear_in_one_piece_like_in_the_slash_search() {
+        let apis = [api("networking.k8s.io", "Ingress", "ingresses"), api("networking.k8s.io", "IngressClass", "ingressclasses"), api("certificates.k8s.io", "CertificateSigningRequest", "certificatesigningrequests")];
+        let labels = |input: &str| -> Vec<String> { command_suggestions(input, &[], &apis, &[], &[], &[]).into_iter().filter(|s| s.depth == 1).map(|s| s.label).collect() };
+        // The letters of `ingress` are scattered through `certificatesigningrequests`, but not in one piece.
+        let found = labels("ingress");
+        assert!(found.iter().any(|l| l == "ingresses") && found.iter().any(|l| l == "ingressclasses"), "{found:?}");
+        assert!(!found.iter().any(|l| l.contains("certificate")), "{found:?}");
+        // Any part of a name matches, not only its start.
+        assert!(labels("class").iter().any(|l| l == "ingressclasses"));
+        // Letters in order but apart match nothing.
+        assert!(labels("igs").is_empty(), "{:?}", labels("igs"));
+        // `=name` is exactly that name, like in `/`.
+        assert_eq!(labels("=ingresses"), ["ingresses"]);
+        // An alias counts as a name (`ingress`), a part of one doesn't.
+        assert_eq!(labels("=ingress"), ["ingresses"]);
+        assert!(labels("=ingres").is_empty());
+        // And the nearer the start, the higher it ranks.
+        let ranked = labels("ing");
+        assert_eq!(ranked.first().map(String::as_str), Some("ingresses"), "{ranked:?}");
+    }
+
+    #[test]
+    fn filters_match_in_one_piece_too() {
+        let crds = [crd("kagent.dev", "Agent", "agents"), crd("other.example.com", "Thing", "things")];
+        assert_eq!(command_suggestions("group:kagent", &crds, &[], &[], &[], &[]).iter().filter(|s| matches!(s.cmd, Cmd::Crd(_))).count(), 1);
+        // `kgt` is in `kagent.dev` in order but not in one piece.
+        assert!(command_suggestions("group:kgt", &crds, &[], &[], &[], &[]).is_empty());
     }
 }
