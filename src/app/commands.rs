@@ -255,7 +255,20 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             Some((kind_score + group_score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, best: false, native, built_in: false, last: false }))
         })
         .collect();
-    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    // Best score first. Equal scores: the shorter name, then alphabetical, then the group, so two
+    // names that match equally well always come in the same order.
+    let group_of = |s: &Suggestion| -> &str {
+        match s.cmd {
+            Cmd::Crd(i) => crds[i].group,
+            _ => s.native.map_or("", |(group, _)| group),
+        }
+    };
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.label.chars().count().cmp(&b.1.label.chars().count()))
+            .then_with(|| a.1.label.cmp(&b.1.label))
+            .then_with(|| group_of(&a.1).cmp(group_of(&b.1)))
+    });
     // Everything that matched is grouped first and the menu is cut after, so a group's `+N more`
     // counts what is really left and a block is never cut in half by an arbitrary top ten.
     let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(MAX_MATCHES).collect();
@@ -302,6 +315,51 @@ enum Bucket {
     Native(&'static str),
 }
 
+/// What orders the group blocks: built-in before custom, the known built-in groups by position, then the name.
+type BlockKey = (u8, usize, &'static str);
+
+/// Where an API group's block sits in the menu: built-in groups first (the core group at the
+/// very top, the usual Kubernetes groups in a fixed order, any other alphabetically), then
+/// custom groups alphabetically.
+fn block_order(bucket: Bucket) -> BlockKey {
+    const BUILT_IN: &[&str] = &[
+        "",
+        "apps",
+        "batch",
+        "autoscaling",
+        "networking.k8s.io",
+        "storage.k8s.io",
+        "rbac.authorization.k8s.io",
+        "policy",
+        "certificates.k8s.io",
+        "coordination.k8s.io",
+        "discovery.k8s.io",
+        "events.k8s.io",
+        "scheduling.k8s.io",
+        "node.k8s.io",
+        "admissionregistration.k8s.io",
+        "apiextensions.k8s.io",
+        "apiregistration.k8s.io",
+        "flowcontrol.apiserver.k8s.io",
+        "metrics.k8s.io",
+    ];
+    match bucket {
+        Bucket::Native(group) => (0, BUILT_IN.iter().position(|known| *known == group).unwrap_or(BUILT_IN.len()), group),
+        Bucket::Custom(group) => (1, 0, group),
+    }
+}
+
+/// The order of knav's own rows, after every group: views, dashboards, commands, your commands.
+fn own_order(cmd: Cmd) -> u8 {
+    match cmd {
+        Cmd::Events | Cmd::Problems | Cmd::Kind(ResourceKind::PortForwards | ResourceKind::ApiResources | ResourceKind::CustomResourceList | ResourceKind::HelmReleases | ResourceKind::Overview) => 0,
+        Cmd::Kind(ResourceKind::ExtensionDashboard(_)) => 1,
+        Cmd::Context | Cmd::Theme | Cmd::Settings | Cmd::Quit => 2,
+        Cmd::Custom(_) => 3,
+        _ => 4,
+    }
+}
+
 /// Gathers the resource matches into a tree: each API group once, as a header at the place of
 /// its best match, then its kinds. Custom groups list what matched, or all their kinds when
 /// the group's own name matched; built-in groups list what matched, under a `built-in` header.
@@ -311,14 +369,15 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
         Cmd::Crd(i) => crds.get(i).map(|c| Bucket::Custom(c.group)),
         _ => s.native.map(|(group, _)| Bucket::Native(group)),
     };
-    let mut out: Vec<Suggestion> = Vec::new();
+    let mut blocks_out: Vec<(BlockKey, Vec<Suggestion>)> = Vec::new();
+    let mut flat_out: Vec<Suggestion> = Vec::new();
     let mut seen: Vec<Bucket> = Vec::new();
     let (mut flat, mut blocks) = (0, 0);
     for suggestion in &ranked {
         let Some(bucket) = bucket_of(suggestion) else {
             if flat < MAX_FLAT_ROWS {
                 flat += 1;
-                out.push(suggestion.clone());
+                flat_out.push(suggestion.clone());
             }
             continue;
         };
@@ -389,25 +448,31 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
         };
         let more_cmd = header.cmd;
         let more_primary = header.primary.clone();
-        out.push(header);
+        let mut block = vec![header];
         let hidden = rows.len().saturating_sub(KINDS_UNDER_A_GROUP);
         rows.truncate(KINDS_UNDER_A_GROUP);
         for mut row in rows {
             row.depth = 1;
-            out.push(row);
+            block.push(row);
         }
         let more = hidden > 0;
         if more {
-            out.push(Suggestion { cmd: more_cmd, label: format!("+{hidden} more"), primary: more_primary, ext: None, depth: 1, kind_name: None, best: false, native: None, built_in: false, last: false });
+            block.push(Suggestion { cmd: more_cmd, label: format!("+{hidden} more"), primary: more_primary, ext: None, depth: 1, kind_name: None, best: false, native: None, built_in: false, last: false });
         }
         // The block's last row closes its connector.
-        if let Some(last) = out.last_mut()
+        if let Some(last) = block.last_mut()
             && last.depth == 1
         {
             last.last = true;
         }
+        blocks_out.push((block_order(bucket), block));
     }
-    out
+    // The menu always reads in the same order: the core group first, then the other built-in
+    // groups in a fixed order, then custom groups alphabetically, then knav's own rows. Which
+    // matches make it in at all was decided by score; this is only how they are laid out.
+    blocks_out.sort_by(|a, b| a.0.cmp(&b.0));
+    flat_out.sort_by_key(|row| own_order(row.cmd));
+    blocks_out.into_iter().flat_map(|(_, block)| block).chain(flat_out).collect()
 }
 
 /// One autocomplete line: what it does, and its label (the kind's plain name).
@@ -592,7 +657,10 @@ mod tests {
     use crate::app::Step;
 
     fn top(input: &str) -> Suggestion {
-        command_suggestions(input, &[], &[], &[], &[], &[]).into_iter().next().unwrap_or_else(|| panic!("no suggestion for {input:?}"))
+        // The highlighted row, which is what Enter opens, not necessarily the first one shown.
+        let found = command_suggestions(input, &[], &[], &[], &[], &[]);
+        let at = best_row(&found);
+        found.into_iter().nth(at).unwrap_or_else(|| panic!("no suggestion for {input:?}"))
     }
 
     #[test]
@@ -1082,5 +1150,39 @@ mod tests {
         assert_eq!(command_suggestions("group:kagent", &crds, &[], &[], &[], &[]).iter().filter(|s| matches!(s.cmd, Cmd::Crd(_))).count(), 1);
         // `kgt` is in `kagent.dev` in order but not in one piece.
         assert!(command_suggestions("group:kgt", &crds, &[], &[], &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn equal_matches_come_shortest_name_first_then_alphabetical() {
+        let apis = [api("", "Pod", "pods"), api("networking.k8s.io", "IngressClass", "ingressclasses"), api("networking.k8s.io", "Ingress", "ingresses")];
+        let found = command_suggestions("ingress", &[], &apis, &[], &[], &[]);
+        let labels: Vec<&str> = found.iter().filter(|s| s.depth == 1).map(|s| s.label.as_str()).collect();
+        assert_eq!(labels, ["ingresses", "ingressclasses"], "the shorter name first");
+        let crds = [crd("b.example.com", "Agent", "agents"), crd("a.example.com", "Agent", "agents")];
+        let same = command_suggestions("agents", &crds, &[], &[], &[], &[]);
+        let groups: Vec<&str> = same.iter().filter(|s| s.depth == 0).map(|s| s.label.as_str()).collect();
+        assert_eq!(groups, ["a.example.com", "b.example.com"], "custom groups alphabetically");
+    }
+
+    #[test]
+    fn the_menu_always_reads_core_then_built_in_then_custom_then_knavs_own() {
+        let apis = [
+            api("rbac.authorization.k8s.io", "Role", "roles"),
+            api("apps", "ReplicaSet", "replicasets"),
+            api("", "ReplicationController", "replicationcontrollers"),
+            api("batch", "Job", "jobs"),
+            api("storage.k8s.io", "VolumeAttachment", "volumeattachments"),
+        ];
+        let crds = [crd("kagent.dev", "Role", "roles"), crd("agents.example.com", "Role", "roles")];
+        let found = command_suggestions("role", &crds, &apis, &[], &[], &[]);
+        let headers: Vec<&str> = found.iter().filter(|s| s.is_header()).map(|s| s.label.as_str()).collect();
+        assert_eq!(headers, ["rbac.authorization.k8s.io", "agents.example.com", "kagent.dev"], "{headers:?}");
+        // knav's own rows and ungrouped kinds come after every group.
+        let last_header = found.iter().rposition(|s| s.is_header()).unwrap();
+        assert!(found[last_header + 1..].iter().all(|s| s.depth == 1 || !s.is_header()));
+        // The fixed order of the usual groups, whatever matched best.
+        let many = command_suggestions("re", &[], &apis, &[], &[], &[]);
+        let built_in: Vec<&str> = many.iter().filter(|s| s.depth == 0 && s.built_in).map(|s| s.label.as_str()).collect();
+        assert_eq!(built_in, ["core", "apps"], "{built_in:?}");
     }
 }
