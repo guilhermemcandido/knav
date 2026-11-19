@@ -433,7 +433,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             }
             KeyCode::Char('l' | 'p') => ui::refuse("Logs are for pods; L streams a workload's pods"),
             KeyCode::Char('L') => ui::refuse(format!("{} have no pods to stream", st.current_kind.label())),
-            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'u' | 't')) => {
+            KeyCode::Char(c @ ('D' | 'S' | 'r' | 'c' | 'K' | 'u' | 't')) => {
                 // Delete, restart and scale act on every marked row when there are marks.
                 let bulk = matches!(c, 'D' | 'S' | 'r') && !st.marked.is_empty();
                 let targets: Vec<Target> = if bulk {
@@ -449,6 +449,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                         'D' => Some(Action::Delete),
                         'r' if target.restartable() => Some(Action::Restart),
                         'c' => target.cordon_action(),
+                        'K' => target.drain_action(),
                         'u' => target.suspend_action(),
                         't' if target.kind == "CronJob" => Some(Action::Trigger),
                         _ => None,
@@ -474,6 +475,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                             'S' => format!("A {} can't be scaled", target.kind),
                             'r' => format!("A {} can't be restarted", target.kind),
                             'c' => "Only nodes can be cordoned".to_string(),
+                            'K' => "Only nodes can be drained".to_string(),
                             'u' => format!("A {} can't be suspended", target.kind),
                             _ => "Only CronJobs can be triggered".to_string(),
                         });

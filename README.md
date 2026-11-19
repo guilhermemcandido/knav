@@ -109,9 +109,11 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `!` | problems across the cluster |
 | `v` | rollout history of a workload |
 | `X` | a debug container in a pod |
+| `c` / `K` | cordon / drain a node (drain evicts its pods; DaemonSet and unmanaged pods stay) |
 | `P` | permissions: your role or read-only |
 | `Space` | mark a row; `D`, `S` and `r` then act on every marked row |
 | `Esc` | clear marks, then the filter, then go back |
+| `ctrl-d` / `ctrl-u` | half a page down / up (also `ctrl-f` / `ctrl-b`) |
 | `ctrl-z` / `ctrl-w` | faults only / wide columns |
 | `[` / `]` | the view before / after this one |
 | `b` | sidebar |

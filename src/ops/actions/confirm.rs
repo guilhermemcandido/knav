@@ -33,6 +33,7 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
     let (verb, question, danger) = match action {
         Action::Delete => ("Delete", "Delete", true),
         Action::Restart => ("Restart", "Restart", false),
+        Action::Drain => ("Drain", "Drain", true),
         Action::Trigger => ("Run", "Run", false),
         Action::Suspend(true) => ("Suspend", "Suspend", false),
         Action::Suspend(false) => ("Resume", "Resume", false),
@@ -76,6 +77,10 @@ pub fn confirm_spec(action: Action, targets: &[Target]) -> Option<ConfirmSpec> {
             notes.push(("This can't be undone.".into(), true));
         }
         Action::Restart => notes.push(("Pods are replaced one at a time, a rolling restart.".into(), false)),
+        Action::Drain => {
+            notes.push(("Cordons the node, then evicts its pods so they start elsewhere.".into(), false));
+            notes.push(("DaemonSet pods, static pods and pods nothing controls stay. Pods with local emptyDir data lose it.".into(), true));
+        }
         Action::Trigger => notes.push(("Creates a Job right now from the CronJob's template.".into(), false)),
         Action::Suspend(true) => notes.push(("No new Jobs are created until you resume it.".into(), false)),
         Action::Suspend(false) => notes.push(("Jobs are created on schedule again.".into(), false)),

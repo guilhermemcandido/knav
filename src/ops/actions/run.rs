@@ -88,6 +88,7 @@ pub fn working_title(action: Action, targets: &[Target]) -> String {
         Action::Restart => "Restarting",
         Action::Cordon(true) => "Cordoning",
         Action::Cordon(false) => "Uncordoning",
+        Action::Drain => "Draining",
         Action::Trigger => "Starting a job from",
         Action::Suspend(true) => "Suspending",
         Action::Suspend(false) => "Resuming",
@@ -106,6 +107,7 @@ pub(super) fn action_name(action: Action) -> &'static str {
         Action::Scale(_) => "Scaled",
         Action::Restart => "Restarted",
         Action::Cordon(_) => "Cordoned",
+        Action::Drain => "Drained",
         Action::Trigger => "Triggered",
         Action::Suspend(_) => "Suspended",
         Action::Rollback(_) => "Rolled back",
@@ -164,6 +166,12 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
             api.patch(name, &params, &merge(json!({ "spec": { "unschedulable": on } }))).await?;
             Ok(format!("{} {label}", if on { "Cordoned" } else { "Uncordoned" }))
         }
+        Action::Drain => {
+            if target.kind != "Node" {
+                bail!("{label} can't be drained");
+            }
+            drain(client, &api, target).await
+        }
         Action::Suspend(on) => {
             api.patch(name, &params, &merge(json!({ "spec": { "suspend": on } }))).await?;
             Ok(format!("{} {label}", if on { "Suspended" } else { "Resumed" }))
@@ -184,6 +192,74 @@ async fn perform(client: &Client, target: &Target, action: Action, api: Api<Dyna
             Ok(format!("Started job {}", created.metadata.name.unwrap_or_default()))
         }
     }
+}
+
+/// What drain does with a pod: leave it, or evict it.
+#[derive(Debug, PartialEq)]
+enum Eviction {
+    Evict,
+    Leave(&'static str),
+}
+
+/// A DaemonSet's pod would come straight back and a mirror pod can't be evicted. A pod nothing
+/// controls would be lost for good, so it stays, like `kubectl drain` without `--force`.
+fn eviction_of(pod: &k8s_openapi::api::core::v1::Pod) -> Eviction {
+    let owners = pod.metadata.owner_references.as_deref().unwrap_or_default();
+    if pod.metadata.annotations.as_ref().is_some_and(|a| a.contains_key("kubernetes.io/config.mirror")) {
+        Eviction::Leave("a static pod")
+    } else if pod.metadata.deletion_timestamp.is_some() {
+        Eviction::Leave("already terminating")
+    } else if owners.iter().any(|o| o.kind == "DaemonSet") {
+        Eviction::Leave("a DaemonSet's pod")
+    } else if !owners.iter().any(|o| o.controller == Some(true)) && !matches!(pod.status.as_ref().and_then(|s| s.phase.as_deref()), Some("Succeeded" | "Failed")) {
+        Eviction::Leave("nothing controls it")
+    } else {
+        Eviction::Evict
+    }
+}
+
+/// Cordons the node, then evicts what can be evicted, retrying the pods a disruption budget holds
+/// back for a few seconds before saying which stayed.
+async fn drain(client: &Client, nodes: &Api<DynamicObject>, target: &Target) -> Result<String> {
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::api::{EvictParams, ListParams};
+    nodes.patch(&target.name, &PatchParams::default(), &Patch::Merge(json!({ "spec": { "unschedulable": true } }))).await?;
+    let all: Api<Pod> = Api::all(client.clone());
+    let listed = all.list(&ListParams::default().fields(&format!("spec.nodeName={}", target.name))).await?;
+    let mut left: Vec<Pod> = Vec::new();
+    let mut kept: Vec<String> = Vec::new();
+    for pod in listed.items {
+        match eviction_of(&pod) {
+            Eviction::Evict => left.push(pod),
+            Eviction::Leave(why) => kept.push(format!("{} ({why})", pod.metadata.name.as_deref().unwrap_or_default())),
+        }
+    }
+    let total = left.len();
+    for attempt in 0..4 {
+        let mut blocked = Vec::new();
+        for pod in left {
+            let (Some(namespace), Some(name)) = (pod.metadata.namespace.as_deref(), pod.metadata.name.as_deref()) else { continue };
+            let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+            match api.evict(name, &EvictParams::default()).await {
+                Ok(_) => {}
+                Err(kube::Error::Api(e)) if e.code == 404 => {}
+                Err(kube::Error::Api(e)) if e.code == 429 => blocked.push(pod),
+                Err(e) => return Err(e).with_context(|| format!("evicting {namespace}/{name}")),
+            }
+        }
+        left = blocked;
+        if left.is_empty() || attempt == 3 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+    let evicted = total - left.len();
+    if !left.is_empty() {
+        let names: Vec<String> = left.iter().map(|p| format!("{}/{}", p.metadata.namespace.as_deref().unwrap_or("-"), p.metadata.name.as_deref().unwrap_or_default())).collect();
+        bail!("Drained {} partly: {evicted} of {total} pods evicted, a disruption budget holds back {}", target.label(), names.join(", "));
+    }
+    let note = if kept.is_empty() { String::new() } else { format!("; left {}", kept.join(", ")) };
+    Ok(format!("Drained {}: {evicted} pod{} evicted{note}", target.label(), if evicted == 1 { "" } else { "s" }))
 }
 
 /// `<cronjob>-manual-<stamp>` in at most 63 characters. It is the CronJob's name that gives way,
@@ -217,6 +293,28 @@ pub(super) fn job_from_cronjob(target: &Target, stamp: i64) -> Result<serde_json
         },
         "spec": template.get("spec").cloned().unwrap_or_else(|| json!({})),
     }))
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+
+    fn pod(yaml: &str) -> k8s_openapi::api::core::v1::Pod {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn drain_leaves_what_would_come_back_or_never_return() {
+        let owned = pod("metadata:\n  name: a\n  ownerReferences:\n  - {apiVersion: apps/v1, kind: ReplicaSet, name: r, uid: u, controller: true}\n");
+        assert_eq!(eviction_of(&owned), Eviction::Evict);
+        let daemon = pod("metadata:\n  name: a\n  ownerReferences:\n  - {apiVersion: apps/v1, kind: DaemonSet, name: d, uid: u, controller: true}\n");
+        assert_eq!(eviction_of(&daemon), Eviction::Leave("a DaemonSet's pod"));
+        assert_eq!(eviction_of(&pod("metadata:\n  name: a\n")), Eviction::Leave("nothing controls it"));
+        let finished = pod("metadata:\n  name: a\nstatus:\n  phase: Succeeded\n");
+        assert_eq!(eviction_of(&finished), Eviction::Evict);
+        let mirror = pod("metadata:\n  name: a\n  annotations:\n    kubernetes.io/config.mirror: x\n");
+        assert_eq!(eviction_of(&mirror), Eviction::Leave("a static pod"));
+    }
 }
 
 #[cfg(test)]

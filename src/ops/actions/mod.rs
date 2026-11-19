@@ -18,6 +18,8 @@ pub enum Action {
     Restart,
     /// `true` marks the node unschedulable (cordon), `false` undoes it.
     Cordon(bool),
+    /// Cordons the node, then evicts its pods the way `kubectl drain` does.
+    Drain,
     Trigger,
     /// `true` suspends the CronJob, `false` resumes it.
     Suspend(bool),
@@ -113,6 +115,11 @@ impl Target {
     /// The action for `o` on a node: cordon if it is schedulable, else undo.
     pub fn cordon_action(&self) -> Option<Action> {
         (self.kind == "Node").then(|| Action::Cordon(!self.flag("unschedulable")))
+    }
+
+    /// The action for `K` on a node.
+    pub fn drain_action(&self) -> Option<Action> {
+        (self.kind == "Node").then_some(Action::Drain)
     }
 
     /// The action for `u` on a CronJob: suspend if it is running, else resume.

@@ -283,8 +283,8 @@ mod tests {
     fn key_settings_are_lists_checked_for_conflicts() {
         let config = Config::default();
         let delete = find("keys.delete");
-        let ok = typed_value(&config, &delete, "W, ctrl-d").unwrap();
-        assert_eq!(ok.to_string().replace(' ', ""), "[\"W\",\"ctrl-d\"]");
+        let ok = typed_value(&config, &delete, "W, ctrl-x").unwrap();
+        assert_eq!(ok.to_string().replace(' ', ""), "[\"W\",\"ctrl-x\"]");
         assert!(typed_value(&config, &delete, "").is_err());
         assert!(typed_value(&config, &delete, "nonsense").is_err());
         let clash = typed_value(&config, &delete, "r").unwrap_err().to_string();

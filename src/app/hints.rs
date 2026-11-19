@@ -4,7 +4,7 @@ use super::*;
 
 /// Whether a hint's key changes the cluster, so read-only mode leaves it out.
 pub(crate) fn changes_cluster(hint: &(&str, &str)) -> bool {
-    matches!(*hint, ("e", "edit") | ("D", "delete") | ("S", "shell" | "scale") | ("r", "restart") | ("c", "cordon") | ("t", "trigger") | ("u", "suspend") | ("X", "debug"))
+    matches!(*hint, ("e", "edit") | ("D", "delete") | ("S", "shell" | "scale") | ("r", "restart") | ("c", "cordon") | ("K", "drain") | ("t", "trigger") | ("u", "suspend") | ("X", "debug"))
 }
 
 /// The keys for acting on the selected object, for the kinds each applies to.
@@ -17,7 +17,7 @@ fn action_hints(kind: ResourceKind) -> Vec<(&'static str, &'static str)> {
         ResourceKind::ReplicaSets => vec![("S", "scale"), ("L", "pod logs")],
         ResourceKind::DaemonSets => vec![("r", "restart"), ("v", "history"), ("L", "pod logs")],
         ResourceKind::Jobs => vec![("L", "pod logs")],
-        ResourceKind::Nodes => vec![("c", "cordon")],
+        ResourceKind::Nodes => vec![("c", "cordon"), ("K", "drain")],
         ResourceKind::CronJobs => vec![("t", "trigger"), ("u", "suspend")],
         ResourceKind::Secrets => vec![("x", "decode")],
         _ => Vec::new(),
