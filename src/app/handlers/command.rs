@@ -16,7 +16,14 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
             KeyCode::Tab => {
                 let suggestions = command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names);
                 if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))) {
-                    let name = chosen.primary_name();
+                    let mut name = chosen.primary_name();
+                    // The filters typed so far stay; only the name is completed.
+                    if !matches!(chosen.cmd, Cmd::Filter) {
+                        let filters: Vec<&str> = input.split_whitespace().filter(|w| w.contains(':')).collect();
+                        if !filters.is_empty() {
+                            name = format!("{} {name}", filters.join(" "));
+                        }
+                    }
                     // A header or `+N more` row isn't something to complete to, and a name already typed
                     // out is done: both move on to the next row.
                     if chosen.is_header() || chosen.is_more() || *input == name {
@@ -44,9 +51,16 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                     c if is_context_command(c) => Some(Cmd::Context),
                     c => k8s::ResourceKind::from_command(c).map(Cmd::Kind),
                 };
+                // A filter value completes the word and keeps typing.
+                if let Some(chosen) = suggestions.get((*selected).min(suggestions.len().saturating_sub(1))).filter(|s| matches!(s.cmd, Cmd::Filter)) {
+                    *input = chosen.primary_name();
+                    *selected = best_row(&command_suggestions(input, &catalog.crds, &catalog.apis, &catalog.dashboard_categories(), &cx.registry.loaded, &names));
+                    return Ok(None);
+                }
                 // A hidden command typed out in full (`ctx`, `theme`) runs first, whatever else matched.
                 match hidden_command(&cmd).or_else(|| suggestions.get((*selected).min(suggestions.len().saturating_sub(1))).map(|s| s.cmd)).or_else(typed) {
                     Some(Cmd::Quit) => return Ok(Some(SessionEnd::Quit)),
+                    Some(Cmd::Filter) => {}
                     Some(Cmd::Settings) => {
                         let mut opened = std::mem::replace(&mut **back, Mode::List);
                         std::mem::swap(&mut st.mode, &mut opened);
