@@ -43,10 +43,14 @@ pub(super) struct Fitted {
     flex: Option<usize>,
     /// Whether the columns fit the screen at their minimums.
     scrolls: bool,
+    /// The AGE column, kept on screen when the rest scrolls.
+    age: Option<usize>,
 }
 
 pub(super) struct Window {
     range: Range<usize>,
+    /// A column shown after the range because it is pinned and scrolled out of it.
+    pinned: Option<usize>,
     /// The requested offset, clamped.
     pub(super) offset: usize,
     pub(super) constraints: Vec<Constraint>,
@@ -59,10 +63,14 @@ impl Window {
         self.range.clone()
     }
 
-    pub(super) fn slice<T>(&self, mut cells: Vec<T>) -> Vec<T> {
-        cells.truncate(self.range.end);
-        cells.drain(..self.range.start);
-        cells
+    /// Every shown column in order: the range, then the pinned one.
+    pub(super) fn indices(&self) -> Vec<usize> {
+        self.range.clone().chain(self.pinned).collect()
+    }
+
+    pub(super) fn slice<T>(&self, cells: Vec<T>) -> Vec<T> {
+        let mut cells: Vec<Option<T>> = cells.into_iter().map(Some).collect();
+        self.indices().into_iter().filter_map(|i| cells.get_mut(i)?.take()).collect()
     }
 }
 
@@ -106,7 +114,8 @@ impl Fitted {
             }
         }
         let scrolls = widths.iter().sum::<usize>() + gaps > available;
-        Fitted { widths, flex: flex.filter(|_| !scrolls), scrolls }
+        let age = headers.iter().position(|h| *h == "AGE");
+        Fitted { widths, flex: flex.filter(|_| !scrolls), scrolls, age }
     }
 
     pub(super) fn window(&self, offset: usize, available: u16) -> Window {
@@ -115,22 +124,30 @@ impl Fitted {
         let available = usize::from(available);
         let span = |r: Range<usize>| -> usize { r.clone().map(|i| self.widths[i]).sum::<usize>() + gap * r.len().saturating_sub(1) };
 
-        let (offset, end) = if !self.scrolls {
-            (0, n)
-        } else {
+        let place = |room: usize| -> (usize, usize) {
             // The furthest right you can scroll: the last screenful.
-            let max_offset = (0..n).find(|&start| span(start..n) <= available).unwrap_or(n - 1);
+            let max_offset = (0..n).find(|&start| span(start..n) <= room).unwrap_or(n - 1);
             let offset = offset.min(max_offset);
             let mut end = offset + 1;
-            while end < n && span(offset..end + 1) <= available {
+            while end < n && span(offset..end + 1) <= room {
                 end += 1;
             }
             (offset, end)
         };
-        let constraints = (offset..end)
+        let (mut offset, mut end) = if self.scrolls { place(available) } else { (0, n) };
+        let mut pinned = None;
+        if let Some(age) = self.age.filter(|a| self.scrolls && !(offset..end).contains(a)) {
+            // Age stays in view: the rest scrolls in what it leaves.
+            (offset, end) = place(available.saturating_sub(self.widths[age] + gap));
+            if !(offset..end).contains(&age) {
+                pinned = Some(age);
+            }
+        }
+        let mut constraints: Vec<Constraint> = (offset..end)
             .map(|i| if Some(i) == self.flex { Constraint::Fill(1) } else { Constraint::Length(self.widths[i] as u16) })
             .collect();
-        Window { range: offset..end, offset, constraints, can_left: offset > 0, can_right: end < n }
+        constraints.extend(pinned.map(|i| Constraint::Length(self.widths[i] as u16)));
+        Window { range: offset..end, pinned, offset, constraints, can_left: offset > 0, can_right: (end..n).any(|i| Some(i) != pinned) }
     }
 }
 
@@ -221,7 +238,9 @@ pub(super) fn layout_list(
     if let Some(column) = keep {
         for _ in 0..headers.len() {
             let range = window.range();
-            if column < range.start {
+            if window.pinned == Some(column) {
+                break;
+            } else if column < range.start {
                 *hscroll = column;
             } else if column >= range.end {
                 *hscroll = window.offset + 1;
@@ -238,6 +257,19 @@ pub(super) fn layout_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn age_stays_in_view_when_the_table_scrolls() {
+        let headers = ["NAME", "STATUS", "AGE", "NODE", "QOS"];
+        let fit = Fitted::from_natural(&headers, vec![30, 20, 8, 20, 20], 70, None);
+        for offset in 0..5 {
+            let window = fit.window(offset, 70);
+            assert!(window.indices().contains(&2), "offset {offset}: {:?}", window.indices());
+        }
+        let last = fit.window(9, 70);
+        assert!(last.indices().contains(&2));
+        assert!(!last.can_right);
+    }
 
     fn lengths(w: &Window) -> Vec<u16> {
         w.constraints.iter().map(|c| if let Constraint::Length(n) = c { *n } else { 0 }).collect()
@@ -315,9 +347,10 @@ mod header_width_tests {
     fn a_narrow_screen_never_cuts_a_header_or_its_sort_number() {
         let headers = ["NAMESPACE", "CONTROLLER", "AGE"];
         let fit = Fitted::new(&headers, vec![vec![30, 30, 3]].into_iter(), 40, None);
-        let widths: Vec<usize> = fit.window(0, 40).constraints.iter().map(|c| if let Constraint::Length(n) = c { usize::from(*n) } else { 0 }).collect();
-        for (h, w) in headers.iter().zip(&widths) {
-            assert!(*w >= h.len() + 3, "{h} got {w}");
+        let window = fit.window(0, 40);
+        let widths: Vec<usize> = window.constraints.iter().map(|c| if let Constraint::Length(n) = c { usize::from(*n) } else { 0 }).collect();
+        for (i, w) in window.indices().into_iter().zip(&widths) {
+            assert!(*w >= headers[i].len() + 3, "{} got {w}", headers[i]);
         }
     }
 }

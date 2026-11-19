@@ -171,7 +171,7 @@ impl TableKind {
                     .map(|&i| {
                         let column = &data.columns[i];
                         let text = row.cells.get(i).cloned().unwrap_or_default();
-                        Col { header: column.name, tone: if Some(i) == status_column { cell_tone(&text) } else { Tone::Plain }, sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
+                        Col { header: column.name, tone: column_tone(column.name, &text, Some(i) == status_column), sort: column.numeric.then(|| text.parse().ok()).flatten(), text }
                     })
                     .collect();
                 let status = status_column.and_then(|i| row.cells.get(i)).filter(|t| !t.is_empty()).map(|text| status_note(text, ready_column));
@@ -359,11 +359,27 @@ fn status_note(text: &str, ready_column: bool) -> (Tone, String) {
     }
 }
 
+/// A cell's tone: the state words anywhere, and True/False only in the columns where
+/// they mean healthy or not (SUSPENDED: False is fine).
+fn column_tone(header: &str, text: &str, status: bool) -> Tone {
+    let tone = cell_tone(text);
+    if tone != Tone::Plain || status {
+        return tone;
+    }
+    let says_ready = ["READY", "SYNCED", "HEALTHY", "AVAILABLE", "ESTABLISHED", "APPROVED", "VALID", "ACTIVE", "BOUND"].iter().any(|h| header.eq_ignore_ascii_case(h));
+    match text {
+        "True" if says_ready => Tone::Good,
+        "False" if says_ready => Tone::Bad,
+        "<none>" | "<unknown>" | "-" => Tone::Muted,
+        _ => Tone::Plain,
+    }
+}
+
 fn cell_tone(text: &str) -> Tone {
     match text {
-        "Ready" | "Active" | "Bound" | "Available" | "Running" | "Healthy" | "Complete" | "Succeeded" | "Established" | "Approved" => Tone::Good,
-        "Pending" | "Terminating" | "Progressing" | "Unknown" | "Released" | "Waiting" => Tone::Warn,
-        "Failed" | "Error" | "NotReady" | "Lost" | "CrashLoopBackOff" | "ImagePullBackOff" | "Evicted" | "OOMKilled" | "Denied" => Tone::Bad,
+        "Synced" | "Valid" | "Accepted" | "Programmed" | "Ready" | "Active" | "Bound" | "Available" | "Running" | "Healthy" | "Complete" | "Succeeded" | "Established" | "Approved" => Tone::Good,
+        "Pending" | "Terminating" | "Progressing" | "Unknown" | "Released" | "Waiting" | "OutOfSync" | "Suspended" | "Syncing" | "Reconciling" => Tone::Warn,
+        "Failed" | "Degraded" | "Missing" | "Invalid" | "Error" | "NotReady" | "Lost" | "CrashLoopBackOff" | "ImagePullBackOff" | "Evicted" | "OOMKilled" | "Denied" => Tone::Bad,
         "Completed" => Tone::Muted,
         _ => Tone::Plain,
     }
@@ -689,6 +705,9 @@ mod tests {
         assert_eq!(cell_tone("Pending"), Tone::Warn);
         assert_eq!(cell_tone("Failed"), Tone::Bad);
         assert_eq!(cell_tone("whatever"), Tone::Plain);
+        assert_eq!(column_tone("SYNCED", "True", false), Tone::Good);
+        assert_eq!(column_tone("SUSPENDED", "False", false), Tone::Plain);
+        assert_eq!(column_tone("TYPE", "<none>", false), Tone::Muted);
     }
 }
 

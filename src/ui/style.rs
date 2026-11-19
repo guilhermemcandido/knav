@@ -218,7 +218,7 @@ mod highlight_tests {
 pub(super) fn header_row(names: &[&str], sort: SortState, dimmed: bool, window: &Window) -> Row<'static> {
     let text = theme_header(dimmed);
     let number = if dimmed { dim_style() } else { Style::default().fg(theme().warm).add_modifier(Modifier::BOLD) };
-    let cells = window.range().map(|i| {
+    let cells = window.indices().into_iter().map(|i| {
         let name = names[i];
         let mut spans = Vec::new();
         if sort.choosing && i < 10 {

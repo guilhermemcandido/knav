@@ -307,7 +307,7 @@ pub fn row_at(frame_area: Rect, layout: PodLayout, table_state: &TableState, row
     let window = pod_window(pods, usage, table_area.width, &mut { hscroll }, wide, None);
     let columns = Layout::horizontal(window.constraints.clone()).spacing(COLUMN_GAP).split(inner);
     // CONTAINERS is the last column; nothing to hover if it's scrolled away.
-    let containers_col = if window.range().end == pod_headers(wide).len() { columns.last()? } else { return None };
+    let containers_col = if window.range().end == pod_headers(wide).len() { columns.get(window.range().len().checked_sub(1)?)? } else { return None };
     if column < containers_col.x || column >= containers_col.x + containers_col.width {
         return None;
     }
@@ -589,13 +589,16 @@ pub(super) fn draw_generic_table(frame: &mut Frame, area: Rect, rows: &[std::syn
         let cell_style = row_tone_style(row_tone, dimmed);
         let mut cells = Vec::with_capacity(headers.len());
         if show_namespace {
-            cells.push(Cell::from(highlight_fuzzy(&r.namespace, search.text, cell_style)));
+            let soft = if row_tone == Tone::Plain && !dimmed { Style::default().fg(theme().desc) } else { cell_style };
+            cells.push(Cell::from(highlight_fuzzy(&r.namespace, search.text, soft)));
         }
-        cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, cell_style)));
+        let name_style = if row_tone == Tone::Plain && !dimmed { Style::default().fg(theme().text_strong) } else { cell_style };
+        cells.push(Cell::from(highlight_fuzzy(&r.name, search.text, name_style)));
         cells.extend(r.extras.iter().map(|c| Cell::from(c.text.clone()).style(if c.tone == Tone::Plain { cell_style } else { tone_style(c.tone, dimmed) })));
-        cells.push(Cell::from(r.age.clone()).style(cell_style));
+        let quiet = if row_tone == Tone::Plain && !dimmed { Style::default().fg(theme().muted) } else { cell_style };
+        cells.push(Cell::from(r.age.clone()).style(quiet));
         if wide {
-            cells.push(Cell::from(r.labels.clone()).style(cell_style));
+            cells.push(Cell::from(r.labels.clone()).style(quiet));
         }
         Row::new(window.slice(cells))
     });
