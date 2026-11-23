@@ -16,6 +16,7 @@ mod overview_popups;
 mod details;
 mod permissions;
 mod pickers;
+mod notifications;
 mod problems;
 pub(super) use problems::matching as problems_matching;
 mod related;
@@ -425,6 +426,7 @@ fn route(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option<SessionEnd>
         Mode::Permissions { .. } => permissions::handle(event, st, cx),
         Mode::History { .. } => history::handle(event, st, cx),
         Mode::Problems { .. } => problems::handle(event, st, cx),
+        Mode::Notifications { .. } => notifications::handle(event, st),
         Mode::ThemePicker { .. } => themes::handle(event, st, cx),
         Mode::Settings { .. } => settings::handle(event, st, cx),
         Mode::Extensions { .. } => extensions::handle(event, st, cx),
@@ -473,6 +475,7 @@ fn global_key(code: KeyCode, st: &mut State, active_context: &str) -> Result<boo
         KeyCode::Char('E') => extensions::open(st),
         KeyCode::Char('P') => permissions::open(st),
         KeyCode::Char('!') => problems::open(st),
+        KeyCode::Char('N') => notifications::open(st),
         _ => return Ok(false),
     }
     Ok(true)

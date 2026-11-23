@@ -106,6 +106,7 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
     }
 
     let mut cache: Option<derive::Cache> = None;
+    let mut last_notice: Option<String> = None;
     let mut title = String::new();
     loop {
         if let Some(outcome) = jobs::finish(&mut st) {
@@ -320,8 +321,22 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
             read_only: st.read_only(),
         };
         // A watch that can't list (forbidden, unreachable) says so once, instead of staying on loading.
-        if let Some(problem) = k8s::take_watch_error() {
-            ui::refuse(problem);
+        if let Some((problem, full)) = k8s::take_watch_error() {
+            ui::show_toast_with_detail(format!("{problem} (N for details)"), &full);
+        }
+        // Each notice is kept for the notifications page when it first shows.
+        match &st.mode {
+            Mode::Notice { text, tone, .. } if last_notice.as_deref() != Some(text.as_str()) => {
+                let level = match tone {
+                    NoticeTone::Done => ui::notify::Level::Done,
+                    NoticeTone::Info => ui::notify::Level::Info,
+                    NoticeTone::Failed => ui::notify::Level::Failed,
+                };
+                ui::notify::record(level, text);
+                last_notice = Some(text.clone());
+            }
+            Mode::Notice { .. } => {}
+            _ => last_notice = None,
         }
         // While a `:` command is typed, the descriptions of the kinds it lists are fetched
         // ahead, so they are there by the time the typing pauses.

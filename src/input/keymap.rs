@@ -58,6 +58,7 @@ bindings! {
     ("extensions", "Extensions", ALL, &["E"]),
     ("permissions", "Permissions", ALL, &["P"]),
     ("problems", "Problems", ALL, &["!"]),
+    ("notifications", "Notifications", ALL, &["N"]),
     ("back", "Back", ALL, &["q"]),
     ("cancel", "Cancel / clear marks", ALL, &["esc"]),
     ("move_down", "Move down", NAV, &["j", "down"]),

@@ -33,6 +33,7 @@ mod loading;
 mod logs;
 mod nav;
 mod overview;
+pub mod notify;
 mod popups;
 mod sidebar;
 mod selection;
@@ -41,7 +42,7 @@ mod tables;
 mod style;
 
 pub use self::columns::*;
-pub use self::selection::{Pane, PaneRange, after_frame, refuse, selection_drag, selection_edge, selection_finish, selection_start, set_ghost, show_toast, text_between};
+pub use self::selection::{Pane, PaneRange, after_frame, refuse, show_toast_with_detail, selection_drag, selection_edge, selection_finish, selection_start, set_ghost, show_toast, text_between};
 use self::dashboard::draw_dashboard;
 pub use self::nav::*;
 pub use self::sidebar::{SIDEBAR_MIN_WIDTH, Sidebar, SidebarRow, beside_sidebar, sidebar_area, sidebar_row_at};
@@ -114,6 +115,12 @@ pub struct EditReviewView<'a> {
     pub hscroll: usize,
     pub focus: usize,
     pub error: Option<&'a str>,
+}
+
+/// The notifications page (`N`).
+pub struct NotificationsView<'a> {
+    pub entries: &'a [notify::Entry],
+    pub state: &'a mut TableState,
 }
 
 /// Problems (`!`): the matching ones, how many there are in all, and the search.
@@ -194,6 +201,7 @@ pub enum Overlay<'a> {
     Permissions(PermissionsView<'a>),
     History(HistoryView<'a>),
     Problems(ProblemsView<'a>),
+    Notifications(NotificationsView<'a>),
     /// The `n` namespace picker: every namespace with its number key, if any.
     NamespacePicker { items: &'a [(String, Option<usize>)], total: usize, filter: &'a str, editing: bool, state: &'a mut TableState, sort: SortState },
     /// Keys 1-9 (and `0` for all) with what each holds, to choose one for a namespace.
@@ -491,6 +499,7 @@ pub fn draw(frame: &mut Frame, screen: Screen, layers: Layers, icons: &mut IconC
                 | Some(Overlay::Permissions(..))
                 | Some(Overlay::History(..))
                 | Some(Overlay::Problems(..))
+                | Some(Overlay::Notifications(..))
                 | Some(Overlay::Yaml { .. })
                 | Some(Overlay::Shell { .. })
                 | Some(Overlay::ThemePicker { .. })
@@ -736,6 +745,7 @@ pub(super) fn draw_overlay(frame: &mut Frame, overlay: Overlay, dimmed: bool, ic
         Overlay::Permissions(view) => draw_permissions(frame, view),
         Overlay::History(view) => draw_history(frame, view),
         Overlay::Problems(view) => draw_problems(frame, view),
+        Overlay::Notifications(view) => draw_notifications(frame, view),
         Overlay::Working { title, elapsed, done, total, cancellable } => draw_working_popup(frame, title, elapsed, done, total, cancellable),
         Overlay::Slots { namespace, slots, selected } => draw_slots_popup(frame, namespace, slots, selected),
         Overlay::NamespacePicker { items, total, filter, editing, state, sort } => draw_namespace_picker(frame, items, total, filter, editing, state, sort),

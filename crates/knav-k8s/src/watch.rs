@@ -20,7 +20,7 @@ static CHANGES: AtomicU64 = AtomicU64::new(0);
 
 /// The newest watch error nobody has been told about, and what was last reported (with when),
 /// so a forbidden or unreachable list says so instead of sitting on "loading".
-static WATCH_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static WATCH_ERROR: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 static REPORTED: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
 
 /// How long an error already shown stays quiet before it may be shown again.
@@ -39,19 +39,20 @@ fn note_watch_error(kind: &str, error: &dyn std::fmt::Display) {
         first.chars().take(110).collect()
     };
     if let Ok(mut slot) = WATCH_ERROR.lock() {
-        *slot = Some(format!("{}: {why}", kind.to_lowercase()));
+        // The server's own words (who, which verb, which resource) go with it in full.
+        *slot = Some((format!("{}: {why}", kind.to_lowercase()), format!("{}: {why}\n{}", kind.to_lowercase(), text.trim())));
     }
 }
 
 /// A watch error to show, once: the same one is not repeated for a minute.
-pub fn take_watch_error() -> Option<String> {
-    let message = WATCH_ERROR.lock().ok()?.take()?;
+pub fn take_watch_error() -> Option<(String, String)> {
+    let (message, full) = WATCH_ERROR.lock().ok()?.take()?;
     let mut reported = REPORTED.lock().ok()?;
     if reported.as_ref().is_some_and(|(last, at)| *last == message && at.elapsed() < REPEAT_AFTER) {
         return None;
     }
     *reported = Some((message.clone(), std::time::Instant::now()));
-    Some(message)
+    Some((message, full))
 }
 
 /// Tells the UI something changed that no reflector reported (a table kind's watch).
@@ -295,11 +296,13 @@ mod watch_error_tests {
     fn a_watch_error_is_named_plainly_and_shown_once() {
         // Both cases in one test: the error slot is shared by the whole process.
         note_watch_error("Pod", &"ApiError: pods is forbidden: User cannot list resource (403)");
-        assert_eq!(take_watch_error().as_deref(), Some("pod: access denied (forbidden)"));
+        let (short, full) = take_watch_error().unwrap();
+        assert_eq!(short, "pod: access denied (forbidden)");
+        assert!(full.contains("User cannot list resource"));
         assert_eq!(take_watch_error(), None, "taken, so nothing is left");
         note_watch_error("Pod", &"ApiError: pods is forbidden: User cannot list resource (403)");
         assert_eq!(take_watch_error(), None, "the same error is not repeated within a minute");
         note_watch_error("Node", &"connection refused");
-        assert_eq!(take_watch_error().as_deref(), Some("node: connection refused"));
+        assert_eq!(take_watch_error().map(|(short, _)| short).as_deref(), Some("node: connection refused"));
     }
 }

@@ -73,6 +73,8 @@ pub(crate) enum Mode {
     EditReview { draft: EditDraft, diff: Vec<(crate::ops::edit::DiffKind, String)>, scroll: usize, hscroll: usize, focus: usize, back: Box<Mode> },
     /// Everything that needs a look, across kinds; `search` filters it.
     Problems { state: TableState, search: String, editing: bool, back: Box<Mode> },
+    /// `N`: what knav showed lately, in full.
+    Notifications { state: TableState, back: Box<Mode> },
     /// A workload's revisions, newest first; `scroll` is into the changes below.
     /// `on_diff`: the arrows scroll the changes rather than pick a revision. `previous`:
     /// show what the revision changed from the one before, not what a rollback changes.

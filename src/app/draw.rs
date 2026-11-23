@@ -275,6 +275,13 @@ pub(super) fn draw_mode(
                     paint(frame, None, None, Some(ui::Overlay::Problems(view)), *editing);
                 })?;
             }
+            Mode::Notifications { state, .. } => {
+                let entries = ui::notify::all();
+                terminal.draw(|frame| {
+                    frame_area = frame.area();
+                    paint(frame, None, None, Some(ui::Overlay::Notifications(ui::NotificationsView { entries: &entries, state })), false);
+                })?;
+            }
             Mode::History { target, revisions, cursor, scroll, hscroll: history_hscroll, on_diff, previous, .. } => {
                 let (diff, from_previous) = super::handlers::history_changes(revisions, *cursor, *previous);
                 let title = target.label();
