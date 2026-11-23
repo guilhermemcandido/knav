@@ -274,8 +274,10 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     });
     // Everything that matched is grouped first and the menu is cut after, so a group's `+N more`
     // counts what is really left and a block is never cut in half by an arbitrary top ten.
+    // Only a name typed out in full takes the cursor from the top row, so it stays put while typing.
+    let exact = scored.first().is_some_and(|(score, _)| *score >= 1000);
     let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(MAX_MATCHES).collect();
-    if let Some(first) = ranked.first_mut() {
+    if let Some(first) = ranked.first_mut().filter(|_| exact) {
         first.best = true;
     }
     // Tab completes a resource whose name another entry shares (or that was found through a
@@ -556,9 +558,10 @@ pub(crate) struct Suggestion {
     pub(crate) last: bool,
 }
 
-/// The row to highlight: the best match, which a group header may sit above.
+/// The row to highlight: an exact name typed out in full, else the first row that can be opened,
+/// so the cursor stays at the top while typing instead of following a match around the menu.
 pub(crate) fn best_row(suggestions: &[Suggestion]) -> usize {
-    suggestions.iter().position(|s| s.best).unwrap_or(0)
+    suggestions.iter().position(|s| s.best).or_else(|| suggestions.iter().position(|s| !s.is_header() && !s.is_more())).unwrap_or(0)
 }
 
 impl Suggestion {
@@ -943,6 +946,17 @@ mod tests {
 
     fn crd(group: &'static str, kind: &'static str, plural: &str) -> k8s::CrdInfo {
         k8s::CrdInfo { group, kind, plural: plural.into(), version: "v1".into(), namespaced: true }
+    }
+
+    #[test]
+    fn the_cursor_stays_on_the_first_row_until_a_name_is_typed_in_full() {
+        let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
+        for typed in ["e", "en", "env", "envi"] {
+            let found = command_suggestions(typed, &crds, &[], &[], &[], &[]);
+            let at = best_row(&found);
+            assert!(!found[at].is_header(), "{typed}");
+            assert!(found[..at].iter().all(|s| s.is_header()), "{typed}: only headers above the cursor");
+        }
     }
 
     #[test]
