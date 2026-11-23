@@ -141,10 +141,11 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     if let Some(values) = filter_values(input, crds, apis, extensions) {
         return values;
     }
+    let typed = input;
     let query = parse_query(input);
     let input = query.name.clone();
     if input.is_empty() && !query.has_filters() {
-        return Vec::new();
+        return filter_keys(typed);
     }
     let names_of = |cmd: Cmd| match cmd {
         Cmd::Custom(i) => vec![custom[i].to_lowercase()],
@@ -275,7 +276,8 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     // Everything that matched is grouped first and the menu is cut after, so a group's `+N more`
     // counts what is really left and a block is never cut in half by an arbitrary top ten.
     // Only a name typed out in full takes the cursor from the top row, so it stays put while typing.
-    let exact = scored.first().is_some_and(|(score, _)| *score >= 1000);
+    // One letter is the start of a word far more often than a whole alias.
+    let exact = input.chars().count() > 1 && scored.first().is_some_and(|(score, _)| *score >= 1000);
     let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(MAX_MATCHES).collect();
     if let Some(first) = ranked.first_mut().filter(|_| exact) {
         first.best = true;
@@ -294,7 +296,39 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             row.primary = format!("{plural}.{group}");
         }
     }
-    grouped(ranked, crds, extensions, &names_of)
+    let mut rows = grouped(ranked, crds, extensions, &names_of);
+    // The filters are offered after the results while their name is being started (`g`, `ex`).
+    if !typed.is_empty() {
+        rows.extend(filter_keys(typed));
+    }
+    rows
+}
+
+/// The filters there are, offered on an empty line and while a word that could start one is
+/// typed, so they can be found. Choosing one completes `key:` and its values follow.
+fn filter_keys(typed: &str) -> Vec<Suggestion> {
+    const KEYS: [(&str, &str); 3] = [("group:", "Filter by API group"), ("ext:", "Filter by extension"), ("is:", "builtin or custom kinds")];
+    let before_len = typed.rfind(' ').map_or(0, |i| i + 1);
+    let (before, word) = typed.split_at(before_len);
+    let word = word.to_lowercase();
+    if word.contains(':') {
+        return Vec::new();
+    }
+    KEYS.iter()
+        .filter(|(key, _)| key.starts_with(word.as_str()))
+        .map(|(key, what)| Suggestion {
+            cmd: Cmd::Filter,
+            primary: format!("{before}{key}"),
+            label: key.to_string(),
+            ext: None,
+            depth: 0,
+            kind_name: Some(what),
+            best: false,
+            native: None,
+            built_in: false,
+            last: false,
+        })
+        .collect()
 }
 
 /// The choices for a filter being typed (`group:`, `ext:`, `is:`): every value that fits what is
@@ -775,8 +809,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_suggests_nothing() {
-        assert!(command_suggestions("  ", &[], &[], &[], &[], &[]).is_empty());
+    fn empty_input_suggests_only_the_filters() {
+        assert!(command_suggestions("  ", &[], &[], &[], &[], &[]).iter().all(|s| matches!(s.cmd, Cmd::Filter)));
     }
 
     #[test]
@@ -951,12 +985,23 @@ mod tests {
     #[test]
     fn the_cursor_stays_on_the_first_row_until_a_name_is_typed_in_full() {
         let crds = [crd("platform.example.com", "Environment", "environments"), crd("platform.example.com", "Team", "teams")];
-        for typed in ["e", "en", "env", "envi"] {
+        for typed in ["e", "env", "envi"] {
             let found = command_suggestions(typed, &crds, &[], &[], &[], &[]);
             let at = best_row(&found);
             assert!(!found[at].is_header(), "{typed}");
             assert!(found[..at].iter().all(|s| s.is_header()), "{typed}: only headers above the cursor");
         }
+    }
+
+    #[test]
+    fn the_filters_can_be_found_on_an_empty_line_and_while_starting_one() {
+        let keys = |typed: &str| command_suggestions(typed, &[], &[], &[], &[], &[]).iter().filter(|s| matches!(s.cmd, Cmd::Filter)).map(|s| s.label.clone()).collect::<Vec<_>>();
+        assert_eq!(keys(""), ["group:", "ext:", "is:"]);
+        assert_eq!(keys("pods g"), ["group:"]);
+        assert_eq!(keys("pods "), ["group:", "ext:", "is:"]);
+        assert!(keys("pods group:").iter().all(|k| k != "ext:") || keys("pods group:").is_empty());
+        let chosen = command_suggestions("pods g", &[], &[], &[], &[], &[]).into_iter().find(|s| matches!(s.cmd, Cmd::Filter)).unwrap();
+        assert_eq!(chosen.primary, "pods group:");
     }
 
     #[test]

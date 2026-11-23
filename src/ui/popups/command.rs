@@ -7,6 +7,8 @@ use super::*;
 const SUGGESTION_HEIGHT: u16 = 1;
 
 /// The icon's cells: as wide as a square one row tall needs, plus a gap.
+/// The most rows the menu shows at once; the rest scroll.
+const MAX_SHOWN: usize = 16;
 const SUGGESTION_ICON: Rect = Rect { x: 0, y: 0, width: 2, height: SUGGESTION_HEIGHT };
 
 /// The least room a description is worth drawing in, in cells.
@@ -48,8 +50,9 @@ pub(in crate::ui) fn draw_command_line(frame: &mut Frame, bar: Rect, input: &str
     // Without icons each suggestion is a single row.
     let row_h = if icons.enabled() { SUGGESTION_HEIGHT } else { 1 };
     // As many rows as the screen has room for, scrolled to keep the selection in view.
-    let below = frame.area().bottom().saturating_sub(bar.y);
-    let shown = suggestions.len().min(usize::from(below.saturating_sub(4) / row_h));
+    // Never to the screen's last rows, which hold the hints, and not a wall of rows either.
+    let below = frame.area().bottom().saturating_sub(bar.y).saturating_sub(2);
+    let shown = suggestions.len().min(usize::from(below.saturating_sub(4) / row_h)).min(MAX_SHOWN);
     let height = if shown == 0 { bar.height } else { shown as u16 * row_h + 4 };
     let area = Rect { x: bar.x, y: bar.y, width, height };
     frame.render_widget(Clear, area);
