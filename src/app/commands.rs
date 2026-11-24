@@ -145,7 +145,7 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     let query = parse_query(input);
     let input = query.name.clone();
     if input.is_empty() && !query.has_filters() {
-        return filter_keys(typed);
+        return Vec::new();
     }
     let names_of = |cmd: Cmd| match cmd {
         Cmd::Custom(i) => vec![custom[i].to_lowercase()],
@@ -256,7 +256,8 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
             // A row shows its plain name, whichever of its other names matched.
             let label = primary.clone();
             let ext = Some(owners(cmd, crds, extensions).join(" · ")).filter(|o| !o.is_empty());
-            Some((kind_score + group_score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, best: false, native, built_in: false, last: false }))
+            let typed_in_full = !input.is_empty() && names.iter().any(|a| *a == input || input.strip_prefix('=') == Some(a.as_str()));
+            Some((kind_score + group_score, Suggestion { cmd, label, primary, ext, depth: 0, kind_name: None, best: typed_in_full, native, built_in: false, last: false }))
         })
         .collect();
     // Best score first. Equal scores: the shorter name, then alphabetical, then the group, so two
@@ -271,16 +272,16 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
         b.0.cmp(&a.0)
             .then_with(|| a.1.label.chars().count().cmp(&b.1.label.chars().count()))
             .then_with(|| a.1.label.cmp(&b.1.label))
+            .then_with(|| b.1.native.is_some().cmp(&a.1.native.is_some()))
             .then_with(|| group_of(&a.1).cmp(group_of(&b.1)))
     });
     // Everything that matched is grouped first and the menu is cut after, so a group's `+N more`
     // counts what is really left and a block is never cut in half by an arbitrary top ten.
-    // Only a name typed out in full takes the cursor from the top row, so it stays put while typing.
-    // One letter is the start of a word far more often than a whole alias.
-    let exact = input.chars().count() > 1 && scored.first().is_some_and(|(score, _)| *score >= 1000);
+    // A name typed out in full is listed first (see `grouped`): the best-ranked one of those only.
     let mut ranked: Vec<Suggestion> = scored.into_iter().map(|(_, suggestion)| suggestion).take(MAX_MATCHES).collect();
-    if let Some(first) = ranked.first_mut().filter(|_| exact) {
-        first.best = true;
+    let lead = ranked.iter().position(|r| r.best);
+    for (i, row) in ranked.iter_mut().enumerate() {
+        row.best = Some(i) == lead;
     }
     // Tab completes a resource whose name another entry shares (or that was found through a
     // group filter) to its full `plural.group`, so Enter can't land on a different row.
@@ -299,14 +300,14 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     let mut rows = grouped(ranked, crds, extensions, &names_of);
     // The filters are offered after the results while their name is being started (`g`, `ex`).
     if !typed.is_empty() {
-        rows.extend(filter_keys(typed));
+        rows.extend(filter_keys(typed, extensions));
     }
     rows
 }
 
 /// The filters there are, offered on an empty line and while a word that could start one is
 /// typed, so they can be found. Choosing one completes `key:` and its values follow.
-fn filter_keys(typed: &str) -> Vec<Suggestion> {
+fn filter_keys(typed: &str, extensions: &[crate::extensions::Loaded]) -> Vec<Suggestion> {
     const KEYS: [(&str, &str); 3] = [("group:", "Filter by API group"), ("ext:", "Filter by extension"), ("is:", "builtin or custom kinds")];
     let before_len = typed.rfind(' ').map_or(0, |i| i + 1);
     let (before, word) = typed.split_at(before_len);
@@ -314,8 +315,10 @@ fn filter_keys(typed: &str) -> Vec<Suggestion> {
     if word.contains(':') {
         return Vec::new();
     }
+    // `ext:` only means something when an extension is loaded.
+    let any_extension = extensions.iter().any(|l| l.error.is_none());
     KEYS.iter()
-        .filter(|(key, _)| key.starts_with(word.as_str()))
+        .filter(|(key, _)| key.starts_with(word.as_str()) && (any_extension || *key != "ext:"))
         .map(|(key, what)| Suggestion {
             cmd: Cmd::Filter,
             primary: format!("{before}{key}"),
@@ -564,9 +567,12 @@ fn grouped(ranked: Vec<Suggestion>, crds: &[k8s::CrdInfo], extensions: &[crate::
     // The menu always reads in the same order: the core group first, then the other built-in
     // groups in a fixed order, then custom groups alphabetically, then knav's own rows. Which
     // matches make it in at all was decided by score; this is only how they are laid out.
-    blocks_out.sort_by(|a, b| a.0.cmp(&b.0));
-    flat_out.sort_by_key(|row| own_order(row.cmd));
-    blocks_out.into_iter().flat_map(|(_, block)| block).chain(flat_out).collect()
+    // The one exception: what was typed out in full goes first, so the cursor, which always
+    // starts on the top row, is on it.
+    blocks_out.sort_by_key(|(key, block)| (!block.iter().any(|r| r.best && !r.is_header()), *key));
+    flat_out.sort_by_key(|row| (!row.best, own_order(row.cmd)));
+    let (exact_flat, other_flat): (Vec<_>, Vec<_>) = flat_out.into_iter().partition(|r| r.best);
+    exact_flat.into_iter().chain(blocks_out.into_iter().flat_map(|(_, block)| block)).chain(other_flat).collect()
 }
 
 /// One autocomplete line: what it does, and its label (the kind's plain name).
@@ -592,10 +598,10 @@ pub(crate) struct Suggestion {
     pub(crate) last: bool,
 }
 
-/// The row to highlight: an exact name typed out in full, else the first row that can be opened,
-/// so the cursor stays at the top while typing instead of following a match around the menu.
+/// The row to highlight: always the first one that can be opened, so the cursor stays at the top
+/// while typing. A name typed out in full is listed first, so Enter still opens it.
 pub(crate) fn best_row(suggestions: &[Suggestion]) -> usize {
-    suggestions.iter().position(|s| s.best).or_else(|| suggestions.iter().position(|s| !s.is_header() && !s.is_more())).unwrap_or(0)
+    suggestions.iter().position(|s| !s.is_header() && !s.is_more()).unwrap_or(0)
 }
 
 impl Suggestion {
@@ -809,8 +815,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_suggests_only_the_filters() {
-        assert!(command_suggestions("  ", &[], &[], &[], &[], &[]).iter().all(|s| matches!(s.cmd, Cmd::Filter)));
+    fn empty_input_suggests_nothing() {
+        assert!(command_suggestions("  ", &[], &[], &[], &[], &[]).is_empty());
     }
 
     #[test]
@@ -994,12 +1000,11 @@ mod tests {
     }
 
     #[test]
-    fn the_filters_can_be_found_on_an_empty_line_and_while_starting_one() {
+    fn the_filters_are_offered_while_composing_not_on_an_empty_line() {
         let keys = |typed: &str| command_suggestions(typed, &[], &[], &[], &[], &[]).iter().filter(|s| matches!(s.cmd, Cmd::Filter)).map(|s| s.label.clone()).collect::<Vec<_>>();
-        assert_eq!(keys(""), ["group:", "ext:", "is:"]);
+        assert!(command_suggestions("", &[], &[], &[], &[], &[]).is_empty());
         assert_eq!(keys("pods g"), ["group:"]);
-        assert_eq!(keys("pods "), ["group:", "ext:", "is:"]);
-        assert!(keys("pods group:").iter().all(|k| k != "ext:") || keys("pods group:").is_empty());
+        assert_eq!(keys("pods "), ["group:", "is:"], "no ext: without an extension");
         let chosen = command_suggestions("pods g", &[], &[], &[], &[], &[]).into_iter().find(|s| matches!(s.cmd, Cmd::Filter)).unwrap();
         assert_eq!(chosen.primary, "pods group:");
     }
@@ -1314,7 +1319,7 @@ mod tests {
         let last_header = found.iter().rposition(|s| s.is_header()).unwrap();
         assert!(found[last_header + 1..].iter().all(|s| s.depth == 1 || !s.is_header()));
         // The fixed order of the usual groups, whatever matched best.
-        let many = command_suggestions("re", &[], &apis, &[], &[], &[]);
+        let many = command_suggestions("rep", &[], &apis, &[], &[], &[]);
         let built_in: Vec<&str> = many.iter().filter(|s| s.depth == 0 && s.built_in).map(|s| s.label.as_str()).collect();
         assert_eq!(built_in, ["core", "apps"], "{built_in:?}");
     }

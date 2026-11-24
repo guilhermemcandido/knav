@@ -99,7 +99,7 @@ Press `?` anywhere for the keys on that screen. The essentials:
 
 | Key | Does |
 | --- | --- |
-| `:pods` | open any resource (`:svc`, a custom resource, ...). Matches the text as typed, in one piece, like `/` (`:=pods` is exactly that name). Results always come in the same order: the core group, the other built-in groups, custom groups alphabetically, then knav's own views and commands; equal matches put the shorter name first. Narrow it with filters that stack, like a GitHub search: `:agents group:kagent`, `ext:flux`, `is:custom` or `is:builtin`. An empty `:` lists the filters, and typing a filter's colon (`group:`) lists its values to pick from; Tab or Enter completes one |
+| `:pods` | open any resource (`:svc`, a custom resource, ...). Matches the text as typed, in one piece, like `/` (`:=pods` is exactly that name). Results always come in the same order: the core group, the other built-in groups, custom groups alphabetically, then knav's own views and commands; equal matches put the shorter name first. Narrow it with filters that stack, like a GitHub search: `:agents group:kagent`, `ext:flux`, `is:custom` or `is:builtin`. Typing a filter name (`g`, `is`) or a space after a word offers the filters, and typing a filter's colon (`group:`) lists its values to pick from; Tab or Enter completes one |
 | `/` | search the list |
 | `Enter` | drill in, from a Deployment down to a container's logs |
 | `i` / `R` | info panel / related objects |
