@@ -327,12 +327,12 @@ pub(crate) fn run(terminal: &mut ratatui::DefaultTerminal, stores: Stores, catal
         // Each notice is kept for the notifications page when it first shows.
         match &st.mode {
             Mode::Notice { text, tone, .. } if last_notice.as_deref() != Some(text.as_str()) => {
-                let level = match tone {
-                    NoticeTone::Done => ui::notify::Level::Done,
-                    NoticeTone::Info => ui::notify::Level::Info,
-                    NoticeTone::Failed => ui::notify::Level::Failed,
-                };
-                ui::notify::record(level, text);
+                // What happened (done or failed), not the hints and copies that are only Info.
+                match tone {
+                    NoticeTone::Done => ui::notify::record(ui::notify::Level::Done, text),
+                    NoticeTone::Failed => ui::notify::record(ui::notify::Level::Failed, text),
+                    NoticeTone::Info => {}
+                }
                 last_notice = Some(text.clone());
             }
             Mode::Notice { .. } => {}

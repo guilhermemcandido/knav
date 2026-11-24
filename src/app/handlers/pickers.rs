@@ -89,11 +89,15 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 st.mode = std::mem::replace(&mut **back, Mode::List);
             }
         }
-        // Any key or click closes a notice.
-        (Event::Key(_), Mode::Notice { back, .. }) => st.mode = std::mem::replace(&mut **back, Mode::List),
-        (Event::Mouse(m), Mode::Notice { back, .. }) if matches!(m.kind, MouseEventKind::Down(_)) => {
-            st.mode = std::mem::replace(&mut **back, Mode::List)
-        }
+        // A notice stays until Enter, Esc, q or Space, so its text can be selected or copied (`y`).
+        (Event::Key(key), Mode::Notice { text, back, .. }) => match key.code {
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q' | ' ') => st.mode = std::mem::replace(&mut **back, Mode::List),
+            KeyCode::Char('y' | 'c') => match clipboard::copy(text) {
+                Ok(how) => ui::show_toast(format!("Copied{}", clipboard::how_note(how)), true),
+                Err(e) => ui::refuse(format!("{e:#}")),
+            },
+            _ => {}
+        },
         // No typing mode: letters filter at once. Esc clears the filter, then backs out;
         // `q` backs out only on an empty filter, since a context name can contain a q.
         (Event::Key(key), Mode::Context { contexts, filter, editing: _, state, error, back }) => match key.code {

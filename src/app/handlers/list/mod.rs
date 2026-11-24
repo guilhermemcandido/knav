@@ -363,7 +363,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 if let Some(target) = selected_manifest(st, cx.d, catalog, client).as_ref().and_then(Target::from_manifest) {
                     let name = target.namespace.as_deref().map(|ns| format!("{ns}/{}", target.name)).unwrap_or_else(|| target.name.clone());
                     let outcome = match clipboard::copy(&name) {
-                        Ok(how) => crate::ops::Outcome { text: format!("Copied {name}{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                        Ok(how) => crate::ops::Outcome { text: format!("Copied {name}{}", clipboard::how_note(how)), tone: NoticeTone::Info },
                         Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                     };
                     st.mode = Mode::Notice { text: outcome.text, tone: outcome.tone, back: Box::new(Mode::List) };

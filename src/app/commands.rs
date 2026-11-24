@@ -138,7 +138,7 @@ fn parse_query(raw: &str) -> Query {
 }
 
 pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], dashboard_categories: &[&'static str], extensions: &[crate::extensions::Loaded], custom: &[String]) -> Vec<Suggestion> {
-    if let Some(values) = filter_values(input, crds, apis, extensions) {
+    if let Some(values) = filter_values(input, crds, apis) {
         return values;
     }
     let typed = input;
@@ -300,25 +300,23 @@ pub(crate) fn command_suggestions(input: &str, crds: &[k8s::CrdInfo], apis: &[k8
     let mut rows = grouped(ranked, crds, extensions, &names_of);
     // The filters are offered after the results while their name is being started (`g`, `ex`).
     if !typed.is_empty() {
-        rows.extend(filter_keys(typed, extensions));
+        rows.extend(filter_keys(typed));
     }
     rows
 }
 
 /// The filters there are, offered on an empty line and while a word that could start one is
 /// typed, so they can be found. Choosing one completes `key:` and its values follow.
-fn filter_keys(typed: &str, extensions: &[crate::extensions::Loaded]) -> Vec<Suggestion> {
-    const KEYS: [(&str, &str); 3] = [("group:", "Filter by API group"), ("ext:", "Filter by extension"), ("is:", "builtin or custom kinds")];
+fn filter_keys(typed: &str) -> Vec<Suggestion> {
+    const KEYS: [(&str, &str); 2] = [("group:", "Filter by API group"), ("is:", "builtin or custom kinds")];
     let before_len = typed.rfind(' ').map_or(0, |i| i + 1);
     let (before, word) = typed.split_at(before_len);
     let word = word.to_lowercase();
     if word.contains(':') {
         return Vec::new();
     }
-    // `ext:` only means something when an extension is loaded.
-    let any_extension = extensions.iter().any(|l| l.error.is_none());
     KEYS.iter()
-        .filter(|(key, _)| key.starts_with(word.as_str()) && (any_extension || *key != "ext:"))
+        .filter(|(key, _)| key.starts_with(word.as_str()))
         .map(|(key, what)| Suggestion {
             cmd: Cmd::Filter,
             primary: format!("{before}{key}"),
@@ -334,9 +332,9 @@ fn filter_keys(typed: &str, extensions: &[crate::extensions::Loaded]) -> Vec<Sug
         .collect()
 }
 
-/// The choices for a filter being typed (`group:`, `ext:`, `is:`): every value that fits what is
+/// The choices for a filter being typed (`group:`, `is:`): every value that fits what is
 /// after the colon, each completing the word and leaving the rest of the line as it was.
-fn filter_values(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], extensions: &[crate::extensions::Loaded]) -> Option<Vec<Suggestion>> {
+fn filter_values(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo]) -> Option<Vec<Suggestion>> {
     let word = input.rsplit(' ').next().filter(|w| !w.is_empty())?;
     let (key, partial) = word.split_once(':')?;
     let (key_lower, partial) = (key.to_lowercase(), partial.to_lowercase());
@@ -351,13 +349,6 @@ fn filter_values(input: &str, crds: &[k8s::CrdInfo], apis: &[k8s::ApiInfo], exte
             });
             groups.dedup_by(|a, b| a.1 == b.1);
             groups.into_iter().map(|(native, group)| (if group.is_empty() { "core".to_string() } else { group.to_string() }, if native { "Built-in API group" } else { "API group" })).collect()
-        }
-        "ext" | "e" => {
-            let mut names: Vec<String> = extensions.iter().filter(|l| l.error.is_none()).map(|l| l.id.to_lowercase()).collect();
-            names.push("helm".into());
-            names.sort();
-            names.dedup();
-            names.into_iter().map(|n| (n, "Extension")).collect()
         }
         "is" => vec![("builtin".into(), "Kinds Kubernetes ships"), ("custom".into(), "Kinds added by CRDs")],
         _ => return None,
@@ -1004,7 +995,7 @@ mod tests {
         let keys = |typed: &str| command_suggestions(typed, &[], &[], &[], &[], &[]).iter().filter(|s| matches!(s.cmd, Cmd::Filter)).map(|s| s.label.clone()).collect::<Vec<_>>();
         assert!(command_suggestions("", &[], &[], &[], &[], &[]).is_empty());
         assert_eq!(keys("pods g"), ["group:"]);
-        assert_eq!(keys("pods "), ["group:", "is:"], "no ext: without an extension");
+        assert_eq!(keys("pods "), ["group:", "is:"]);
         let chosen = command_suggestions("pods g", &[], &[], &[], &[], &[]).into_iter().find(|s| matches!(s.cmd, Cmd::Filter)).unwrap();
         assert_eq!(chosen.primary, "pods group:");
     }

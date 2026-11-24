@@ -22,7 +22,6 @@ pub(in crate::ui) fn draw_notifications(frame: &mut Frame, view: NotificationsVi
     let rows = entries.iter().map(|e| {
         let (mark, color) = match e.level {
             Level::Done => ("✓", theme().ok),
-            Level::Info => ("•", theme().accent),
             Level::Failed => ("✗", theme().bad),
         };
         let first = e.text.lines().next().unwrap_or("");

@@ -107,7 +107,7 @@ Press `?` anywhere for the keys on that screen. The essentials:
 | `l` / `L` | a pod's logs / a whole workload's |
 | `0`-`9` | switch to a reserved namespace |
 | `!` | problems across the cluster |
-| `N` | the last notifications, in full: errors, refusals and what each action did |
+| `N` | the last notifications, in full: what each action did and the errors the server gave |
 | `v` | rollout history of a workload |
 | `X` | a debug container in a pod |
 | `c` / `K` | cordon / drain a node (drain evicts its pods; DaemonSet and unmanaged pods stay) |

@@ -49,7 +49,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::PageUp => *scroll = scroll.saturating_sub(page),
                 KeyCode::Char('c') => {
                     let outcome = match clipboard::copy(text) {
-                        Ok(how) => crate::ops::Outcome { text: format!("Copied the YAML{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                        Ok(how) => crate::ops::Outcome { text: format!("Copied the YAML{}", clipboard::how_note(how)), tone: NoticeTone::Info },
                         Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                     };
                     let back = std::mem::replace(&mut st.mode, Mode::List);
@@ -280,7 +280,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 let text = ui::logs_text(lines, filter, *order);
                 let count = text.lines().count();
                 let outcome = match clipboard::copy(&text) {
-                    Ok(how) => crate::ops::Outcome { text: format!("Copied {count} log lines{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                    Ok(how) => crate::ops::Outcome { text: format!("Copied {count} log lines{}", clipboard::how_note(how)), tone: NoticeTone::Info },
                     Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                 };
                 let back = std::mem::replace(&mut st.mode, Mode::List);

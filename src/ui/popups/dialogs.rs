@@ -18,7 +18,7 @@ pub(in crate::ui) fn draw_notice_popup(frame: &mut Frame, text: &str, tone: crat
         Tone::Failed => ("Failed", theme().bad),
     };
     const PAD: u16 = 2;
-    let hint = hint_strip(&[("any key", "close")]);
+    let hint = hint_strip(&[("y", "copy"), ("enter", "close")]);
     let text_w = text.lines().map(cell_width).max().unwrap_or(0) as u16;
     let floor = (hint.width() as u16 + 4).max(30);
     let width = (text_w + 2 * PAD + 2).clamp(floor, narrow_dialog_width(full.width)).min(full.width);

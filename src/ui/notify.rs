@@ -10,7 +10,6 @@ const KEPT: usize = 300;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Level {
     Done,
-    Info,
     Failed,
 }
 

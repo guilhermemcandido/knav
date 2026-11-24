@@ -282,7 +282,6 @@ fn cells(text: &str, from: usize, to: usize) -> String {
 
 /// A short message in the bottom corner for a couple of seconds.
 pub fn show_toast(text: String, good: bool) {
-    super::notify::record(if good { super::notify::Level::Done } else { super::notify::Level::Failed }, &text);
     with(|s| s.toast = Some((text, good, Instant::now())));
 }
 

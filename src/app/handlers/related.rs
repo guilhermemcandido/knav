@@ -69,7 +69,7 @@ pub(super) fn handle(event: Event, st: &mut State, cx: &mut Cx) -> Result<Option
                 KeyCode::Char('+') | KeyCode::Char('=') => *zoom = ui::zoom_in(*zoom),
                 // `m` copies the diagram as Mermaid text.
                 KeyCode::Char('m') => copy_note = Some(match clipboard::copy(&k8s::relations::mermaid(graph)) {
-                    Ok(how) => crate::ops::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), tone: NoticeTone::Done },
+                    Ok(how) => crate::ops::Outcome { text: format!("Copied the diagram as Mermaid{}", clipboard::how_note(how)), tone: NoticeTone::Info },
                     Err(e) => crate::ops::Outcome { text: format!("{e:#}"), tone: NoticeTone::Failed },
                 }),
                 // Enter shows the object's info over the diagram; Enter there goes to its list.
